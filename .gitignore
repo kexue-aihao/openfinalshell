@@ -2,6 +2,7 @@ node_modules/
 out/
 release/
 dist/
+*.tsbuildinfo
 # build/icon.png 由 npm run icon 生成，纳入版本控制以便打包无需额外步骤
 *.local
 *.log
