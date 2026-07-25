@@ -1,0 +1,174 @@
+.panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--ofs-bg-base);
+  border-left: 1px solid var(--ofs-border);
+  overflow: hidden;
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 8px 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--ofs-text-2);
+  border-bottom: 1px solid var(--ofs-border);
+}
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  padding: 10px 12px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-l);
+  background: var(--ofs-bg-panel);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--ofs-text-2);
+}
+
+.cardHeadTitle {
+  flex: 1;
+}
+
+.cardToggle {
+  cursor: pointer;
+  color: var(--ofs-text-3);
+  display: flex;
+  align-items: center;
+}
+.cardToggle:hover {
+  color: var(--ofs-text-1);
+}
+
+.bigNumber {
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ofs-text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.unit {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ofs-text-2);
+  margin-left: 3px;
+}
+
+.subText {
+  font-size: 11px;
+  color: var(--ofs-text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.kvRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.kvKey {
+  color: var(--ofs-text-3);
+  flex: none;
+}
+.kvValue {
+  color: var(--ofs-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 横向占用条 */
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ofs-bg-active);
+  overflow: hidden;
+  margin: 3px 0;
+}
+.barFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.coreGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 8px;
+  margin-top: 6px;
+}
+.coreItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--ofs-text-3);
+}
+.coreBar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ofs-bg-active);
+  overflow: hidden;
+}
+
+.netLegend {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+.netItem {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.procRow {
+  display: grid;
+  grid-template-columns: 1fr 44px 44px;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
+}
+.procName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ofs-text-1);
+}
+.procNum {
+  text-align: right;
+  color: var(--ofs-text-2);
+}
+
+.stateBox {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ofs-text-3);
+}

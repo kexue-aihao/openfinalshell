@@ -65,6 +65,18 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
           attachSftp(acceptSftp())
         })
 
+        // exec：监控采集用的裸 sh 通道（读 stdin 逐行执行），以及一次性命令
+        session.on('exec', (acceptExec, _rejectExec, info) => {
+          const stream = acceptExec()
+          if (/\bsh\b/.test(info.command)) {
+            attachFakeShell(stream)
+          } else {
+            stream.write(runFakeCommand(info.command))
+            stream.exit(0)
+            stream.end()
+          }
+        })
+
         session.on('shell', (acceptShell) => {
           const stream = acceptShell()
           const prompt = () => stream.write('test@fixture:~$ ')
@@ -136,6 +148,133 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
     .on('error', (err) => console.log(`[srv] client error: ${err.message}`))
     .on('close', () => console.log('[srv] client disconnected'))
 })
+
+// ---------------------------------------------------------------------------
+// 假 Linux 环境：为监控采集提供 /proc 风格输出。
+// 计数器每次读取都递增，使客户端的两帧差分能算出非零速率。
+// ---------------------------------------------------------------------------
+let counterTick = 0
+
+function fakeProcStat() {
+  counterTick += 1
+  // 每 tick：总量 +400，其中 idle +100 → 稳定 75% 使用率
+  const base = 100000 + counterTick * 300
+  const idle = 500000 + counterTick * 100
+  const perCore = (i) =>
+    `cpu${i} ${Math.floor(base / 4)} 300 ${Math.floor(base / 8)} ${Math.floor(idle / 4)} 100 0 50 0 0 0`
+  return [
+    `cpu  ${base} 1200 ${Math.floor(base / 2)} ${idle} 400 0 200 0 0 0`,
+    perCore(0),
+    perCore(1),
+    'intr 12345',
+    'ctxt 67890',
+    'btime 1750000000',
+    'processes 4567',
+    'procs_running 2',
+    'procs_blocked 0'
+  ].join('\n')
+}
+
+function fakeMeminfo() {
+  return [
+    'MemTotal:        8039152 kB',
+    'MemFree:         4318996 kB',
+    'MemAvailable:    6842108 kB',
+    'Buffers:          143296 kB',
+    'Cached:          2560716 kB',
+    'SReclaimable:     149188 kB',
+    'SwapTotal:       2097148 kB',
+    'SwapFree:        2000000 kB'
+  ].join('\n')
+}
+
+function fakeNetDev() {
+  // 每 tick 收发各 +1MB
+  const rx = 1_000_000 + counterTick * 1_048_576
+  const tx = 500_000 + counterTick * 524_288
+  return [
+    'Inter-|   Receive                                                |  Transmit',
+    ' face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed',
+    `    lo: 5000 50 0 0 0 0 0 0 5000 50 0 0 0 0 0 0`,
+    `  eth0: ${rx} 1000 0 0 0 0 0 0 ${tx} 900 0 0 0 0 0 0`
+  ].join('\n')
+}
+
+function fakeDiskstats() {
+  const read = 900000 + counterTick * 2048
+  const write = 1200000 + counterTick * 4096
+  return [
+    `   8       0 sda 12345 678 ${read} 4321 23456 789 ${write} 8901 0 12345 13000`,
+    `   8       1 sda1 12000 600 800000 4000 20000 700 1000000 8000 0 12000 12500`
+  ].join('\n')
+}
+
+const FAKE_DF = [
+  'Filesystem     1024-blocks     Used Available Capacity Mounted on',
+  '/dev/sda1         41020640 12594192  26310320      33% /',
+  'tmpfs              4019576        0   4019576       0% /dev/shm',
+  '/dev/sda2         98298648 93383712   4914936      96% /data'
+].join('\n')
+
+const FAKE_PS = [
+  '    PID %CPU %MEM COMMAND',
+  '   1234 45.2  3.1 node',
+  '   2345 12.0  1.5 nginx',
+  '   3456  1.0  0.2 sshd'
+].join('\n')
+
+const FAKE_OS_RELEASE = [
+  'NAME="Ubuntu"',
+  'VERSION="22.04.3 LTS (Jammy Jellyfish)"',
+  'PRETTY_NAME="Ubuntu 22.04.3 LTS"',
+  'VERSION_ID="22.04"'
+].join('\n')
+
+/** 支持监控脚本用到的少量命令；未知命令输出空（模拟 2>/dev/null） */
+function runFakeCommand(cmd) {
+  const c = cmd.trim()
+  if (/^echo\s+/.test(c)) {
+    return `${c.replace(/^echo\s+/, '').replace(/^"(.*)"$/, '$1')}\n`
+  }
+  if (c.includes('/proc/stat')) return `${fakeProcStat()}\n`
+  if (c.includes('/proc/meminfo')) return `${fakeMeminfo()}\n`
+  if (c.includes('/proc/net/dev')) return `${fakeNetDev()}\n`
+  if (c.includes('/proc/diskstats')) return `${fakeDiskstats()}\n`
+  if (c.includes('/proc/uptime')) return `${123456 + counterTick}.78 987654.32\n`
+  if (c.includes('/proc/loadavg')) return '0.52 0.31 0.24 2/345 6789\n'
+  if (/\bdf\b/.test(c)) return `${FAKE_DF}\n`
+  if (/^ps\b/.test(c) || c.includes('| head -n 9')) return `${FAKE_PS}\n`
+  if (/^uname/.test(c)) return 'Linux 5.15.0-91-generic x86_64\n'
+  if (/^hostname/.test(c) || c.includes('kernel/hostname')) return 'fixture-host\n'
+  if (/^nproc/.test(c) || c.includes('^processor')) return '2\n'
+  if (c.includes('/etc/os-release')) return `${FAKE_OS_RELEASE}\n`
+  if (/^ip\b/.test(c) || /^ifconfig/.test(c)) {
+    return '1: lo    inet 127.0.0.1/8 scope host lo\n2: eth0    inet 10.0.0.5/24 brd 10.0.0.255\n'
+  }
+  if (c.includes('command -v timeout')) return 'yes\n'
+  return ''
+}
+
+/**
+ * 假 sh：读 stdin 的每一行当命令执行。
+ * 与真实 `sh` 的关键行为一致 —— 无回显、无提示符、按行顺序输出。
+ */
+function attachFakeShell(stream) {
+  let pending = ''
+  stream.on('data', (chunk) => {
+    pending += chunk.toString('utf8')
+    let idx
+    while ((idx = pending.indexOf('\n')) >= 0) {
+      const line = pending.slice(0, idx)
+      pending = pending.slice(idx + 1)
+      if (line.trim()) stream.write(runFakeCommand(line))
+    }
+  })
+  stream.on('end', () => {
+    stream.exit(0)
+    stream.end()
+  })
+}
 
 /**
  * 极简 SFTP 子系统：把远端 POSIX 路径映射到本地 sftpRoot 下。

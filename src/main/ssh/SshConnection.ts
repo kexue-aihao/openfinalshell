@@ -270,6 +270,21 @@ export class SshConnection extends EventEmitter {
     return shell
   }
 
+  /**
+   * 监控采集用的裸 shell 通道：exec('env LANG=C sh')。
+   * 无 PTY → 无回显无提示符；常驻仅占 1 个 channel。
+   */
+  async openMonitorChannel(): Promise<ClientChannel> {
+    const client = this.client
+    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+    return new Promise<ClientChannel>((resolve, reject) => {
+      client.exec('env LANG=C LC_ALL=C sh', (err, stream) => {
+        if (err) reject(new Error(`打开监控通道失败：${friendlySshError(err)}`))
+        else resolve(stream)
+      })
+    })
+  }
+
   // ---------------- SFTP ----------------
 
   /** 浏览用 SFTP：primary client 上常驻复用（sftp 子系统自身在单通道内多路复用请求） */

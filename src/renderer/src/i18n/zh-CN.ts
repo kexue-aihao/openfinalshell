@@ -58,7 +58,29 @@ export default {
       searchCase: '区分大小写',
       searchRegex: '正则表达式',
       openSftp: '打开文件管理',
-      closeSftp: '关闭文件管理'
+      closeSftp: '关闭文件管理',
+      openMonitor: '打开服务器监控',
+      closeMonitor: '关闭服务器监控'
+    },
+    monitor: {
+      title: '服务器监控',
+      system: '系统信息',
+      hostname: '主机名',
+      distro: '发行版',
+      kernel: '内核',
+      ip: 'IP 地址',
+      uptime: '运行时间',
+      load: '负载',
+      memory: '内存',
+      network: '网络',
+      disk: '磁盘',
+      topProcs: '进程占用 Top',
+      procName: '进程',
+      collecting: '正在采集数据…',
+      waitingSession: '等待会话就绪…',
+      unsupported: '该系统暂不支持监控（需要 Linux 的 /proc）',
+      failed: '采集失败，可点击右上角重试',
+      noIface: '未检测到可统计的网卡'
     },
     sftp: {
       waitingSession: '等待会话就绪…',

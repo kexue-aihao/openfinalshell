@@ -130,6 +130,73 @@ export function createMockOfs(): OfsApi {
       })
   }
 
+  // --- 假监控：周期推送带随机波动的快照 ---
+  const monitorTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+  function startMockMonitor(sessionId: string): void {
+    if (monitorTimers.has(sessionId)) return
+    let tick = 0
+    const push = (): void => {
+      tick += 1
+      const wave = (base: number, amp: number): number =>
+        Math.max(0, Math.min(100, base + Math.sin(tick / 3) * amp + (Math.random() - 0.5) * 6))
+      const totalKb = 8039152
+      const usedKb = Math.round(totalKb * (wave(48, 8) / 100))
+      emit('monitor:data', {
+        sessionId,
+        snapshot: {
+          ts: Date.now(),
+          uptimeSec: 123456 + tick * 2,
+          cpu: {
+            usagePct: Number(wave(42, 22).toFixed(1)),
+            perCore: [wave(40, 25), wave(45, 20), wave(35, 28), wave(50, 18)].map(
+              (v) => Number(v.toFixed(1))
+            ),
+            loadAvg: [0.52, 0.31, 0.24]
+          },
+          mem: {
+            totalKb,
+            availableKb: totalKb - usedKb,
+            usedKb,
+            swapTotalKb: 2097148,
+            swapUsedKb: 97148
+          },
+          net: [
+            {
+              iface: 'eth0',
+              rxBps: Math.round(wave(35, 30) * 40000),
+              txBps: Math.round(wave(20, 15) * 20000),
+              rxTotalBytes: tick * 1_048_576,
+              txTotalBytes: tick * 524_288
+            }
+          ],
+          // 每 5 tick 带一次磁盘容量（与真实采集节奏一致）
+          diskFs:
+            tick % 5 === 1
+              ? [
+                  { fs: '/dev/sda1', mount: '/', totalKb: 41020640, usedKb: 12594192, usePct: 30.7 },
+                  { fs: '/dev/sda2', mount: '/data', totalKb: 98298648, usedKb: 93383712, usePct: 95.0 }
+                ]
+              : null,
+          diskIo: [
+            { dev: 'sda', readBps: Math.round(wave(10, 10) * 100000), writeBps: Math.round(wave(6, 6) * 80000) }
+          ],
+          topProcs:
+            tick % 5 === 1
+              ? [
+                  { pid: 1234, name: 'node', cpuPct: Number(wave(30, 15).toFixed(1)), memPct: 3.1 },
+                  { pid: 2345, name: 'nginx', cpuPct: Number(wave(8, 6).toFixed(1)), memPct: 1.5 },
+                  { pid: 3456, name: 'sshd', cpuPct: 1.0, memPct: 0.2 }
+                ]
+              : undefined
+        }
+      })
+    }
+    emit('monitor:state', { sessionId, state: 'running' })
+    push()
+    monitorTimers.set(sessionId, setInterval(push, 1000))
+  }
+
   /** 模拟传输：分 10 步推进进度 */
   function mockTransfer(item: TransferEnqueueItem): TransferTask {
     const task: TransferTask = {
@@ -309,8 +376,25 @@ export function createMockOfs(): OfsApi {
         if (['done', 'error', 'canceled'].includes(mockTasks[i].state)) mockTasks.splice(i, 1)
       }
     },
-    'monitor:start': () => null,
-    'monitor:stop': () => undefined,
+    'monitor:start': (arg: never) => {
+      const { sessionId } = arg as unknown as { sessionId: string }
+      startMockMonitor(sessionId)
+      return {
+        hostname: 'fixture-host',
+        kernel: '5.15.0-91-generic',
+        arch: 'x86_64',
+        distro: 'Ubuntu 22.04.3 LTS',
+        cpuCores: 4,
+        ips: ['192.168.1.10']
+      }
+    },
+    'monitor:stop': (sessionId: never) => {
+      const iv = monitorTimers.get(sessionId as unknown as string)
+      if (iv) {
+        clearInterval(iv)
+        monitorTimers.delete(sessionId as unknown as string)
+      }
+    },
     'monitor:setInterval': () => undefined
   }
 

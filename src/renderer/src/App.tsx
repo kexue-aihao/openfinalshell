@@ -12,6 +12,7 @@ import { ProfileEditDrawer } from '@/features/connections/ProfileEditDrawer'
 import { PromptHost } from '@/features/prompts/PromptHost'
 import { TransferDrawer } from '@/features/transfers/TransferDrawer'
 import { wireTransferEvents } from '@/stores/useTransferStore'
+import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import i18n from '@/i18n'
 
@@ -38,6 +39,7 @@ export default function App(): React.JSX.Element {
     wireSessionEvents()
     wireTermData()
     wireTransferEvents()
+    wireMonitorEvents()
   }, [init])
 
   const mode: 'dark' | 'light' = useMemo(() => {

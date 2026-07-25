@@ -59,7 +59,29 @@ export default {
       searchCase: 'Match case',
       searchRegex: 'Regular expression',
       openSftp: 'Open file manager',
-      closeSftp: 'Close file manager'
+      closeSftp: 'Close file manager',
+      openMonitor: 'Open server monitor',
+      closeMonitor: 'Close server monitor'
+    },
+    monitor: {
+      title: 'Server monitor',
+      system: 'System',
+      hostname: 'Hostname',
+      distro: 'Distro',
+      kernel: 'Kernel',
+      ip: 'IP address',
+      uptime: 'Uptime',
+      load: 'Load',
+      memory: 'Memory',
+      network: 'Network',
+      disk: 'Disk',
+      topProcs: 'Top processes',
+      procName: 'Process',
+      collecting: 'Collecting…',
+      waitingSession: 'Waiting for the session…',
+      unsupported: 'Monitoring is not supported on this system (needs Linux /proc)',
+      failed: 'Collection failed — retry from the top right',
+      noIface: 'No countable network interface found'
     },
     sftp: {
       waitingSession: 'Waiting for the session…',

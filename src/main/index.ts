@@ -9,6 +9,8 @@ import { registerSessionIpc } from './ipc/session.ipc'
 import { registerTermIpc } from './ipc/term.ipc'
 import { registerSnippetIpc } from './ipc/snippet.ipc'
 import { registerSftpIpc } from './ipc/sftp.ipc'
+import { registerMonitorIpc } from './ipc/monitor.ipc'
+import { monitorManager } from './monitor/MonitorManager'
 import { transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
 import { flushConnections } from './store/connections'
@@ -51,6 +53,7 @@ if (!app.requestSingleInstanceLock()) {
     registerTermIpc()
     registerSnippetIpc()
     registerSftpIpc()
+    registerMonitorIpc()
 
     const win = createMainWindow()
     bindMainWindow(win)
@@ -68,6 +71,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on('before-quit', () => {
     transferQueue.cancelAll()
+    monitorManager.stopAll()
     sshManager.closeAll()
     void settingsStore().flush()
     void flushConnections()

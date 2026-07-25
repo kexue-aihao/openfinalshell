@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Spin, Tooltip } from 'antd'
-import { Eraser, FolderTree, Search, Unplug } from 'lucide-react'
+import { Activity, Eraser, FolderTree, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -33,6 +33,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const closeTab = useSessionStore((s) => s.closeTab)
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
   const toggleSftp = useSessionStore((s) => s.toggleSftp)
+  const toggleMonitor = useSessionStore((s) => s.toggleMonitor)
   const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === tab.profileId))
 
   const mountRef = useRef<HTMLDivElement>(null)
@@ -247,6 +248,14 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               type={tab.sftpOpen ? 'primary' : 'text'}
               icon={<FolderTree size={14} strokeWidth={1.75} />}
               onClick={() => toggleSftp(tab.id)}
+            />
+          </Tooltip>
+          <Tooltip title={tab.monitorOpen ? t('terminal.closeMonitor') : t('terminal.openMonitor')}>
+            <Button
+              size="small"
+              type={tab.monitorOpen ? 'primary' : 'text'}
+              icon={<Activity size={14} strokeWidth={1.75} />}
+              onClick={() => toggleMonitor(tab.id)}
             />
           </Tooltip>
           <Tooltip title={t('terminal.search')}>

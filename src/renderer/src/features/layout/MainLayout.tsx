@@ -6,8 +6,10 @@ import { StatusBar } from './StatusBar'
 import { WelcomePage } from './WelcomePage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SessionViewHost } from '@/features/sessions/SessionView'
+import { MonitorPanel } from '@/features/monitor/MonitorPanel'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { useSessionStore } from '@/stores/useSessionStore'
+import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
+import { useMonitorStore } from '@/stores/useMonitorStore'
 import styles from './MainLayout.module.css'
 
 interface Props {
@@ -19,6 +21,14 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
   const patch = useSettingsStore((s) => s.patch)
   const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
+  const toggleMonitor = useSessionStore((s) => s.toggleMonitor)
+  const stopMonitor = useMonitorStore((s) => s.stop)
+  const activeTab = tabs.find((tab) => tab.id === activeTabId)
+
+  const closeMonitor = (tab: SessionTab): void => {
+    toggleMonitor(tab.id)
+    if (tab.sessionId) void stopMonitor(tab.sessionId).catch(() => {})
+  }
 
   if (!settings) return <div className={styles.root} />
   const { layout } = settings
@@ -32,9 +42,11 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
           <PanelGroup
             direction="horizontal"
             onLayout={(sizes) => {
-              if (!layout.sidePanelCollapsed && sizes.length >= 2) {
-                patch({ layout: { ...layout, sidePanelSizePct: sizes[0] } })
-              }
+              if (sizes.length < 2) return
+              const next = { ...layout }
+              if (!layout.sidePanelCollapsed) next.sidePanelSizePct = sizes[0]
+              if (activeTab?.monitorOpen) next.monitorPanelSizePct = sizes[sizes.length - 1]
+              patch({ layout: next })
             }}
           >
             {!layout.sidePanelCollapsed && (
@@ -62,6 +74,22 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                 </ErrorBoundary>
               </div>
             </Panel>
+            {activeTab?.monitorOpen && (
+              <>
+                <PanelResizeHandle className="ofs-resize-handle" />
+                <Panel
+                  id="monitor"
+                  order={3}
+                  defaultSize={layout.monitorPanelSizePct}
+                  minSize={14}
+                  maxSize={40}
+                >
+                  <ErrorBoundary label="monitor">
+                    <MonitorPanel tab={activeTab} onClose={() => closeMonitor(activeTab)} />
+                  </ErrorBoundary>
+                </Panel>
+              </>
+            )}
           </PanelGroup>
         </div>
       </div>
