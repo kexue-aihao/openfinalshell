@@ -1,5 +1,5 @@
 import type { ProfileId, SessionId, TermId } from '@shared/types'
-import { SshConnection } from './SshConnection'
+import { SshConnection, type ShellExitInfo } from './SshConnection'
 import type { ShellSession } from './ShellSession'
 import { getProfile, touchProfile } from '../store/connections'
 import { emit } from '../ipc/registry'
@@ -21,9 +21,13 @@ class SshConnectionManager {
 
     const conn = new SshConnection(structuredClone(profile))
     this.sessions.set(conn.sessionId, conn)
-    // 终端注册的清理由 channel close → ShellSession onExit 链路完成，这里只转发状态
+
     conn.on('state', (state, error) => {
       emit('session:state', { sessionId: conn.sessionId, state, error })
+    })
+    conn.on('shell-exit', ({ termId, reason }: ShellExitInfo) => {
+      this.terms.delete(termId)
+      emit('term:exit', { termId, reason })
     })
 
     try {
@@ -48,13 +52,13 @@ class SshConnectionManager {
   }
 
   async openShell(sessionId: SessionId, cols: number, rows: number): Promise<{ termId: TermId }> {
-    const conn = this.get(sessionId)
-    const shell = await conn.openShell(cols, rows, (termId, reason) => {
-      this.terms.delete(termId)
-      emit('term:exit', { termId, reason: reason === 'error' ? 'error' : 'closed' })
-    })
+    const shell = await this.get(sessionId).openShell(cols, rows)
     this.terms.set(shell.termId, shell)
     return { termId: shell.termId }
+  }
+
+  async reconnect(sessionId: SessionId): Promise<void> {
+    await this.get(sessionId).reconnect()
   }
 
   closeTerm(termId: TermId): void {

@@ -7,8 +7,10 @@ import { registerSettingsIpc } from './ipc/settings.ipc'
 import { registerConnIpc } from './ipc/conn.ipc'
 import { registerSessionIpc } from './ipc/session.ipc'
 import { registerTermIpc } from './ipc/term.ipc'
+import { registerSnippetIpc } from './ipc/snippet.ipc'
 import { sshManager } from './ssh/SshConnectionManager'
 import { flushConnections } from './store/connections'
+import { flushSnippets } from './store/snippets'
 import { flushKnownHosts } from './ssh/hostkeys'
 import { vault } from './store/Vault'
 import { createMainWindow } from './window'
@@ -45,6 +47,7 @@ if (!app.requestSingleInstanceLock()) {
     registerConnIpc()
     registerSessionIpc()
     registerTermIpc()
+    registerSnippetIpc()
 
     const win = createMainWindow()
     bindMainWindow(win)
@@ -65,6 +68,7 @@ if (!app.requestSingleInstanceLock()) {
     void settingsStore().flush()
     void flushConnections()
     void flushKnownHosts()
+    void flushSnippets()
     void vault.flush()
   })
 }

@@ -40,10 +40,46 @@ export default {
     },
     terminal: {
       connecting: '正在连接 {{target}}…',
+      reconnecting: '连接已断开，正在重连…',
+      reconnectNow: '立即重连',
       disconnected: '连接已断开',
       reconnect: '重新连接',
       multilinePasteTitle: '粘贴多行文本？',
-      multilinePasteContent: '剪贴板内容包含 {{lines}} 行，粘贴后可能立即执行。确认粘贴？'
+      multilinePasteContent: '剪贴板内容包含 {{lines}} 行，粘贴后可能立即执行。确认粘贴？',
+      copy: '复制',
+      paste: '粘贴',
+      selectAll: '全选',
+      clear: '清屏',
+      search: '查找',
+      disconnect: '断开连接',
+      searchPlaceholder: '查找内容…',
+      searchPrev: '上一个',
+      searchNext: '下一个',
+      searchCase: '区分大小写',
+      searchRegex: '正则表达式'
+    },
+    tab: {
+      rename: '重命名',
+      duplicate: '复制会话',
+      reconnect: '重新连接',
+      close: '关闭',
+      closeOthers: '关闭其他',
+      closeToRight: '关闭右侧',
+      closeAll: '全部关闭'
+    },
+    snippet: {
+      new: '新建命令',
+      editTitle: '编辑快捷命令',
+      name: '名称',
+      nameRequired: '请输入名称',
+      command: '命令内容',
+      commandRequired: '请输入命令',
+      autoEnter: '自动回车',
+      sendToAll: '发送到所有终端',
+      history: '命令历史',
+      deleteConfirm: '删除快捷命令 "{{name}}"？',
+      noActiveTerminal: '没有可用的终端，请先连接',
+      placeholderHint: '可用占位符（发送时替换为当前会话信息）：'
     },
     prompt: {
       hostkeyNewTitle: '首次连接：确认主机指纹',

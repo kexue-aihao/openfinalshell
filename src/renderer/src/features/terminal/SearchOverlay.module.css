@@ -1,0 +1,24 @@
+.overlay {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 340px;
+  padding: 6px 8px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-l);
+  background: var(--ofs-bg-elevated);
+  box-shadow: var(--ofs-shadow-panel);
+}
+
+.count {
+  flex: none;
+  min-width: 48px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+  font-variant-numeric: tabular-nums;
+}

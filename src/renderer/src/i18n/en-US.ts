@@ -40,11 +40,47 @@ export default {
     },
     terminal: {
       connecting: 'Connecting to {{target}}…',
+      reconnecting: 'Disconnected, reconnecting…',
+      reconnectNow: 'Reconnect now',
       disconnected: 'Disconnected',
       reconnect: 'Reconnect',
       multilinePasteTitle: 'Paste multiple lines?',
       multilinePasteContent:
-        'Clipboard contains {{lines}} lines which may execute immediately. Paste anyway?'
+        'Clipboard contains {{lines}} lines which may execute immediately. Paste anyway?',
+      copy: 'Copy',
+      paste: 'Paste',
+      selectAll: 'Select all',
+      clear: 'Clear',
+      search: 'Find',
+      disconnect: 'Disconnect',
+      searchPlaceholder: 'Find…',
+      searchPrev: 'Previous',
+      searchNext: 'Next',
+      searchCase: 'Match case',
+      searchRegex: 'Regular expression'
+    },
+    tab: {
+      rename: 'Rename',
+      duplicate: 'Duplicate session',
+      reconnect: 'Reconnect',
+      close: 'Close',
+      closeOthers: 'Close others',
+      closeToRight: 'Close to the right',
+      closeAll: 'Close all'
+    },
+    snippet: {
+      new: 'New snippet',
+      editTitle: 'Edit snippet',
+      name: 'Name',
+      nameRequired: 'Please enter a name',
+      command: 'Command',
+      commandRequired: 'Please enter a command',
+      autoEnter: 'Send Enter',
+      sendToAll: 'Send to all terminals',
+      history: 'Command history',
+      deleteConfirm: 'Delete snippet "{{name}}"?',
+      noActiveTerminal: 'No active terminal — connect first',
+      placeholderHint: 'Placeholders (replaced with the active session):'
     },
     prompt: {
       hostkeyNewTitle: 'First connection: verify host fingerprint',

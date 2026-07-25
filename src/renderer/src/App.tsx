@@ -5,6 +5,7 @@ import enUS from 'antd/locale/en_US'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { wireSessionEvents } from '@/stores/useSessionStore'
 import { wireTermData } from '@/features/terminal/termRegistry'
+import { useGlobalShortcuts } from '@/hooks/useGlobalShortcuts'
 import { applyCssVars, buildAntdTheme } from '@/themes/applyTheme'
 import { MainLayout } from '@/features/layout/MainLayout'
 import { ProfileEditDrawer } from '@/features/connections/ProfileEditDrawer'
@@ -27,6 +28,8 @@ export default function App(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const init = useSettingsStore((s) => s.init)
   const systemDark = useSystemDark()
+
+  useGlobalShortcuts()
 
   useEffect(() => {
     void init()

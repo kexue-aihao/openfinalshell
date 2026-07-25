@@ -4,6 +4,7 @@ import type { SidebarView } from '@shared/types'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ConnectionTreePanel } from '@/features/connections/ConnectionTreePanel'
+import { SnippetPanel } from '@/features/snippets/SnippetPanel'
 import styles from './SidePanel.module.css'
 
 const TITLE_KEY: Record<SidebarView, string> = {
@@ -33,9 +34,9 @@ export function SidePanel(): React.JSX.Element {
       <div className={styles.header}>{t(TITLE_KEY[view])}</div>
       <div className={styles.content}>
         <ErrorBoundary label={`sidebar:${view}`}>
-          {view === 'connections' ? (
-            <ConnectionTreePanel />
-          ) : (
+          {view === 'connections' && <ConnectionTreePanel />}
+          {view === 'snippets' && <SnippetPanel />}
+          {(view === 'forwards' || view === 'transfers') && (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={t(EMPTY_KEY[view])}

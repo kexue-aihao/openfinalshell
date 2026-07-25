@@ -9,7 +9,8 @@ import type {
   SessionState,
   TermId
 } from '@shared/types'
-import { buildConnectConfig, friendlySshError } from './auth'
+import { buildConnectConfig } from './auth'
+import { friendlySshError } from './errors'
 import { checkHostkey, fingerprintSha256, parseKeyType, trustHostkey } from './hostkeys'
 import { promptBroker } from './PromptBroker'
 import { ShellSession } from './ShellSession'
@@ -18,15 +19,29 @@ import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('ssh')
 
+/** 指数退避（秒）：末值重复直到 MAX_RECONNECT_ATTEMPTS 用尽 */
+const BACKOFF_SEC = [1, 2, 4, 8, 15, 30]
+const MAX_RECONNECT_ATTEMPTS = 10
+
+export interface ShellExitInfo {
+  termId: TermId
+  reason: 'closed' | 'error' | 'reconnected'
+}
+
 /**
  * 一条 SSH 连接的状态机（一个 SessionId）。
- * M1：connecting → authenticating → ready → closed；自动重连在 M2 挂到同一状态机上。
+ * connecting → authenticating → ready ⇄ reconnecting → closed
+ *
+ * 断线后（非用户主动）按 profile.options.autoReconnect 走指数退避重连；
+ * shell 状态不可恢复，重连成功后对每个 shell 发 reconnected，由 renderer 重开。
  */
 export class SshConnection extends EventEmitter {
   readonly sessionId: SessionId
   state: SessionState = 'connecting'
   private client: Client | null = null
   private intentionalClose = false
+  private reconnectAttempt = 0
+  private reconnectTimer: NodeJS.Timeout | null = null
   readonly shells = new Map<TermId, ShellSession>()
 
   constructor(readonly profile: ConnectionProfile) {
@@ -39,7 +54,13 @@ export class SshConnection extends EventEmitter {
     this.emit('state', state, error)
   }
 
+  /** 首次连接：失败直接抛错给调用方（UI 显示失败原因） */
   async connect(): Promise<void> {
+    await this.establish()
+    this.reconnectAttempt = 0
+  }
+
+  private async establish(): Promise<void> {
     this.setState('connecting')
     let config
     try {
@@ -79,25 +100,82 @@ export class SshConnection extends EventEmitter {
       })
     } catch (err) {
       const msg = friendlySshError(err)
-      this.setState('closed', msg)
       this.client = null
+      this.setState('closed', msg)
       throw new Error(msg)
     }
 
-    // ready 之后的错误/断开处理
     client.on('error', (err) => {
       log.warn(`session ${this.sessionId} error after ready: ${err.message}`)
     })
-    client.on('close', () => {
-      const wasIntentional = this.intentionalClose
-      for (const shell of this.shells.values()) shell.close()
-      this.shells.clear()
-      if (this.state !== 'closed') {
-        this.setState('closed', wasIntentional ? undefined : '连接已断开')
-      }
-    })
+    client.on('close', () => this.onClientClosed())
 
     this.setState('ready')
+    this.emit('reestablished')
+  }
+
+  private onClientClosed(): void {
+    // 该连接上的所有 shell 通道随之失效
+    for (const shell of this.shells.values()) shell.close()
+    const lostTerms = [...this.shells.keys()]
+    this.shells.clear()
+
+    if (this.intentionalClose) {
+      if (this.state !== 'closed') this.setState('closed')
+      return
+    }
+
+    const canRetry =
+      this.profile.options.autoReconnect && this.reconnectAttempt < MAX_RECONNECT_ATTEMPTS
+    for (const termId of lostTerms) {
+      this.emit('shell-exit', { termId, reason: canRetry ? 'reconnected' : 'closed' } as ShellExitInfo)
+    }
+
+    if (!canRetry) {
+      this.setState('closed', '连接已断开')
+      return
+    }
+    this.scheduleReconnect()
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return
+    const delaySec = BACKOFF_SEC[Math.min(this.reconnectAttempt, BACKOFF_SEC.length - 1)]
+    this.reconnectAttempt += 1
+    this.setState(
+      'reconnecting',
+      `连接已断开，${delaySec} 秒后重连（第 ${this.reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS} 次）`
+    )
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      if (this.intentionalClose) return
+      void this.establish()
+        .then(() => {
+          this.reconnectAttempt = 0
+        })
+        .catch((err: Error) => {
+          log.warn(`reconnect ${this.reconnectAttempt} failed: ${err.message}`)
+          if (this.intentionalClose) return
+          if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+            this.setState('closed', `重连失败：${err.message}`)
+          } else {
+            this.scheduleReconnect()
+          }
+        })
+    }, delaySec * 1000)
+  }
+
+  /** 用户手动重连（清零退避计数，立即尝试） */
+  async reconnect(): Promise<void> {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.intentionalClose = false
+    this.reconnectAttempt = 0
+    this.client?.end()
+    this.client = null
+    await this.establish()
   }
 
   private async verifyHostKey(key: Buffer): Promise<boolean> {
@@ -131,7 +209,7 @@ export class SshConnection extends EventEmitter {
     prompts: Array<{ prompt: string; echo: boolean }>,
     finish: (answers: string[]) => void
   ): Promise<void> {
-    // 单一 password 提示且有已存密码 → 自动应答（CentOS/麒麟 kbi-only 场景用户无感）
+    // 单一 password 提示且有已存密码 → 自动应答（kbi-only 服务器用户无感）
     if (prompts.length === 1 && /password/i.test(prompts[0].prompt) && this.profile.auth.passwordRef) {
       const saved = vault.getSecret(this.profile.auth.passwordRef)
       if (saved !== null) {
@@ -146,18 +224,14 @@ export class SshConnection extends EventEmitter {
     const payload: KbiPromptPayload = {
       title: name || `${this.profile.username}@${this.profile.host}`,
       instructions,
-      prompts: prompts.map((p) => ({ prompt: p.prompt, echo: p.echo }))
+      prompts
     }
     const reply = await promptBroker.request(this.sessionId, 'kbi', payload)
-    if (!reply.ok) {
-      // 用户取消：给空答案让服务器拒绝，走统一的认证失败路径
-      finish(prompts.map(() => ''))
-      return
-    }
-    finish(reply.answers ?? prompts.map(() => ''))
+    // 用户取消：给空答案让服务器拒绝，走统一的认证失败路径
+    finish(reply.ok ? (reply.answers ?? prompts.map(() => '')) : prompts.map(() => ''))
   }
 
-  async openShell(cols: number, rows: number, onExit: (termId: TermId, reason: 'closed' | 'error') => void): Promise<ShellSession> {
+  async openShell(cols: number, rows: number): Promise<ShellSession> {
     const client = this.client
     if (!client || this.state !== 'ready') throw new Error('会话未就绪')
     const termId = randomUUID()
@@ -168,8 +242,10 @@ export class SshConnection extends EventEmitter {
       )
     })
     const shell = new ShellSession(termId, channel, this.profile.terminal.charset || 'utf-8', (reason) => {
-      this.shells.delete(termId)
-      onExit(termId, reason)
+      // shell 自身退出（用户敲 exit）；连接断开走 onClientClosed 统一处理
+      if (this.shells.delete(termId)) {
+        this.emit('shell-exit', { termId, reason } as ShellExitInfo)
+      }
     })
     this.shells.set(termId, shell)
 
@@ -181,10 +257,15 @@ export class SshConnection extends EventEmitter {
 
   disconnect(): void {
     this.intentionalClose = true
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
     promptBroker.cancelForSession(this.sessionId)
     for (const shell of this.shells.values()) shell.close()
     this.shells.clear()
     this.client?.end()
+    this.client = null
     if (this.state !== 'closed') this.setState('closed')
   }
 }

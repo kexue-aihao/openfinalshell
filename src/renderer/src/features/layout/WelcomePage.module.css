@@ -68,3 +68,37 @@
   color: var(--ofs-text-2);
   line-height: 1.5;
 }
+
+.recentList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 148px;
+  overflow: auto;
+}
+
+.recentItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 4px;
+  border-radius: var(--ofs-radius-s);
+  cursor: pointer;
+  min-width: 0;
+}
+.recentItem:hover {
+  background: var(--ofs-bg-hover);
+}
+
+.recentName {
+  color: var(--ofs-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recentHost {
+  flex: none;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}

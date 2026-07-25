@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from 'react'
-import { App as AntdApp, Button, Spin } from 'antd'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { App as AntdApp, Button, Dropdown, Spin, Tooltip } from 'antd'
+import { Eraser, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -7,6 +8,7 @@ import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { createTerminal, type TerminalBundle } from './createTerminal'
 import { registerTerm, unregisterTerm } from './termRegistry'
+import { SearchOverlay } from './SearchOverlay'
 import { resolveTerminalTheme } from '@/themes/terminal'
 import styles from './TerminalPane.module.css'
 
@@ -17,8 +19,8 @@ interface Props {
 }
 
 /**
- * 终端面板：一个 tab 一个常驻 xterm 实例。
- * - 会话 ready 后量取 cols/rows 开 shell（term:open）
+ * 终端面板：一个 tab 一个常驻 xterm 实例（重连时复用，缓冲不丢）。
+ * - 会话 ready（或 shellEpoch 递增）后量取 cols/rows 开 shell
  * - WebGL 仅在活动 tab 挂载
  * - ResizeObserver + 100ms 防抖 → fit → term:resize（尺寸为 0 时跳过，防 1×1 毁 vim 布局）
  */
@@ -29,12 +31,15 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const bindTerm = useSessionStore((s) => s.bindTerm)
   const updateTab = useSessionStore((s) => s.updateTab)
   const closeTab = useSessionStore((s) => s.closeTab)
-  const openForProfile = useSessionStore((s) => s.openForProfile)
+  const reconnectTab = useSessionStore((s) => s.reconnectTab)
+  const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === tab.profileId))
 
   const mountRef = useRef<HTMLDivElement>(null)
   const bundleRef = useRef<TerminalBundle | null>(null)
   const termIdRef = useRef<string | null>(null)
   const openingRef = useRef(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
 
   const sendResize = useCallback((): void => {
     const bundle = bundleRef.current
@@ -48,7 +53,26 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     }
   }, [])
 
-  // ---- 创建 xterm 实例（挂载一次，tab 存续期间常驻） ----
+  const pasteFromClipboard = useCallback(async (): Promise<void> => {
+    const text = await navigator.clipboard.readText().catch(() => '')
+    if (!text || !termIdRef.current) return
+    const doPaste = (): void => {
+      if (termIdRef.current) ofs.send('term:input', { termId: termIdRef.current, data: text })
+    }
+    if (settings.terminal.confirmMultilinePaste && text.includes('\n')) {
+      modal.confirm({
+        title: t('terminal.multilinePasteTitle'),
+        content: t('terminal.multilinePasteContent', { lines: text.split('\n').length }),
+        okText: t('common.ok'),
+        cancelText: t('common.cancel'),
+        onOk: doPaste
+      })
+    } else {
+      doPaste()
+    }
+  }, [modal, settings.terminal.confirmMultilinePaste, t])
+
+  // ---- 创建 xterm 实例（tab 存续期间常驻，重连不重建） ----
   useEffect(() => {
     const el = mountRef.current
     if (!el) return
@@ -56,12 +80,10 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     bundleRef.current = bundle
     bundle.term.open(el)
 
-    // 上行输入
     bundle.term.onData((data) => {
       if (termIdRef.current) ofs.send('term:input', { termId: termIdRef.current, data })
     })
 
-    // 选中即复制
     if (settings.terminal.copyOnSelect) {
       bundle.term.onSelectionChange(() => {
         const sel = bundle.term.getSelection()
@@ -69,7 +91,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       })
     }
 
-    // 快捷键：Ctrl+Shift+C/V；组词中（IME）一律放行
+    // 组词中（IME）一律放行，避免候选上屏时误触快捷键
     bundle.term.attachCustomKeyEventHandler((ev) => {
       if (ev.isComposing || ev.keyCode === 229) return true
       if (ev.type !== 'keydown') return true
@@ -82,10 +104,13 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         void pasteFromClipboard()
         return false
       }
+      if (ev.ctrlKey && !ev.shiftKey && ev.code === 'KeyF') {
+        setSearchOpen(true)
+        return false
+      }
       return true
     })
 
-    // 尺寸自适应
     let raf = 0
     let timer: ReturnType<typeof setTimeout> | null = null
     const observer = new ResizeObserver(() => {
@@ -111,26 +136,6 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const pasteFromClipboard = useCallback(async (): Promise<void> => {
-    const text = await navigator.clipboard.readText().catch(() => '')
-    if (!text || !termIdRef.current) return
-    const doPaste = (): void => {
-      if (termIdRef.current) ofs.send('term:input', { termId: termIdRef.current, data: text })
-    }
-    if (settings.terminal.confirmMultilinePaste && text.includes('\n')) {
-      modal.confirm({
-        title: t('terminal.multilinePasteTitle'),
-        content: t('terminal.multilinePasteContent', { lines: text.split('\n').length }),
-        okText: t('common.ok'),
-        cancelText: t('common.cancel'),
-        onOk: doPaste
-      })
-    } else {
-      doPaste()
-    }
-  }, [modal, settings.terminal.confirmMultilinePaste, t])
-
-  // 右键 = 粘贴（国内习惯，可在设置切换为菜单）
   const onContextMenu = useCallback(
     (e: React.MouseEvent): void => {
       if (settings.terminal.rightClick === 'paste') {
@@ -141,12 +146,11 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     [pasteFromClipboard, settings.terminal.rightClick]
   )
 
-  // ---- 会话 ready → 开 shell ----
+  // ---- 会话 ready / 重连（shellEpoch 变化）→ 开 shell ----
   useEffect(() => {
     const bundle = bundleRef.current
     if (!bundle || tab.state !== 'ready' || tab.termId || !tab.sessionId || openingRef.current) return
     openingRef.current = true
-    // 先 fit 得到真实 cols/rows 再开 shell
     sendResize()
     const { cols, rows } = bundle.term
     void ofs
@@ -155,7 +159,10 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         termIdRef.current = termId
         registerTerm(termId, bundle.term)
         bindTerm(tab.id, termId)
-        bundle.term.focus()
+        if (tab.shellEpoch > 0) {
+          bundle.term.write('\r\n\x1b[2m—— 连接已恢复 ——\x1b[0m\r\n')
+        }
+        if (active) bundle.term.focus()
       })
       .catch((err: Error) => {
         updateTab(tab.id, { state: 'closed', error: err.message })
@@ -163,9 +170,19 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       .finally(() => {
         openingRef.current = false
       })
-  }, [tab.state, tab.termId, tab.sessionId, tab.id, bindTerm, updateTab, sendResize])
+  }, [
+    tab.state,
+    tab.termId,
+    tab.sessionId,
+    tab.shellEpoch,
+    tab.id,
+    active,
+    bindTerm,
+    updateTab,
+    sendResize
+  ])
 
-  // ---- 激活状态：WebGL 只挂活动 tab；激活后补 fit + focus ----
+  // ---- WebGL 只挂活动 tab；激活后补 fit + focus ----
   useEffect(() => {
     const bundle = bundleRef.current
     if (!bundle) return
@@ -186,36 +203,121 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     }
   }, [uiMode, settings.terminal.themeId])
 
-  const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === tab.profileId))
-  const reconnect = (): void => {
-    if (!profile) return
-    void closeTab(tab.id).then(() => openForProfile(profile))
-  }
-
   const connecting = tab.state === 'connecting' || tab.state === 'authenticating'
+  const reconnecting = tab.state === 'reconnecting'
   const closed = tab.state === 'closed'
 
-  return (
+  const menuItems =
+    settings.terminal.rightClick === 'menu'
+      ? [
+          { key: 'copy', label: t('terminal.copy') },
+          { key: 'paste', label: t('terminal.paste') },
+          { key: 'selectAll', label: t('terminal.selectAll') },
+          { type: 'divider' as const },
+          { key: 'clear', label: t('terminal.clear') },
+          { key: 'search', label: t('terminal.search') },
+          { type: 'divider' as const },
+          { key: 'disconnect', label: t('terminal.disconnect'), danger: true }
+        ]
+      : []
+
+  const onMenuClick = (key: string): void => {
+    const bundle = bundleRef.current
+    if (!bundle) return
+    if (key === 'copy') {
+      const sel = bundle.term.getSelection()
+      if (sel) void navigator.clipboard.writeText(sel).catch(() => {})
+    } else if (key === 'paste') void pasteFromClipboard()
+    else if (key === 'selectAll') bundle.term.selectAll()
+    else if (key === 'clear') bundle.term.clear()
+    else if (key === 'search') setSearchOpen(true)
+    else if (key === 'disconnect') void closeTab(tab.id)
+  }
+
+  const paneBody = (
     <div className={styles.pane} onContextMenu={onContextMenu}>
       <div ref={mountRef} className={styles.mount} />
+
+      {active && !connecting && !closed && (
+        <div className={styles.hoverTools}>
+          <Tooltip title={t('terminal.search')}>
+            <Button
+              size="small"
+              type="text"
+              icon={<Search size={14} strokeWidth={1.75} />}
+              onClick={() => setSearchOpen(true)}
+            />
+          </Tooltip>
+          <Tooltip title={t('terminal.clear')}>
+            <Button
+              size="small"
+              type="text"
+              icon={<Eraser size={14} strokeWidth={1.75} />}
+              onClick={() => bundleRef.current?.term.clear()}
+            />
+          </Tooltip>
+          <Tooltip title={t('terminal.disconnect')}>
+            <Button
+              size="small"
+              type="text"
+              danger
+              icon={<Unplug size={14} strokeWidth={1.75} />}
+              onClick={() => void closeTab(tab.id)}
+            />
+          </Tooltip>
+        </div>
+      )}
+
+      {searchOpen && bundleRef.current && (
+        <SearchOverlay
+          search={bundleRef.current.search}
+          accent={settings.accent}
+          onClose={() => {
+            setSearchOpen(false)
+            bundleRef.current?.term.focus()
+          }}
+        />
+      )}
+
       {connecting && (
         <div className={styles.overlay}>
           <Spin />
-          <div className={styles.overlayText}>
-            {t('terminal.connecting', { target: tab.title })}
-          </div>
+          <div className={styles.overlayText}>{t('terminal.connecting', { target: tab.title })}</div>
           <Button size="small" onClick={() => void closeTab(tab.id)}>
             {t('common.cancel')}
           </Button>
         </div>
       )}
+
+      {reconnecting && (
+        <div className={styles.overlay}>
+          <Spin />
+          <div className={`${styles.overlayText} ${styles.overlayWarning}`}>
+            {tab.error ?? t('terminal.reconnecting')}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Button size="small" type="primary" onClick={() => void reconnectTab(tab.id)}>
+              {t('terminal.reconnectNow')}
+            </Button>
+            <Button size="small" onClick={() => void closeTab(tab.id)}>
+              {t('common.close')}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {closed && (
         <div className={styles.overlay}>
-          <div className={`${styles.overlayText} ${tab.error ? styles.overlayError : ''}`}>
+          <div className={`${styles.overlayText} ${styles.overlayError}`}>
             {tab.error ?? t('terminal.disconnected')}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button size="small" type="primary" onClick={reconnect}>
+            <Button
+              size="small"
+              type="primary"
+              disabled={!profile}
+              onClick={() => void reconnectTab(tab.id)}
+            >
               {t('terminal.reconnect')}
             </Button>
             <Button size="small" onClick={() => void closeTab(tab.id)}>
@@ -225,5 +327,18 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         </div>
       )}
     </div>
+  )
+
+  if (menuItems.length === 0) return paneBody
+
+  return (
+    <Dropdown
+      trigger={['contextMenu']}
+      open={contextMenuOpen}
+      onOpenChange={setContextMenuOpen}
+      menu={{ items: menuItems, onClick: ({ key }) => onMenuClick(key) }}
+    >
+      {paneBody}
+    </Dropdown>
   )
 }

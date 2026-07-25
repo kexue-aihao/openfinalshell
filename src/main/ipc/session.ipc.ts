@@ -8,8 +8,7 @@ export function registerSessionIpc(): void {
 
   handle('session:close', (sessionId) => sshManager.close(sessionId), z.tuple([z.string()]))
 
-  // M2 完整实现（断线重连状态机）；当前语义 = 无操作占位
-  handle('session:reconnect', () => undefined, z.tuple([z.string()]))
+  handle('session:reconnect', (sessionId) => sshManager.reconnect(sessionId), z.tuple([z.string()]))
 
   handle(
     'session:promptReply',

@@ -35,3 +35,25 @@
 .overlayError {
   color: var(--ofs-error);
 }
+
+.overlayWarning {
+  color: var(--ofs-warning);
+}
+
+/* 终端右上角悬浮工具条：hover 才显形 */
+.hoverTools {
+  position: absolute;
+  top: 6px;
+  right: 14px;
+  z-index: 8;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--ofs-radius-m);
+  background: color-mix(in srgb, var(--ofs-bg-elevated) 88%, transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pane:hover .hoverTools {
+  opacity: 1;
+}

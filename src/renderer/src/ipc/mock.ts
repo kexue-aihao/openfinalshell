@@ -1,6 +1,12 @@
 import type { EventMap, OfsApi } from '@shared/ipc'
 import { DEFAULT_SETTINGS } from '@shared/constants'
-import type { ConnectionGroup, ConnectionProfile, ProfileDraft } from '@shared/types'
+import type {
+  ConnectionGroup,
+  ConnectionProfile,
+  ProfileDraft,
+  Snippet,
+  SnippetGroup
+} from '@shared/types'
 
 /**
  * DEV-only：在普通浏览器里打开 renderer（无 preload）时的 mock IPC。
@@ -11,6 +17,21 @@ export function createMockOfs(): OfsApi {
   const settings = structuredClone(DEFAULT_SETTINGS)
   const profiles: ConnectionProfile[] = []
   const groups: ConnectionGroup[] = []
+  // 与 main/store/snippets.ts 的默认值保持一致，便于纯 UI 调试
+  const snippetGroups: SnippetGroup[] = [{ id: 'default', name: '常用', order: 0 }]
+  const snippets: Snippet[] = [
+    { id: 's1', groupId: 'default', name: '磁盘占用', command: 'df -h', autoEnter: true, order: 0 },
+    { id: 's2', groupId: 'default', name: '内存', command: 'free -h', autoEnter: true, order: 1 },
+    {
+      id: 's3',
+      groupId: 'default',
+      name: '占用最高的进程',
+      command: 'ps aux --sort=-%cpu | head -n 11',
+      autoEnter: true,
+      order: 2
+    },
+    { id: 's4', groupId: 'default', name: '监听端口', command: 'ss -tulnp', autoEnter: true, order: 3 }
+  ]
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   const encoder = new TextEncoder()
 
@@ -123,11 +144,27 @@ export function createMockOfs(): OfsApi {
       writeTerm(termId, command)
     },
 
-    'snippet:list': () => ({ groups: [], snippets: [] }),
-    'snippet:save': () => undefined,
-    'snippet:delete': () => undefined,
-    'snippetGroup:save': () => undefined,
-    'snippetGroup:delete': () => undefined,
+    'snippet:list': () => ({ groups: snippetGroups, snippets }),
+    'snippet:save': (s: never) => {
+      const snip = s as unknown as Snippet
+      const idx = snippets.findIndex((x) => x.id === snip.id)
+      if (idx >= 0) snippets[idx] = snip
+      else snippets.push(snip)
+    },
+    'snippet:delete': (id: never) => {
+      const idx = snippets.findIndex((x) => x.id === (id as unknown as string))
+      if (idx >= 0) snippets.splice(idx, 1)
+    },
+    'snippetGroup:save': (g: never) => {
+      const grp = g as unknown as SnippetGroup
+      const idx = snippetGroups.findIndex((x) => x.id === grp.id)
+      if (idx >= 0) snippetGroups[idx] = grp
+      else snippetGroups.push(grp)
+    },
+    'snippetGroup:delete': (id: never) => {
+      const idx = snippetGroups.findIndex((x) => x.id === (id as unknown as string))
+      if (idx >= 0) snippetGroups.splice(idx, 1)
+    },
     'forward:list': () => [],
     'forward:save': () => undefined,
     'forward:delete': () => undefined,
