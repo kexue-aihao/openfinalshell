@@ -12,6 +12,10 @@
 export function friendlySshError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
 
+  // 代理阶段的错误已经是成品文案，原样透出（否则代理的 ECONNREFUSED
+  // 会被下面翻成"目标主机端口未开放"，把人指向错误的排查方向）
+  if (err instanceof Error && err.name === 'ProxyError') return msg
+
   if (/All configured authentication methods failed/i.test(msg)) {
     return '认证失败：用户名、密码或密钥不正确'
   }

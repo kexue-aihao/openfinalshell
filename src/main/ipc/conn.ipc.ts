@@ -37,6 +37,15 @@ const profileDraftSchema = z.object({
     monitorEnabled: z.boolean(),
     compress: z.boolean()
   }),
+  proxy: z
+    .object({
+      type: z.enum(['none', 'http', 'socks5']),
+      host: z.string().max(255),
+      port: z.number().int().min(1).max(65535),
+      username: z.string().max(255).optional(),
+      password: z.string().max(255).optional()
+    })
+    .optional(),
   jumpHostId: z.string().optional(),
   note: z.string().max(4096).optional(),
   lastUsedAt: z.number().optional()

@@ -37,6 +37,11 @@ interface FormValues {
   readyTimeout: number
   legacyAlgorithms: boolean
   compress: boolean
+  proxyType: 'none' | 'http' | 'socks5'
+  proxyHost?: string
+  proxyPort: number
+  proxyUsername?: string
+  proxyPassword?: string
   note?: string
 }
 
@@ -55,6 +60,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
   )
   const open = editingId !== null
   const hasSavedPassword = Boolean(editing?.auth.passwordRef)
+  const hasSavedProxyPassword = Boolean(editing?.proxy?.passwordRef)
 
   useEffect(() => {
     if (!open) return
@@ -77,6 +83,11 @@ export function ProfileEditDrawer(): React.JSX.Element {
         readyTimeout: editing.options.readyTimeout,
         legacyAlgorithms: editing.options.legacyAlgorithms,
         compress: editing.options.compress,
+        proxyType: editing.proxy?.type ?? 'none',
+        proxyHost: editing.proxy?.host,
+        proxyPort: editing.proxy?.port ?? 7890,
+        proxyUsername: editing.proxy?.username,
+        proxyPassword: '',
         note: editing.note
       })
     } else {
@@ -128,6 +139,16 @@ export function ProfileEditDrawer(): React.JSX.Element {
           monitorEnabled: editing?.options.monitorEnabled ?? true,
           compress: v.compress
         },
+        proxy:
+          v.proxyType === 'none'
+            ? { type: 'none', host: '', port: v.proxyPort }
+            : {
+                type: v.proxyType,
+                host: (v.proxyHost ?? '').trim(),
+                port: v.proxyPort,
+                username: v.proxyUsername?.trim() || undefined,
+                password: v.proxyPassword || undefined
+              },
         note: v.note || undefined
       }
       await save(draft)
@@ -177,7 +198,9 @@ export function ProfileEditDrawer(): React.JSX.Element {
           keepaliveInterval: 15000,
           readyTimeout: 15000,
           legacyAlgorithms: false,
-          compress: false
+          compress: false,
+          proxyType: 'none',
+          proxyPort: 7890
         }}
       >
         <Form.Item name="name" label={t('conn.name')} rules={[{ required: true, message: t('conn.nameRequired') }]}>
@@ -340,6 +363,62 @@ export function ProfileEditDrawer(): React.JSX.Element {
                   </Space>
                   <Form.Item name="note" label={t('conn.note')}>
                     <Input.TextArea rows={2} />
+                  </Form.Item>
+                </>
+              )
+            },
+            {
+              key: 'proxy',
+              label: t('conn.proxy'),
+              children: (
+                <>
+                  <Form.Item name="proxyType" label={t('conn.proxyType')} extra={t('conn.proxyHint')}>
+                    <Radio.Group
+                      optionType="button"
+                      options={[
+                        { label: t('conn.proxyNone'), value: 'none' },
+                        { label: 'HTTP', value: 'http' },
+                        { label: 'SOCKS5', value: 'socks5' }
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item noStyle shouldUpdate={(a, b) => a.proxyType !== b.proxyType}>
+                    {({ getFieldValue }) =>
+                      getFieldValue('proxyType') === 'none' ? null : (
+                        <>
+                          <Space.Compact block>
+                            <Form.Item
+                              name="proxyHost"
+                              label={t('conn.proxyHost')}
+                              style={{ flex: 1 }}
+                              rules={[{ required: true, message: t('conn.proxyHostRequired') }]}
+                            >
+                              <Input placeholder="127.0.0.1" />
+                            </Form.Item>
+                            <Form.Item
+                              name="proxyPort"
+                              label={t('conn.port')}
+                              style={{ width: 110, marginLeft: 8 }}
+                            >
+                              <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                            </Form.Item>
+                          </Space.Compact>
+                          <Form.Item name="proxyUsername" label={t('conn.proxyUsername')}>
+                            <Input autoComplete="off" placeholder={t('conn.proxyAuthOptional')} />
+                          </Form.Item>
+                          <Form.Item
+                            name="proxyPassword"
+                            label={t('conn.proxyPassword')}
+                            extra={hasSavedProxyPassword ? t('conn.passwordSavedHint') : undefined}
+                          >
+                            <Input.Password
+                              autoComplete="new-password"
+                              placeholder={hasSavedProxyPassword ? '••••••••' : ''}
+                            />
+                          </Form.Item>
+                        </>
+                      )
+                    }
                   </Form.Item>
                 </>
               )

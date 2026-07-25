@@ -5,6 +5,7 @@ import type { ConnectionProfile, PasswordPromptPayload, SessionId } from '@share
 import { vault } from '../store/Vault'
 import { rememberPassword } from '../store/connections'
 import { promptBroker } from './PromptBroker'
+import { dialThroughProxy, ProxyError, type ResolvedProxy } from './proxyDial'
 
 export { friendlySshError } from './errors'
 
@@ -24,9 +25,27 @@ export function detectAgent(): string | undefined {
   return undefined
 }
 
+/** profile 上的代理配置 → 明文形态（密码从 Vault 取）；直连返回 null */
+export function resolveProxy(profile: ConnectionProfile): ResolvedProxy | null {
+  const p = profile.proxy
+  if (!p || p.type === 'none') return null
+  // 宁可报错也不静默直连 —— 用户明确要求走代理时，直连可能等于暴露真实来源
+  if (!p.host.trim()) {
+    throw new ProxyError('已启用代理但未填写代理地址，请在连接设置的"代理"里补全')
+  }
+  return {
+    type: p.type,
+    host: p.host.trim(),
+    port: p.port,
+    username: p.username || undefined,
+    password: p.passwordRef ? (vault.getSecret(p.passwordRef) ?? undefined) : undefined
+  }
+}
+
 /**
  * 装配 ssh2 连接参数（认证材料部分）。
  * 密码缺失时经 PromptBroker 向用户索要一次性密码（可选记住）。
+ * 配了代理则最后拨一条隧道 socket 交给 ssh2（config.sock）。
  */
 export async function buildConnectConfig(
   profile: ConnectionProfile,
@@ -92,6 +111,12 @@ export async function buildConnectConfig(
       config.agent = agent
       break
     }
+  }
+
+  // 代理拨号放最后：上面可能停在密码输入弹窗上，先拨会让代理连接白等到超时
+  const proxy = resolveProxy(profile)
+  if (proxy) {
+    config.sock = await dialThroughProxy(proxy, { host: profile.host, port: profile.port })
   }
 
   return config

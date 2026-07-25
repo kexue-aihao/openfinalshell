@@ -248,6 +248,16 @@ export default {
       legacyAlgorithmsTip:
         'Append ssh-rsa, dh-group14-sha1, aes128-cbc etc. for old switches/bastions',
       compress: 'Compression',
+      proxy: 'Proxy',
+      proxyType: 'Proxy type',
+      proxyNone: 'Direct',
+      proxyHint:
+        'Dial the target server through a local or remote proxy (e.g. Clash/v2ray mixed port 127.0.0.1:7890)',
+      proxyHost: 'Proxy host',
+      proxyHostRequired: 'Please enter the proxy host',
+      proxyUsername: 'Proxy username',
+      proxyPassword: 'Proxy password',
+      proxyAuthOptional: 'Leave empty if the proxy needs no auth',
       note: 'Note'
     },
     settings: {

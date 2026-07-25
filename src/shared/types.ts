@@ -26,6 +26,20 @@ export interface ConnectionAuth {
   passphraseRef?: SecretRef
 }
 
+// ---------- 代理（拨号侧） ----------
+/** 'none' 即直连；http 走 CONNECT 隧道，socks5 走 RFC1928 */
+export type ProxyType = 'none' | 'http' | 'socks5'
+
+export interface ConnectionProxy {
+  type: ProxyType
+  host: string
+  port: number
+  /** 需要认证时填；HTTP 用 Basic，SOCKS5 用 RFC1929 */
+  username?: string
+  /** 代理密码的 Vault 引用，renderer 永远拿不到明文 */
+  passwordRef?: SecretRef
+}
+
 export interface ConnectionProfile {
   id: ProfileId
   name: string
@@ -52,6 +66,8 @@ export interface ConnectionProfile {
     monitorEnabled: boolean
     compress: boolean
   }
+  /** 经 HTTP/SOCKS5 代理拨号；无值或 type='none' 为直连 */
+  proxy?: ConnectionProxy
   /** 预留（v1.5 跳板机），v1 不做 UI */
   jumpHostId?: ProfileId
   note?: string
@@ -61,7 +77,8 @@ export interface ConnectionProfile {
 }
 
 /** renderer 提交的连接草稿：密码/口令为明文，main 转 Vault 引用后落盘 */
-export interface ProfileDraft extends Omit<ConnectionProfile, 'id' | 'auth' | 'createdAt' | 'updatedAt'> {
+export interface ProfileDraft
+  extends Omit<ConnectionProfile, 'id' | 'auth' | 'proxy' | 'createdAt' | 'updatedAt'> {
   id?: ProfileId
   auth: {
     method: AuthMethod
@@ -71,6 +88,10 @@ export interface ProfileDraft extends Omit<ConnectionProfile, 'id' | 'auth' | 'c
     passphrase?: string
     /** true 时清除已存密码/口令 */
     clearPassword?: boolean
+  }
+  proxy?: Omit<ConnectionProxy, 'passwordRef'> & {
+    /** 明文，同上；undefined = 保持原值 */
+    password?: string
   }
 }
 

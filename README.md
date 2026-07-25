@@ -6,7 +6,8 @@
 
 - **连接管理**：分组树、搜索、右键菜单、复制连接、8 色标签；密码/私钥口令加密存储
 - **多标签终端**：xterm.js（WebGL 渲染）、真彩色、Unicode 11 宽字符、中文/emoji 对齐、Ctrl+F 查找、选中即复制、右键粘贴、多行粘贴确认、IME 友好
-- **会话健壮性**：keyboard-interactive 与 SSH Agent 认证、老设备算法兼容开关、指数退避自动重连（重连后终端缓冲保留）
+- **会话健壮性**：keyboard-interactive 与 SSH Agent 认证、老设备算法兼容开关、指数退避自动重连（重连后终端缓冲保留、监控与转发自动接回）
+- **经代理连接**：按连接配置 HTTP CONNECT 或 SOCKS5 代理（支持认证），域名交给代理解析；报错区分"代理问题"与"服务器问题"
 - **SFTP 文件管理**：终端下方分屏、虚拟表格（万级文件不卡）、拖入上传、传输队列（暂停/继续/取消/断点续传）、权限编辑
 - **实时监控**：CPU（含每核）/ 内存 / Swap / 网络 / 磁盘容量与 IO / 进程 Top，2 秒刷新
 - **端口转发**：本地(-L)、远程(-R)、动态(SOCKS5)，可随连接自动启动、断线自动恢复
@@ -68,6 +69,9 @@ npx vitest run test/integration/realServer.test.ts test/integration/realServerAd
   监控数值与 `free`/`df`/`nproc` 独立读数对照、三型端口转发打通真实隧道、探测 sshd MaxSessions
 - `realServerAdvanced.test.ts`：私钥认证（临时装公钥后精确移除）、口令错误与缺口令的文案、
   GBK 双向转码、非 UTF-8 文件名标黄、断线自动重连、大文件传输吞吐
+- `realServerProxy.test.ts`：经**真实代理软件**（Clash/v2ray 等）连真实服务器，
+  额外需要 `OFS_TEST_PROXY_HOST` / `OFS_TEST_PROXY_PORT`（可选 `_USER`/`_PASSWORD`，
+  用 `OFS_TEST_PROXY_KINDS='socks5'` 可只测一种协议）
 
 凭据只从环境变量读，不写进代码库。会在远端 `/tmp` 建临时文件并在用例内删除；
 私钥用例会往 `authorized_keys` 追加一行测试公钥并在结束时精确移除（先做备份）。
@@ -102,6 +106,19 @@ SFTP 传输走**并发窗口**（同时保持 64 个 32KB 读/写请求在管道
 并发窗口仍然完整支持暂停/继续/取消：暂停时停止发放新请求并等在途请求收尾，
 `.part` 里的数据保持连续，因此续传只需按字节偏移接上。
 
+### 经代理连接
+
+连接编辑抽屉 → **代理**：选 HTTP 或 SOCKS5，填代理地址（如 `127.0.0.1:7890`），需要认证时填用户名密码
+（密码同样只存 Vault 引用，不回传渲染进程）。目标地址一律交给代理解析 —— 本机解析不了的内网域名也能连。
+
+协议实现在 [`src/main/ssh/proxyDial.ts`](src/main/ssh/proxyDial.ts)，握手完成后把多读到的字节 `unshift`
+回读缓冲再交给 ssh2：目标服务器的版本 banner 常与代理应答在同一个 TCP 段到达，丢了就会卡死在
+"Connection lost before handshake"。代理阶段的报错独立成 `ProxyError` 原样透出，
+不会被翻译成 SSH 的"目标主机端口未开放"之类误导文案。
+
+离线验证用 `test/unit/proxyDial.test.ts`（真实 TCP 假代理跑协议编码）与
+`test/integration/proxyConnect.test.ts`（假代理 + fixture sshd，断言"确实走了代理"而非只是连上）。
+
 ### 浏览器调试模式
 
 `npm run dev` 后直接用浏览器打开 <http://localhost:5173>，渲染层在缺少 preload 时会启用 mock IPC（含模拟终端、假 SFTP 目录树、周期监控数据），便于纯 UI 迭代。
@@ -130,7 +147,7 @@ SFTP 传输走**并发窗口**（同时保持 64 个 32KB 读/写请求在管道
 | M5 | 端口转发（本地 / 远程 / 动态 SOCKS5） | ✅ |
 | M6 | 设置页 · 打包发布 · 性能与视觉打磨 | ✅ |
 
-v1.5 及以后：跳板机 ProxyJump（数据结构已预留）、主密码保险库、传输队列持久化、SFTP 压缩/解压、SFTP 拖出到系统、macOS / Linux 打包、自动更新、快捷键改键、Playwright e2e。
+v1.5 及以后：跳板机 ProxyJump（字段已预留；HTTP/SOCKS5 代理已支持，见上）、SFTP 传输冲突策略（同名文件目前直接覆盖）、主密码保险库、传输队列持久化、SFTP 压缩/解压、SFTP 拖出到系统、macOS / Linux 打包、自动更新、快捷键改键、Playwright e2e。
 
 ## 许可
 

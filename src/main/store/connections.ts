@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto'
-import type { ConnectionGroup, ConnectionProfile, GroupId, ProfileDraft, ProfileId } from '@shared/types'
+import type {
+  ConnectionGroup,
+  ConnectionProfile,
+  ConnectionProxy,
+  GroupId,
+  ProfileDraft,
+  ProfileId
+} from '@shared/types'
 import { JsonFileStore } from './ConfigStore'
 import { configFile } from './paths'
 import { vault } from './Vault'
@@ -51,6 +58,25 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
     passphraseRef = vault.putSecret(draft.auth.passphrase, passphraseRef)
   }
 
+  // 代理：改直连就把代理密码一起从 Vault 里清掉，不留孤儿条目
+  let proxy: ConnectionProxy | undefined
+  const proxyRef = existing?.proxy?.passwordRef
+  if (!draft.proxy || draft.proxy.type === 'none') {
+    vault.deleteSecret(proxyRef)
+  } else {
+    const d = draft.proxy
+    proxy = {
+      type: d.type,
+      host: d.host.trim(),
+      port: d.port,
+      username: d.username || undefined,
+      passwordRef:
+        d.password !== undefined && d.password !== ''
+          ? vault.putSecret(d.password, proxyRef)
+          : proxyRef
+    }
+  }
+
   const profile: ConnectionProfile = {
     id: existing?.id ?? randomUUID(),
     name: draft.name,
@@ -67,6 +93,7 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
     },
     terminal: draft.terminal,
     options: draft.options,
+    proxy,
     jumpHostId: draft.jumpHostId,
     note: draft.note,
     createdAt: existing?.createdAt ?? now,
@@ -87,6 +114,7 @@ export function deleteProfile(id: ProfileId): void {
   if (p) {
     vault.deleteSecret(p.auth.passwordRef)
     vault.deleteSecret(p.auth.passphraseRef)
+    vault.deleteSecret(p.proxy?.passwordRef)
   }
   connStore().update((d) => {
     d.profiles = d.profiles.filter((x) => x.id !== id)
@@ -111,6 +139,7 @@ export function duplicateProfile(id: ProfileId): ConnectionProfile {
       passwordRef: copyRef(src.auth.passwordRef),
       passphraseRef: copyRef(src.auth.passphraseRef)
     },
+    proxy: src.proxy ? { ...src.proxy, passwordRef: copyRef(src.proxy.passwordRef) } : undefined,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     lastUsedAt: undefined

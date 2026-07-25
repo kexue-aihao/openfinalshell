@@ -244,6 +244,15 @@ export default {
       legacyAlgorithms: '兼容老算法',
       legacyAlgorithmsTip: '为老交换机/堡垒机追加 ssh-rsa、dh-group14-sha1、aes128-cbc 等算法',
       compress: '启用压缩',
+      proxy: '代理',
+      proxyType: '代理方式',
+      proxyNone: '直连',
+      proxyHint: '经本机或远端代理拨号连到目标服务器（如 Clash/v2ray 混合端口 127.0.0.1:7890）',
+      proxyHost: '代理地址',
+      proxyHostRequired: '请填写代理地址',
+      proxyUsername: '代理用户名',
+      proxyPassword: '代理密码',
+      proxyAuthOptional: '代理不需要认证时留空',
       note: '备注'
     },
     settings: {
