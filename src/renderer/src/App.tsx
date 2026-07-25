@@ -11,6 +11,7 @@ import { MainLayout } from '@/features/layout/MainLayout'
 import { ProfileEditDrawer } from '@/features/connections/ProfileEditDrawer'
 import { PromptHost } from '@/features/prompts/PromptHost'
 import { TransferDrawer } from '@/features/transfers/TransferDrawer'
+import { SettingsModal } from '@/features/settings/SettingsModal'
 import { wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
@@ -61,6 +62,12 @@ export default function App(): React.JSX.Element {
     }
   }, [settings])
 
+  // 界面缩放：改根字号 + zoom，xterm 会随容器 ResizeObserver 自适应
+  useEffect(() => {
+    const zoom = (settings?.uiZoom ?? 100) / 100
+    document.documentElement.style.setProperty('zoom', String(zoom))
+  }, [settings?.uiZoom])
+
   if (!settings) return <div style={{ height: '100%', background: 'var(--ofs-bg-base)' }} />
 
   return (
@@ -71,6 +78,7 @@ export default function App(): React.JSX.Element {
           <ProfileEditDrawer />
           <PromptHost />
           <TransferDrawer />
+          <SettingsModal />
         </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>

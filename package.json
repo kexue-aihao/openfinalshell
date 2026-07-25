@@ -14,8 +14,12 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "check:i18n": "node scripts/checkI18n.mjs",
     "test": "vitest run",
+    "icon": "node scripts/generateIcon.mjs",
     "package": "electron-vite build && electron-builder --win",
+    "package:dir": "electron-vite build && electron-builder --win --dir",
+    "smoke:packaged": "node test/fixtures/packagedSmoke.mjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

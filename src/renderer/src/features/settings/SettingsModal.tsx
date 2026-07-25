@@ -1,0 +1,399 @@
+import { useState } from 'react'
+import {
+  App as AntdApp,
+  Alert,
+  Button,
+  Divider,
+  Input,
+  InputNumber,
+  Menu,
+  Modal,
+  Radio,
+  Segmented,
+  Select,
+  Slider,
+  Switch,
+  Typography
+} from 'antd'
+import { useTranslation } from 'react-i18next'
+import { PRESET_COLORS } from '@shared/constants'
+import type { AppSettings } from '@shared/types'
+import { ofs } from '@/ipc/api'
+import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useUiStore } from '@/stores/useUiStore'
+import { terminalThemes } from '@/themes/terminal'
+import { TerminalPreview } from './TerminalPreview'
+import { SHORTCUTS } from './shortcuts'
+import styles from './SettingsModal.module.css'
+
+type Section = 'general' | 'appearance' | 'terminal' | 'sftp' | 'security' | 'shortcuts' | 'about'
+
+export function SettingsModal(): React.JSX.Element {
+  const { t } = useTranslation()
+  const { message } = AntdApp.useApp()
+  const open = useUiStore((s) => s.settingsOpen)
+  const setOpen = useUiStore((s) => s.setSettingsOpen)
+  const settings = useSettingsStore((s) => s.settings)
+  const patch = useSettingsStore((s) => s.patch)
+  const [section, setSection] = useState<Section>('general')
+  const [vaultAvailable, setVaultAvailable] = useState<boolean | null>(null)
+  const [versions, setVersions] = useState<Awaited<ReturnType<typeof loadVersions>> | null>(null)
+
+  async function loadVersions(): Promise<{
+    app: string
+    electron: string
+    node: string
+    chrome: string
+  }> {
+    return ofs.invoke('app:getVersions')
+  }
+
+  if (!settings) return <></>
+
+  const set = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void =>
+    patch({ [key]: value } as Partial<AppSettings>)
+  const setTerminal = (v: Partial<AppSettings['terminal']>): void =>
+    patch({ terminal: { ...settings.terminal, ...v } })
+  const setSftp = (v: Partial<AppSettings['sftp']>): void => patch({ sftp: { ...settings.sftp, ...v } })
+
+  const onOpenSection = (next: Section): void => {
+    setSection(next)
+    if (next === 'security' && vaultAvailable === null) {
+      void ofs.invoke('vault:isAvailable').then(setVaultAvailable)
+    }
+    if (next === 'about' && !versions) {
+      void loadVersions().then(setVersions)
+    }
+  }
+
+  const pickDownloadDir = async (): Promise<void> => {
+    const dir = await ofs.invoke('app:pickPath', {
+      mode: 'openDirectory',
+      title: t('settings.pickDownloadDir')
+    })
+    if (dir) setSftp({ downloadDir: dir })
+  }
+
+  return (
+    <Modal
+      open={open}
+      title={t('activity.settings')}
+      width={860}
+      footer={null}
+      onCancel={() => setOpen(false)}
+      styles={{ body: { padding: 0, height: 560 } }}
+    >
+      <div className={styles.wrap}>
+        <Menu
+          mode="inline"
+          className={styles.nav}
+          selectedKeys={[section]}
+          onSelect={({ key }) => onOpenSection(key as Section)}
+          items={(
+            ['general', 'appearance', 'terminal', 'sftp', 'security', 'shortcuts', 'about'] as Section[]
+          ).map((key) => ({ key, label: t(`settings.section_${key}`) }))}
+        />
+
+        <div className={styles.content}>
+          {section === 'general' && (
+            <>
+              <Row label={t('settings.language')}>
+                <Select
+                  value={settings.language}
+                  style={{ width: 180 }}
+                  onChange={(v) => set('language', v)}
+                  options={[
+                    { value: 'zh-CN', label: '简体中文' },
+                    { value: 'en-US', label: 'English' }
+                  ]}
+                />
+              </Row>
+              <Row label={t('settings.confirmOnCloseTab')} hint={t('settings.confirmOnCloseTabHint')}>
+                <Switch
+                  checked={settings.confirmOnCloseTab}
+                  onChange={(v) => set('confirmOnCloseTab', v)}
+                />
+              </Row>
+              <Row label={t('settings.disableGpu')} hint={t('settings.disableGpuHint')}>
+                <Switch
+                  checked={settings.disableGpu}
+                  onChange={(v) => {
+                    set('disableGpu', v)
+                    message.info(t('settings.restartRequired'))
+                  }}
+                />
+              </Row>
+            </>
+          )}
+
+          {section === 'appearance' && (
+            <>
+              <Row label={t('settings.theme')}>
+                <Segmented
+                  value={settings.themeMode}
+                  onChange={(v) => set('themeMode', v as AppSettings['themeMode'])}
+                  options={[
+                    { label: t('settings.themeDark'), value: 'dark' },
+                    { label: t('settings.themeLight'), value: 'light' },
+                    { label: t('settings.themeSystem'), value: 'system' }
+                  ]}
+                />
+              </Row>
+              <Row label={t('settings.accent')}>
+                <Radio.Group value={settings.accent} onChange={(e) => set('accent', e.target.value)}>
+                  {PRESET_COLORS.map((c) => (
+                    <Radio key={c} value={c}>
+                      <span className={styles.colorDot} style={{ background: c }} />
+                    </Radio>
+                  ))}
+                </Radio.Group>
+              </Row>
+              <Row label={t('settings.uiZoom')}>
+                <div style={{ width: 240 }}>
+                  <Slider
+                    min={90}
+                    max={150}
+                    step={5}
+                    value={settings.uiZoom}
+                    marks={{ 100: '100%', 125: '125%', 150: '150%' }}
+                    onChange={(v) => set('uiZoom', v)}
+                  />
+                </div>
+              </Row>
+            </>
+          )}
+
+          {section === 'terminal' && (
+            <>
+              <Row label={t('settings.fontFamily')}>
+                <Input
+                  style={{ width: 320 }}
+                  value={settings.terminal.fontFamily}
+                  onChange={(e) => setTerminal({ fontFamily: e.target.value })}
+                />
+              </Row>
+              <Row label={t('settings.fontSize')}>
+                <InputNumber
+                  min={8}
+                  max={32}
+                  value={settings.terminal.fontSize}
+                  onChange={(v) => v && setTerminal({ fontSize: v })}
+                />
+              </Row>
+              <Row label={t('settings.lineHeight')}>
+                <InputNumber
+                  min={1}
+                  max={2}
+                  step={0.05}
+                  value={settings.terminal.lineHeight}
+                  onChange={(v) => v && setTerminal({ lineHeight: v })}
+                />
+              </Row>
+              <Row label={t('settings.scrollback')} hint={t('settings.scrollbackHint')}>
+                <InputNumber
+                  min={1000}
+                  max={100000}
+                  step={1000}
+                  value={settings.terminal.scrollback}
+                  onChange={(v) => v && setTerminal({ scrollback: v })}
+                />
+              </Row>
+              <Row label={t('settings.cursorStyle')}>
+                <Segmented
+                  value={settings.terminal.cursorStyle}
+                  onChange={(v) => setTerminal({ cursorStyle: v as 'bar' | 'block' | 'underline' })}
+                  options={[
+                    { label: t('settings.cursorBar'), value: 'bar' },
+                    { label: t('settings.cursorBlock'), value: 'block' },
+                    { label: t('settings.cursorUnderline'), value: 'underline' }
+                  ]}
+                />
+              </Row>
+              <Row label={t('settings.cursorBlink')}>
+                <Switch
+                  checked={settings.terminal.cursorBlink}
+                  onChange={(v) => setTerminal({ cursorBlink: v })}
+                />
+              </Row>
+              <Divider style={{ margin: '8px 0' }} />
+              <Row label={t('settings.terminalTheme')}>
+                <Select
+                  style={{ width: 200 }}
+                  value={settings.terminal.themeId}
+                  onChange={(v) => setTerminal({ themeId: v })}
+                  options={[
+                    { value: 'auto', label: t('settings.terminalThemeAuto') },
+                    ...Object.entries(terminalThemes).map(([id, v]) => ({ value: id, label: v.name }))
+                  ]}
+                />
+              </Row>
+              <TerminalPreview themeId={settings.terminal.themeId} settings={settings} />
+              <Divider style={{ margin: '8px 0' }} />
+              <Row label={t('settings.copyOnSelect')}>
+                <Switch
+                  checked={settings.terminal.copyOnSelect}
+                  onChange={(v) => setTerminal({ copyOnSelect: v })}
+                />
+              </Row>
+              <Row label={t('settings.rightClick')}>
+                <Segmented
+                  value={settings.terminal.rightClick}
+                  onChange={(v) => setTerminal({ rightClick: v as 'paste' | 'menu' })}
+                  options={[
+                    { label: t('settings.rightClickPaste'), value: 'paste' },
+                    { label: t('settings.rightClickMenu'), value: 'menu' }
+                  ]}
+                />
+              </Row>
+              <Row label={t('settings.confirmMultilinePaste')}>
+                <Switch
+                  checked={settings.terminal.confirmMultilinePaste}
+                  onChange={(v) => setTerminal({ confirmMultilinePaste: v })}
+                />
+              </Row>
+              <Row label={t('settings.webgl')} hint={t('settings.webglHint')}>
+                <Switch
+                  checked={settings.terminal.webgl}
+                  onChange={(v) => setTerminal({ webgl: v })}
+                />
+              </Row>
+            </>
+          )}
+
+          {section === 'sftp' && (
+            <>
+              <Row label={t('settings.downloadDir')} hint={t('settings.downloadDirHint')}>
+                <Input
+                  style={{ width: 380 }}
+                  value={settings.sftp.downloadDir}
+                  placeholder={t('settings.downloadDirPlaceholder')}
+                  onChange={(e) => setSftp({ downloadDir: e.target.value })}
+                  addonAfter={<a onClick={() => void pickDownloadDir()}>{t('conn.browse')}</a>}
+                />
+              </Row>
+              <Row label={t('settings.maxConcurrentPerSession')}>
+                <InputNumber
+                  min={1}
+                  max={8}
+                  value={settings.sftp.maxConcurrentPerSession}
+                  onChange={(v) => v && setSftp({ maxConcurrentPerSession: v })}
+                />
+              </Row>
+              <Row label={t('settings.maxConcurrentGlobal')}>
+                <InputNumber
+                  min={1}
+                  max={16}
+                  value={settings.sftp.maxConcurrentGlobal}
+                  onChange={(v) => v && setSftp({ maxConcurrentGlobal: v })}
+                />
+              </Row>
+              <Row label={t('settings.showHiddenFiles')}>
+                <Switch
+                  checked={settings.sftp.showHiddenFiles}
+                  onChange={(v) => setSftp({ showHiddenFiles: v })}
+                />
+              </Row>
+              <Row label={t('settings.monitorInterval')}>
+                <InputNumber
+                  min={1000}
+                  max={10000}
+                  step={500}
+                  addonAfter="ms"
+                  value={settings.monitor.intervalMs}
+                  onChange={(v) => v && patch({ monitor: { intervalMs: v } })}
+                />
+              </Row>
+            </>
+          )}
+
+          {section === 'security' && (
+            <>
+              {vaultAvailable === false && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={t('settings.vaultUnavailable')}
+                  description={t('settings.vaultUnavailableDesc')}
+                />
+              )}
+              {vaultAvailable === true && (
+                <Alert
+                  type="success"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={t('settings.vaultAvailable')}
+                  description={t('settings.vaultAvailableDesc')}
+                />
+              )}
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+                {t('settings.securityNotes')}
+              </Typography.Paragraph>
+            </>
+          )}
+
+          {section === 'shortcuts' && (
+            <table className={styles.shortcutTable}>
+              <tbody>
+                {SHORTCUTS.map((s) => (
+                  <tr key={s.keys}>
+                    <td>
+                      <kbd className={styles.kbd}>{s.keys}</kbd>
+                    </td>
+                    <td>{t(s.descKey)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {section === 'about' && (
+            <div className={styles.about}>
+              <div className={styles.aboutLogo} />
+              <div className={styles.aboutName}>OpenFinalShell</div>
+              <div className={styles.aboutVersion}>
+                {versions
+                  ? `v${versions.app} · Electron ${versions.electron} · Node ${versions.node} · Chromium ${versions.chrome}`
+                  : '…'}
+              </div>
+              <Typography.Paragraph type="secondary" style={{ marginTop: 12, textAlign: 'center' }}>
+                {t('welcome.subtitle')}
+              </Typography.Paragraph>
+              <Button
+                type="link"
+                onClick={() =>
+                  void ofs
+                    .invoke('app:openExternal', 'https://github.com/openfinalshell/openfinalshell')
+                    .catch(() => message.error(t('settings.openLinkFailed')))
+                }
+              >
+                GitHub
+              </Button>
+              <div className={styles.aboutLicense}>MIT License</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function Row({
+  label,
+  hint,
+  children
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div className={styles.row}>
+      <div className={styles.rowLabel}>
+        <div>{label}</div>
+        {hint && <div className={styles.rowHint}>{hint}</div>}
+      </div>
+      <div className={styles.rowControl}>{children}</div>
+    </div>
+  )
+}

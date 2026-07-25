@@ -108,7 +108,8 @@ export function createMockOfs(): OfsApi {
             { ...mockFile(dir, 'run.sh', 512, 0o755), modeStr: '-rwxr-xr-x' }
           ]
         : dir === '/home/test/logs'
-          ? Array.from({ length: 40 }, (_, i) => mockFile(dir, `app-${i + 1}.log`, (i + 1) * 4096))
+          ? // 条目较多，用于验证虚拟表格（改成 10000 可压测大目录渲染）
+            Array.from({ length: 500 }, (_, i) => mockFile(dir, `app-${i + 1}.log`, (i + 1) * 4096))
           : dir === '/home/test/www'
             ? [mockFile(dir, 'index.html', 1024), mockFile(dir, 'style.css', 512)]
             : dir === '/'

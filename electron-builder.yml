@@ -1,0 +1,60 @@
+appId: io.github.openfinalshell
+productName: OpenFinalShell
+copyright: Copyright © 2026 openfinalshell contributors
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**
+  # package.json 必需；其余源码/测试不入包
+  - package.json
+
+asar: true
+asarUnpack:
+  # ssh2 的可选原生 crypto binding / cpu-features 存在时需解包才能 dlopen
+  - '**/*.node'
+
+# 针对 Electron ABI 重编原生可选依赖；失败无害（ssh2 自动回退纯 JS）
+npmRebuild: true
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  # 只提供 512×512 PNG，electron-builder 自动转 ICO
+  icon: build/icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false # 免管理员，装到 %LOCALAPPDATA%
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: OpenFinalShell
+  installerLanguages: [zh_CN, en_US]
+  artifactName: ${productName}-${version}-setup.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+mac:
+  target: [dmg, zip]
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  hardenedRuntime: true
+
+linux:
+  target: [AppImage, deb]
+  category: Network
+  icon: build/icon.png
+  maintainer: openfinalshell contributors
+
+publish:
+  provider: github
+  owner: openfinalshell
+  repo: openfinalshell

@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Button, Result } from 'antd'
+import i18n from '@/i18n'
 
 interface Props {
   children: ReactNode
@@ -27,14 +28,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.error) {
+      // 类组件里没有 hooks，直接用 i18next 实例取文案
       return (
         <Result
           status="error"
-          title="该面板出现异常"
+          title={i18n.t('common.panelCrashed')}
           subTitle={this.state.error.message}
           extra={
             <Button size="small" onClick={() => this.setState({ error: null })}>
-              重新加载
+              {i18n.t('common.reload')}
             </Button>
           }
         />

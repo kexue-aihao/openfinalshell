@@ -64,6 +64,10 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [permTarget, setPermTarget] = useState<SftpEntry | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  /** 右键菜单：受控 + 定位到光标（虚拟表格不能覆写 row 组件） */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; entry: SftpEntry } | null>(
+    null
+  )
   const initializedRef = useRef(false)
 
   const showHidden = settings.sftp.showHiddenFiles
@@ -486,30 +490,47 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
             }}
             onRow={(entry) => ({
               onDoubleClick: () => openEntry(entry),
-              onContextMenu: (e) => e.preventDefault()
-            })}
-            components={{
-              body: {
-                row: (props: React.HTMLAttributes<HTMLTableRowElement> & { 'data-row-key'?: string }) => {
-                  const entry = visible.find((v) => v.path === props['data-row-key'])
-                  if (!entry) return <tr {...props} />
-                  return (
-                    <Dropdown
-                      trigger={['contextMenu']}
-                      menu={{
-                        items: contextItems(entry),
-                        onClick: ({ key }) => onContextClick(entry, key)
-                      }}
-                    >
-                      <tr {...props} />
-                    </Dropdown>
-                  )
-                }
+              onContextMenu: (e) => {
+                // 不覆写 row 组件：virtual 模式下 antd 的单元格是 div，
+                // 强行套在 <tr> 上会产生非法 DOM 嵌套。改为在光标处开受控菜单。
+                e.preventDefault()
+                if (!selected.includes(entry.path)) setSelected([entry.path])
+                setContextMenu({ x: e.clientX, y: e.clientY, entry })
               }
-            }}
+            })}
           />
         )}
       </div>
+
+      {contextMenu && (
+        <Dropdown
+          open
+          trigger={[]}
+          menu={{
+            items: contextItems(contextMenu.entry),
+            onClick: ({ key }) => {
+              const entry = contextMenu.entry
+              setContextMenu(null)
+              onContextClick(entry, key)
+            }
+          }}
+          onOpenChange={(open) => {
+            if (!open) setContextMenu(null)
+          }}
+        >
+          {/* 1×1 锚点：把菜单定位到光标位置 */}
+          <span
+            style={{
+              position: 'fixed',
+              left: contextMenu.x,
+              top: contextMenu.y,
+              width: 1,
+              height: 1,
+              pointerEvents: 'none'
+            }}
+          />
+        </Dropdown>
+      )}
 
       {dragOver && <div className={styles.dropMask}>{t('sftp.dropToUpload', { dir: cwd })}</div>}
 
