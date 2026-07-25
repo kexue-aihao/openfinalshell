@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { Client, type ClientChannel, type SFTPWrapper } from 'ssh2'
+import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from 'ssh2'
 import type {
   ConnectionProfile,
   HostkeyPromptPayload,
@@ -36,6 +36,11 @@ export interface ShellExitInfo {
  * shell 状态不可恢复，重连成功后对每个 shell 发 reconnected，由 renderer 重开。
  */
 const TRANSFER_CLIENT_IDLE_MS = 60_000
+
+/** 走代理时 config.sock 是我们自己拨的隧道；SSH 握手失败 ssh2 未必会关它，显式销毁防泄漏 */
+function destroyProxySock(config: ConnectConfig | undefined): void {
+  config?.sock?.destroy()
+}
 
 export class SshConnection extends EventEmitter {
   readonly sessionId: SessionId
@@ -78,14 +83,15 @@ export class SshConnection extends EventEmitter {
     this.reconnectAttempt = 0
   }
 
-  private async establish(): Promise<void> {
+  /** isRetry=true 时失败不置 closed —— 由 scheduleReconnect 决定是继续退避还是收摊，避免状态闪烁 */
+  private async establish(isRetry = false): Promise<void> {
     this.setState('connecting')
     let config
     try {
       config = await buildConnectConfig(this.profile, this.sessionId)
     } catch (err) {
       const msg = friendlySshError(err)
-      this.setState('closed', msg)
+      if (!isRetry) this.setState('closed', msg)
       throw new Error(msg)
     }
 
@@ -118,22 +124,23 @@ export class SshConnection extends EventEmitter {
       })
     } catch (err) {
       const msg = friendlySshError(err)
+      destroyProxySock(config)
       this.client = null
-      this.setState('closed', msg)
+      if (!isRetry) this.setState('closed', msg)
       throw new Error(msg)
     }
 
     client.on('error', (err) => {
       log.warn(`session ${this.sessionId} error after ready: ${err.message}`)
     })
-    client.on('close', () => this.onClientClosed())
+    client.on('close', () => this.onClientClosed(client))
 
     this.setState('ready')
     this.emit('reestablished')
   }
 
-  private onClientClosed(): void {
-    // 该连接上的所有 shell 通道与 SFTP 会话随之失效
+  /** 关掉本连接派生的所有通道，返回失效的终端 id（是否通知 renderer 由调用方决定） */
+  private teardownChannels(): TermId[] {
     for (const shell of this.shells.values()) shell.close()
     const lostTerms = [...this.shells.keys()]
     this.shells.clear()
@@ -141,7 +148,15 @@ export class SshConnection extends EventEmitter {
     this.browseSftpPromise = null
     this.remoteHandlers.clear()
     this.tcpConnectionWired = false
-    this.emit('sftp-lost')
+    return lostTerms
+  }
+
+  private onClientClosed(client: Client): void {
+    // 陈旧 client 的收尾（手动重连时旧连接的 'close'）不能污染新连接的状态机 ——
+    // 否则会误判为掉线，既多排一次重连，又把刚恢复的转发规则重新标成 error。
+    if (this.client !== client) return
+    this.client = null
+    const lostTerms = this.teardownChannels()
 
     if (this.intentionalClose) {
       if (this.state !== 'closed') this.setState('closed')
@@ -172,7 +187,7 @@ export class SshConnection extends EventEmitter {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
       if (this.intentionalClose) return
-      void this.establish()
+      void this.establish(true)
         .then(() => {
           this.reconnectAttempt = 0
         })
@@ -196,8 +211,14 @@ export class SshConnection extends EventEmitter {
     }
     this.intentionalClose = false
     this.reconnectAttempt = 0
-    this.client?.end()
+    const stale = this.client
     this.client = null
+    // 旧 client 的 'close' 会因身份不符被忽略，所以这里自己收尾：
+    // 不通知 renderer 的话，终端会一直握着已死的 termId，重连后不会重开 shell。
+    for (const termId of this.teardownChannels()) {
+      this.emit('shell-exit', { termId, reason: 'reconnected' } as ShellExitInfo)
+    }
+    stale?.end()
     await this.establish()
   }
 
@@ -443,15 +464,20 @@ export class SshConnection extends EventEmitter {
           finish
         )
       })
-      await new Promise<void>((resolve, reject) => {
-        const onError = (err: Error): void => reject(new Error(friendlySshError(err)))
-        client.once('error', onError)
-        client.once('ready', () => {
-          client.removeListener('error', onError)
-          resolve()
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (err: Error): void => reject(new Error(friendlySshError(err)))
+          client.once('error', onError)
+          client.once('ready', () => {
+            client.removeListener('error', onError)
+            resolve()
+          })
+          client.connect(config)
         })
-        client.connect(config)
-      })
+      } catch (err) {
+        destroyProxySock(config)
+        throw err
+      }
       client.on('error', (err) => log.warn(`transfer client error: ${err.message}`))
       client.on('close', () => {
         if (this.transferClient === client) {

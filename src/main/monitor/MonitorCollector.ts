@@ -84,13 +84,17 @@ export class MonitorCollector {
 
   /** 启动：开通道 → 采静态信息 → 开始周期采集。非 Linux 返回 null（面板显示不支持） */
   async start(intervalMs = MONITOR_DEFAULT_INTERVAL_MS): Promise<MonitorStaticInfo | null> {
+    // 重建通道时必须先停掉旧 tick，否则每次重建都多挂一个 interval，采集频率翻倍
+    this.pause()
     this.setInterval(intervalMs)
-    this.channel = await this.openChannel()
-    this.channel.on('data', (chunk: Buffer) => this.onData(chunk))
-    this.channel.stderr.on('data', () => {
+    const channel = await this.openChannel()
+    this.channel = channel
+    channel.on('data', (chunk: Buffer) => this.onData(chunk))
+    channel.stderr.on('data', () => {
       /* 采集脚本的 stderr 已重定向，此处忽略残余 */
     })
-    this.channel.on('close', () => this.onChannelClosed())
+    // 带上通道身份：旧通道的 close 迟到时不能把刚建好的新通道置空
+    channel.on('close', () => this.onChannelClosed(channel))
 
     const staticInfo = await this.collectStatic()
     if (!staticInfo) {
@@ -258,6 +262,8 @@ export class MonitorCollector {
   }
 
   private onFailure(reason: string): void {
+    // stop() 会把在途帧以 null 收尾，别让它把已停止的采集器翻成 failed
+    if (this.stopped) return
     this.failures += 1
     log.debug(`session ${this.sessionId}: collect failed (${this.failures}) ${reason}`)
     if (this.failures >= MAX_CONSECUTIVE_FAILURES) {
@@ -266,15 +272,38 @@ export class MonitorCollector {
     }
   }
 
-  private onChannelClosed(): void {
+  private onChannelClosed(channel: ClientChannel): void {
+    if (this.channel !== channel) return
     this.channel = null
+    this.pause()
+    // 在途帧永远等不到应答了，就地收尾 —— 否则 pendingFrame 一直占着，tick() 全被挡掉
+    if (this.frameTimer) {
+      clearTimeout(this.frameTimer)
+      this.frameTimer = null
+    }
+    this.pendingFrame?.resolve(null)
+    this.pendingFrame = null
     if (this.stopped) return
-    // 通道被杀（如服务器侧重启 shell）：5s 后重建
+    // 通道被杀（如服务器侧 kill 了 sh）：5s 后重建。
+    // 整条 SSH 连接断了的情况由 MonitorManager.reattach 在重连成功后驱动。
     log.debug(`session ${this.sessionId}: monitor channel closed, retrying in 5s`)
     setTimeout(() => {
-      if (this.stopped) return
+      if (this.stopped || this.channel) return
       void this.restart()
     }, 5000)
+  }
+
+  /**
+   * 会话重连成功后重建采集通道。
+   * 旧通道即使还没触发 close 也已经废了（它挂在旧连接上），所以无条件换新的 ——
+   * 只等 close 事件的话，会白等到那 5s 重试才恢复。
+   */
+  async reattach(): Promise<void> {
+    if (this.stopped) return
+    const stale = this.channel
+    this.channel = null
+    stale?.close()
+    await this.restart()
   }
 
   private async restart(): Promise<void> {

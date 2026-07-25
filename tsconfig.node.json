@@ -26,5 +26,7 @@
     "src/preload/**/*",
     "src/shared/**/*",
     "test/**/*.ts"
-  ]
+  ],
+  // renderer 侧的测试归 tsconfig.web（要 DOM lib 与 @/* 别名）
+  "exclude": ["test/renderer/**/*"]
 }

@@ -17,6 +17,8 @@ export interface SessionTab {
   monitorOpen: boolean
   /** 递增计数：变化时 TerminalPane 重新开 shell（重连后复用同一 tab 与 xterm 缓冲） */
   shellEpoch: number
+  /** 曾经 ready 过：用于区分首次连接与重新建连，首连不打"连接已恢复"分隔线 */
+  everReady?: boolean
 }
 
 interface SessionStore {
@@ -172,9 +174,13 @@ export function wireSessionEvents(): void {
     for (const tab of tabs) {
       if (tab.sessionId !== sessionId) continue
       updateTab(tab.id, { state, error })
-      // 重连成功 → 让 TerminalPane 重开 shell（xterm 缓冲保留）
-      if (state === 'ready' && tab.termId === null) {
-        updateTab(tab.id, { shellEpoch: tab.shellEpoch + 1 })
+      if (state !== 'ready') continue
+      // 注意 tab 是本次更新前的快照：everReady 为假即首次连上，不算"恢复"
+      if (tab.everReady) {
+        // 重新建连 → 让 TerminalPane 重开 shell 并打恢复分隔线（xterm 缓冲保留）
+        if (tab.termId === null) updateTab(tab.id, { shellEpoch: tab.shellEpoch + 1 })
+      } else {
+        updateTab(tab.id, { everReady: true })
       }
     }
   })

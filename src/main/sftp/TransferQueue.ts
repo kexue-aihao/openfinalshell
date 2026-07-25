@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 import type { SessionId, TaskId, TransferEnqueueItem, TransferTask } from '@shared/types'
 import { TRANSFER_PROGRESS_INTERVAL_MS } from '@shared/constants'
@@ -269,11 +269,3 @@ class TransferQueue {
 }
 
 export const transferQueue = new TransferQueue()
-
-/** 下载默认落地目录（设置未指定时用系统下载目录） */
-export function defaultDownloadDir(fallback: string): string {
-  const configured = getSettings().sftp.downloadDir
-  return configured || fallback
-}
-
-export { basename }

@@ -5,6 +5,7 @@ import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'
 import { sshManager } from '../../src/main/ssh/SshConnectionManager'
+import { monitorManager } from '../../src/main/monitor/MonitorManager'
 import { trustHostkey } from '../../src/main/ssh/hostkeys'
 import type { ProfileDraft, SessionState } from '@shared/types'
 
@@ -158,6 +159,101 @@ describe('断线自动重连', () => {
     expect(states()).not.toContain('reconnecting')
     expect(eventsOf('term:exit').find((e) => e.termId === termId)?.reason).toBe('closed')
 
+    stop()
+    deleteProfile(profile.id)
+  })
+
+  it('会话仍在线时手动重连：不被旧连接的收尾污染成"掉线"', async () => {
+    const port = PORT + 6
+    server = await startServer(port)
+    const stop = autoTrustHostkeys()
+    const profile = saveProfile(draft({ name: 'manual-reconnect', port }))
+
+    const { sessionId } = await sshManager.open(profile.id)
+    const { termId } = await sshManager.openShell(sessionId, 80, 24)
+    await waitFor(() => eventsOf('term:data').some((e) => e.termId === termId), 10000, 'output')
+
+    const before = states().length
+    await sshManager.reconnect(sessionId)
+    expect(states().at(-1)).toBe('ready')
+
+    // 旧连接的 'close' 是异步到的；退避首档 1s，等过这个窗口才能证明没排重连
+    await new Promise((r) => setTimeout(r, 1800))
+    const after = states().slice(before)
+    expect(after).not.toContain('reconnecting')
+    // 一次手动重连只应有一轮 connecting → authenticating → ready
+    expect(after.filter((s) => s === 'ready')).toHaveLength(1)
+    expect(after.filter((s) => s === 'connecting')).toHaveLength(1)
+
+    // 旧终端必须被告知失效，否则 renderer 会一直握着死掉的 termId 不重开
+    const exits = eventsOf('term:exit').filter((e) => e.termId === termId)
+    expect(exits).toHaveLength(1)
+    expect(exits[0].reason).toBe('reconnected')
+    const again = await sshManager.openShell(sessionId, 80, 24)
+    expect(again.termId).not.toBe(termId)
+
+    stop()
+    deleteProfile(profile.id)
+  })
+
+  it('掉线自动重连后监控继续采集（曾经会永久冻在最后一帧）', async () => {
+    const port = PORT + 7
+    server = await startServer(port)
+    const stop = autoTrustHostkeys()
+    const profile = saveProfile(draft({ name: 'monitor-reattach', port }))
+
+    const { sessionId } = await sshManager.open(profile.id)
+    await monitorManager.start(sessionId, 1000)
+    await waitFor(() => eventsOf('monitor:data').length >= 2, 15000, 'first snapshots')
+
+    // 真实掉线：采集通道随连接一起死。旧实现只在通道关闭后重试一次（5s），
+    // 停机超过这个窗口时那一次必然落空 → 之后再也不重试，监控永久冻住。
+    // 所以这里故意让服务器停够 6.5s，把"侥幸赶上重试"的情况排除掉。
+    server.kill()
+    await waitFor(() => states().includes('reconnecting'), 10000, 'reconnecting')
+    const beforeCount = eventsOf('monitor:data').length
+    await new Promise((r) => setTimeout(r, 6500))
+    server = await startServer(port)
+    await waitFor(
+      () => states().lastIndexOf('ready') > states().indexOf('reconnecting'),
+      25000,
+      'session recovered'
+    )
+
+    await waitFor(
+      () => eventsOf('monitor:data').length > beforeCount + 1,
+      15000,
+      'snapshots after reconnect'
+    )
+    expect(eventsOf('monitor:state').at(-1)?.state).toBe('running')
+
+    monitorManager.stop(sessionId)
+    stop()
+    deleteProfile(profile.id)
+  })
+
+  it('手动重连后监控立刻接回，不用等通道重试的 5 秒', async () => {
+    const port = PORT + 8
+    server = await startServer(port)
+    const stop = autoTrustHostkeys()
+    const profile = saveProfile(draft({ name: 'monitor-reattach-fast', port }))
+
+    const { sessionId } = await sshManager.open(profile.id)
+    await monitorManager.start(sessionId, 1000)
+    await waitFor(() => eventsOf('monitor:data').length >= 2, 15000, 'first snapshots')
+
+    const beforeCount = eventsOf('monitor:data').length
+    await sshManager.reconnect(sessionId)
+    const at = Date.now()
+    await waitFor(
+      () => eventsOf('monitor:data').length > beforeCount + 1,
+      10000,
+      'snapshots after manual reconnect'
+    )
+    // 走通道自身的 5s 重试才恢复的话这里必然超过
+    expect(Date.now() - at).toBeLessThan(4500)
+
+    monitorManager.stop(sessionId)
     stop()
     deleteProfile(profile.id)
   })

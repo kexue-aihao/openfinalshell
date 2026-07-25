@@ -2,13 +2,7 @@ import type { SFTPWrapper } from 'ssh2'
 import type { SessionId, SftpEntry } from '@shared/types'
 import { sshManager } from '../ssh/SshConnectionManager'
 import { toSftpEntry, typeFromMode, type RawDirEntry } from './entryParse'
-import {
-  remoteAncestors,
-  remoteBasename,
-  remoteJoin,
-  toRemotePath,
-  type RemotePath
-} from './remotePath'
+import { remoteAncestors, remoteJoin, toRemotePath, type RemotePath } from './remotePath'
 
 /** ssh2 的 sftp 回调风格 → Promise（有返回值） */
 function promisify<T>(fn: (cb: (err: Error | undefined, result: T) => void) => void): Promise<T> {
@@ -134,5 +128,3 @@ export async function readdirRaw(sftp: SFTPWrapper, dir: RemotePath): Promise<Ra
     sftp.readdir(dir, cb as (err: Error | undefined, list: RawDirEntry[]) => void)
   )
 }
-
-export { remoteBasename }

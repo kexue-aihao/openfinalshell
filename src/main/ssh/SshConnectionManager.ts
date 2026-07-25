@@ -37,8 +37,11 @@ class SshConnectionManager {
       }
     })
 
-    // 重连成功 → 恢复该会话此前活跃的转发规则
+    // 重连成功 → 先接回监控通道，再恢复该会话此前活跃的转发规则
     conn.on('reestablished', () => {
+      void monitorManager.reattach(conn.sessionId).catch((err: Error) => {
+        log.warn(`restore monitor failed: ${err.message}`)
+      })
       const pending = this.pendingForwards.get(conn.sessionId)
       if (!pending || pending.length === 0) return
       this.pendingForwards.delete(conn.sessionId)

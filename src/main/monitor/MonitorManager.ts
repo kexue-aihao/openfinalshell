@@ -40,6 +40,14 @@ class MonitorManager {
     this.collectors.get(sessionId)?.setInterval(intervalMs)
   }
 
+  /**
+   * 会话重连成功 → 让仍在运行的采集器换一条新通道继续采。
+   * 少了这一步，重连后监控会一直冻在最后一帧且不报错（采集通道随旧连接一起死了）。
+   */
+  async reattach(sessionId: SessionId): Promise<void> {
+    await this.collectors.get(sessionId)?.reattach()
+  }
+
   stop(sessionId: SessionId): void {
     const collector = this.collectors.get(sessionId)
     if (!collector) return

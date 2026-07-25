@@ -202,9 +202,12 @@ class ForwardManager {
     stream: Duplex,
     pipeSocketToStream = true
   ): void {
-    socket.on('data', (chunk: Buffer) => {
+    // 双向都计数：只算上行的话，"从远端下载"这类场景流量会显示成近乎 0
+    const count = (chunk: Buffer): void => {
       entry.runtime.totalBytes += chunk.length
-    })
+    }
+    socket.on('data', count)
+    stream.on('data', count)
 
     if (pipeSocketToStream) socket.pipe(stream)
     stream.pipe(socket)

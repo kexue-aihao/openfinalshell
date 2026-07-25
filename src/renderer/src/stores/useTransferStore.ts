@@ -10,13 +10,11 @@ interface TransferStore {
   enqueue: (items: TransferEnqueueItem[]) => Promise<TaskId[]>
   control: (taskId: TaskId, op: 'pause' | 'resume' | 'cancel' | 'retry') => Promise<void>
   clearFinished: () => Promise<void>
-  /** 进行中的任务数，用于活动栏角标 */
-  activeCount: () => number
 }
 
 const FINISHED = new Set(['done', 'error', 'canceled'])
 
-export const useTransferStore = create<TransferStore>((set, get) => ({
+export const useTransferStore = create<TransferStore>((set) => ({
   tasks: [],
   drawerOpen: false,
 
@@ -40,9 +38,7 @@ export const useTransferStore = create<TransferStore>((set, get) => ({
   clearFinished: async () => {
     await ofs.invoke('transfer:clearFinished')
     set((s) => ({ tasks: s.tasks.filter((t) => !FINISHED.has(t.state)) }))
-  },
-
-  activeCount: () => get().tasks.filter((t) => t.state === 'running' || t.state === 'queued').length
+  }
 }))
 
 let wired = false
