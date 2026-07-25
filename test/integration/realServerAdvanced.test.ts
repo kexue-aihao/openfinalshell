@@ -55,7 +55,27 @@ let localDir = ''
 const remoteCleanup: string[] = []
 /** 记录是否动过 authorized_keys，兜底恢复 */
 let authorizedKeysTouched = false
+/** 测试开始前 authorized_keys 是否已存在 —— 决定清理时是"恢复内容"还是"整个删掉" */
+let authorizedKeysPreexisted = false
 let pubKeyLine = ''
+
+/**
+ * 把 authorized_keys 恢复到测试前的状态：
+ * 原本不存在 → 整个删掉；原本存在 → 从备份恢复。并清掉所有中间文件，不留痕迹。
+ */
+async function restoreAuthorizedKeys(): Promise<string> {
+  if (!authorizedKeysTouched) return '未改动'
+  const cmd = authorizedKeysPreexisted
+    ? 'if [ -f ~/.ssh/authorized_keys.ofs-backup ]; then mv -f ~/.ssh/authorized_keys.ofs-backup ~/.ssh/authorized_keys; fi'
+    : 'rm -f ~/.ssh/authorized_keys'
+  const out = await run(
+    baseSessionId,
+    `${cmd}; rm -f ~/.ssh/authorized_keys.ofs-backup ~/.ssh/authorized_keys.ofs-clean; ` +
+      `ls -a ~/.ssh 2>/dev/null | grep -v '^\\.\\.\\?$' | tr '\\n' ' '; echo "|preexisted=${authorizedKeysPreexisted}"`
+  )
+  authorizedKeysTouched = false
+  return out.trim()
+}
 
 /** 裸 sh exec 通道跑命令（无 PTY，输出干净） */
 async function run(sessionId: string, cmd: string, timeoutMs = 30000): Promise<string> {
@@ -145,13 +165,8 @@ afterAll(async () => {
       for (const path of remoteCleanup) {
         await run(baseSessionId, `rm -f ${JSON.stringify(path)}`).catch(() => {})
       }
-      if (authorizedKeysTouched && pubKeyLine) {
-        const marker = pubKeyLine.split(/\s+/)[2] ?? 'ofs-acceptance'
-        await run(
-          baseSessionId,
-          `if [ -f ~/.ssh/authorized_keys ]; then grep -v ${JSON.stringify(marker)} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.ofs-clean && mv ~/.ssh/authorized_keys.ofs-clean ~/.ssh/authorized_keys; fi; grep -c . ~/.ssh/authorized_keys 2>/dev/null || echo 0`
-        ).catch(() => {})
-      }
+      // 用例内已恢复则无操作；用例中途失败时在这里兜底
+      await restoreAuthorizedKeys().catch(() => {})
     }
   } finally {
     transferQueue.cancelAll()
@@ -176,12 +191,17 @@ suite('真实服务器：私钥认证', () => {
     pubKeyLine = (await fs.readFile(`${keyPath}.pub`, 'utf8')).trim()
     expect(pubKeyLine).toContain(comment)
 
-    // 追加公钥（先备份原文件）
+    // 先记录原始状态（决定清理时是删文件还是恢复内容），再备份、追加
+    const pre = await run(
+      baseSessionId,
+      'test -f ~/.ssh/authorized_keys && echo EXISTS || echo ABSENT'
+    )
+    authorizedKeysPreexisted = pre.includes('EXISTS')
     authorizedKeysTouched = true
     await run(
       baseSessionId,
       `mkdir -p ~/.ssh && chmod 700 ~/.ssh && ` +
-        `if [ -f ~/.ssh/authorized_keys ]; then cp -n ~/.ssh/authorized_keys ~/.ssh/authorized_keys.ofs-backup; fi && ` +
+        `if [ -f ~/.ssh/authorized_keys ]; then cp -f ~/.ssh/authorized_keys ~/.ssh/authorized_keys.ofs-backup; fi; ` +
         `printf '%s\\n' ${JSON.stringify(pubKeyLine)} >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && ` +
         `grep -c ${JSON.stringify(comment)} ~/.ssh/authorized_keys`
     )
@@ -198,7 +218,7 @@ suite('真实服务器：私钥认证', () => {
       const { sessionId } = await sshManager.open(keyProfile.id)
       const whoami = await run(sessionId, 'whoami')
       expect(whoami.trim()).toBe(USER)
-      observed.privateKeyAuth = `成功（ed25519 PKCS8 加密私钥 + 口令，登录为 ${whoami.trim()}）`
+      observed.privateKeyAuth = `成功（ssh-keygen 生成的 OpenSSH 格式 ed25519 加密私钥 + 口令，登录为 ${whoami.trim()}）`
       sshManager.close(sessionId)
     } finally {
       stop()
@@ -237,16 +257,19 @@ suite('真实服务器：私钥认证', () => {
       deleteProfile(noPassProfile.id)
     }
 
-    // 精确移除刚追加的那一行，并确认原有内容未被破坏
-    const remaining = await run(
+    // 恢复到测试前的状态：原本不存在就整个删掉，原本存在就从备份恢复
+    const after = await restoreAuthorizedKeys()
+    observed.authorizedKeysRestored = after
+    // 不能残留测试公钥，也不能残留中间文件。
+    // 注意：grep -c 无匹配时会「输出 0 且退出码 1」，写成 `grep -c ... || echo 0`
+    // 会多打一行 0 把后续解析挤错位 —— 这里用带标记的输出，逐项精确取值。
+    const leftover = await run(
       baseSessionId,
-      `grep -v ${JSON.stringify(comment)} ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.ofs-clean; ` +
-        `mv ~/.ssh/authorized_keys.ofs-clean ~/.ssh/authorized_keys; ` +
-        `grep -c ${JSON.stringify(comment)} ~/.ssh/authorized_keys; echo "---"; wc -l < ~/.ssh/authorized_keys`
+      'echo "keys=$(grep -c ofs-acceptance ~/.ssh/authorized_keys 2>/dev/null | head -1)"; ' +
+        'echo "temps=$(ls ~/.ssh/authorized_keys.ofs-backup ~/.ssh/authorized_keys.ofs-clean 2>/dev/null | wc -l)"'
     )
-    expect(remaining.split('\n')[0].trim()).toBe('0')
-    authorizedKeysTouched = false
-    observed.authorizedKeysRestored = `已移除测试公钥（剩余行数 ${remaining.split('---')[1]?.trim()}）`
+    expect(/keys=0?$/m.test(leftover) || /keys=$/m.test(leftover)).toBe(true)
+    expect(leftover).toMatch(/temps=\s*0\s*$/m)
   }, 180000)
 })
 
