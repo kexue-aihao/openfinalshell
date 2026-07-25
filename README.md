@@ -52,6 +52,26 @@ node test/fixtures/testSshServer.mjs 2222
 
 账号 `test` / 密码 `test123`（另有 `kbi` / `test123` 用于验证 keyboard-interactive）。它实现了 shell、SFTP 子系统、exec 通道（含假 `/proc` 输出）与三型端口转发，因此整套功能都能在本机端到端验证。终端内支持 `echo`、`size`、`flood <MB>`（压测背压）、`exit`。
 
+### 真实服务器验收
+
+内置 fixture 是按本客户端的预期实现的，有循环论证风险，所以另有两组连真实 OpenSSH 的验收用例
+（未设环境变量时自动跳过，`npm test` 在任何机器上都能跑）：
+
+```bash
+$env:OFS_TEST_HOST='1.2.3.4'; $env:OFS_TEST_PORT='22'
+$env:OFS_TEST_USER='root';    $env:OFS_TEST_PASSWORD='...'
+npx vitest run test/integration/realServer.test.ts test/integration/realServerAdvanced.test.ts
+```
+
+- `realServer.test.ts`：密码认证与 hostkey 指纹、中文/emoji 回显、pty resize、
+  真实 longname 的属主解析、符号链接目标类型、上传下载往返与文件权限、
+  监控数值与 `free`/`df`/`nproc` 独立读数对照、三型端口转发打通真实隧道、探测 sshd MaxSessions
+- `realServerAdvanced.test.ts`：私钥认证（临时装公钥后精确移除）、口令错误与缺口令的文案、
+  GBK 双向转码、非 UTF-8 文件名标黄、断线自动重连、大文件传输吞吐
+
+凭据只从环境变量读，不写进代码库。会在远端 `/tmp` 建临时文件并在用例内删除；
+私钥用例会往 `authorized_keys` 追加一行测试公钥并在结束时精确移除（先做备份）。
+
 ### 打包产物冒烟测试
 
 ```bash
@@ -64,6 +84,24 @@ npm run smoke:packaged
 
 > 注意：应用有单实例锁，跑之前先关掉开发模式的实例。
 
+### 传输吞吐
+
+SFTP 传输走**并发窗口**（同时保持 64 个 32KB 读/写请求在管道里），而不是顺序 pipe ——
+顺序写每块都要等一次 ACK，在高延迟链路上会被 RTT 打死。在一台 RTT 220ms 的境外服务器上实测（20MB）：
+
+| 实现 | 上传 | 下载 |
+|---|---|---|
+| 顺序 pipe（早期实现） | 0.16 MB/s | 0.04 MB/s |
+| ssh2 内置 fastPut / fastGet | 1.05 MB/s | 0.06 MB/s |
+| **当前实现（并发窗口）** | **2.0 MB/s** | **0.1 MB/s** |
+
+下载三者都慢是因为那台服务器的**出口带宽**受限 —— 纯 SSH 数据通道（`cat` 大文件，完全不经 SFTP）
+同样只有 0.04 MB/s，客户端已经比原生实现更快。判断下载慢是链路还是客户端问题，可以用
+`node scripts/benchSftp.mjs 20` 对比，或直接在服务器上 `cat` 一个大文件看纯通道速度。
+
+并发窗口仍然完整支持暂停/继续/取消：暂停时停止发放新请求并等在途请求收尾，
+`.part` 里的数据保持连续，因此续传只需按字节偏移接上。
+
 ### 浏览器调试模式
 
 `npm run dev` 后直接用浏览器打开 <http://localhost:5173>，渲染层在缺少 preload 时会启用 mock IPC（含模拟终端、假 SFTP 目录树、周期监控数据），便于纯 UI 迭代。
@@ -71,7 +109,10 @@ npm run smoke:packaged
 ## 已知限制
 
 - **仅支持 UTF-8 的远程文件名**：ssh2 对文件名做有损 UTF-8 解码，非 UTF-8 编码（如 GB18030）的文件名无法可靠还原，此类条目在文件列表中标黄且禁止操作。终端流的编码不受此限制（GBK 等经 iconv-lite 双向转码）。
-- **私钥格式**：支持 OpenSSH（新旧格式）、PEM、PuTTY PPK v2。PPK v3 请先用 `puttygen` 另存为 v2。
+- **私钥格式**（以 ssh2 ^1.17 实测为准，见 `test/unit/privateKeyFormats.test.ts`）：
+  支持 **OpenSSH 新格式**（`ssh-keygen` 默认产物，含加密私钥）与**传统 PEM**（`BEGIN RSA PRIVATE KEY`，含加密）。
+  **不支持 PKCS#8**（`BEGIN PRIVATE KEY` / `BEGIN ENCRYPTED PRIVATE KEY`）——
+  用 `ssh-keygen -p -f <私钥> -m RFC4716` 转换即可。PuTTY `.ppk` 未在本项目验证。
 - **监控需要 Linux**：采集基于 `/proc`，BSD/macOS 等系统会显示"暂不支持监控"，终端与文件管理不受影响。
 - **凭据迁移**：Windows 上 `safeStorage` 走 DPAPI，密文与当前系统用户绑定 —— 重装系统或换机后 `vault.json` 无法解密。
 - **不做**：Telnet / 串口 / RDP / VNC、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、导入 FinalShell 配置（其配置加密无法合法解出）。

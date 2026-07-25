@@ -16,16 +16,29 @@ describe('friendlySshError', () => {
     expect(msg).toContain('no matching key exchange algorithm')
   })
 
-  it('私钥问题区分口令错误与格式不支持', () => {
-    expect(friendlySshError(new Error('Cannot parse privateKey: bad passphrase?'))).toBe(
-      '私钥口令错误'
-    )
-    expect(friendlySshError(new Error('Cannot parse privateKey: Unsupported key format'))).toContain(
-      'PPK v3'
-    )
+  // 报错字符串以 ssh2 ^1.17 实测为准，见 test/unit/privateKeyFormats.test.ts
+  it('私钥问题区分缺口令、口令错误与格式不支持', () => {
+    // 缺口令优先于格式判断（ssh2 的原文里带 OpenSSH 字样）
     expect(
-      friendlySshError(new Error('Encrypted private key detected, but no passphrase given'))
-    ).toContain('请在连接配置中填写私钥口令')
+      friendlySshError(
+        new Error('Cannot parse privateKey: Encrypted private OpenSSH key detected, but no passphrase given')
+      )
+    ).toBe('私钥已加密，请在连接配置中填写私钥口令')
+
+    // 口令错误的两种原文
+    expect(
+      friendlySshError(
+        new Error('Cannot parse privateKey: OpenSSH key integrity check failed -- bad passphrase?')
+      )
+    ).toBe('私钥口令错误')
+    expect(
+      friendlySshError(new Error('Cannot parse privateKey: Malformed OpenSSH private key. Bad passphrase?'))
+    ).toBe('私钥口令错误')
+
+    // 格式不支持（PKCS#8、损坏文件、非私钥内容都是这条）必须给出转换命令
+    const unsupported = friendlySshError(new Error('Cannot parse privateKey: Unsupported key format'))
+    expect(unsupported).toContain('OpenSSH')
+    expect(unsupported).toContain('ssh-keygen -p')
   })
 
   it('网络类错误', () => {
