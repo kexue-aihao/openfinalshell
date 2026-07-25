@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { SidebarView } from '@shared/types'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useUiStore } from '@/stores/useUiStore'
+import { useTransferStore } from '@/stores/useTransferStore'
 import styles from './ActivityBar.module.css'
 
 const VIEWS: Array<{ key: SidebarView; icon: typeof Server; labelKey: string }> = [
@@ -18,6 +19,9 @@ export function ActivityBar(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
+  const activeTransfers = useTransferStore(
+    (s) => s.tasks.filter((task) => task.state === 'running' || task.state === 'queued').length
+  )
 
   if (!settings) return <nav className={styles.activityBar} />
   const { activeSidebar, sidePanelCollapsed } = settings.layout
@@ -46,6 +50,9 @@ export function ActivityBar(): React.JSX.Element {
             onClick={() => onViewClick(key)}
           >
             <Icon size={18} strokeWidth={1.75} />
+            {key === 'transfers' && activeTransfers > 0 && (
+              <span className={styles.badge}>{activeTransfers}</span>
+            )}
           </button>
         </Tooltip>
       ))}

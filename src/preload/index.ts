@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { CHANNEL_PREFIXES, type OfsApi } from '@shared/ipc'
 
 /** channel 前缀白名单：preload 是 renderer 能力的唯一边界 */
@@ -25,7 +25,9 @@ const ofs: OfsApi = {
     return () => {
       ipcRenderer.removeListener(channel, wrapped)
     }
-  }
+  },
+  // 拖拽上传：File → 本地绝对路径（Electron ≥32 只能在 preload 里取）
+  getPathForFile: (file) => webUtils.getPathForFile(file)
 }
 
 contextBridge.exposeInMainWorld('ofs', ofs)

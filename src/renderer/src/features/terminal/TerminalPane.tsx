@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Spin, Tooltip } from 'antd'
-import { Eraser, Search, Unplug } from 'lucide-react'
+import { Eraser, FolderTree, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -32,6 +32,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const updateTab = useSessionStore((s) => s.updateTab)
   const closeTab = useSessionStore((s) => s.closeTab)
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
+  const toggleSftp = useSessionStore((s) => s.toggleSftp)
   const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === tab.profileId))
 
   const mountRef = useRef<HTMLDivElement>(null)
@@ -240,6 +241,14 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
 
       {active && !connecting && !closed && (
         <div className={styles.hoverTools}>
+          <Tooltip title={tab.sftpOpen ? t('terminal.closeSftp') : t('terminal.openSftp')}>
+            <Button
+              size="small"
+              type={tab.sftpOpen ? 'primary' : 'text'}
+              icon={<FolderTree size={14} strokeWidth={1.75} />}
+              onClick={() => toggleSftp(tab.id)}
+            />
+          </Tooltip>
           <Tooltip title={t('terminal.search')}>
             <Button
               size="small"

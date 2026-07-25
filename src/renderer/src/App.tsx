@@ -10,6 +10,8 @@ import { applyCssVars, buildAntdTheme } from '@/themes/applyTheme'
 import { MainLayout } from '@/features/layout/MainLayout'
 import { ProfileEditDrawer } from '@/features/connections/ProfileEditDrawer'
 import { PromptHost } from '@/features/prompts/PromptHost'
+import { TransferDrawer } from '@/features/transfers/TransferDrawer'
+import { wireTransferEvents } from '@/stores/useTransferStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import i18n from '@/i18n'
 
@@ -35,6 +37,7 @@ export default function App(): React.JSX.Element {
     void init()
     wireSessionEvents()
     wireTermData()
+    wireTransferEvents()
   }, [init])
 
   const mode: 'dark' | 'light' = useMemo(() => {
@@ -63,6 +66,7 @@ export default function App(): React.JSX.Element {
           <MainLayout uiMode={mode} />
           <ProfileEditDrawer />
           <PromptHost />
+          <TransferDrawer />
         </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>

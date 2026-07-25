@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { Client, type ClientChannel } from 'ssh2'
+import { Client, type ClientChannel, type SFTPWrapper } from 'ssh2'
 import type {
   ConnectionProfile,
   HostkeyPromptPayload,
@@ -35,6 +35,8 @@ export interface ShellExitInfo {
  * 断线后（非用户主动）按 profile.options.autoReconnect 走指数退避重连；
  * shell 状态不可恢复，重连成功后对每个 shell 发 reconnected，由 renderer 重开。
  */
+const TRANSFER_CLIENT_IDLE_MS = 60_000
+
 export class SshConnection extends EventEmitter {
   readonly sessionId: SessionId
   state: SessionState = 'connecting'
@@ -43,6 +45,16 @@ export class SshConnection extends EventEmitter {
   private reconnectAttempt = 0
   private reconnectTimer: NodeJS.Timeout | null = null
   readonly shells = new Map<TermId, ShellSession>()
+
+  /** SFTP 浏览：primary client 上常驻一个 SFTPWrapper */
+  private browseSftp: SFTPWrapper | null = null
+  private browseSftpPromise: Promise<SFTPWrapper> | null = null
+  /** 批量传输专用第二连接：懒创建、空闲自动关闭，避免大文件传输拖累终端延迟 */
+  private transferClient: Client | null = null
+  private transferClientPromise: Promise<Client> | null = null
+  private transferSftp: SFTPWrapper | null = null
+  private transferRefs = 0
+  private transferIdleTimer: NodeJS.Timeout | null = null
 
   constructor(readonly profile: ConnectionProfile) {
     super()
@@ -115,10 +127,13 @@ export class SshConnection extends EventEmitter {
   }
 
   private onClientClosed(): void {
-    // 该连接上的所有 shell 通道随之失效
+    // 该连接上的所有 shell 通道与 SFTP 会话随之失效
     for (const shell of this.shells.values()) shell.close()
     const lostTerms = [...this.shells.keys()]
     this.shells.clear()
+    this.browseSftp = null
+    this.browseSftpPromise = null
+    this.emit('sftp-lost')
 
     if (this.intentionalClose) {
       if (this.state !== 'closed') this.setState('closed')
@@ -255,15 +270,139 @@ export class SshConnection extends EventEmitter {
     return shell
   }
 
+  // ---------------- SFTP ----------------
+
+  /** 浏览用 SFTP：primary client 上常驻复用（sftp 子系统自身在单通道内多路复用请求） */
+  async browseSftpSession(): Promise<SFTPWrapper> {
+    if (this.browseSftp) return this.browseSftp
+    if (this.browseSftpPromise) return this.browseSftpPromise
+    const client = this.client
+    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+    this.browseSftpPromise = new Promise<SFTPWrapper>((resolve, reject) => {
+      client.sftp((err, sftp) => {
+        if (err) {
+          this.browseSftpPromise = null
+          reject(new Error(`打开 SFTP 失败：${friendlySshError(err)}`))
+          return
+        }
+        sftp.on('close', () => {
+          if (this.browseSftp === sftp) {
+            this.browseSftp = null
+            this.browseSftpPromise = null
+          }
+        })
+        this.browseSftp = sftp
+        resolve(sftp)
+      })
+    })
+    return this.browseSftpPromise
+  }
+
+  /** 传输用 SFTP（第二连接）。调用方必须在结束后 releaseTransferSftp()。 */
+  async acquireTransferSftp(): Promise<SFTPWrapper> {
+    this.transferRefs += 1
+    if (this.transferIdleTimer) {
+      clearTimeout(this.transferIdleTimer)
+      this.transferIdleTimer = null
+    }
+    if (this.transferSftp) return this.transferSftp
+    try {
+      const client = await this.ensureTransferClient()
+      this.transferSftp = await new Promise<SFTPWrapper>((resolve, reject) => {
+        client.sftp((err, sftp) => {
+          if (err) reject(new Error(`打开传输通道失败：${friendlySshError(err)}`))
+          else resolve(sftp)
+        })
+      })
+      return this.transferSftp
+    } catch (err) {
+      this.transferRefs = Math.max(0, this.transferRefs - 1)
+      throw err
+    }
+  }
+
+  releaseTransferSftp(): void {
+    this.transferRefs = Math.max(0, this.transferRefs - 1)
+    if (this.transferRefs > 0 || this.transferIdleTimer) return
+    this.transferIdleTimer = setTimeout(() => {
+      this.transferIdleTimer = null
+      if (this.transferRefs > 0) return
+      this.closeTransferClient()
+    }, TRANSFER_CLIENT_IDLE_MS)
+  }
+
+  private async ensureTransferClient(): Promise<Client> {
+    if (this.transferClient) return this.transferClient
+    if (this.transferClientPromise) return this.transferClientPromise
+    if (this.state !== 'ready') throw new Error('会话未就绪')
+
+    this.transferClientPromise = (async () => {
+      const config = await buildConnectConfig(this.profile, this.sessionId)
+      // 第二连接的 hostkey 已在 primary 校验过，这里直接放行，避免重复弹窗
+      config.hostVerifier = (_key: Buffer, verify: (valid: boolean) => void): void => verify(true)
+      const client = new Client()
+      client.on('keyboard-interactive', (name, instructions, _lang, prompts, finish) => {
+        void this.handleKbi(
+          name,
+          instructions,
+          prompts.map((p) => ({ prompt: p.prompt, echo: p.echo !== false })),
+          finish
+        )
+      })
+      await new Promise<void>((resolve, reject) => {
+        const onError = (err: Error): void => reject(new Error(friendlySshError(err)))
+        client.once('error', onError)
+        client.once('ready', () => {
+          client.removeListener('error', onError)
+          resolve()
+        })
+        client.connect(config)
+      })
+      client.on('error', (err) => log.warn(`transfer client error: ${err.message}`))
+      client.on('close', () => {
+        if (this.transferClient === client) {
+          this.transferClient = null
+          this.transferClientPromise = null
+          this.transferSftp = null
+        }
+      })
+      this.transferClient = client
+      return client
+    })()
+
+    try {
+      return await this.transferClientPromise
+    } catch (err) {
+      this.transferClientPromise = null
+      throw err
+    }
+  }
+
+  private closeTransferClient(): void {
+    this.transferSftp = null
+    this.transferClientPromise = null
+    const client = this.transferClient
+    this.transferClient = null
+    client?.end()
+  }
+
   disconnect(): void {
     this.intentionalClose = true
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
+    if (this.transferIdleTimer) {
+      clearTimeout(this.transferIdleTimer)
+      this.transferIdleTimer = null
+    }
     promptBroker.cancelForSession(this.sessionId)
     for (const shell of this.shells.values()) shell.close()
     this.shells.clear()
+    this.browseSftp = null
+    this.browseSftpPromise = null
+    this.transferRefs = 0
+    this.closeTransferClient()
     this.client?.end()
     this.client = null
     if (this.state !== 'closed') this.setState('closed')

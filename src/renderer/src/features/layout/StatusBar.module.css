@@ -31,3 +31,13 @@
 .spacer {
   flex: 1;
 }
+
+.clickable {
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: var(--ofs-radius-s);
+}
+.clickable:hover {
+  background: var(--ofs-bg-hover);
+  color: var(--ofs-text-1);
+}

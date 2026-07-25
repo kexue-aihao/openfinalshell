@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ConnectionTreePanel } from '@/features/connections/ConnectionTreePanel'
 import { SnippetPanel } from '@/features/snippets/SnippetPanel'
+import { TransferList } from '@/features/transfers/TransferList'
 import styles from './SidePanel.module.css'
 
 const TITLE_KEY: Record<SidebarView, string> = {
@@ -36,7 +37,8 @@ export function SidePanel(): React.JSX.Element {
         <ErrorBoundary label={`sidebar:${view}`}>
           {view === 'connections' && <ConnectionTreePanel />}
           {view === 'snippets' && <SnippetPanel />}
-          {(view === 'forwards' || view === 'transfers') && (
+          {view === 'transfers' && <TransferList compact />}
+          {view === 'forwards' && (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={t(EMPTY_KEY[view])}

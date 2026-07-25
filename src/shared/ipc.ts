@@ -169,4 +169,9 @@ export interface OfsApi {
   send<K extends SendChannel>(channel: K, payload: SendMap[K]): void
   /** 返回取消订阅函数 */
   on<K extends EventChannel>(channel: K, listener: (payload: EventMap[K]) => void): () => void
+  /**
+   * 拖拽上传用：取 File 对象对应的本地绝对路径。
+   * Electron ≥32 起 File.path 被移除，必须经 webUtils（只能在 preload 侧调用）。
+   */
+  getPathForFile(file: File): string
 }

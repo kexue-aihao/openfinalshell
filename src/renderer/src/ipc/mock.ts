@@ -4,8 +4,11 @@ import type {
   ConnectionGroup,
   ConnectionProfile,
   ProfileDraft,
+  SftpEntry,
   Snippet,
-  SnippetGroup
+  SnippetGroup,
+  TransferEnqueueItem,
+  TransferTask
 } from '@shared/types'
 
 /**
@@ -65,11 +68,113 @@ export function createMockOfs(): OfsApi {
   const sessions = new Map<string, { label: string }>()
   const terms = new Map<string, { sessionId: string; line: string }>()
 
+  // --- 假 SFTP 目录树（mockDirs 只装运行时新建的目录，避免与固定列表重复） ---
+  const mockDirs = new Set<string>()
+  const mockRenames = new Map<string, string>()
+  const mockDeleted = new Set<string>()
+  const mockTasks: TransferTask[] = []
+
+  const mockFile = (
+    dir: string,
+    name: string,
+    size: number,
+    mode = 0o644,
+    type: SftpEntry['type'] = 'file'
+  ): SftpEntry => ({
+    name,
+    path: dir === '/' ? `/${name}` : `${dir}/${name}`,
+    type,
+    size,
+    mode,
+    modeStr: `${type === 'dir' ? 'd' : '-'}rw-r--r--`,
+    owner: 'test',
+    group: 'test',
+    mtime: 1_750_000_000_000
+  })
+
+  function mockReaddir(path: string): SftpEntry[] {
+    const dir = path.replace(/\\/g, '/').replace(/\/+$/, '') || '/'
+    const list: SftpEntry[] =
+      dir === '/home/test'
+        ? [
+            { ...mockFile(dir, 'logs', 4096, 0o755, 'dir'), modeStr: 'drwxr-xr-x' },
+            { ...mockFile(dir, 'www', 4096, 0o755, 'dir'), modeStr: 'drwxr-xr-x' },
+            mockFile(dir, '.bashrc', 3771),
+            mockFile(dir, 'notes.md', 2048),
+            mockFile(dir, 'app.tar.gz', 15_728_640),
+            mockFile(dir, 'server.log', 1_048_576),
+            { ...mockFile(dir, 'run.sh', 512, 0o755), modeStr: '-rwxr-xr-x' }
+          ]
+        : dir === '/home/test/logs'
+          ? Array.from({ length: 40 }, (_, i) => mockFile(dir, `app-${i + 1}.log`, (i + 1) * 4096))
+          : dir === '/home/test/www'
+            ? [mockFile(dir, 'index.html', 1024), mockFile(dir, 'style.css', 512)]
+            : dir === '/'
+              ? [
+                  { ...mockFile('/', 'home', 4096, 0o755, 'dir'), modeStr: 'drwxr-xr-x' },
+                  { ...mockFile('/', 'etc', 4096, 0o755, 'dir'), modeStr: 'drwxr-xr-x' },
+                  { ...mockFile('/', 'var', 4096, 0o755, 'dir'), modeStr: 'drwxr-xr-x' }
+                ]
+              : []
+    const extras = [...mockDirs]
+      .filter((d) => d.startsWith(`${dir}/`) && !d.slice(dir.length + 1).includes('/'))
+      .map((d) => ({
+        ...mockFile(dir, d.slice(dir.length + 1), 4096, 0o755, 'dir' as const),
+        modeStr: 'drwxr-xr-x'
+      }))
+    return [...list, ...extras]
+      .filter((e) => !mockDeleted.has(e.path))
+      .map((e) => {
+        const renamed = mockRenames.get(e.path)
+        return renamed ? { ...e, name: renamed.split('/').pop()!, path: renamed } : e
+      })
+  }
+
+  /** 模拟传输：分 10 步推进进度 */
+  function mockTransfer(item: TransferEnqueueItem): TransferTask {
+    const task: TransferTask = {
+      id: crypto.randomUUID(),
+      sessionId: item.sessionId,
+      kind: item.kind,
+      localPath: item.localPath,
+      remotePath: item.remotePath,
+      size: 5 * 1024 * 1024,
+      transferred: 0,
+      state: 'running',
+      speedBps: 1024 * 1024,
+      createdAt: Date.now()
+    }
+    mockTasks.push(task)
+    emit('transfer:state', { task: { ...task } })
+    let step = 0
+    const iv = setInterval(() => {
+      step += 1
+      task.transferred = Math.min(task.size, Math.round((task.size * step) / 10))
+      emit('transfer:progress', {
+        taskId: task.id,
+        transferred: task.transferred,
+        total: task.size,
+        speedBps: task.speedBps
+      })
+      if (step >= 10) {
+        clearInterval(iv)
+        task.state = 'done'
+        task.speedBps = 0
+        emit('transfer:state', { task: { ...task } })
+      }
+    }, 250)
+    return task
+  }
+
   const handlers: Record<string, (...args: never[]) => unknown> = {
     'settings:get': () => settings,
     'settings:set': (patch: never) => Object.assign(settings, patch),
     'app:getVersions': () => ({ app: '0.1.0-mock', electron: 'browser', node: '-', chrome: '-' }),
-    'app:pickPath': () => null,
+    // 浏览器里没有原生对话框，返回假路径让传输流程可走通
+    'app:pickPath': (arg: never) => {
+      const { mode } = arg as unknown as { mode: string }
+      return mode === 'openDirectory' ? 'C:\\Users\\demo\\Downloads' : 'C:\\Users\\demo\\demo-file.bin'
+    },
     'app:openExternal': () => undefined,
     'app:openPath': () => undefined,
     'vault:isAvailable': () => false,
@@ -144,6 +249,26 @@ export function createMockOfs(): OfsApi {
       writeTerm(termId, command)
     },
 
+    // --- 假 SFTP：内存目录树，够验证浏览与传输 UI ---
+    'sftp:readdir': (arg: never) => {
+      const { path } = arg as unknown as { path: string }
+      return mockReaddir(path)
+    },
+    'sftp:realpath': () => '/home/test',
+    'sftp:mkdir': (arg: never) => {
+      const { path } = arg as unknown as { path: string }
+      mockDirs.add(path)
+    },
+    'sftp:rename': (arg: never) => {
+      const { from, to } = arg as unknown as { from: string; to: string }
+      mockRenames.set(from, to)
+    },
+    'sftp:delete': (arg: never) => {
+      const { path } = arg as unknown as { path: string }
+      mockDeleted.add(path)
+    },
+    'sftp:chmod': () => undefined,
+
     'snippet:list': () => ({ groups: snippetGroups, snippets }),
     'snippet:save': (s: never) => {
       const snip = s as unknown as Snippet
@@ -169,10 +294,21 @@ export function createMockOfs(): OfsApi {
     'forward:save': () => undefined,
     'forward:delete': () => undefined,
     'forward:control': () => undefined,
-    'transfer:list': () => [],
-    'transfer:enqueue': () => [],
-    'transfer:control': () => undefined,
-    'transfer:clearFinished': () => undefined,
+    'transfer:list': () => mockTasks,
+    'transfer:enqueue': (items: never) =>
+      (items as unknown as TransferEnqueueItem[]).map((item) => mockTransfer(item).id),
+    'transfer:control': (arg: never) => {
+      const { taskId, op } = arg as unknown as { taskId: string; op: string }
+      const task = mockTasks.find((t) => t.id === taskId)
+      if (!task) return
+      task.state = op === 'cancel' ? 'canceled' : op === 'pause' ? 'paused' : 'running'
+      emit('transfer:state', { task: { ...task } })
+    },
+    'transfer:clearFinished': () => {
+      for (let i = mockTasks.length - 1; i >= 0; i--) {
+        if (['done', 'error', 'canceled'].includes(mockTasks[i].state)) mockTasks.splice(i, 1)
+      }
+    },
     'monitor:start': () => null,
     'monitor:stop': () => undefined,
     'monitor:setInterval': () => undefined
@@ -244,6 +380,7 @@ export function createMockOfs(): OfsApi {
       set.add(listener as (payload: unknown) => void)
       listeners.set(channel, set)
       return () => set.delete(listener as (payload: unknown) => void)
-    }
+    },
+    getPathForFile: (file) => file.name // 浏览器里拿不到真实路径
   }
 }

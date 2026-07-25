@@ -3,6 +3,7 @@ import { SshConnection, type ShellExitInfo } from './SshConnection'
 import type { ShellSession } from './ShellSession'
 import { getProfile, touchProfile } from '../store/connections'
 import { emit } from '../ipc/registry'
+import { transferQueue } from '../sftp/TransferQueue'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('ssh-mgr')
@@ -72,6 +73,7 @@ class SshConnectionManager {
   close(sessionId: SessionId): void {
     const conn = this.sessions.get(sessionId)
     if (!conn) return
+    transferQueue.cancelForSession(sessionId)
     for (const termId of conn.shells.keys()) this.terms.delete(termId)
     conn.disconnect()
     this.sessions.delete(sessionId)

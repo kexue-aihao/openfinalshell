@@ -1,0 +1,98 @@
+.pane {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ofs-bg-panel);
+  border-top: 1px solid var(--ofs-border);
+}
+
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--ofs-border);
+}
+
+.pathInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.breadcrumbBar {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: var(--ofs-radius-m);
+  cursor: text;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.breadcrumbBar:hover {
+  background: var(--ofs-bg-hover);
+}
+
+.crumb {
+  color: var(--ofs-text-2);
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: var(--ofs-radius-s);
+}
+.crumb:hover {
+  color: var(--ofs-accent);
+}
+.crumbSep {
+  color: var(--ofs-text-3);
+}
+
+.table {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.nameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badName {
+  color: var(--ofs-warning);
+}
+
+.dropMask {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--ofs-accent);
+  border-radius: var(--ofs-radius-l);
+  background: color-mix(in srgb, var(--ofs-accent) 12%, transparent);
+  color: var(--ofs-text-1);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.emptyWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

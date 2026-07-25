@@ -1,0 +1,89 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 6px;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}
+
+.headerActions {
+  display: flex;
+  gap: 4px;
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.item {
+  padding: 8px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-bg-elevated);
+}
+
+.itemTop {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.itemName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ofs-text-1);
+}
+
+.itemState {
+  flex: none;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}
+
+.itemPath {
+  font-size: 11px;
+  color: var(--ofs-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
+}
+
+.itemBottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ofs-text-2);
+}
+
+.itemError {
+  color: var(--ofs-error);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.spacer {
+  flex: 1;
+}
