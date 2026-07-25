@@ -1,0 +1,33 @@
+.statusBar {
+  height: var(--ofs-statusbar-height);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: var(--ofs-text-2);
+  background: var(--ofs-bg-panel);
+  border-top: 1px solid var(--ofs-border);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ofs-text-3);
+}
+.dotConnected {
+  background: var(--ofs-success);
+}
+
+.spacer {
+  flex: 1;
+}

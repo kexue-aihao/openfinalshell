@@ -1,0 +1,121 @@
+export default {
+  translation: {
+    app: {
+      name: 'OpenFinalShell'
+    },
+    activity: {
+      connections: '连接',
+      snippets: '快捷命令',
+      forwards: '端口转发',
+      transfers: '传输队列',
+      settings: '设置',
+      toggleTheme: '切换主题'
+    },
+    welcome: {
+      title: 'OpenFinalShell',
+      subtitle: '开源 FinalShell —— SSH 终端 · SFTP · 服务器监控',
+      newConnection: '新建连接',
+      newConnectionDesc: '配置主机、认证方式并保存到连接树',
+      quickConnect: '快速连接',
+      quickConnectPlaceholder: 'ssh user@host[:port]',
+      recent: '最近会话',
+      noRecent: '暂无最近会话'
+    },
+    sidebar: {
+      connections: '连接管理',
+      snippets: '快捷命令',
+      forwards: '端口转发',
+      transfers: '传输队列',
+      searchPlaceholder: '搜索名称或主机…',
+      emptyConnections: '还没有连接，点击 + 新建',
+      emptySnippets: '暂无快捷命令',
+      emptyForwards: '暂无转发规则',
+      emptyTransfers: '暂无传输任务',
+      newConnection: '新建连接',
+      newGroup: '新建分组'
+    },
+    status: {
+      notConnected: '未连接',
+      version: '版本'
+    },
+    terminal: {
+      connecting: '正在连接 {{target}}…',
+      disconnected: '连接已断开',
+      reconnect: '重新连接',
+      multilinePasteTitle: '粘贴多行文本？',
+      multilinePasteContent: '剪贴板内容包含 {{lines}} 行，粘贴后可能立即执行。确认粘贴？'
+    },
+    prompt: {
+      hostkeyNewTitle: '首次连接：确认主机指纹',
+      hostkeyChangedTitle: '警告：主机密钥已变更！',
+      hostkeyChangedWarning: '远程主机的密钥与之前记录不符，可能存在中间人攻击。除非你明确知道服务器重装过系统，否则请断开！',
+      hostkeyTarget: '主机',
+      hostkeyPrevious: '之前记录的指纹',
+      trustOnce: '仅本次连接',
+      trustAlways: '信任并保存',
+      trustNew: '删除旧记录并信任',
+      passwordTitle: '输入 {{target}} 的密码',
+      passwordPlaceholder: 'SSH 登录密码',
+      rememberPassword: '记住密码（加密保存）',
+      kbiTitle: '服务器要求补充认证'
+    },
+    conn: {
+      connect: '连接',
+      duplicate: '复制',
+      copySshCommand: '复制 SSH 命令',
+      copied: '已复制到剪贴板',
+      deleted: '已删除',
+      saved: '已保存',
+      deleteConfirm: '删除连接 "{{name}}"？',
+      discardChanges: '有未保存的修改，确认丢弃？',
+      editTitle: '编辑：{{name}}',
+      groupNamePlaceholder: '分组名称',
+      name: '名称',
+      nameRequired: '请输入连接名称',
+      namePlaceholder: '如：生产 Web-01',
+      host: '主机',
+      hostRequired: '请输入主机地址',
+      port: '端口',
+      username: '用户名',
+      usernameRequired: '请输入用户名',
+      authMethod: '认证方式',
+      authPassword: '密码',
+      authPrivateKey: '私钥',
+      password: '密码',
+      passwordSavedHint: '已保存加密密码；留空表示保持不变',
+      passwordEmptyHint: '留空则每次连接时询问',
+      privateKeyPath: '私钥文件',
+      privateKeyRequired: '请选择私钥文件',
+      pickPrivateKey: '选择私钥文件',
+      browse: '浏览',
+      passphrase: '私钥口令',
+      group: '所属分组',
+      noGroup: '不分组',
+      color: '标签颜色',
+      advanced: '高级选项（终端 / 网络）',
+      charset: '字符编码',
+      termType: '终端类型',
+      startupCommand: '登录后执行',
+      startupCommandPlaceholder: '连接成功后自动执行的命令',
+      keepalive: '心跳间隔',
+      timeout: '连接超时',
+      legacyAlgorithms: '兼容老算法',
+      legacyAlgorithmsTip: '为老交换机/堡垒机追加 ssh-rsa、dh-group14-sha1、aes128-cbc 等算法',
+      compress: '启用压缩',
+      note: '备注'
+    },
+    common: {
+      ok: '确定',
+      cancel: '取消',
+      save: '保存',
+      delete: '删除',
+      edit: '编辑',
+      rename: '重命名',
+      close: '关闭',
+      retry: '重试',
+      loadFailed: '加载失败',
+      panelCrashed: '该面板出现异常',
+      reload: '重新加载'
+    }
+  }
+} as const

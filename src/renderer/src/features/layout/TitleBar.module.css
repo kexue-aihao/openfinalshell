@@ -1,0 +1,139 @@
+.titleBar {
+  height: var(--ofs-titlebar-height);
+  display: flex;
+  align-items: stretch;
+  background: var(--ofs-bg-panel);
+  border-bottom: 1px solid var(--ofs-border);
+  /* 整条默认可拖拽窗口；交互元素单独 no-drag */
+  -webkit-app-region: drag;
+  /* 右侧给原生窗口按钮（titleBarOverlay）留位 */
+  padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 4px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ofs-text-1);
+  white-space: nowrap;
+}
+
+.logoDot {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--ofs-accent), #52c41a);
+  flex: none;
+}
+
+.tabStrip {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 0 4px;
+}
+.tabStrip::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 120px;
+  max-width: 220px;
+  height: 32px;
+  padding: 0 6px 0 10px;
+  border-radius: var(--ofs-radius-m) var(--ofs-radius-m) 0 0;
+  color: var(--ofs-text-2);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tab:hover {
+  background: var(--ofs-bg-hover);
+}
+.tabActive {
+  background: var(--ofs-bg-base);
+  color: var(--ofs-text-1);
+  border: 1px solid var(--ofs-border);
+  border-bottom: none;
+}
+
+.stateDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.dotReady {
+  background: var(--ofs-success);
+}
+.dotClosed {
+  background: var(--ofs-error);
+}
+.dotConnecting {
+  background: var(--ofs-warning);
+  animation: ofs-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ofs-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.tabTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tabClose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ofs-text-3);
+  cursor: pointer;
+  opacity: 0;
+}
+.tab:hover .tabClose,
+.tabActive .tabClose {
+  opacity: 1;
+}
+.tabClose:hover {
+  background: var(--ofs-bg-active);
+  color: var(--ofs-text-1);
+}
+
+.newTabBtn {
+  -webkit-app-region: no-drag;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--ofs-radius-m);
+  background: transparent;
+  color: var(--ofs-text-2);
+  cursor: pointer;
+}
+.newTabBtn:hover {
+  background: var(--ofs-bg-hover);
+  color: var(--ofs-text-1);
+}

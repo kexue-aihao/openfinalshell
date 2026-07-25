@@ -1,0 +1,56 @@
+import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import type { ZodType } from 'zod'
+import type { EventMap, InvokeMap, SendMap } from '@shared/ipc'
+import { scopedLogger } from '../utils/logger'
+
+const log = scopedLogger('ipc')
+
+let mainWindow: BrowserWindow | null = null
+
+export function bindMainWindow(win: BrowserWindow): void {
+  mainWindow = win
+}
+
+/** 只接受本应用页面发来的 IPC（dev server 或打包后的 file://） */
+function assertTrustedSender(event: IpcMainInvokeEvent | IpcMainEvent): void {
+  const url = event.senderFrame?.url ?? ''
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  const trusted = (devUrl && url.startsWith(devUrl)) || url.startsWith('file://')
+  if (!trusted) {
+    log.warn(`rejected IPC from untrusted sender: ${url}`)
+    throw new Error('IPC sender not trusted')
+  }
+}
+
+/** 注册 invoke 处理器；schema 传入时对 args 数组做 zod 校验 */
+export function handle<K extends keyof InvokeMap>(
+  channel: K,
+  fn: (...args: InvokeMap[K]['args']) => Promise<InvokeMap[K]['result']> | InvokeMap[K]['result'],
+  schema?: ZodType
+): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    assertTrustedSender(event)
+    if (schema) {
+      const parsed = schema.safeParse(args)
+      if (!parsed.success) {
+        log.warn(`invalid args for ${channel}: ${parsed.error.message}`)
+        throw new Error(`参数校验失败: ${channel}`)
+      }
+    }
+    return fn(...(args as InvokeMap[K]['args']))
+  })
+}
+
+/** 注册高频单向消息处理器（不校验 schema，走热路径） */
+export function onSend<K extends keyof SendMap>(channel: K, fn: (payload: SendMap[K]) => void): void {
+  ipcMain.on(channel, (event, payload) => {
+    assertTrustedSender(event)
+    fn(payload as SendMap[K])
+  })
+}
+
+/** 向主窗口推事件；窗口不存在/已销毁时静默丢弃 */
+export function emit<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  mainWindow.webContents.send(channel, payload)
+}

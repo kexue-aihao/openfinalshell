@@ -1,0 +1,18 @@
+.host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 非活动 tab 用 visibility:hidden 保持布局尺寸（display:none 会让 fit 算出 1×1） */
+.view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  visibility: hidden;
+}
+
+.viewActive {
+  visibility: visible;
+}

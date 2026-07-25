@@ -1,0 +1,69 @@
+/* 全局 reset + 静态设计 token（颜色类 token 由 applyTheme.ts 运行时注入） */
+:root {
+  --ofs-radius-s: 4px;
+  --ofs-radius-m: 6px;
+  --ofs-radius-l: 8px;
+  --ofs-titlebar-height: 40px;
+  --ofs-statusbar-height: 24px;
+  --ofs-activitybar-width: 48px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  font-size: 13px;
+  color: var(--ofs-text-1);
+  background: var(--ofs-bg-base);
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数字防跳动（速率/百分比） */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 自绘滚动条，与主题联动 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ofs-bg-active);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ofs-text-3);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* react-resizable-panels 分隔条 */
+.ofs-resize-handle {
+  background: transparent;
+  transition: background 0.15s;
+}
+.ofs-resize-handle[data-resize-handle-state='hover'],
+.ofs-resize-handle[data-resize-handle-state='drag'] {
+  background: var(--ofs-accent);
+}
+.ofs-resize-handle[data-panel-group-direction='horizontal'] {
+  width: 3px;
+}
+.ofs-resize-handle[data-panel-group-direction='vertical'] {
+  height: 3px;
+}

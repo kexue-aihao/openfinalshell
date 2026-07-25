@@ -1,0 +1,62 @@
+.activityBar {
+  width: var(--ofs-activitybar-width);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 4px;
+  background: var(--ofs-bg-panel);
+  border-right: 1px solid var(--ofs-border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--ofs-radius-m);
+  background: transparent;
+  color: var(--ofs-text-2);
+  cursor: pointer;
+}
+.item:hover {
+  background: var(--ofs-bg-hover);
+  color: var(--ofs-text-1);
+}
+.itemActive {
+  background: var(--ofs-bg-active);
+  color: var(--ofs-accent);
+}
+.itemActive::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ofs-accent);
+}
+
+.badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--ofs-accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
