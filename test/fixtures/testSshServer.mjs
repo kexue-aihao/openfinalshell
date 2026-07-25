@@ -12,6 +12,7 @@ import { generateKeyPairSync } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
 import fs from 'node:fs'
 import { mkdtempSync } from 'node:fs'
+import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import ssh2 from 'ssh2'
@@ -47,6 +48,63 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
     })
     .on('ready', () => {
       console.log('[srv] authenticated')
+
+      // -L / dynamic：客户端请求连到某个目标，这里真的用本地 socket 去连
+      client.on('tcpip', (accept, reject, info) => {
+        const target = net.connect(info.destPort, info.destIP, () => {
+          const channel = accept()
+          channel.pipe(target).pipe(channel)
+          const destroyBoth = () => {
+            target.destroy()
+            channel.close()
+          }
+          channel.on('close', destroyBoth)
+          channel.on('error', destroyBoth)
+          target.on('error', destroyBoth)
+        })
+        target.on('error', () => reject())
+      })
+
+      // -R：客户端请求服务器监听端口；这里起一个真实的 net server，
+      // 每个入站连接经 forwardOut 回推给客户端
+      const remoteListeners = new Map()
+      client.on('request', (acceptReq, rejectReq, name, info) => {
+        if (name === 'tcpip-forward') {
+          const server = net.createServer((socket) => {
+            client.forwardOut(
+              info.bindAddr,
+              info.bindPort,
+              socket.remoteAddress ?? '127.0.0.1',
+              socket.remotePort ?? 0,
+              (err, channel) => {
+                if (err) return socket.destroy()
+                socket.pipe(channel).pipe(socket)
+              }
+            )
+          })
+          server.listen(info.bindPort, info.bindAddr === '' ? '127.0.0.1' : info.bindAddr, () => {
+            const port = server.address().port
+            remoteListeners.set(`${info.bindAddr}:${port}`, server)
+            // bindPort=0 时协议要求回报实际端口
+            acceptReq?.(port)
+          })
+          server.on('error', () => rejectReq?.())
+          return
+        }
+        if (name === 'cancel-tcpip-forward') {
+          const key = `${info.bindAddr}:${info.bindPort}`
+          remoteListeners.get(key)?.close()
+          remoteListeners.delete(key)
+          acceptReq?.()
+          return
+        }
+        rejectReq?.()
+      })
+      client.on('close', () => {
+        for (const server of remoteListeners.values()) server.close()
+        remoteListeners.clear()
+      })
+
       client.on('session', (accept) => {
         const session = accept()
         let ptyInfo = { cols: 80, rows: 24 }

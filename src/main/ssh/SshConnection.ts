@@ -55,6 +55,12 @@ export class SshConnection extends EventEmitter {
   private transferSftp: SFTPWrapper | null = null
   private transferRefs = 0
   private transferIdleTimer: NodeJS.Timeout | null = null
+  /** 远程转发（-R）："bindAddr:bindPort" → 入站连接处理器 */
+  private readonly remoteHandlers = new Map<
+    string,
+    (info: { destIP: string; destPort: number }, accept: () => ClientChannel) => void
+  >()
+  private tcpConnectionWired = false
 
   constructor(readonly profile: ConnectionProfile) {
     super()
@@ -133,6 +139,8 @@ export class SshConnection extends EventEmitter {
     this.shells.clear()
     this.browseSftp = null
     this.browseSftpPromise = null
+    this.remoteHandlers.clear()
+    this.tcpConnectionWired = false
     this.emit('sftp-lost')
 
     if (this.intentionalClose) {
@@ -268,6 +276,77 @@ export class SshConnection extends EventEmitter {
       shell.write(`${this.profile.terminal.startupCommand}\n`)
     }
     return shell
+  }
+
+  // ---------------- 端口转发 ----------------
+
+  /** -L / dynamic：把本地入站连接经 SSH 转到远端目标 */
+  forwardOut(
+    srcHost: string,
+    srcPort: number,
+    dstHost: string,
+    dstPort: number,
+    cb: (err: Error | undefined, stream?: ClientChannel) => void
+  ): void {
+    if (!this.client || this.state !== 'ready') {
+      cb(new Error('会话未就绪'))
+      return
+    }
+    this.client.forwardOut(srcHost, srcPort, dstHost, dstPort, (err, stream) =>
+      cb(err ?? undefined, stream)
+    )
+  }
+
+  /**
+   * -R：请求远端 sshd 监听。'tcp connection' 是 client 级事件，
+   * 这里按 (bindAddr, bindPort) 分发到对应规则的处理器。
+   */
+  async forwardIn(
+    bindAddr: string,
+    bindPort: number,
+    handler: (info: { destIP: string; destPort: number }, accept: () => ClientChannel) => void
+  ): Promise<void> {
+    const client = this.client
+    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+
+    const key = `${bindAddr}:${bindPort}`
+    this.remoteHandlers.set(key, handler)
+    if (!this.tcpConnectionWired) {
+      this.tcpConnectionWired = true
+      client.on('tcp connection', (info, accept, reject) => {
+        const target =
+          this.remoteHandlers.get(`${info.destIP}:${info.destPort}`) ??
+          // sshd 回报的 bindAddr 可能被规范化（如 '' → 0.0.0.0），按端口兜底匹配
+          [...this.remoteHandlers.entries()].find(([k]) => k.endsWith(`:${info.destPort}`))?.[1]
+        if (!target) {
+          reject()
+          return
+        }
+        target({ destIP: info.destIP, destPort: info.destPort }, accept)
+      })
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      client.forwardIn(bindAddr, bindPort, (err) => {
+        if (err) {
+          this.remoteHandlers.delete(key)
+          reject(
+            new Error(
+              /administratively prohibited/i.test(err.message)
+                ? `远端拒绝监听 ${bindAddr}:${bindPort}（非 127.0.0.1 需服务器开启 GatewayPorts）`
+                : friendlySshError(err)
+            )
+          )
+        } else resolve()
+      })
+    })
+  }
+
+  unforwardIn(bindAddr: string, bindPort: number): void {
+    this.remoteHandlers.delete(`${bindAddr}:${bindPort}`)
+    this.client?.unforwardIn(bindAddr, bindPort, () => {
+      /* 会话可能已断，忽略错误 */
+    })
   }
 
   /**

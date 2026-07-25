@@ -1,4 +1,3 @@
-import { Empty } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { SidebarView } from '@shared/types'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -6,6 +5,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ConnectionTreePanel } from '@/features/connections/ConnectionTreePanel'
 import { SnippetPanel } from '@/features/snippets/SnippetPanel'
 import { TransferList } from '@/features/transfers/TransferList'
+import { ForwardPanel } from '@/features/forwarding/ForwardPanel'
 import styles from './SidePanel.module.css'
 
 const TITLE_KEY: Record<SidebarView, string> = {
@@ -15,17 +15,7 @@ const TITLE_KEY: Record<SidebarView, string> = {
   transfers: 'sidebar.transfers'
 }
 
-const EMPTY_KEY: Record<SidebarView, string> = {
-  connections: 'sidebar.emptyConnections',
-  snippets: 'sidebar.emptySnippets',
-  forwards: 'sidebar.emptyForwards',
-  transfers: 'sidebar.emptyTransfers'
-}
-
-/**
- * 左侧面板：内容随活动栏切换。
- * M0 为空态骨架；ConnectionTreePanel(M1) / SnippetPanel(M2) / ForwardPanel(M5) / TransferPanel(M3) 逐步接入。
- */
+/** 左侧面板：内容随活动栏切换；各视图自己处理空态。 */
 export function SidePanel(): React.JSX.Element {
   const { t } = useTranslation()
   const view = useSettingsStore((s) => s.settings?.layout.activeSidebar ?? 'connections')
@@ -38,13 +28,7 @@ export function SidePanel(): React.JSX.Element {
           {view === 'connections' && <ConnectionTreePanel />}
           {view === 'snippets' && <SnippetPanel />}
           {view === 'transfers' && <TransferList compact />}
-          {view === 'forwards' && (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={t(EMPTY_KEY[view])}
-              style={{ marginTop: 48 }}
-            />
-          )}
+          {view === 'forwards' && <ForwardPanel />}
         </ErrorBoundary>
       </div>
     </aside>

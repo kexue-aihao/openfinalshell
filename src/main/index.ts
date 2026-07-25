@@ -10,7 +10,10 @@ import { registerTermIpc } from './ipc/term.ipc'
 import { registerSnippetIpc } from './ipc/snippet.ipc'
 import { registerSftpIpc } from './ipc/sftp.ipc'
 import { registerMonitorIpc } from './ipc/monitor.ipc'
+import { registerForwardIpc } from './ipc/forward.ipc'
 import { monitorManager } from './monitor/MonitorManager'
+import { forwardManager } from './forward/ForwardManager'
+import { flushForwards } from './store/forwards'
 import { transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
 import { flushConnections } from './store/connections'
@@ -54,6 +57,7 @@ if (!app.requestSingleInstanceLock()) {
     registerSnippetIpc()
     registerSftpIpc()
     registerMonitorIpc()
+    registerForwardIpc()
 
     const win = createMainWindow()
     bindMainWindow(win)
@@ -72,11 +76,13 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     transferQueue.cancelAll()
     monitorManager.stopAll()
+    forwardManager.stopAll()
     sshManager.closeAll()
     void settingsStore().flush()
     void flushConnections()
     void flushKnownHosts()
     void flushSnippets()
+    void flushForwards()
     void vault.flush()
   })
 }

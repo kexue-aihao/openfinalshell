@@ -16,6 +16,12 @@ http://127.0.0.1:7897
 - **Electron 二进制下载**（`npm install` 时 postinstall 拉取）：额外设置 `$env:ELECTRON_GET_USE_PROXY='1'`，配合上面的 HTTP(S)_PROXY 环境变量生效。
 - **npm 11 allow-scripts 坑**：本机 npm 会拦截依赖的 install 脚本（electron/esbuild/ssh2 均受影响），装完若报 "Electron uninstall"，手动执行：`cd node_modules/electron; node install.js`（带上述代理环境变量）。ssh2 的 native 构建脚本被拦无害（自动回退纯 JS）。
 
+## 提交信息里带双引号时用 `-F`
+
+Windows PowerShell 5.1 向原生程序传参时，字符串内的 `"` 会破坏参数边界 ——
+`git commit -m @'...含双引号...'@` 会被拆成多个 pathspec 而失败。
+遇到这种消息先写入临时文件再 `git commit -F <file>`。
+
 ## 项目概览
 
 开源 FinalShell —— Electron + React + ssh2 + xterm.js 的桌面 SSH 客户端（SSH 终端 + SFTP + 服务器监控 + 端口转发）。实施计划见 `C:\Users\Administrator\.claude\plans\ui-ssh-jaunty-bachman.md`。

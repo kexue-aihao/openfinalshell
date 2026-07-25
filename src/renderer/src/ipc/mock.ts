@@ -3,6 +3,8 @@ import { DEFAULT_SETTINGS } from '@shared/constants'
 import type {
   ConnectionGroup,
   ConnectionProfile,
+  ForwardRule,
+  ForwardRuntime,
   ProfileDraft,
   SftpEntry,
   Snippet,
@@ -129,6 +131,10 @@ export function createMockOfs(): OfsApi {
         return renamed ? { ...e, name: renamed.split('/').pop()!, path: renamed } : e
       })
   }
+
+  // --- 假端口转发 ---
+  const mockForwards: ForwardRule[] = []
+  const mockForwardRuntimes = new Map<string, ForwardRuntime>()
 
   // --- 假监控：周期推送带随机波动的快照 ---
   const monitorTimers = new Map<string, ReturnType<typeof setInterval>>()
@@ -357,10 +363,34 @@ export function createMockOfs(): OfsApi {
       const idx = snippetGroups.findIndex((x) => x.id === (id as unknown as string))
       if (idx >= 0) snippetGroups.splice(idx, 1)
     },
-    'forward:list': () => [],
-    'forward:save': () => undefined,
-    'forward:delete': () => undefined,
-    'forward:control': () => undefined,
+    'forward:list': (profileId: never) => {
+      const pid = profileId as unknown as string | null
+      const list = pid === null ? mockForwards : mockForwards.filter((r) => r.profileId === pid)
+      return list.map((r) => ({ ...r, runtime: mockForwardRuntimes.get(r.id) }))
+    },
+    'forward:save': (rule: never) => {
+      const r = rule as unknown as ForwardRule
+      const idx = mockForwards.findIndex((x) => x.id === r.id)
+      if (idx >= 0) mockForwards[idx] = r
+      else mockForwards.push(r)
+    },
+    'forward:delete': (id: never) => {
+      const forwardId = id as unknown as string
+      const idx = mockForwards.findIndex((x) => x.id === forwardId)
+      if (idx >= 0) mockForwards.splice(idx, 1)
+      mockForwardRuntimes.delete(forwardId)
+    },
+    'forward:control': (arg: never) => {
+      const { forwardId, op } = arg as unknown as { forwardId: string; op: 'start' | 'stop' }
+      const runtime: ForwardRuntime = {
+        forwardId,
+        state: op === 'start' ? 'active' : 'stopped',
+        activeConns: op === 'start' ? 1 : 0,
+        totalBytes: op === 'start' ? 4096 : 0
+      }
+      mockForwardRuntimes.set(forwardId, runtime)
+      emit('forward:state', { runtime })
+    },
     'transfer:list': () => mockTasks,
     'transfer:enqueue': (items: never) =>
       (items as unknown as TransferEnqueueItem[]).map((item) => mockTransfer(item).id),

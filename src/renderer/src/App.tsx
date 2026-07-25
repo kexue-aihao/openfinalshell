@@ -13,6 +13,7 @@ import { PromptHost } from '@/features/prompts/PromptHost'
 import { TransferDrawer } from '@/features/transfers/TransferDrawer'
 import { wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
+import { wireForwardEvents } from '@/stores/useForwardStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import i18n from '@/i18n'
 
@@ -40,6 +41,7 @@ export default function App(): React.JSX.Element {
     wireTermData()
     wireTransferEvents()
     wireMonitorEvents()
+    wireForwardEvents()
   }, [init])
 
   const mode: 'dark' | 'light' = useMemo(() => {
