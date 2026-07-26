@@ -1,0 +1,156 @@
+name: build-windows
+
+# 打 v* tag → 构建并发布 Release；手动触发只产出 artifact 不发 Release
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# 发 Release 需要写权限（GITHUB_TOKEN 默认只读）
+permissions:
+  contents: write
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 与本地开发环境一致（本地 24.18.0 上全绿）
+  NODE_VERSION: '24'
+
+jobs:
+  verify:
+    name: 检查（类型 / i18n / 测试）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      # tag 与 package.json 的版本必须一致：产物文件名取自 package.json，
+      # 对不上会发出一个"v0.2.0 的 Release 里装着 0.1.0 的安装包"。
+      # 放在打包之前，省得白跑十几分钟才发现。
+      - name: 校验 tag 与 package.json 版本一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          tag=${GITHUB_REF_NAME#v}
+          echo "package.json=$pkg  tag=$tag"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json 版本 $pkg 不一致，请先改 package.json 再重新打 tag"
+            exit 1
+          fi
+
+      - run: npm run typecheck
+      - run: npm run check:i18n
+
+      # 集成测试会起本地 fixture SSH 服务；真机验收用例无 OFS_TEST_* 时自动跳过
+      - run: npm test
+
+  build:
+    name: 打包 ${{ matrix.arch }}
+    needs: verify
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ia32 即 32 位（x86）；Electron 43 仍提供 win32-ia32 产物
+        arch: [x64, ia32]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # Electron 二进制每个架构约 100MB，缓存掉省下载时间
+      - name: 缓存 Electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron\Cache
+            ~\AppData\Local\electron-builder\Cache
+          key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-${{ matrix.arch }}-
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # 必须显式指定单一架构：一次同时给两个架构时，electron-builder 会额外产出一个
+      # 双架构合体安装包（181MB vs 单架构 86/96MB），这里不需要。
+      # --publish never：产物统一由下面的 release job 上传，不让 electron-builder 自己去建草稿 Release。
+      - name: electron-builder (${{ matrix.arch }})
+        run: npx electron-builder --win --${{ matrix.arch }} --publish never
+
+      - name: 列出产物
+        shell: bash
+        run: ls -lh release/*.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 发布 Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-*
+          merge-multiple: true
+          path: dist
+
+      # 安装包没有代码签名，校验和是用户确认完整性的唯一手段
+      - name: 生成校验和
+        run: |
+          cd dist
+          sha256sum *.exe | tee SHA256SUMS.txt
+          ls -lh
+
+      - name: 创建 Release 并上传
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > notes.md <<'EOF'
+          ### 下载
+
+          | 文件 | 说明 |
+          |---|---|
+          | `*-setup-x64.exe` | 64 位安装版（推荐） |
+          | `*-setup-ia32.exe` | 32 位（x86）安装版 |
+          | `*-portable-x64.exe` | 64 位免安装 |
+          | `*-portable-ia32.exe` | 32 位（x86）免安装 |
+
+          安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
+
+          > 安装包**未做代码签名**，首次运行 Windows SmartScreen 可能提示"未知发布者"，
+          > 点"更多信息 → 仍要运行"即可。可用 `SHA256SUMS.txt` 校验文件完整性。
+
+          > 凭据加密走 Windows DPAPI，密文与当前系统账户绑定 —— 换机或重装系统后
+          > 旧的 `vault.json` 无法解密，需重新填写密码。
+          EOF
+          prerelease=()
+          # v0.1.0-rc1 这类带后缀的 tag 视为预发布
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.exe dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "OpenFinalShell $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag \
+            "${prerelease[@]}"

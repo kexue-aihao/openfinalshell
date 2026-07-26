@@ -111,6 +111,28 @@ SFTP 传输走**并发窗口**（同时保持 64 个 32KB 读/写请求在管道
 并发窗口仍然完整支持暂停/继续/取消：暂停时停止发放新请求并等在途请求收尾，
 `.part` 里的数据保持连续，因此续传只需按字节偏移接上。
 
+### 发布（GitHub Actions）
+
+[`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml) 只构建 Windows 的
+**x64** 与 **ia32（x86）**：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+推 `v*` tag 即触发：先跑类型检查 / i18n 校验 / 全量测试，再按架构分别打包，
+最后建 Release 并上传 4 个安装包与 `SHA256SUMS.txt`。手动触发（workflow_dispatch）
+只产出 artifact，不发 Release。
+
+两点值得注意：
+
+- **必须按架构分别调 electron-builder**（`--win --x64` / `--win --ia32`）。一次同时传两个架构时，
+  它会额外产出一个双架构合体安装包 —— 181MB，而单架构只有 86/96MB。
+- **`artifactName` 里的 `${arch}` 不能省**，否则两个架构的产物同名互相覆盖，只剩后构建的那个。
+
+工作流还会校验 tag 与 `package.json` 的版本一致（产物文件名取自后者），
+不一致直接在打包前失败，免得发出一个"v0.2.0 的 Release 里装着 0.1.0 的安装包"。
+
 ### 经代理连接
 
 连接编辑抽屉 → **代理**：选 HTTP 或 SOCKS5，填代理地址（如 `127.0.0.1:7890`），需要认证时填用户名密码
