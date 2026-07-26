@@ -246,6 +246,50 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     expect(readFileSync(join(dest, 'app', 'empty'), 'utf8')).toBe('')
   })
 
+  /**
+   * 真机撞出来的那个 bug 的回归用例。**这一条是本文件最重要的一个。**
+   *
+   * 远端是 GNU tar，成员名就是文件系统的原始 UTF-8 字节，而 ustar 格式没地方声明编码。
+   * bsdtar 在 Windows 上于是按当前 ANSI 代码页（本机 CP936）去解释它们，
+   * 于是**每个非 ASCII 成员都报 `Invalid empty pathname` 并以非 0 退出** ——
+   * 实测一棵含 `中文 名.txt` 的树只解出 ASCII 那几个文件，而任务被判成失败。
+   *
+   * 上一版本地用例全绿是因为归档是**bsdtar 自己造的**（自洽），照不出这个问题。
+   * 所以这里刻意用 MSYS 的 **GNU tar** 造包 —— 它写出来的字节与 Linux 侧一致。
+   */
+  it('GNU tar 打的包里含中文/emoji 名字，解出来逐字节正确', async () => {
+    const gnuTar = ['/usr/bin/tar', 'C:\\Program Files\\Git\\usr\\bin\\tar.exe'].find((p) =>
+      existsSync(p)
+    )
+    if (!gnuTar) return // 本机没有 GNU tar，跳过（真机验收里还有一条同款）
+
+    const base = join(root as string, 'gnu-src')
+    mkdirSync(join(base, 'app'), { recursive: true })
+    writeFileSync(join(base, 'app', 'ascii.txt'), 'a', 'utf8')
+    writeFileSync(join(base, 'app', '中文 名.txt'), '内容', 'utf8')
+    writeFileSync(join(base, 'app', '日志-🔥.log'), 'emoji', 'utf8')
+    const archive = join(root as string, 'gnu.tar')
+
+    // MSYS 的 GNU tar 只认 /c/... 形式的路径（`C:\x` 会被它当成远端主机名，
+    // 报 "Cannot connect to C: resolve failed" —— 这正是不许走 PATH 找 tar 的理由）
+    const msys = (p: string): string => `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}`
+    execFileSync(gnuTar, ['-c', '-f', msys(archive), '-C', msys(base), '--', 'app'])
+
+    const listed = await listTarEntries(tar, archive, 30_000)
+    expect(listed.ok).toBe(true)
+    expect(checkTarEntries(listed.names, 'app')).toEqual({ unsafe: [] })
+
+    const dest = join(root as string, 'gnu-out')
+    mkdirSync(dest, { recursive: true })
+    const outcome = await extractTar(tar, archive, dest, 30_000)
+    expect(outcome.fatal).toEqual([])
+    expect(outcome.ok).toBe(true)
+    // 名字与内容都要对得上（少了 hdrcharset=UTF-8 时这两行会红）
+    expect(readFileSync(join(dest, 'app', '中文 名.txt'), 'utf8')).toBe('内容')
+    expect(readFileSync(join(dest, 'app', '日志-🔥.log'), 'utf8')).toBe('emoji')
+    expect(readFileSync(join(dest, 'app', 'ascii.txt'), 'utf8')).toBe('a')
+  })
+
   /** 完整性：**在动用户目录之前**就知道包是坏的 */
   it('截断的归档在列成员这一步就退非 0', async () => {
     const archive = buildArchive('trunc-src', 'app')

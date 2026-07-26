@@ -180,6 +180,21 @@ describe('child_process 的用处清单', () => {
     expect(extract).not.toContain("'-P'")
     expect(extract).not.toContain('absolute-paths')
   })
+
+  /**
+   * 真机撞出来的：远端 GNU tar 的包里成员名是原始 UTF-8 字节，而 ustar 没地方声明编码，
+   * bsdtar 在 Windows 上按 ANSI 代码页解释 → 每个非 ASCII 成员都报 `Invalid empty pathname`。
+   * 少了这个选项，打包下载对中文文件名**整个不可用**。
+   */
+  it('列成员与解包都带 hdrcharset=UTF-8', () => {
+    const src = stripComments(read(LT))
+    expect(src).toContain("'--options', 'hdrcharset=UTF-8'")
+    for (const marker of ['export async function listTarEntries(', 'export async function extractTar(']) {
+      expect(flat(blockAfter(src, marker)), marker).toContain('runTar(')
+    }
+    // runTar 是唯一插入该选项的地方 —— 绕过它直接 run() 就等于绕过这道修复
+    expect(flat(blockAfter(src, 'async function runTar('))).toContain('UTF8_OPTS')
+  })
 })
 
 describe('远端命令只用 POSIX 交集', () => {

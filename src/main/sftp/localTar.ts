@@ -20,6 +20,38 @@ const log = scopedLogger('local-tar')
 /** stdout 上限。`tar -tf` 一个十万文件的包约 6MB；超过这个数说明事情不对，宁可降级 */
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 
+/**
+ * 告诉 libarchive「归档里的成员名是 UTF-8」。**少了这一条，非 ASCII 文件名一个都解不出来。**
+ *
+ * 真机上撞出来的：远端 GNU tar 打的包里成员名就是文件系统的原始 UTF-8 字节，而 ustar 格式
+ * 没有地方声明编码。bsdtar 在 Windows 上于是按**当前 ANSI 代码页**（本机 CP936）去解释它们，
+ * 结果每个非 ASCII 成员都报 `Invalid empty pathname` 并以非 0 退出 —— 实测一棵含
+ * `中文 名.txt` 与 `日志-🔥.log` 的树，只有 ASCII 那几个文件解了出来。
+ *
+ * 加上它之后 rc=0、名字逐字节正确。对 bsdtar **自己**打的包也无副作用（实测两种都对），
+ * 所以不做条件判断，一律带上。
+ */
+const UTF8_OPTS = ['--options', 'hdrcharset=UTF-8']
+
+/** bsdtar 太老、不认 --options 时的判据（Win10 1803 的 libarchive 3.3 是认的，这条只是兜底） */
+const OPTION_REJECTED = /unrecognized option|invalid option|unknown option|Unrecognized|--options/i
+
+/**
+ * 带 UTF8_OPTS 跑一次；万一这个 tar 不认这个选项，去掉它重跑一次。
+ * 宁可多起一次进程，也不能让"某些 Windows 版本上打包下载整个不可用"。
+ */
+async function runTar(
+  exe: string,
+  args: string[],
+  timeoutMs: number,
+  encoding: 'utf8' | 'latin1' = 'utf8'
+): Promise<RunResult> {
+  const first = await run(exe, [args[0], ...UTF8_OPTS, ...args.slice(1)], timeoutMs, encoding)
+  if (first.code === 0 || !OPTION_REJECTED.test(first.stderr)) return first
+  log.warn('本机 tar 不认 --options hdrcharset，退回不带该选项（非 ASCII 文件名可能解不出来）')
+  return run(exe, args, timeoutMs, encoding)
+}
+
 export interface RunResult {
   code: number | null
   stdout: string
@@ -221,7 +253,7 @@ export async function listTarEntries(
   timeoutMs: number
 ): Promise<ListResult> {
   // latin1 = 字节对字符的无损解码。**不要改成 utf8** —— 见 run() 上面那段实测说明
-  const r = await run(tarPath, ['-tf', archive], timeoutMs, 'latin1')
+  const r = await runTar(tarPath, ['-t', '-f', archive], timeoutMs, 'latin1')
   if (r.overflow) {
     return { names: [], ok: false, stderr: '归档成员过多，无法完整校验（已放弃解包）' }
   }
@@ -253,7 +285,7 @@ export async function extractTar(
   destDir: string,
   timeoutMs: number
 ): Promise<ExtractOutcome> {
-  const r = await run(tarPath, ['-x', '-f', archive, '-C', destDir], timeoutMs)
+  const r = await runTar(tarPath, ['-x', '-f', archive, '-C', destDir], timeoutMs)
   const cls = classifyExtractStderr(r.stderr)
   if (r.timedOut) {
     return { ok: false, skippedSymlinks: cls.skippedSymlinks, fatal: ['解包超时'], stderr: r.stderr }

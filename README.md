@@ -110,9 +110,21 @@ npx vitest run test/integration/realServer.test.ts test/integration/realServerAd
 - `realServerProxy.test.ts`：经**真实代理软件**（Clash/v2ray 等）连真实服务器，
   额外需要 `OFS_TEST_PROXY_HOST` / `OFS_TEST_PROXY_PORT`（可选 `_USER`/`_PASSWORD`，
   用 `OFS_TEST_PROXY_KINDS='socks5'` 可只测一种协议）
+- `realServerBatch3.test.ts`：编辑远端文件 / 快速删除 / 打包下载。这三样在 fixture 上
+  **一样都验不了** —— fixture 不通告任何 SFTP 扩展（posix-rename 那条主路径没走过）、
+  exec 只是面镜子（`rm -rf` 与 `tar` 的语义无从验）、也没有真实的权限/umask/软链/`df` 输出。
+  它同时把观测到的服务器事实打出来（tar 风味、TMPDIR、可用空间、posix-rename 有没有被通告、
+  编辑前后的权限位与属主），排查时这些数比断言本身更有用。
 
 凭据只从环境变量读，不写进代码库。会在远端 `/tmp` 建临时文件并在用例内删除；
 私钥用例会往 `authorized_keys` 追加一行测试公钥并在结束时精确移除（先做备份）。
+`realServerBatch3` 的全部改动都在一个 `mktemp -d /tmp/ofs-acc.XXXXXXXX` 里，afterAll 无条件删掉。
+
+**这套测试立刻抓到了一个本地测试照不出来的致命 bug**：远端 GNU tar 打的包，成员名是文件系统
+的原始 UTF-8 字节，而 ustar 格式没有地方声明编码 —— bsdtar 在 Windows 上于是按当前 ANSI
+代码页（CP936）去解释它们，结果**每个非 ASCII 文件名都报 `Invalid empty pathname` 并让整个
+任务失败**。本地用例全绿是因为归档是 bsdtar 自己造的（自洽），照不出这一层。
+修法是解包与列成员都带上 `--options hdrcharset=UTF-8`；回归用例改用 MSYS 的 GNU tar 造包。
 
 ### 打包产物冒烟测试
 
@@ -293,6 +305,11 @@ git tag v0.1.0 && git push origin v0.1.0
     ⚠️ **`tar -tf` 在 Windows 上按系统 ANSI 代码页输出成员名**（本机 CP936），
     也就是说列出来的名字读不懂 —— 所以那些检查一律只依赖 ASCII 字节，
     顶层名也只在它是纯 ASCII 时才做身份核对（否则只保证"唯一顶层"）。
+  - **解包与列成员都带 `--options hdrcharset=UTF-8`**，少了它非 ASCII 文件名一个都解不出来
+    （远端 GNU tar 存的是原始 UTF-8 字节，ustar 没地方声明编码，bsdtar 会按 ANSI 代码页解释，
+    每个非 ASCII 成员都报 `Invalid empty pathname`）。这条是真机验收抓出来的，
+    本地用例当时全绿 —— 因为归档是 bsdtar 自己造的、自洽。
+    万一某个老 bsdtar 不认这个选项，会去掉它重跑一次（那时非 ASCII 名字仍然会失败）。
 - **导入不覆盖已信任的主机指纹**：文件里的指纹与本机记录不一致时保留本机记录并在结果里说明 ——
   覆盖等于替用户吞掉中间人告警。需要更新指纹时，删掉该连接的信任记录让 TOFU 重新确认。
 - **不做**：Telnet / 串口 / RDP / VNC、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、导入 FinalShell 配置（其配置加密无法合法解出）。
