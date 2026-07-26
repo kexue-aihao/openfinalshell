@@ -1,7 +1,10 @@
 import { app, dialog, shell } from 'electron'
 import { z } from 'zod'
-import { handle } from './registry'
+import { emit, handle } from './registry'
 import { exportData } from '../services/exportData'
+import { applyImport, inspectImport } from '../services/importData'
+import { getSettings } from '../services/settings'
+import { applyWindowChrome } from '../window'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('app')
@@ -73,6 +76,37 @@ export function registerAppIpc(): void {
       z.object({
         includeSecrets: z.boolean(),
         passphrase: z.string().max(256).optional()
+      })
+    ])
+  )
+
+  // 选文件与解析都在 main 侧完成，renderer 只拿回一个 token —— 它没有机会指定路径
+  handle('app:importPreview', () => inspectImport())
+
+  handle(
+    'app:importData',
+    async (opts) => {
+      const result = await applyImport(opts)
+      // 设置是唯一会立刻改变界面的部分，导入后要主动推给 renderer 并重算窗口色
+      if (result.settingsApplied) {
+        const next = getSettings()
+        applyWindowChrome(next)
+        emit('settings:changed', next)
+      }
+      return result
+    },
+    z.tuple([
+      z.object({
+        token: z.string().min(1).max(200),
+        passphrase: z.string().max(256).optional(),
+        conflict: z.enum(['skip', 'overwrite', 'duplicate']),
+        include: z.object({
+          profiles: z.boolean(),
+          snippets: z.boolean(),
+          forwards: z.boolean(),
+          knownHosts: z.boolean(),
+          settings: z.boolean()
+        })
       })
     ])
   )

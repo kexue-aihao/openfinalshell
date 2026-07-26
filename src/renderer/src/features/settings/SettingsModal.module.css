@@ -92,6 +92,47 @@
   color: var(--ofs-text-2);
 }
 
+/* ---- 数据导入对话框 ---- */
+.importInfo {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-bg-elevated);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ofs-text-2);
+  word-break: break-all;
+}
+
+.importSection {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ofs-text-1);
+}
+
+.importChecks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.importHint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ofs-text-3);
+}
+
+.importNotes {
+  margin: 12px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--ofs-text-2);
+}
+
 .about {
   display: flex;
   flex-direction: column;

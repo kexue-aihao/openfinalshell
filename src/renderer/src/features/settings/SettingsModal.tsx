@@ -23,6 +23,7 @@ import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { terminalThemes } from '@/themes/terminal'
+import { ImportDataPanel } from './ImportDataPanel'
 import { TerminalPreview } from './TerminalPreview'
 import { SHORTCUTS } from './shortcuts'
 import styles from './SettingsModal.module.css'
@@ -381,6 +382,8 @@ export function SettingsModal(): React.JSX.Element {
                   {t('settings.exportButton')}
                 </Button>
               </div>
+
+              <ImportDataPanel />
             </>
           )}
 

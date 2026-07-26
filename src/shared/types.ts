@@ -328,6 +328,66 @@ export interface AppVersions {
   chrome: string
 }
 
+// ---------- 数据导入 / 导出 ----------
+/** 导入时同 id 数据已存在的处理方式 */
+export type ImportConflictPolicy = 'skip' | 'overwrite' | 'duplicate'
+
+/** 勾选导入哪几部分（profiles 连带分组与密码一起） */
+export interface ImportSelection {
+  profiles: boolean
+  snippets: boolean
+  forwards: boolean
+  knownHosts: boolean
+  settings: boolean
+}
+
+export interface ImportPreview {
+  /**
+   * 一次性令牌。main 侧暂存已解析的文件内容，renderer 只拿令牌 ——
+   * 这样 renderer 永远不需要（也不能）向 main 递一个任意文件路径。
+   */
+  token: string
+  path: string
+  appVersion: string
+  exportedAt: number
+  /** 文件里带加密的密码段：一起导入需要当初的导出口令 */
+  includesSecrets: boolean
+  counts: {
+    profiles: number
+    groups: number
+    snippets: number
+    forwards: number
+    knownHosts: number
+    settings: boolean
+  }
+  /** 结构校验没通过、会被跳过的条目数 */
+  invalid: number
+  /** 与本机现有连接 id 相同的条数 */
+  conflicts: number
+}
+
+export interface ImportApplyOptions {
+  token: string
+  /** 解开文件里密码段的口令；不给则连接导入后需重填密码 */
+  passphrase?: string
+  conflict: ImportConflictPolicy
+  include: ImportSelection
+}
+
+export interface ImportResult {
+  profiles: number
+  groups: number
+  snippets: number
+  forwards: number
+  knownHosts: number
+  secrets: number
+  settingsApplied: boolean
+  skipped: number
+  invalid: number
+  /** 需要让用户知道的额外情况（未覆盖的主机指纹、未导入的本机字段等） */
+  notes: string[]
+}
+
 // ---------- known hosts ----------
 export interface KnownHostEntry {
   keyType: string

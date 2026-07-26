@@ -42,7 +42,8 @@ export function getProfile(id: ProfileId): ConnectionProfile | undefined {
   return row ? rowToProfile(row) : undefined
 }
 
-function upsertProfile(p: ConnectionProfile): void {
+/** 整条写入/覆盖。导出为了给导入用：那边不该再抄一份与表结构耦合的 SQL */
+export function upsertProfile(p: ConnectionProfile): void {
   prepare(
     `INSERT INTO profiles(id, name, group_id, json, created_at, updated_at, last_used_at)
      VALUES(?, ?, ?, ?, ?, ?, ?)

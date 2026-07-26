@@ -16,6 +16,9 @@ import type {
   ForwardRule,
   ForwardRuntime,
   GroupId,
+  ImportApplyOptions,
+  ImportPreview,
+  ImportResult,
   MonitorSnapshot,
   MonitorState,
   MonitorStaticInfo,
@@ -51,6 +54,10 @@ export interface InvokeMap {
     args: [{ includeSecrets: boolean; passphrase?: string }]
     result: { path: string; bytes: number; profiles: number; secrets: number } | null
   }
+  /** 选文件并解析导出文件，返回概要供用户确认；取消对话框返回 null */
+  'app:importPreview': { args: []; result: ImportPreview | null }
+  /** 按 importPreview 给的 token 真正写入 */
+  'app:importData': { args: [ImportApplyOptions]; result: ImportResult }
 
   // --- 设置 ---
   'settings:get': { args: []; result: AppSettings }

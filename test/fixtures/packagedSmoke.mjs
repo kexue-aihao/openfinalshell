@@ -329,7 +329,77 @@ async function main() {
       `keepalive=${s.keepaliveInterval} timeout=${s.readyTimeout}`
   )
 
-  // 9) 清理
+  // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
+  //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，
+  //    真正的导入语义（冲突策略、凭据归属、指纹不被覆盖）由 test/unit/importData.test.ts 覆盖。
+  const settingsPanel = await evaluate(`
+    const btns = [...document.querySelectorAll('nav[class*=activityBar] button')]
+    const gear = btns[btns.length - 1]
+    if (!gear) return { error: '没找到设置按钮' }
+    gear.click()
+    await new Promise((r) => setTimeout(r, 900))
+    // 关掉的 antd Modal 仍留在 DOM 里且 wrap 未必是 display:none（前面 hostkey 确认弹窗就是一个），
+    // 所以不按"第一个/可见的弹窗"找，直接按内容认人
+    const section = (m) =>
+      [...m.querySelectorAll('.ant-menu-item')].find((e) => e.textContent.trim() === '安全与数据')
+    const modal = [...document.querySelectorAll('.ant-modal-content')].find(section)
+    if (!modal) return { error: '没找到设置弹窗（或它里面没有"安全与数据"分区）' }
+    section(modal).click()
+    await new Promise((r) => setTimeout(r, 700))
+
+    const text = (e) => e.textContent.replace(/\\s/g, '')
+    const buttons = [...modal.querySelectorAll('button')].map(text)
+
+    // 原生窗口按钮区遮挡检查（设置弹窗是居中的，理论上不该撞上，但改布局时容易踩）
+    const wco = navigator.windowControlsOverlay
+    let hits = []
+    if (wco && wco.visible) {
+      const bar = wco.getTitlebarAreaRect()
+      for (const el of modal.querySelectorAll('button, input, .ant-menu-item')) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        if (r.top < bar.height && r.right > bar.width) hits.push(text(el).slice(0, 30))
+      }
+    }
+
+    const close = modal.querySelector('.ant-modal-close')
+    if (close) close.click()
+    await new Promise((r) => setTimeout(r, 400))
+    return { buttons, hits, crashed: modal.innerText.includes('该面板出现异常') }
+  `)
+  if (settingsPanel.error) fail(settingsPanel.error)
+  if (settingsPanel.crashed) fail('安全与数据面板渲染崩溃（ErrorBoundary 兜住了）')
+  for (const label of ['导出…', '选择文件导入…']) {
+    if (!settingsPanel.buttons.includes(label)) {
+      fail(`安全与数据面板里找不到「${label}」按钮，实际有：${settingsPanel.buttons.join(' / ')}`)
+    }
+  }
+  if (settingsPanel.hits.length > 0) {
+    fail(`设置弹窗里有元素被原生窗口按钮遮挡：${settingsPanel.hits.join(', ')}`)
+  }
+  console.log('OK 设置 → 安全与数据：导出/导入面板可用')
+
+  // 选文件那步会弹系统对话框（CDP 关不掉），但用一个假 token 打一次 app:importData
+  // 就足以证明整条通路是活的：channel 已注册、zod 放行了这份 payload、请求进到了服务里。
+  const importWiring = await evaluate(`
+    try {
+      await window.ofs.invoke('app:importData', {
+        token: 'definitely-not-a-real-token',
+        conflict: 'skip',
+        include: { profiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
+      })
+      return { error: '假 token 竟然导入成功了' }
+    } catch (err) {
+      return { message: String(err && err.message ? err.message : err) }
+    }
+  `)
+  if (importWiring.error) fail(importWiring.error)
+  if (!/会话已失效/.test(importWiring.message)) {
+    fail(`app:importData 通路不对，期望"导入会话已失效"，实际：${importWiring.message}`)
+  }
+  console.log('OK app:importData 通路正常（假 token 被服务层拒绝，而非卡在校验或未注册）')
+
+  // 10) 清理
   await evaluate(`
     await window.ofs.invoke('monitor:stop', '${session.sessionId}')
     await window.ofs.invoke('session:close', '${session.sessionId}')
