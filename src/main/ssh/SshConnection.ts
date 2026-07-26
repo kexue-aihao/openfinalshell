@@ -130,6 +130,13 @@ export class SshConnection extends EventEmitter {
       throw new Error(msg)
     }
 
+    /*
+     * 关掉 Nagle。ssh2 自己建的 socket 默认不设 TCP_NODELAY，于是"有未确认数据时先攒着"，
+     * 打字快过一个 RTT 时后一个按键要等前一个的 ACK —— 在高延迟链路上就是明显的输入卡顿。
+     * （经代理时 socket 是 proxyDial 建的，那边已经设过；这里补的是直连这条路。）
+     */
+    client.setNoDelay(true)
+
     client.on('error', (err) => {
       log.warn(`session ${this.sessionId} error after ready: ${err.message}`)
     })

@@ -27,31 +27,41 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
         return (
           <div key={tab.id} className={`${styles.view} ${active ? styles.viewActive : ''}`}>
             <ErrorBoundary label={`session:${tab.id}`}>
-              {tab.sftpOpen ? (
-                <PanelGroup
-                  direction="vertical"
-                  onLayout={(sizes) => {
-                    if (active && sizes.length >= 2) {
-                      patch({ layout: { ...settings.layout, sftpPaneHeightPct: sizes[1] } })
-                    }
-                  }}
-                >
-                  <Panel id="term" order={1} minSize={20}>
-                    <TerminalPane tab={tab} active={active} uiMode={uiMode} />
-                  </Panel>
-                  <PanelResizeHandle className="ofs-resize-handle" />
-                  <Panel
-                    id="sftp"
-                    order={2}
-                    defaultSize={settings.layout.sftpPaneHeightPct}
-                    minSize={20}
-                  >
-                    <SftpPane tab={tab} active={active} />
-                  </Panel>
-                </PanelGroup>
-              ) : (
-                <TerminalPane tab={tab} active={active} uiMode={uiMode} />
-              )}
+              {/*
+               * PanelGroup 与终端那一格**恒常挂载**，只有 SFTP 那一格随开关增删。
+               *
+               * 早先写成 `sftpOpen ? <PanelGroup><TerminalPane/>…</PanelGroup> : <TerminalPane/>`，
+               * 开关 SFTP 时该位置的元素类型在 PanelGroup 与 TerminalPane 之间变化，
+               * React 按位置+类型对账 → 整棵子树卸载重建。而 TerminalPane 卸载时会
+               * invoke('term:close')，于是：开 SFTP 就把 shell 关了 → main 回 term:exit(closed)
+               * → tab 被标成 closed → SftpPane 看到 state!=='ready' 直接显示"等待会话"，
+               * 一个文件都拉不到。RTT 越高越必中（term:exit 是本地事件，跑得比 SFTP 往返快）。
+               */}
+              <PanelGroup
+                direction="vertical"
+                onLayout={(sizes) => {
+                  if (active && sizes.length >= 2) {
+                    patch({ layout: { ...settings.layout, sftpPaneHeightPct: sizes[1] } })
+                  }
+                }}
+              >
+                <Panel id="term" order={1} minSize={20}>
+                  <TerminalPane tab={tab} active={active} uiMode={uiMode} />
+                </Panel>
+                {tab.sftpOpen && (
+                  <>
+                    <PanelResizeHandle className="ofs-resize-handle" />
+                    <Panel
+                      id="sftp"
+                      order={2}
+                      defaultSize={settings.layout.sftpPaneHeightPct}
+                      minSize={20}
+                    >
+                      <SftpPane tab={tab} active={active} />
+                    </Panel>
+                  </>
+                )}
+              </PanelGroup>
             </ErrorBoundary>
           </div>
         )

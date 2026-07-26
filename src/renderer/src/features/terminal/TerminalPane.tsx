@@ -129,9 +129,16 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       if (timer) clearTimeout(timer)
       cancelAnimationFrame(raf)
       if (termIdRef.current) {
-        unregisterTerm(termIdRef.current)
-        void ofs.invoke('term:close', termIdRef.current).catch(() => {})
+        const dying = termIdRef.current
+        unregisterTerm(dying)
+        void ofs.invoke('term:close', dying).catch(() => {})
         termIdRef.current = null
+        // 同步把 store 里的 termId 清掉。不清的话，万一本组件是被"重挂"而不是真的关掉
+        // （父级结构变化就会这样），新实例会看到一个指向已关闭 shell 的 tab.termId，
+        // 于是开 shell 的 effect 直接 return —— 留下一个永远空白、也不会自愈的终端。
+        useSessionStore.setState((s) => ({
+          tabs: s.tabs.map((t) => (t.termId === dying ? { ...t, termId: null } : t))
+        }))
       }
       bundle.dispose()
       bundleRef.current = null

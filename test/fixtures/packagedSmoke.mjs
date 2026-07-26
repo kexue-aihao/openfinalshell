@@ -608,6 +608,53 @@ async function main() {
     )
   }
 
+  // 8.7) 开 SFTP 分屏不能把会话搞死
+  //    SessionView 早先写成 `sftpOpen ? <PanelGroup>…<TerminalPane/></PanelGroup> : <TerminalPane/>`，
+  //    开关 SFTP 时该位置的元素类型变化 → React 卸载重建整棵子树 → TerminalPane 的清理逻辑
+  //    invoke('term:close') 把 shell 关了 → main 回 term:exit(closed) → tab 变 closed →
+  //    SftpPane 看到 state!=='ready' 就显示"等待会话"，一个文件都拉不到。
+  //    判定用"tab 还是不是 ready"而不是"有没有列出文件"：后者受 RTT 影响（本地 readdir 够快时
+  //    会在 term:exit 之前把文件填上，看着像好的），前者与延迟无关，必中。
+  const sftpToggle = await evaluate(`
+    const ready = () => document.querySelectorAll('[class*=dotReady]').length
+    if (ready() === 0) return { error: '开 SFTP 之前 tab 就不是 ready' }
+    const btns = [...document.querySelectorAll('[class*=hoverTools] button')]
+    if (btns.length === 0) return { error: '找不到悬浮工具条按钮（第一个是打开文件管理）' }
+    btns[0].click()
+
+    // 等 SFTP 首屏；顺带盯着 tab 有没有掉出 ready
+    let lostReady = false
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 250))
+      if (ready() === 0) lostReady = true
+      if (document.querySelector('.ant-table')) break
+    }
+    await new Promise((r) => setTimeout(r, 1500))
+    const body = document.body.innerText
+    return {
+      仍然ready: ready() > 0,
+      中途掉出ready: lostReady,
+      出现会话已结束: /会话已结束|已断开/.test(body),
+      等待会话: /等待会话/.test(body),
+      有表格: Boolean(document.querySelector('.ant-table')),
+      表格行数: document.querySelectorAll('.ant-table-row').length,
+      xterm数: document.querySelectorAll('.xterm').length
+    }
+  `)
+  if (sftpToggle.error) fail(sftpToggle.error)
+  if (!sftpToggle.仍然ready || sftpToggle.中途掉出ready) {
+    fail(
+      '开 SFTP 分屏后会话掉出了 ready' +
+        (sftpToggle.出现会话已结束 ? '（界面出现"会话已结束/已断开"）' : '') +
+        ' —— TerminalPane 大概被重挂了，卸载时把 shell 关掉了'
+    )
+  }
+  if (sftpToggle.等待会话) fail('SFTP 面板停在"等待会话"，没能列出文件')
+  if (!sftpToggle.有表格) fail('SFTP 面板没渲染出文件表格')
+  console.log(
+    `OK 开 SFTP 分屏：会话保持 ready，文件表格 ${sftpToggle.表格行数} 行，xterm 仍为 ${sftpToggle.xterm数} 个`
+  )
+
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
   //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，
   //    真正的导入语义（冲突策略、凭据归属、指纹不被覆盖）由 test/unit/importData.test.ts 覆盖。

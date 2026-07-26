@@ -405,7 +405,8 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           <div className={styles.breadcrumbBar} onClick={() => setEditingPath(cwd)}>
             {crumbs.map((c, i) => (
               <span key={c.path}>
-                {i > 0 && <span className={styles.crumbSep}>/</span>}
+                {/* 第 0 段的 label 本身就是 "/"，再补一个分隔符会渲染成 "//root" */}
+                {i > 1 && <span className={styles.crumbSep}>/</span>}
                 <span
                   className={styles.crumb}
                   onClick={(e) => {
