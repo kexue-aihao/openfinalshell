@@ -160,6 +160,13 @@ jobs:
           > 凭据加密走 Windows DPAPI，密文与当前系统账户绑定 —— 换机或重装系统后
           > 旧的 `vault.json` 无法解密，需重新填写密码。
           EOF
+          # 同一个 tag 重推时（修了问题重新出包）要能干净重来：
+          # gh release create 遇到同名 Release 直接失败，而 --clobber 式上传又会留下
+          # 上一次的陈旧资产 —— 所以先删掉 Release 本身，tag 保留不动。
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "已存在 Release $GITHUB_REF_NAME，先删除再重建（tag 保留）"
+            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
+          fi
           prerelease=()
           # v0.1.0-rc1 这类带后缀的 tag 视为预发布
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
