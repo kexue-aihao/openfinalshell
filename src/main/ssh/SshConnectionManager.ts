@@ -25,6 +25,9 @@ class SshConnectionManager {
     const profile = getProfile(profileId)
     if (!profile) throw new Error('连接配置不存在')
 
+    // 进门就记一行：此前只在 ready 之后才写日志，卡在握手/等待确认时日志里一片空白，
+    // 事后完全无从判断停在了哪一步
+    log.info(`opening session ${profile.username}@${profile.host}:${profile.port} (${profile.name})`)
     const conn = new SshConnection(structuredClone(profile))
     this.sessions.set(conn.sessionId, conn)
 

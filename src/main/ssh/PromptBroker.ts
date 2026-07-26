@@ -57,6 +57,7 @@ class PromptBroker {
 
   private finish(requestId: string, reply: SessionPromptReply): void {
     if (this.current?.prompt.requestId === requestId) {
+      log.info(`prompt ${this.current.prompt.kind} answered: ok=${reply.ok}`)
       clearTimeout(this.current.timer)
       const { resolve } = this.current
       this.current = null
@@ -75,6 +76,11 @@ class PromptBroker {
   private pump(): void {
     if (this.current || this.queue.length === 0) return
     this.current = this.queue.shift()!
+    // 记下"已向界面要求确认"：用户看到的是一直转圈时，日志能区分
+    // "卡在等用户点确认" 与 "卡在网络握手"
+    log.info(
+      `prompt ${this.current.prompt.kind} → renderer (session ${this.current.prompt.sessionId}, 队列剩 ${this.queue.length})`
+    )
     emit('session:prompt', this.current.prompt)
   }
 }
