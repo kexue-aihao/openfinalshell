@@ -1,82 +1,89 @@
 import { randomUUID } from 'node:crypto'
 import type { Snippet, SnippetGroup } from '@shared/types'
-import { JsonFileStore } from './ConfigStore'
-import { configFile } from './paths'
+import { metaGet, metaSet, prepare, tx } from './Database'
 
-interface SnippetsFile {
-  version: number
-  groups: SnippetGroup[]
-  snippets: Snippet[]
-}
-
-let store: JsonFileStore<SnippetsFile> | null = null
-
-function snippetStore(): JsonFileStore<SnippetsFile> {
-  if (!store) {
-    store = new JsonFileStore<SnippetsFile>(configFile.snippets(), () => ({
-      version: 1,
-      groups: [{ id: 'default', name: '常用', order: 0 }],
-      snippets: [
-        { id: randomUUID(), groupId: 'default', name: '磁盘占用', command: 'df -h', autoEnter: true, order: 0 },
-        { id: randomUUID(), groupId: 'default', name: '内存', command: 'free -h', autoEnter: true, order: 1 },
-        {
-          id: randomUUID(),
-          groupId: 'default',
-          name: '占用最高的进程',
-          command: 'ps aux --sort=-%cpu | head -n 11',
-          autoEnter: true,
-          order: 2
-        },
-        {
-          id: randomUUID(),
-          groupId: 'default',
-          name: '监听端口',
-          command: 'ss -tulnp',
-          autoEnter: true,
-          order: 3
-        }
+/** 首次使用时铺一组常用命令，空面板对新用户不友好 */
+function seedIfEmpty(): void {
+  if (metaGet('snippets_seeded')) return
+  const count = prepare('SELECT COUNT(*) AS c FROM snippets').get() as { c: number }
+  if (count.c === 0) {
+    tx(() => {
+      prepare('INSERT INTO snippet_groups(id, name, sort_order) VALUES(?, ?, ?)').run(
+        'default',
+        '常用',
+        0
+      )
+      const seed: Array<[string, string]> = [
+        ['磁盘占用', 'df -h'],
+        ['内存', 'free -h'],
+        ['占用最高的进程', 'ps aux --sort=-%cpu | head -n 11'],
+        ['监听端口', 'ss -tulnp']
       ]
-    }))
+      seed.forEach(([name, command], i) => {
+        const snippet: Snippet = {
+          id: randomUUID(),
+          groupId: 'default',
+          name,
+          command,
+          autoEnter: true,
+          order: i
+        }
+        prepare('INSERT INTO snippets(id, group_id, json, sort_order) VALUES(?, ?, ?, ?)').run(
+          snippet.id,
+          snippet.groupId,
+          JSON.stringify(snippet),
+          i
+        )
+      })
+    })
   }
-  return store
+  metaSet('snippets_seeded', String(Date.now()))
 }
 
 export function listSnippets(): { groups: SnippetGroup[]; snippets: Snippet[] } {
-  const d = snippetStore().data
-  return { groups: d.groups, snippets: d.snippets }
+  seedIfEmpty()
+  const groups = (
+    prepare('SELECT id, name, sort_order FROM snippet_groups ORDER BY sort_order, name').all() as Array<{
+      id: string
+      name: string
+      sort_order: number
+    }>
+  ).map((g) => ({ id: g.id, name: g.name, order: g.sort_order }))
+  const snippets = (
+    prepare('SELECT json FROM snippets ORDER BY sort_order').all() as Array<{ json: string }>
+  ).map((r) => JSON.parse(r.json) as Snippet)
+  return { groups, snippets }
 }
 
 export function saveSnippet(snippet: Snippet): void {
-  snippetStore().update((d) => {
-    const s = { ...snippet, id: snippet.id || randomUUID() }
-    const idx = d.snippets.findIndex((x) => x.id === s.id)
-    if (idx >= 0) d.snippets[idx] = s
-    else d.snippets.push(s)
-  })
+  const s: Snippet = { ...snippet, id: snippet.id || randomUUID() }
+  prepare(
+    `INSERT INTO snippets(id, group_id, json, sort_order) VALUES(?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET group_id = excluded.group_id, json = excluded.json,
+                                   sort_order = excluded.sort_order`
+  ).run(s.id, s.groupId, JSON.stringify(s), s.order)
 }
 
 export function deleteSnippet(id: string): void {
-  snippetStore().update((d) => {
-    d.snippets = d.snippets.filter((x) => x.id !== id)
-  })
+  prepare('DELETE FROM snippets WHERE id = ?').run(id)
 }
 
 export function saveSnippetGroup(group: SnippetGroup): void {
-  snippetStore().update((d) => {
-    const g = { ...group, id: group.id || randomUUID() }
-    const idx = d.groups.findIndex((x) => x.id === g.id)
-    if (idx >= 0) d.groups[idx] = g
-    else d.groups.push(g)
-  })
+  const g: SnippetGroup = { ...group, id: group.id || randomUUID() }
+  prepare(
+    `INSERT INTO snippet_groups(id, name, sort_order) VALUES(?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order`
+  ).run(g.id, g.name, g.order)
 }
 
 export function deleteSnippetGroup(id: string): void {
-  snippetStore().update((d) => {
-    d.groups = d.groups.filter((x) => x.id !== id)
-    d.snippets = d.snippets.filter((x) => x.groupId !== id)
+  tx(() => {
+    prepare('DELETE FROM snippets WHERE group_id = ?').run(id)
+    prepare('DELETE FROM snippet_groups WHERE id = ?').run(id)
   })
 }
 
+/** 写入即落库，保留此方法只为兼容退出前的 flush 调用 */
 export async function flushSnippets(): Promise<void> {
-  await snippetStore().flush()
+  /* no-op */
 }

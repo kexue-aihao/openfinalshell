@@ -1,32 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import { safeStorage } from 'electron'
 import type { SecretRef } from '@shared/types'
-import { JsonFileStore } from './ConfigStore'
-import { configFile } from './paths'
+import { prepare } from './Database'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('vault')
 
-interface VaultFile {
-  version: number
-  /** secretId → base64(safeStorage.encryptString(明文)) */
-  entries: Record<string, string>
-}
-
 /**
  * 凭据保险库：safeStorage（Windows=DPAPI，绑定当前系统用户）。
- * getSecret 只允许 main 内部调用，明文永不经 IPC 回传 renderer。
+ * 密文按行存在 secrets 表里；明文永不落库、也永不经 IPC 回传 renderer。
  * safeStorage 必须在 app ready 后使用 —— 本模块所有函数都只应在 ready 后调用。
  */
-let store: JsonFileStore<VaultFile> | null = null
-
-function vaultStore(): JsonFileStore<VaultFile> {
-  if (!store) {
-    store = new JsonFileStore<VaultFile>(configFile.vault(), () => ({ version: 1, entries: {} }))
-  }
-  return store
-}
-
 export const vault = {
   isAvailable(): boolean {
     return safeStorage.isEncryptionAvailable()
@@ -38,20 +22,23 @@ export const vault = {
       throw new Error('本机无法安全保存密码（safeStorage 不可用），请改为每次连接时输入')
     }
     const ref = overwriteRef ?? randomUUID()
-    const cipher = safeStorage.encryptString(plaintext).toString('base64')
-    vaultStore().update((d) => {
-      d.entries[ref] = cipher
-    })
+    const cipher = safeStorage.encryptString(plaintext)
+    prepare(
+      'INSERT INTO secrets(ref, cipher) VALUES(?, ?) ON CONFLICT(ref) DO UPDATE SET cipher = ?'
+    ).run(ref, cipher, cipher)
     return ref
   },
 
   /** 仅 main 内部调用 */
   getSecret(ref: SecretRef): string | null {
-    const cipher = vaultStore().data.entries[ref]
-    if (!cipher) return null
+    const row = prepare('SELECT cipher FROM secrets WHERE ref = ?').get(ref) as
+      | { cipher: Uint8Array }
+      | undefined
+    if (!row) return null
     try {
-      return safeStorage.decryptString(Buffer.from(cipher, 'base64'))
+      return safeStorage.decryptString(Buffer.from(row.cipher))
     } catch (err) {
+      // 换机/重装系统后 DPAPI 密文无法解开，属预期情况：返回 null 让上层改为询问
       log.error(`failed to decrypt secret ${ref}`, err)
       return null
     }
@@ -59,12 +46,11 @@ export const vault = {
 
   deleteSecret(ref: SecretRef | undefined): void {
     if (!ref) return
-    vaultStore().update((d) => {
-      delete d.entries[ref]
-    })
+    prepare('DELETE FROM secrets WHERE ref = ?').run(ref)
   },
 
+  /** 写入即落库，保留此方法只为兼容退出前的 flush 调用 */
   async flush(): Promise<void> {
-    await vaultStore().flush()
+    /* no-op */
   }
 }

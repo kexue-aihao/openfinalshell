@@ -1,15 +1,13 @@
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { AppSettings } from '@shared/types'
-import { JsonFileStore, deepMerge } from '../store/ConfigStore'
-import { configFile } from '../store/paths'
+import { deepMerge } from '../store/ConfigStore'
+import { DocStore } from '../store/DocStore'
 
-let store: JsonFileStore<AppSettings> | null = null
+let store: DocStore<AppSettings> | null = null
 
-export function settingsStore(): JsonFileStore<AppSettings> {
+export function settingsStore(): DocStore<AppSettings> {
   if (!store) {
-    store = new JsonFileStore<AppSettings>(configFile.settings(), () =>
-      structuredClone(DEFAULT_SETTINGS)
-    )
+    store = new DocStore<AppSettings>('settings', () => structuredClone(DEFAULT_SETTINGS))
   }
   return store
 }

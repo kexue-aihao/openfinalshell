@@ -3,6 +3,7 @@ import {
   App as AntdApp,
   Alert,
   Button,
+  Checkbox,
   Divider,
   Input,
   InputNumber,
@@ -38,6 +39,9 @@ export function SettingsModal(): React.JSX.Element {
   const [section, setSection] = useState<Section>('general')
   const [vaultAvailable, setVaultAvailable] = useState<boolean | null>(null)
   const [versions, setVersions] = useState<Awaited<ReturnType<typeof loadVersions>> | null>(null)
+  const [exportSecrets, setExportSecrets] = useState(false)
+  const [exportPass, setExportPass] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   async function loadVersions(): Promise<{
     app: string
@@ -63,6 +67,26 @@ export function SettingsModal(): React.JSX.Element {
     }
     if (next === 'about' && !versions) {
       void loadVersions().then(setVersions)
+    }
+  }
+
+  /** 导出：口令只单向进 main，成功后立刻从内存清掉 */
+  const doExport = async (): Promise<void> => {
+    setExporting(true)
+    try {
+      const r = await ofs.invoke('app:exportData', {
+        includeSecrets: exportSecrets,
+        passphrase: exportSecrets ? exportPass : undefined
+      })
+      if (!r) return // 用户取消了保存对话框
+      setExportPass('')
+      message.success(
+        t('settings.exportDone', { profiles: r.profiles, secrets: r.secrets, path: r.path })
+      )
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err))
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -329,6 +353,34 @@ export function SettingsModal(): React.JSX.Element {
               <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
                 {t('settings.securityNotes')}
               </Typography.Paragraph>
+
+              <Typography.Title level={5} style={{ marginTop: 24 }}>
+                {t('settings.exportTitle')}
+              </Typography.Title>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+                {t('settings.exportDesc')}
+              </Typography.Paragraph>
+              <Checkbox
+                checked={exportSecrets}
+                onChange={(e) => setExportSecrets(e.target.checked)}
+                style={{ marginBottom: 8 }}
+              >
+                {t('settings.exportIncludeSecrets')}
+              </Checkbox>
+              {exportSecrets && (
+                <Input.Password
+                  value={exportPass}
+                  onChange={(e) => setExportPass(e.target.value)}
+                  placeholder={t('settings.exportPassphrasePlaceholder')}
+                  style={{ marginBottom: 8 }}
+                  autoComplete="new-password"
+                />
+              )}
+              <div>
+                <Button loading={exporting} onClick={() => void doExport()}>
+                  {t('settings.exportButton')}
+                </Button>
+              </div>
             </>
           )}
 

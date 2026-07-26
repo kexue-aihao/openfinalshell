@@ -42,6 +42,9 @@ export function handle<K extends keyof InvokeMap>(
         log.warn(`invalid args for ${channel}: ${parsed.error.message}`)
         throw new Error(`参数校验失败 ${channel} → ${where}`)
       }
+      // 用校验后的数据而不是原始 args：zod 会剥掉未声明的字段，
+      // 否则 renderer 塞进来的多余键会一路穿到处理器（例如让导出写到任意路径）
+      return fn(...(parsed.data as InvokeMap[K]['args']))
     }
     return fn(...(args as InvokeMap[K]['args']))
   })

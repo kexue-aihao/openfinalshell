@@ -16,6 +16,7 @@ import { forwardManager } from './forward/ForwardManager'
 import { flushForwards } from './store/forwards'
 import { transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
+import { closeDatabase } from './store/Database'
 import { flushConnections } from './store/connections'
 import { flushSnippets } from './store/snippets'
 import { flushKnownHosts } from './ssh/hostkeys'
@@ -84,5 +85,8 @@ if (!app.requestSingleInstanceLock()) {
     void flushSnippets()
     void flushForwards()
     void vault.flush()
+    // 关掉数据库连接：WAL 会在最后一个连接关闭时归并回主库，
+    // 不关会留下 -wal/-shm 文件（能自愈，但卸载清理与备份都更干净些）
+    closeDatabase()
   })
 }

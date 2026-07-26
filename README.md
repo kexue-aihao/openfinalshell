@@ -13,6 +13,9 @@
 - **端口转发**：本地(-L)、远程(-R)、动态(SOCKS5)，可随连接自动启动、断线自动恢复
 - **快捷命令**：分组管理、一键发送到当前或全部终端、`{{host}}`/`{{user}}`/`{{port}}` 占位符
 - **深浅主题**：6 套终端配色、8 种强调色、界面缩放；中英双语
+- **数据导出**：设置 → 安全与数据，把连接/分组/快捷命令/转发/已信任主机/界面设置导出为 JSON；
+  勾选"含已保存的密码"时用导出口令重新加密（scrypt + AES-256-GCM），不勾则文件里没有任何密码。
+  **卸载会清空本机数据**（`deleteAppDataOnUninstall`），卸载前请先导出
 
 ## 技术栈
 
@@ -20,9 +23,10 @@ Electron 43 + React 18 + TypeScript · [ssh2](https://github.com/mscdex/ssh2) ·
 
 设计取向：
 
-- **零 native 硬依赖**：配置用 JSON + 原子写，凭据用 Electron 内置 `safeStorage`，SOCKS5 自实现 —— 不引 sqlite/argon2/keytar/socksv5，安装即可用。
+- **零 native 硬依赖**：数据落 SQLite 但用的是 **Electron/Node 内置的 `node:sqlite`**，凭据用内置 `safeStorage`，SOCKS5 自实现 —— 不引 better-sqlite3/argon2/keytar/socksv5。这不只是洁癖：`better-sqlite3` 这类原生模块在 32 位（ia32）上要现编，会直接掐死 x86 产物。
 - **渲染进程是纯视图**：`contextIsolation` + `sandbox` 全开，ssh2/fs 只在主进程；能力经 preload 白名单暴露，IPC 入参 zod 校验。
 - **凭据引用（credentialRef）模式**：明文密码只在保存表单时单向进主进程，加密落盘后仅返回引用；**已存密码永不回传渲染进程**，日志字段自动脱敏。
+- **数据存 SQLite 单文件**（`userData/config/openfinalshell.db`，WAL）：集合类数据用真表、深层嵌套的领域对象存 JSON 列。改一条连接不再重写整个文件，多实例同时运行也不会互相覆盖。首次启动会把 v0.1.0 的 JSON 配置导入并把原文件改名 `*.migrated`（保留而非删除）。
 - **终端通路专门优化**：主进程 8ms/256KB 双阈值批处理下行数据，配合 `bytesInFlight` 水位做背压 —— `cat` 大文件不会撑爆内存，Ctrl+C 立即生效。
 
 ## 开发
@@ -162,7 +166,9 @@ git tag v0.1.0 && git push origin v0.1.0
   **不支持 PKCS#8**（`BEGIN PRIVATE KEY` / `BEGIN ENCRYPTED PRIVATE KEY`）——
   用 `ssh-keygen -p -f <私钥> -m RFC4716` 转换即可。PuTTY `.ppk` 未在本项目验证。
 - **监控需要 Linux**：采集基于 `/proc`，BSD/macOS 等系统会显示"暂不支持监控"，终端与文件管理不受影响。
-- **凭据迁移**：Windows 上 `safeStorage` 走 DPAPI，密文与当前系统用户绑定 —— 重装系统或换机后 `vault.json` 无法解密。
+- **凭据迁移**：Windows 上 `safeStorage` 走 DPAPI，密文与当前系统用户绑定 —— 重装系统或换机后数据库里的密文无法解密。
+  换机请用「设置 → 安全与数据 → 导出应用数据」并勾选含密码（那一段是用导出口令重新加密的，不依赖 DPAPI）。
+  导入功能尚未实现，导出文件目前用于备份与人工核对。
 - **不做**：Telnet / 串口 / RDP / VNC、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、导入 FinalShell 配置（其配置加密无法合法解出）。
 - Windows 安装包暂未做代码签名，首次运行可能出现 SmartScreen 提示。
 

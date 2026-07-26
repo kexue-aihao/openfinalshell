@@ -1,6 +1,7 @@
 import { app, dialog, shell } from 'electron'
 import { z } from 'zod'
 import { handle } from './registry'
+import { exportData } from '../services/exportData'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('app')
@@ -63,5 +64,16 @@ export function registerAppIpc(): void {
       shell.showItemInFolder(path)
     },
     z.tuple([z.string()])
+  )
+
+  handle(
+    'app:exportData',
+    (opts) => exportData(opts),
+    z.tuple([
+      z.object({
+        includeSecrets: z.boolean(),
+        passphrase: z.string().max(256).optional()
+      })
+    ])
   )
 }

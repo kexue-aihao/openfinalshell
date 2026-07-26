@@ -46,6 +46,11 @@ export interface InvokeMap {
   }
   'app:openExternal': { args: [string]; result: void }
   'app:openPath': { args: [string]; result: void }
+  /** 导出应用数据；取消保存对话框返回 null。口令只单向进 main，不回传 */
+  'app:exportData': {
+    args: [{ includeSecrets: boolean; passphrase?: string }]
+    result: { path: string; bytes: number; profiles: number; secrets: number } | null
+  }
 
   // --- 设置 ---
   'settings:get': { args: []; result: AppSettings }

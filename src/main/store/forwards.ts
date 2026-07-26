@@ -1,49 +1,34 @@
 import { randomUUID } from 'node:crypto'
 import type { ForwardId, ForwardRule, ProfileId } from '@shared/types'
-import { JsonFileStore } from './ConfigStore'
-import { configDir } from './paths'
-import { join } from 'node:path'
-
-interface ForwardsFile {
-  version: number
-  rules: ForwardRule[]
-}
-
-let store: JsonFileStore<ForwardsFile> | null = null
-
-function forwardStore(): JsonFileStore<ForwardsFile> {
-  if (!store) {
-    store = new JsonFileStore<ForwardsFile>(join(configDir(), 'forwards.json'), () => ({
-      version: 1,
-      rules: []
-    }))
-  }
-  return store
-}
+import { prepare } from './Database'
 
 export function listForwards(profileId: ProfileId | null): ForwardRule[] {
-  const rules = forwardStore().data.rules
-  return profileId === null ? rules : rules.filter((r) => r.profileId === profileId)
+  const rows = (
+    profileId === null
+      ? prepare('SELECT json FROM forwards').all()
+      : prepare('SELECT json FROM forwards WHERE profile_id = ?').all(profileId)
+  ) as Array<{ json: string }>
+  return rows.map((r) => JSON.parse(r.json) as ForwardRule)
 }
 
 export function getForward(id: ForwardId): ForwardRule | undefined {
-  return forwardStore().data.rules.find((r) => r.id === id)
+  const row = prepare('SELECT json FROM forwards WHERE id = ?').get(id) as
+    | { json: string }
+    | undefined
+  return row ? (JSON.parse(row.json) as ForwardRule) : undefined
 }
 
 export function saveForward(rule: ForwardRule): ForwardRule {
   const saved: ForwardRule = { ...rule, id: rule.id || randomUUID() }
-  forwardStore().update((d) => {
-    const idx = d.rules.findIndex((r) => r.id === saved.id)
-    if (idx >= 0) d.rules[idx] = saved
-    else d.rules.push(saved)
-  })
+  prepare(
+    `INSERT INTO forwards(id, profile_id, json) VALUES(?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, json = excluded.json`
+  ).run(saved.id, saved.profileId, JSON.stringify(saved))
   return saved
 }
 
 export function deleteForward(id: ForwardId): void {
-  forwardStore().update((d) => {
-    d.rules = d.rules.filter((r) => r.id !== id)
-  })
+  prepare('DELETE FROM forwards WHERE id = ?').run(id)
 }
 
 /** 连接建立后自动启动的规则 */
@@ -51,6 +36,7 @@ export function autoStartRules(profileId: ProfileId): ForwardRule[] {
   return listForwards(profileId).filter((r) => r.autoStart)
 }
 
+/** 写入即落库，保留此方法只为兼容退出前的 flush 调用 */
 export async function flushForwards(): Promise<void> {
-  await forwardStore().flush()
+  /* no-op */
 }

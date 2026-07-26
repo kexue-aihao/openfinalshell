@@ -32,6 +32,10 @@ win:
 nsis:
   oneClick: false
   perMachine: false # 免管理员，装到 %LOCALAPPDATA%
+  # 卸载时一并删除 %APPDATA%\OpenFinalShell（连接、凭据、known_hosts、数据库都在那儿）。
+  # 默认 false 会把这些留在磁盘上 —— 卸载后重装还能看到旧数据，既不干净也是隐私问题。
+  # 需要保留的话请先用设置页的"导出应用数据"备份。
+  deleteAppDataOnUninstall: true
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
