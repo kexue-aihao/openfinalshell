@@ -4,6 +4,9 @@ release/
 dist/
 *.tsbuildinfo
 # build/icon.png 由 npm run icon 生成，纳入版本控制以便打包无需额外步骤
+# .npmrc 是开发机本地的代理配置，绝不能入库：
+# 里面的 proxy 只在本机存在，进了仓库会让 CI 与任何克隆者的 npm 连不上 registry
+.npmrc
 *.local
 *.log
 .DS_Store

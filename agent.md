@@ -8,7 +8,13 @@
 http://127.0.0.1:7897
 ```
 
-- **npm**：项目根目录 `.npmrc` 已配置 `proxy` / `https-proxy`，`npm install` / `npm view` 等命令自动生效，无需额外设置。
+- **npm**：项目根目录 `.npmrc` 配了 `proxy` / `https-proxy`，`npm install` / `npm view` 等命令自动生效。
+  **该文件已被 gitignore，不入库** —— 里面的代理只在本机存在，进了仓库会让 GitHub Actions
+  和任何克隆者的 npm 都连不上 registry（`npm ci` 直接失败）。新克隆需自己建一份：
+
+  ```bash
+  printf 'proxy=http://127.0.0.1:7897\nhttps-proxy=http://127.0.0.1:7897\n' > .npmrc
+  ```
 - **git**：本仓库已设置 local 配置 `http.proxy` / `https.proxy`（`git config --local -l` 可查验）。
 - **其他需要联网的 shell 命令**（curl、Invoke-WebRequest、electron 二进制下载等）：执行前设置环境变量：
   - PowerShell：`$env:HTTP_PROXY='http://127.0.0.1:7897'; $env:HTTPS_PROXY='http://127.0.0.1:7897'`
