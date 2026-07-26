@@ -1,4 +1,4 @@
-import type { EventMap, OfsApi } from '@shared/ipc'
+import { MAIN_ONLY_SETTINGS_PATHS, type EventMap, type OfsApi } from '@shared/ipc'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type {
   ConnectionGroup,
@@ -6,6 +6,7 @@ import type {
   ForwardRule,
   ForwardRuntime,
   ProfileDraft,
+  RemoteEditEntry,
   SftpEntry,
   Snippet,
   SnippetGroup,
@@ -70,8 +71,9 @@ export function createMockOfs(): OfsApi {
   const sessions = new Map<string, { label: string }>()
   const terms = new Map<string, { sessionId: string; line: string }>()
 
-  // --- 假 SFTP 目录树（mockDirs 只装运行时新建的目录，避免与固定列表重复） ---
+  // --- 假 SFTP 目录树（mockDirs/mockFiles 只装运行时新建的，避免与固定列表重复） ---
   const mockDirs = new Set<string>()
+  const mockFiles = new Set<string>()
   const mockRenames = new Map<string, string>()
   const mockDeleted = new Set<string>()
   const mockTasks: TransferTask[] = []
@@ -119,18 +121,52 @@ export function createMockOfs(): OfsApi {
                   { ...mockFile('/', 'var', 4096, 0o755, 'dir'), modeStr: 'drwxr-xr-x' }
                 ]
               : []
-    const extras = [...mockDirs]
-      .filter((d) => d.startsWith(`${dir}/`) && !d.slice(dir.length + 1).includes('/'))
-      .map((d) => ({
-        ...mockFile(dir, d.slice(dir.length + 1), 4096, 0o755, 'dir' as const),
-        modeStr: 'drwxr-xr-x'
-      }))
-    return [...list, ...extras]
+    /** 只取直接子项：新建的路径是全路径，深层的不该出现在本目录列表里 */
+    const directChildren = (all: Set<string>): string[] =>
+      [...all].filter((p) => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'))
+    const extras = directChildren(mockDirs).map((d) => ({
+      ...mockFile(dir, d.slice(dir.length + 1), 4096, 0o755, 'dir' as const),
+      modeStr: 'drwxr-xr-x'
+    }))
+    // touch 出来的空文件也要露脸，否则「新建 > 文件」在浏览器里点了跟没点一样
+    const newFiles = directChildren(mockFiles).map((f) => mockFile(dir, f.slice(dir.length + 1), 0))
+    return [...list, ...extras, ...newFiles]
       .filter((e) => !mockDeleted.has(e.path))
       .map((e) => {
         const renamed = mockRenames.get(e.path)
         return renamed ? { ...e, name: renamed.split('/').pop()!, path: renamed } : e
       })
+  }
+
+  /**
+   * 假远端编辑：内存里假装每一步都成功，够界面把 downloading→editing→uploading→editing
+   * 这条状态链跑通。真实现里这些状态之间是 SFTP 往返 + 本地文件监视，
+   * 这里全用 setTimeout 兑现 —— 否则浏览器调试模式下永远只看得到终态，
+   * 骨架屏/进度提示这类只在中间态出现的 UI 根本没法验。
+   */
+  const mockEdits = new Map<string, RemoteEditEntry>()
+
+  const emitEdit = (e: RemoteEditEntry): void => {
+    const halted = e.state === 'conflict' || e.state === 'blocked' || e.state === 'error'
+    emit('sftp:editState', {
+      editId: e.id,
+      sessionId: e.sessionId,
+      remotePath: e.remotePath,
+      state: e.state,
+      error: halted ? e.message : undefined,
+      warning: halted ? undefined : e.message,
+      eolWarning: e.eolWarning
+    })
+  }
+
+  /** 只有还在册的编辑才许改状态：停止编辑之后那些在飞的 setTimeout 不该让一行凭空复活 */
+  const laterEdit = (id: string, ms: number, mutate: (e: RemoteEditEntry) => void): void => {
+    setTimeout(() => {
+      const e = mockEdits.get(id)
+      if (!e) return
+      mutate(e)
+      emitEdit(e)
+    }, ms)
   }
 
   // --- 假端口转发 ---
@@ -195,6 +231,23 @@ export function createMockOfs(): OfsApi {
                   { pid: 2345, name: 'nginx', cpuPct: Number(wave(8, 6).toFixed(1)), memPct: 1.5 },
                   { pid: 3456, name: 'sshd', cpuPct: 1.0, memPct: 0.2 }
                 ]
+              : undefined,
+          // conns 每 tick 都有（sockstat 是 O(1)），明细跟 df 同档低频
+          conns: {
+            socketsUsed: 330 + Math.round(wave(20, 18)),
+            tcpInuse: 42 + Math.round(wave(12, 10)),
+            tcpOrphan: 0,
+            tcpTw: 3 + Math.round(wave(6, 5)),
+            udpInuse: 6
+          },
+          tcpStates:
+            tick % 5 === 1
+              ? {
+                  ESTABLISHED: 31 + Math.round(wave(10, 8)),
+                  LISTEN: 9,
+                  TIME_WAIT: 3 + Math.round(wave(6, 5)),
+                  CLOSE_WAIT: 1
+                }
               : undefined
         }
       })
@@ -242,7 +295,25 @@ export function createMockOfs(): OfsApi {
 
   const handlers: Record<string, (...args: never[]) => unknown> = {
     'settings:get': () => settings,
-    'settings:set': (patch: never) => Object.assign(settings, patch),
+    /**
+     * 与 main 侧一致：MAIN_ONLY_SETTINGS_PATHS 里的键（现在只有 sftp.externalEditorPath）
+     * 从这条 channel 进来一律不生效 —— 它最终会成为 main 侧 spawn 的可执行文件，
+     * 只能由 sftp:pickEditor 写。桩上也照做，否则设置页在浏览器里"能改"、
+     * 到了 Electron 里静默不生效，这类差异最难查。
+     */
+    'settings:set': (patch: never) => {
+      const next = structuredClone(patch as unknown as Record<string, unknown>)
+      for (const path of MAIN_ONLY_SETTINGS_PATHS) {
+        const [section, key] = path.split('.')
+        const incoming = next[section]
+        if (typeof incoming !== 'object' || incoming === null) continue
+        // 覆回库里那份值而不是单纯删键：下面是浅合并（Object.assign），
+        // 只删键会把这一项整个抹掉，而 main 侧 patchSettings 是深合并 —— 覆回旧值才是同一个结果
+        const stored = (settings as unknown as Record<string, Record<string, unknown>>)[section]
+        ;(incoming as Record<string, unknown>)[key] = stored?.[key]
+      }
+      return Object.assign(settings, next)
+    },
     'app:getVersions': () => ({ app: '0.1.0-mock', electron: 'browser', node: '-', chrome: '-' }),
     // 浏览器里没有原生对话框，返回假路径让传输流程可走通
     'app:pickPath': (arg: never) => {
@@ -342,6 +413,122 @@ export function createMockOfs(): OfsApi {
       mockDeleted.add(path)
     },
     'sftp:chmod': () => undefined,
+
+    /**
+     * 快速删除。**刻意不在这里重实现 main 侧的守卫与命令构造** ——
+     * 那些的正主是 test/unit/fastDelete.test.ts（纯函数、精确字符串比对）。
+     * 这里重写一遍只会得到一个"自己跟自己对"的假绿：以前 externalEditorPath
+     * 那条护栏就是这么空转的（渲染进程 mock 里的重实现绿着，main 侧整个删掉照样绿）。
+     * 所以 mock 只负责让界面能走完一遍流程，命令原文明确标成占位。
+     */
+    'sftp:fastDeletePreview': (arg: never) => {
+      const { paths } = arg as unknown as { paths: string[] }
+      return { command: `rm -rf -- ${paths.join(' ')}   # mock`, count: paths.length, batches: 1 }
+    },
+    'sftp:fastDelete': (arg: never) => {
+      const { paths } = arg as unknown as { paths: string[] }
+      for (const p of paths) mockDeleted.add(p)
+      return { exitCode: 0, leftover: [], stderr: '' }
+    },
+    'sftp:touch': (arg: never) => {
+      const { path } = arg as unknown as { path: string }
+      // 走一遍 mockReaddir 而不是只查 mockFiles：固定目录树里的条目也算已存在
+      const parent = path.slice(0, path.lastIndexOf('/')) || '/'
+      if (mockReaddir(parent).some((e) => e.path === path)) {
+        throw new Error(`同名文件或目录已存在：${path}`)
+      }
+      mockDeleted.delete(path)
+      mockFiles.add(path)
+    },
+
+    'sftp:editOpen': (arg: never) => {
+      const { sessionId, path } = arg as unknown as { sessionId: string; path: string }
+      // 与 main 侧一致：同一会话同一路径重复打开复用同一条编辑
+      const dup = [...mockEdits.values()].find(
+        (e) => e.sessionId === sessionId && e.remotePath === path
+      )
+      if (dup) return dup
+      const id = crypto.randomUUID()
+      const entry: RemoteEditEntry = {
+        id,
+        sessionId,
+        remotePath: path,
+        resolvedPath: path,
+        // 形状照着 main 侧派生出来的样子摆（<temp>\ofs-edit-XXXXXX\<16hex>\<basename>）；
+        // 浏览器里当然没有这个文件
+        localPath: `C:\\Users\\demo\\AppData\\Local\\Temp\\ofs-edit-a1b2c3\\${id.slice(0, 16)}\\${path.split('/').pop() ?? 'file'}`,
+        state: 'downloading',
+        size: 2048,
+        createdAt: Date.now()
+      }
+      mockEdits.set(id, entry)
+      laterEdit(id, 400, (e) => {
+        e.state = 'editing'
+      })
+      return entry
+    },
+    'sftp:editList': (arg: never) => {
+      const { sessionId } = arg as unknown as { sessionId: string }
+      return [...mockEdits.values()].filter((e) => e.sessionId === sessionId)
+    },
+    'sftp:editSave': (arg: never) => {
+      const { editId, force } = arg as unknown as { editId: string; force?: boolean }
+      // 与 main 侧同样拒缺省 force：这个约束要在浏览器调试时就炸出来，不能留到 Electron 里
+      if (force !== true) {
+        throw new Error('普通存盘由本地文件监视自动触发；此接口只用于用户确认后的"仍然覆盖"')
+      }
+      const entry = mockEdits.get(editId)
+      if (!entry) throw new Error('该编辑已结束')
+      entry.state = 'uploading'
+      entry.message = undefined
+      emitEdit(entry)
+      laterEdit(editId, 500, (e) => {
+        e.state = 'editing'
+        e.savedAt = Date.now()
+      })
+      return entry
+    },
+    /**
+     * 重试与"仍然覆盖"是两条不同的路：这条**不需要** force（它保留冲突检测），
+     * 桩上照样分成两个 handler，免得界面把两颗按钮接到同一个 channel 上还能跑。
+     */
+    'sftp:editRetry': (arg: never) => {
+      const { editId } = arg as unknown as { editId: string }
+      const entry = mockEdits.get(editId)
+      if (!entry) throw new Error('该编辑已结束')
+      entry.state = 'uploading'
+      entry.message = undefined
+      emitEdit(entry)
+      laterEdit(editId, 500, (e) => {
+        e.state = 'editing'
+        e.savedAt = Date.now()
+      })
+      return entry
+    },
+    'sftp:editStop': (arg: never) => {
+      const { editId } = arg as unknown as { editId: string }
+      const entry = mockEdits.get(editId)
+      if (!entry) return
+      mockEdits.delete(editId)
+      // 先删再发：closed 是这条编辑的最后一条事件，之后不该再有任何状态
+      emitEdit({ ...entry, state: 'closed' })
+    },
+    /**
+     * 外部编辑器：真实现里对话框、校验、落库全在 main 侧，渲染进程只拿回一个字符串 ——
+     * 这里也照这个形状来（浏览器里没有原生对话框，给个固定的假 exe）。
+     * 桩同样要 emit settings:changed：界面不能靠自己 settings:set 写这个字段
+     * （main 侧会把它剥掉），只能等这条事件回来，那条依赖必须在浏览器调试时就成立。
+     */
+    'sftp:pickEditor': () => {
+      const picked = 'C:\\Program Files\\Notepad++\\notepad++.exe'
+      settings.sftp.externalEditorPath = picked
+      emit('settings:changed', structuredClone(settings))
+      return picked
+    },
+    'sftp:clearEditor': () => {
+      settings.sftp.externalEditorPath = ''
+      emit('settings:changed', structuredClone(settings))
+    },
 
     'snippet:list': () => ({ groups: snippetGroups, snippets }),
     'snippet:save': (s: never) => {

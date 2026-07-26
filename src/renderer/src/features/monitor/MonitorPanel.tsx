@@ -191,6 +191,35 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
           <EChart option={netOption} height={48} />
         </div>
 
+        {/* 连接数。措辞上要分清：UDP 是无连接的，/proc/net/udp 列的是**已打开的套接字** */}
+        {snapshot.conns && (
+          <div className={styles.card}>
+            <div className={styles.cardHead}>
+              <span className={styles.cardHeadTitle}>{t('monitor.conns')}</span>
+              <span className={styles.subText}>
+                {t('monitor.connsSockets')} {snapshot.conns.socketsUsed}
+              </span>
+            </div>
+            <div className={styles.bigNumber}>
+              {snapshot.conns.tcpInuse}
+              <span className={styles.unit}>TCP</span>
+            </div>
+            {/* 状态明细只在低频 tick 采，缺失时不显示这几行（store 会沿用上次值） */}
+            {snapshot.tcpStates &&
+              (['ESTABLISHED', 'LISTEN', 'CLOSE_WAIT'] as const)
+                .filter((name) => snapshot.tcpStates?.[name] !== undefined)
+                .map((name) => (
+                  <Kv key={name} k={name} v={String(snapshot.tcpStates?.[name] ?? 0)} />
+                ))}
+            {/* TIME_WAIT 用 sockstat 的 tw：它每 tick 都有，而明细每 5 tick 才刷 */}
+            <Kv k="TIME_WAIT" v={String(snapshot.conns.tcpTw)} />
+            {snapshot.conns.tcpOrphan > 0 && (
+              <Kv k={t('monitor.connsOrphan')} v={String(snapshot.conns.tcpOrphan)} />
+            )}
+            <Kv k={t('monitor.connsUdp')} v={String(snapshot.conns.udpInuse)} />
+          </div>
+        )}
+
         {/* 磁盘 */}
         {snapshot.diskFs && snapshot.diskFs.length > 0 && (
           <div className={styles.card}>

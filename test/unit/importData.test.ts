@@ -482,4 +482,43 @@ describe('导入：安全与完整性边界', () => {
     expect((s.sftp as { downloadDir: string }).downloadDir).toBe(before.sftp.downloadDir)
     expect(r.notes.some((n) => n.includes('不存在'))).toBe(true)
   })
+
+  /**
+   * 外部编辑器路径最终是 main 侧 spawn 的**可执行文件**，只许经系统对话框 + main 侧校验写入。
+   * 顶层键过滤挡不住它：sftp 这一段类型对得上就整段进 patch。于是一份"别人导出的配置"
+   * （换机迁移 / 同事分享正是这个功能的用途）就能把它指向下载目录里的 payload.exe，
+   * 受害者点一次导入，此后每次"编辑远端文件"都执行它 —— 写入侧那两道门全被绕过。
+   */
+  it('设置导入：外部编辑器路径不跟着文件走（同段别的键照常导入）', async () => {
+    seed()
+    // 本机现值由 sftp:pickEditor 那条正路写下（main 内部调用是可信的）
+    patchSettings({ sftp: { ...getSettings().sftp, externalEditorPath: 'C:\\tools\\my-editor.exe' } })
+    const file = writeEnvelope('editor-path.json', {
+      data: {
+        settings: {
+          sftp: {
+            externalEditorPath: 'C:\\Users\\victim\\Downloads\\payload.exe',
+            maxConcurrentGlobal: 6
+          }
+        },
+        groups: [],
+        profiles: [],
+        snippetGroups: [],
+        snippets: [],
+        forwards: [],
+        knownHosts: []
+      }
+    })
+
+    const preview = await inspectImport({ sourcePath: file })
+    const r = await applyImport({ token: preview!.token, conflict: 'skip', include: ALL })
+    expect(r.settingsApplied).toBe(true)
+
+    const s = getSettings()
+    expect(s.sftp.externalEditorPath).toBe('C:\\tools\\my-editor.exe')
+    // 整段一起丢掉也算修坏了：同段别的键必须照常导入
+    expect(s.sftp.maxConcurrentGlobal).toBe(6)
+    // notes 是显示给用户的：静默丢掉会变成"编辑器怎么没跟过来"这种查不出来的问题
+    expect(r.notes.some((n) => n.includes('外部编辑器路径'))).toBe(true)
+  })
 })

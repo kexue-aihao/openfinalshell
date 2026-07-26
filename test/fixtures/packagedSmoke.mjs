@@ -358,8 +358,11 @@ async function main() {
       name: 'ui-smoke', groupId: null, host: '127.0.0.1', port: ${sshPort}, username: 'test',
       auth: { method: 'password', password: 'test123' },
       terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      // monitorEnabled: true —— 下一步（8.55）要验"连上就自动打开监控"，而这个初值
+      // 恰恰取自 profile.options.monitorEnabled。反向（false → 不开）由
+      // test/renderer/sessionStore.test.ts 覆盖，那里两个方向都能精确摆出来。
       options: { keepaliveInterval: 15000, readyTimeout: 10000, legacyAlgorithms: false,
-                 autoReconnect: false, monitorEnabled: false, compress: false }
+                 autoReconnect: false, monitorEnabled: true, compress: false }
     })
     return true
   `)
@@ -413,6 +416,105 @@ async function main() {
   console.log(
     `OK 界面双击连接：标签变为已连接，"正在连接"浮层${uiConnect.曾出现浮层 ? '出现过并已消失' : '未出现'}`
   )
+
+  // 8.55) 连上就自动打开 SFTP 与监控
+  //    两个初值来自**两处**，各自都能单独失效，所以分别断言：
+  //      SFTP  ← 全局设置 sftp.autoOpenOnConnect（useSessionStore.openForProfile 读）
+  //      监控  ← 连接自己的 profile.options.monitorEnabled（复活的死字段）
+  //    "自动"的关键是**没有点任何按钮** —— 这一步不许出现 click。
+  //    面板标记不用 [class*=panel]（MainLayout 的 .panels 也命中），改认监控头部那行标题；
+  //    SFTP 认面包屑条（只有 SftpPane 有）。
+  const autoOpen = await evaluate(`
+    const sftpOpen = () => Boolean(document.querySelector('[class*=breadcrumbBar]'))
+    const monitorOpen = () =>
+      [...document.querySelectorAll('[class*=header]')].some((n) =>
+        n.textContent.trim().startsWith('服务器监控')
+      )
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 250))
+      if (sftpOpen() && monitorOpen() && document.querySelector('.ant-table')) break
+    }
+    return {
+      SFTP已展开: sftpOpen(),
+      监控已展开: monitorOpen(),
+      有文件表格: Boolean(document.querySelector('.ant-table')),
+      仍然ready: document.querySelectorAll('[class*=dotReady]').length > 0
+    }
+  `)
+  if (!autoOpen.SFTP已展开) {
+    fail('连上后 SFTP 分屏没有自动展开（sftp.autoOpenOnConnect 没被 openForProfile 读到？）')
+  }
+  if (!autoOpen.有文件表格) fail('SFTP 分屏展开了却没渲染出文件表格')
+  if (!autoOpen.监控已展开) {
+    fail('连上后监控面板没有自动展开（profile.options.monitorEnabled 没被 openForProfile 读到？）')
+  }
+  if (!autoOpen.仍然ready) fail('自动展开两个面板后会话掉出了 ready')
+  console.log('OK 连上即自动展开 SFTP 与监控（未点击任何按钮）')
+
+  // 8.56) 监控面板里的连接数卡片。fixture 的 sockstat 是 TCP 12+4 / UDP 6+1 / tw 3，
+  //    所以 TCP 总数必须是 16 —— 这一条同时证明了 v4+v6 相加与 SOCK 段真的被采到了
+  //    （段名只能是大写字母，写成 SOCK_1 之类会被 splitSections 静默并进上一段）。
+  //    按状态的明细只在每 5 tick 的那一帧才有，冒烟不等它，由 test/integration/monitor.test.ts 覆盖。
+  const connCard = await evaluate(`
+    const cardOf = (title) =>
+      [...document.querySelectorAll('[class*=cardHead]')]
+        .find((h) => h.textContent.trim().startsWith(title))
+        ?.parentElement || null
+    let card = null
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 250))
+      card = cardOf('连接数')
+      if (card && /\\d/.test(card.textContent)) break
+    }
+    if (!card) return { error: '监控面板里没有"连接数"卡片' }
+    // 逐个元素取值，不要整卡 textContent —— 相邻数字会粘成 "33716"，
+    // 拿正则从里面找 16 是自找麻烦（第一版就是这么误报的）
+    const big = card.querySelector('[class*=bigNumber]')
+    const rows = [...card.querySelectorAll('[class*=kvRow]')].map((r) => {
+      const cells = [...r.children].map((c) => c.textContent.trim())
+      return cells.join('=')
+    })
+    return {
+      tcp: big ? big.textContent.replace(/[^0-9]/g, '') : '',
+      unit: big ? big.textContent.replace(/[0-9]/g, '').trim() : '',
+      rows,
+      text: card.textContent.replace(/\\s+/g, ' ').trim().slice(0, 120)
+    }
+  `)
+  if (connCard.error) fail(connCard.error)
+  if (connCard.tcp !== '16' || connCard.unit !== 'TCP') {
+    fail(
+      `连接数卡片的大数字应为 16 TCP（fixture 是 v4 12 + v6 4，证明两份 sockstat 都被采到并相加），` +
+        `实际 "${connCard.tcp}" / "${connCard.unit}"，整卡文本："${connCard.text}"`
+    )
+  }
+  const rowText = connCard.rows.join(' | ')
+  if (!/TIME_WAIT=3/.test(rowText)) fail(`连接数卡片的 TIME_WAIT 应为 3，实际行：${rowText}`)
+  if (!/UDP[^=]*=7/.test(rowText)) fail(`连接数卡片的 UDP 套接字应为 7（6+1），实际行：${rowText}`)
+  console.log(`OK 监控连接数卡片：TCP ${connCard.tcp} / ${rowText}`)
+
+  // 关掉监控面板，把主区域还成整宽 —— 下一步的 tooltip 遮挡检查要求悬浮工具条
+  // 真的处在原生窗口按钮的水平范围内，监控面板占着右侧 14–40% 时它并不在，
+  // 那条检查就会静默失去约束力（8.6 里有专门的反空转断言会把这件事挑明）。
+  const monitorClosed = await evaluate(`
+    const head = [...document.querySelectorAll('[class*=header]')].find((n) =>
+      n.textContent.trim().startsWith('服务器监控')
+    )
+    if (!head) return { error: '找不到监控面板头部' }
+    const btns = [...head.querySelectorAll('button')]
+    if (btns.length === 0) return { error: '监控面板头部没有按钮' }
+    btns[btns.length - 1].click()   // 最后一个是关闭
+    await new Promise((r) => setTimeout(r, 900))
+    return {
+      监控已关闭: ![...document.querySelectorAll('[class*=header]')].some((n) =>
+        n.textContent.trim().startsWith('服务器监控')
+      ),
+      仍然ready: document.querySelectorAll('[class*=dotReady]').length > 0
+    }
+  `)
+  if (monitorClosed.error) fail(monitorClosed.error)
+  if (!monitorClosed.监控已关闭) fail('点了监控面板的关闭按钮，面板却还在')
+  if (!monitorClosed.仍然ready) fail('关掉监控面板后会话掉出了 ready')
 
   // 8.6) 顶部悬浮工具条的 tooltip 会不会被原生窗口按钮切掉
   //    step 7 扫的是"元素自己的矩形"，扫不到 tooltip，两个独立原因：① 它从不 hover，而 antd 的
@@ -561,6 +663,21 @@ async function main() {
             ' —— hover 没生效或按钮被压住，这一轮的结论不可信'
         )
       }
+      // 反空转（第二种）：气泡必须真的落在原生按钮区的**水平**范围内。
+      // 否则纵向怎么摆都不可能相交，covered 恒为 0 —— 这条检查还在跑，但已经不约束任何东西。
+      // 自动打开监控面板时就是这样：主区域被压到窗口 60–86%，工具条根本不在按钮区下方，
+      // 于是把 placement 改回 top 也照样全绿。所以让它当场红，而不是无声地变成装饰。
+      const inXRange = measured.filter((m) => m.rect.right > cr.left && m.rect.left < cr.right)
+      if (inXRange.length === 0) {
+        fail(
+          `${label}：量到的 ${measured.length} 个气泡没有一个落在原生按钮区的水平范围内` +
+            `（按钮区 x ${cr.left}–${cr.right}，气泡 x ${measured
+              .map((m) => `${m.rect.left}–${m.rect.right}`)
+              .join(' / ')}）` +
+            ' —— 这一轮的遮挡检查没有约束力，请确认工具条确实贴在窗口右上角'
+        )
+      }
+
       const hits = measured.filter((m) => m.covered > 0)
       if (hits.length > 0) {
         fail(
@@ -577,8 +694,10 @@ async function main() {
       return measured.length
     }
 
+    // 前两个标签随面板开关状态变化，此刻的状态由 8.55 钉住：
+    // SFTP 自动展开着（所以是"关闭文件管理"），监控刚被 8.55 关掉（所以是"打开服务器监控"）。
     const n1 = await sweepTips('终端悬浮工具条', 'hoverTools', [
-      '打开文件管理',
+      '关闭文件管理',
       '打开服务器监控',
       '查找',
       '清屏',
@@ -615,23 +734,41 @@ async function main() {
   //    SftpPane 看到 state!=='ready' 就显示"等待会话"，一个文件都拉不到。
   //    判定用"tab 还是不是 ready"而不是"有没有列出文件"：后者受 RTT 影响（本地 readdir 够快时
   //    会在 term:exit 之前把文件填上，看着像好的），前者与延迟无关，必中。
+  //
+  //    自 SFTP 自动打开之后，这一步走的是"先关再开"的往返：元素类型变化在两个方向上都会发生，
+  //    所以关那一下就足以踩中回归；开回来则保证结束状态与后续步骤一致。
   const sftpToggle = await evaluate(`
     const ready = () => document.querySelectorAll('[class*=dotReady]').length
-    if (ready() === 0) return { error: '开 SFTP 之前 tab 就不是 ready' }
-    const btns = [...document.querySelectorAll('[class*=hoverTools] button')]
-    if (btns.length === 0) return { error: '找不到悬浮工具条按钮（第一个是打开文件管理）' }
-    btns[0].click()
-
-    // 等 SFTP 首屏；顺带盯着 tab 有没有掉出 ready
-    let lostReady = false
-    for (let i = 0; i < 40; i++) {
-      await new Promise((r) => setTimeout(r, 250))
-      if (ready() === 0) lostReady = true
-      if (document.querySelector('.ant-table')) break
+    const sftpOpen = () => Boolean(document.querySelector('[class*=breadcrumbBar]'))
+    if (ready() === 0) return { error: '开关 SFTP 之前 tab 就不是 ready' }
+    if (!sftpOpen()) return { error: 'SFTP 本该已自动展开（见上一步），这里却是关着的' }
+    const toggle = () => {
+      const btns = [...document.querySelectorAll('[class*=hoverTools] button')]
+      if (btns.length === 0) return false
+      btns[0].click()   // 第一个是"打开/关闭文件管理"
+      return true
     }
+
+    let lostReady = false
+    const watch = async (until, tries) => {
+      for (let i = 0; i < tries; i++) {
+        await new Promise((r) => setTimeout(r, 250))
+        if (ready() === 0) lostReady = true
+        if (until()) break
+      }
+    }
+
+    if (!toggle()) return { error: '找不到悬浮工具条按钮（第一个是打开文件管理）' }
+    await watch(() => !sftpOpen(), 20)
+    const 关掉了 = !sftpOpen()
+
+    if (!toggle()) return { error: '第二次点不到悬浮工具条按钮' }
+    await watch(() => sftpOpen() && Boolean(document.querySelector('.ant-table')), 40)
     await new Promise((r) => setTimeout(r, 1500))
+
     const body = document.body.innerText
     return {
+      关掉了,
       仍然ready: ready() > 0,
       中途掉出ready: lostReady,
       出现会话已结束: /会话已结束|已断开/.test(body),
@@ -642,6 +779,7 @@ async function main() {
     }
   `)
   if (sftpToggle.error) fail(sftpToggle.error)
+  if (!sftpToggle.关掉了) fail('点了"关闭文件管理"，SFTP 分屏却还在')
   if (!sftpToggle.仍然ready || sftpToggle.中途掉出ready) {
     fail(
       '开 SFTP 分屏后会话掉出了 ready' +
@@ -654,6 +792,177 @@ async function main() {
   console.log(
     `OK 开 SFTP 分屏：会话保持 ready，文件表格 ${sftpToggle.表格行数} 行，xterm 仍为 ${sftpToggle.xterm数} 个`
   )
+
+  // 8.75) 快速删除（rm -rf）：守卫真的随打包产物一起发了，且它在弹框之前就说话
+  //    单测覆盖的是纯函数，接线护栏读的是源码文本 —— 两者都无法回答"装到用户机器上的那个
+  //    二进制里，这道守卫还在不在"。而这条链路的失效后果是 rm -rf 打到 /etc 上，
+  //    所以它值得在最外层再验一遍。
+  //
+  //    fixture 的 exec 只是面镜子（把收到的命令回显），没有真 shell 也没有真文件系统，
+  //    所以这里**刻意不点确认** —— 能验的是"守卫拒得对、命令拼得对、菜单接得上"，
+  //    `rm` 的真实语义归真机验收。
+  const fdGuard = await evaluate(`
+    const sid = '${session.sessionId}'
+    const reject = async (p) => {
+      try {
+        await window.ofs.invoke('sftp:fastDeletePreview', { paths: [p] })
+        return null
+      } catch (e) {
+        return String(e && e.message ? e.message : e)
+      }
+    }
+    const 拒绝 = {
+      根目录: await reject('/'),
+      一级目录: await reject('/etc'),
+      相对路径: await reject('data/x'),
+      上跳: await reject('/a/../etc'),
+      含换行: await reject('/data/a\\nb')
+    }
+    const 预览 = await window.ofs.invoke('sftp:fastDeletePreview', {
+      paths: ['/data/foo', "/data/it's"]
+    })
+    return { 拒绝, command: 预览.command, count: 预览.count, batches: 预览.batches }
+  `)
+  for (const [label, msg] of Object.entries(fdGuard.拒绝)) {
+    if (msg === null) fail(`快速删除守卫在打包产物里失效了：${label} 竟然被接受`)
+  }
+  if (!/层级过浅/.test(fdGuard.拒绝.根目录) || !/层级过浅/.test(fdGuard.拒绝.一级目录)) {
+    fail(`拒的理由不是"层级过浅"，深度规则可能被别的检查抢先兜走了：${JSON.stringify(fdGuard.拒绝)}`)
+  }
+  // 期望值在这里**独立写一遍**（不从 main 抄）：转义错了才是这一片唯一致命的错
+  const expectedHead = "rm -rf -- '/data/foo' '/data/it'\\''s'"
+  if (!fdGuard.command.startsWith(expectedHead)) {
+    fail(`命令首行的引号不对：\n期望以 ${expectedHead}\n开头，实际 ${JSON.stringify(fdGuard.command)}`)
+  }
+  if (!fdGuard.command.includes("printf 'OFSLEFT:%s\\n' \"$p\"")) {
+    fail('命令里没有同条命令内的残留探测 —— "哪几条没删掉"就成了猜的')
+  }
+  if (!fdGuard.command.endsWith('(exit $__ofs_rm)')) {
+    fail('命令末尾不是 (exit …)：裸 exit 会让 ExecRunner 的 RC 哨兵永远不执行')
+  }
+  console.log(`OK 快速删除守卫在打包产物里生效（拒 / 与 /etc），命令原文引号正确`)
+
+  // 菜单接线：右键一个目录行，「删除」与「快速删除」必须是两个不同的条目；
+  // 点「快速删除」时守卫先说话 —— 弹框一个都不许出来。
+  const fdMenu = await evaluate(`
+    const sid = '${session.sessionId}'
+    await window.ofs.invoke('sftp:mkdir', { sessionId: sid, path: '/fd-smoke' })
+
+    const openMenu = async (el) => {
+      const r = el.getBoundingClientRect()
+      el.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(r.left + 20), clientY: Math.round(r.top + 5)
+      }))
+      await new Promise((r2) => setTimeout(r2, 400))
+      return [...document.querySelectorAll('.ant-dropdown-menu-item')].map((e) => ({
+        text: e.textContent.trim(),
+        disabled: e.className.includes('-disabled')
+      }))
+    }
+    const closeMenu = async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await new Promise((r2) => setTimeout(r2, 250))
+    }
+
+    // 先在空白处右键，用菜单里的「刷新」把刚建的目录刷出来（顺带验证空白处右键真的出菜单）
+    const body = document.querySelector('.ant-table-body') || document.querySelector('.ant-table')
+    if (!body) return { error: '找不到 SFTP 文件表格' }
+    const blankItems = await openMenu(body)
+    if (blankItems.length === 0) return { error: '空白处右键没出菜单' }
+    const refresh = [...document.querySelectorAll('.ant-dropdown-menu-item')]
+      .find((e) => e.textContent.trim() === '刷新')
+    if (!refresh) return { error: '菜单里没有「刷新」', blankItems }
+    refresh.click()
+    await new Promise((r2) => setTimeout(r2, 1200))
+
+    const row = [...document.querySelectorAll('.ant-table-row')]
+      .find((e) => e.innerText.includes('fd-smoke'))
+    if (!row) return { error: '刷新后列表里没有 fd-smoke 这个目录', blankItems }
+
+    const rowItems = await openMenu(row)
+    const fast = [...document.querySelectorAll('.ant-dropdown-menu-item')]
+      .find((e) => e.textContent.trim().startsWith('快速删除'))
+    if (!fast) {
+      await closeMenu()
+      return { error: '右键目录行时菜单里没有「快速删除」', blankItems, rowItems }
+    }
+    if (fast.className.includes('-disabled')) {
+      await closeMenu()
+      return { error: '「快速删除」对一个目录行是灰的', blankItems, rowItems }
+    }
+    fast.click()
+    await new Promise((r2) => setTimeout(r2, 900))
+
+    const 出现弹框 = Boolean(document.querySelector('.ant-modal-confirm'))
+    const 提示文字 = [...document.querySelectorAll('.ant-message-notice-content')]
+      .map((e) => e.textContent.trim()).join(' | ')
+    await closeMenu()
+    await window.ofs.invoke('sftp:delete', { sessionId: sid, path: '/fd-smoke', recursive: true })
+    return { blankItems, rowItems, 出现弹框, 提示文字 }
+  `)
+  if (fdMenu.error) fail(`${fdMenu.error}（菜单：${JSON.stringify(fdMenu.rowItems ?? fdMenu.blankItems)}）`)
+  const labels = fdMenu.rowItems.map((i) => i.text)
+  if (!labels.includes('删除')) fail(`菜单里没有普通「删除」：${labels.join(' / ')}`)
+  if (labels.filter((t) => t.startsWith('快速删除')).length !== 1) {
+    fail(`「快速删除」不是恰好一条：${labels.join(' / ')}`)
+  }
+  // `/fd-smoke` 只有一级，守卫必然拒 —— 拒的方式必须是"弹框之前就说话"
+  if (fdMenu.出现弹框) {
+    fail('层级不够的路径竟然弹出了确认框 —— 守卫跑在了用户点确认之后')
+  }
+  if (!/层级过浅/.test(fdMenu.提示文字)) {
+    fail(`没看到守卫的提示（实际提示：${JSON.stringify(fdMenu.提示文字)}）`)
+  }
+  console.log(`OK 右键菜单：「删除」与「快速删除」并存，层级不够时守卫在弹框之前拒掉`)
+
+  // 8.76) 打包传输：菜单里的勾选项真的写得进设置
+  //    fixture 的 exec 只是面镜子（没有真 tar、没有真文件系统），所以**打包本身在它上面
+  //    无法被验证** —— 硬要验就是测试文档自己警告过的循环论证。这里验的是接线：
+  //    勾选项在菜单里、点它真的翻了那条全局设置、界面能看到勾。
+  const packToggle = await evaluate(`
+    const before = (await window.ofs.invoke('settings:get')).sftp.packedTransfer
+    // 在**空白处**右键，不依赖表格里有没有行（上一步删掉的那条只是还没刷掉，
+    // 拿它当锚点就等于让这一步依赖上一步的残留）
+    const anchor = document.querySelector('.ant-table-body') || document.querySelector('.ant-table')
+    if (!anchor) return { error: '找不到 SFTP 文件表格' }
+    const openMenu = async () => {
+      const r = anchor.getBoundingClientRect()
+      anchor.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(r.left + 20), clientY: Math.round(r.top + 5)
+      }))
+      await new Promise((r2) => setTimeout(r2, 400))
+      return [...document.querySelectorAll('.ant-dropdown-menu-item')]
+    }
+    const find = (items) => items.find((e) => e.textContent.trim() === '打包传输')
+
+    let items = await openMenu()
+    const item = find(items)
+    if (!item) {
+      return { error: '菜单里没有「打包传输」', 菜单: items.map((e) => e.textContent.trim()) }
+    }
+    const 起初有勾 = Boolean(item.querySelector('.ant-dropdown-menu-item-icon, svg'))
+    item.click()
+    await new Promise((r2) => setTimeout(r2, 600))
+    const after = (await window.ofs.invoke('settings:get')).sftp.packedTransfer
+
+    // 再开一次菜单，看勾是否跟着变了
+    items = await openMenu()
+    const 之后有勾 = Boolean(find(items)?.querySelector('.ant-dropdown-menu-item-icon, svg'))
+    find(items)?.click()
+    await new Promise((r2) => setTimeout(r2, 600))
+    const restored = (await window.ofs.invoke('settings:get')).sftp.packedTransfer
+    return { before, after, restored, 起初有勾, 之后有勾 }
+  `)
+  if (packToggle.error) fail(`${packToggle.error}（${JSON.stringify(packToggle.菜单 ?? '')}）`)
+  if (packToggle.before !== false) fail(`打包传输的默认值该是 false，实际 ${packToggle.before}`)
+  if (packToggle.after !== true) fail('点了「打包传输」但设置没变 —— 勾选项没接上 patchSettings')
+  if (packToggle.restored !== false) fail('再点一次没还原回去')
+  if (packToggle.起初有勾) fail('默认关，菜单里却已经打了勾')
+  if (!packToggle.之后有勾) fail('设置已经翻成 true，菜单里却看不到勾')
+  console.log('OK 打包传输勾选项：默认关、点一次写进设置、勾随之出现')
 
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
   //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，

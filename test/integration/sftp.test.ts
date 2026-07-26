@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
 import type { ProfileDraft, TransferTask } from '@shared/types'
+import { DEFAULT_SETTINGS } from '@shared/constants'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { patchSettings } from '../../src/main/services/settings'
@@ -108,16 +109,8 @@ beforeAll(async () => {
   ;({ sessionId } = await sshManager.open(profile.id))
   clearInterval(trustPrompts)
 
-  patchSettings({
-    sftp: {
-      downloadDir: localDir,
-      maxConcurrentPerSession: 2,
-      maxConcurrentGlobal: 4,
-      conflictPolicy: 'ask',
-      showHiddenFiles: true,
-      doubleClickAction: 'download'
-    }
-  })
+  // 只覆盖本用例真正在乎的键；其余取默认值，免得每加一个设置就来改这三个测试
+  patchSettings({ sftp: { ...DEFAULT_SETTINGS.sftp, downloadDir: localDir } })
 })
 
 afterAll(() => {

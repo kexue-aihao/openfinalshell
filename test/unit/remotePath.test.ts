@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertSafeRemotePath,
   dedupeName,
   longPath,
   remoteAncestors,
@@ -49,6 +50,55 @@ describe('remoteAncestors', () => {
 
   it('根目录没有祖先', () => {
     expect(remoteAncestors(toRemotePath('/'))).toEqual([])
+  })
+})
+
+describe('assertSafeRemotePath', () => {
+  /**
+   * 这一关只在路径要进 **shell 命令**时跑。别指望 toRemotePath 兜住这些 ——
+   * 它只归一化，`toRemotePath('-rf')` 原样返回，既不强制绝对也不剥 `..`。
+   */
+  it('toRemotePath 确实兜不住（所以守卫必须是另一个函数）', () => {
+    expect(toRemotePath('-rf')).toBe('-rf')
+    expect(toRemotePath('/a/../etc')).toBe('/a/../etc')
+    expect(() => assertSafeRemotePath('-rf')).toThrow()
+    expect(() => assertSafeRemotePath('/a/../etc')).toThrow()
+  })
+
+  it('放行正常的绝对路径，并原样返回（拒绝而不是规范化）', () => {
+    expect(assertSafeRemotePath('/var/log/nginx')).toBe('/var/log/nginx')
+    expect(assertSafeRemotePath('/')).toBe('/')
+    // 不折叠重复斜杠、不去尾斜杠 —— 审计时"我拒掉的就是你给的那条"
+    expect(assertSafeRemotePath('/a//b/')).toBe('/a//b/')
+  })
+
+  it.each([
+    ['空串', ''],
+    ['纯空白', ' \t '],
+    ['含 NUL', '/a\0b'],
+    ['含换行', '/a\nb'],
+    ['含回车', '/a\rb'],
+    ['相对路径', 'a/b'],
+    ['像选项', '-rf'],
+    ['当前目录段', '/a/./b'],
+    ['父目录段', '/a/../b'],
+    ['结尾 ..', '/a/..'],
+    ['超过 4096', `/${'a'.repeat(4100)}`]
+  ])('拒绝 %s', (_label, path) => {
+    expect(() => assertSafeRemotePath(path)).toThrow()
+  })
+
+  it('换行拦在这里而不是 shQuote 里：单引号里的换行是合法字面量，但我们按行解析输出', () => {
+    expect(() => assertSafeRemotePath('/data/a\nb')).toThrow(/换行/)
+  })
+
+  it('what 参数进得了报错文案（用户看到的是"删除路径…"而不是"远端路径…"）', () => {
+    expect(() => assertSafeRemotePath('', '删除路径')).toThrow(/删除路径/)
+  })
+
+  it('通配元字符放行（真实文件名里可以有 *，我们单引号包着它是字面量）', () => {
+    expect(assertSafeRemotePath('/data/*.log')).toBe('/data/*.log')
+    expect(assertSafeRemotePath("/data/it's")).toBe("/data/it's")
   })
 })
 

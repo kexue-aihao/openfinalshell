@@ -33,6 +33,39 @@ export const MONITOR_DF_EVERY_N_TICKS = 5
 /** 帧超时：写入批次后超过该时长未见 END 即丢帧 */
 export const MONITOR_FRAME_TIMEOUT_MS = 5000
 
+/** 一次性远端命令（ExecRunner） */
+export const EXEC_DEFAULT_TIMEOUT_MS = 30_000
+/** stdout 上限，超过即截断（保留头部）。仍能拿到退出码，见 ExecRunner 里的尾窗 */
+export const EXEC_MAX_OUTPUT_BYTES = 262_144
+
+/**
+ * 快速删除（rm -rf）。
+ *
+ * 超时给到 10 分钟：删一棵几十万文件的树在机械盘上真的能跑这么久，
+ * 而这条命令一旦超时就是"删了一半、不知道删到哪"—— 宁可等。
+ * 批量上限同时限条数与命令长度：一条 `rm` 的命令行要塞进 ARG_MAX，
+ * 而两个 4096 字符的路径就已经 8000 出头了。
+ */
+/**
+ * 打包传输。
+ *
+ * `PACK_MIN_FILES` 是**文件数**门槛而不是字节门槛：tar 修的是"每个文件 4–6 个串行 RTT"
+ * 这件事（而 maxConcurrentPerSession 只有 2），不是带宽。所以 3 个 4GB 的 ISO 会正确地
+ * 落到逐文件，而一千个小文件才是它的用武之地。
+ *
+ * 空间余量给 5% + 16MiB：`du -sk` 数的是**已分配块**，稀疏文件与硬链接都会让它偏，
+ * 而 tar 头本身也要占地方。探测超时给到 20 秒 —— `find | wc -l` 与 `du -sk` 各走一遍树，
+ * 大树上真的慢；超时就退回逐文件（fail-closed）。
+ */
+export const PACK_MIN_FILES = 8
+export const PACK_FREE_MARGIN = 1.05
+export const PACK_FREE_SLACK_KB = 16 * 1024
+export const PACK_PROBE_TIMEOUT_MS = 20_000
+
+export const FAST_DELETE_TIMEOUT_MS = 600_000
+export const FAST_DELETE_BATCH = 64
+export const FAST_DELETE_MAX_COMMAND_CHARS = 8000
+
 export const DEFAULT_TERMINAL_FONT_FAMILY =
   '"Maple Mono NF CN", "Cascadia Mono", Consolas, "Microsoft YaHei Mono", "Microsoft YaHei", monospace'
 
@@ -63,8 +96,21 @@ export const DEFAULT_SETTINGS: AppSettings = {
     maxConcurrentPerSession: 2,
     maxConcurrentGlobal: 4,
     conflictPolicy: 'ask',
-    showHiddenFiles: false,
-    doubleClickAction: 'download'
+    // 改默认值对老用户不生效：这个键他们库里已经显式存着 false，
+    // 而 DocStore 是 deepMerge(defaults, stored) —— stored 赢。
+    // 靠 settings.ts 里那次一次性迁移补上。
+    showHiddenFiles: true,
+    doubleClickAction: 'download',
+    autoOpenOnConnect: true,
+    // 空串 = 系统默认打开方式。默认不预填任何路径：猜错了会静默起一个用户没想用的程序，
+    // 而"没配"这条路（shell.openPath）在每个平台上都能工作
+    externalEditorPath: '',
+    // 默认**开**：普通删除同样不可恢复，这个只是更快 —— 默认关会让这个对标 FinalShell 的
+    // 功能没人发现。安全预算花在"深度至少两级"的守卫和那个独立的确认框上，不花在藏起来
+    fastDelete: true,
+    // 默认**关**：它要在远端建临时文件、在本地起 tar 子进程，而收益只在"很多小文件"
+    // 这一种场景上。先让愿意的人显式打开，攒够真机经验再考虑改默认
+    packedTransfer: false
   },
   monitor: {
     intervalMs: MONITOR_DEFAULT_INTERVAL_MS

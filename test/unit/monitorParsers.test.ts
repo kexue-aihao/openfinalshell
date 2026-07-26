@@ -9,7 +9,9 @@ import {
   parseNetDev,
   parseProcStat,
   parsePsTop,
+  parseSockstat,
   parseStaticInfo,
+  parseTcpStates,
   parseUptime
 } from '../../src/main/monitor/parsers'
 
@@ -228,5 +230,81 @@ describe('parsePsTop', () => {
 
   it('畸形输出返回空数组', () => {
     expect(parsePsTop('ps: command not found')).toEqual([])
+  })
+})
+
+describe('parseSockstat', () => {
+  // 真实样本：采集脚本一次 cat 了 sockstat 与 sockstat6，所以两份是拼接的
+  const BOTH = `sockets: used 337
+TCP: inuse 12 orphan 1 tw 3 alloc 20 mem 2
+UDP: inuse 6 mem 3
+UDPLITE: inuse 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+TCP6: inuse 4
+UDP6: inuse 1
+UDPLITE6: inuse 0
+RAW6: inuse 0
+FRAG6: inuse 0 memory 0`
+
+  it('v4 与 v6 相加', () => {
+    expect(parseSockstat(BOTH)).toEqual({
+      socketsUsed: 337,
+      tcpInuse: 16, // 12 + 4
+      tcpOrphan: 1, // 只有 v4 那份有
+      tcpTw: 3,
+      udpInuse: 7 // 6 + 1
+    })
+  })
+
+  it('关掉 IPv6（没有 sockstat6）时只算 v4，不报错', () => {
+    const v4Only = `sockets: used 120
+TCP: inuse 5 orphan 0 tw 0 alloc 8 mem 1
+UDP: inuse 2 mem 0`
+    expect(parseSockstat(v4Only)).toEqual({
+      socketsUsed: 120,
+      tcpInuse: 5,
+      tcpOrphan: 0,
+      tcpTw: 0,
+      udpInuse: 2
+    })
+  })
+
+  it('文件不存在 → null（非 Linux / 极简容器，按缺失容忍而不是当成 0）', () => {
+    expect(parseSockstat('')).toBeNull()
+    expect(parseSockstat('cat: /proc/net/sockstat: No such file or directory')).toBeNull()
+  })
+
+  it('全 0 也不是 null —— 有行就算采到了', () => {
+    expect(parseSockstat('TCP: inuse 0 orphan 0 tw 0 alloc 0 mem 0')?.tcpInuse).toBe(0)
+  })
+})
+
+describe('parseTcpStates', () => {
+  it('映射十六进制状态码；顺序无关（awk 遍历哈希，顺序随机）', () => {
+    expect(parseTcpStates('0A 9\n01 31\n06 3\n08 1')).toEqual({
+      LISTEN: 9,
+      ESTABLISHED: 31,
+      TIME_WAIT: 3,
+      CLOSE_WAIT: 1
+    })
+  })
+
+  it('单字符状态码（awk 不补零）也认', () => {
+    expect(parseTcpStates('1 4\n6 2')).toEqual({ ESTABLISHED: 4, TIME_WAIT: 2 })
+  })
+
+  it('认不出的状态码保留成 UNKNOWN_xx 而不是丢掉（丢掉会让总数对不上）', () => {
+    expect(parseTcpStates('01 2\n1F 5')).toEqual({ ESTABLISHED: 2, UNKNOWN_1F: 5 })
+  })
+
+  it('awk 缺失 / 超时被杀 / 空输出 → 空对象，不抛', () => {
+    expect(parseTcpStates('')).toEqual({})
+    expect(parseTcpStates('sh: awk: command not found')).toEqual({})
+    expect(parseTcpStates('Terminated')).toEqual({})
+  })
+
+  it('表头没被 FNR>1 跳掉的情况不会伪造出状态（st 不是十六进制数字对）', () => {
+    expect(parseTcpStates('st 2\n01 7')).toEqual({ ESTABLISHED: 7 })
   })
 })

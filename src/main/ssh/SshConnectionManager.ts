@@ -4,6 +4,12 @@ import type { ShellSession } from './ShellSession'
 import { getProfile, touchProfile } from '../store/connections'
 import { emit } from '../ipc/registry'
 import { transferQueue } from '../sftp/TransferQueue'
+import { clearProbeCache } from '../sftp/packTransfer'
+/**
+ * 静态 import 不成环：反向那条依赖（RemoteEditManager 要用 sshManager 取 SFTP 通道）
+ * 是**动态** import 的，理由写在它 defaultDeps 的注释里。所以这里可以照常静态引。
+ */
+import { remoteEditManager } from '../sftp/RemoteEditManager'
 import { monitorManager } from '../monitor/MonitorManager'
 import { forwardManager } from '../forward/ForwardManager'
 import { autoStartRules } from '../store/forwards'
@@ -114,6 +120,16 @@ class SshConnectionManager {
     const conn = this.sessions.get(sessionId)
     if (!conn) return
     transferQueue.cancelForSession(sessionId)
+    /**
+     * 会话没了，这个会话下的远端编辑也就没有意义了：watcher 还挂着，此后每次存盘只会报错，
+     * 而临时目录里那份**明文副本**（可能是 .env / id_rsa）还留在 %TEMP% 里。
+     * best-effort：stopBySession 是 async（要删本地临时目录），而 close 是同步接口 ——
+     * 删不掉目录（Windows 上编辑器还占着句柄）不该拖住会话关闭。它幂等，可重复调。
+     */
+    void remoteEditManager.stopBySession(sessionId)
+    // 打包探测缓存里存着这台机器的 tar 风味与 TMPDIR —— 换一台机器（同一个 sessionId 复用不会
+    // 发生，但重连会）就该重探一次，留着只会在换机后按旧结论决策
+    clearProbeCache(sessionId)
     monitorManager.stop(sessionId)
     forwardManager.stopForSession(sessionId)
     this.pendingForwards.delete(sessionId)

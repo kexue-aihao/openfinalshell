@@ -180,7 +180,21 @@ export interface TransferTask {
   /** 目录任务的子文件任务 */
   parentId?: TaskId
   createdAt: number
+  /** 这条任务走的是打包传输 */
+  packed?: boolean
+  /**
+   * 打包传输的阶段。有它时界面显示阶段名代替状态名。
+   *
+   * 打包/解包期间进度**真的未知**：远端 tar 不吐进度，本地 tar 也不吐。
+   * 所以那两个阶段进度条停在上次的百分比，由阶段名承载"它在动"这个信息 ——
+   * **不许编百分比**。
+   */
+  phase?: TransferPhase
+  /** 一行弱化说明：降级原因、tar 报的警告之类。不是错误，不该标红 */
+  notice?: string
 }
+
+export type TransferPhase = 'scanning' | 'packing' | 'transferring' | 'extracting' | 'cleanup'
 
 export interface TransferEnqueueItem {
   sessionId: SessionId
@@ -190,6 +204,57 @@ export interface TransferEnqueueItem {
 }
 
 export type ConflictPolicy = 'ask' | 'overwrite' | 'skip' | 'rename' | 'resume'
+
+// ---------- 远端文件编辑（本机编辑器改远端文件） ----------
+export type EditId = string
+
+/**
+ * downloading → editing → uploading → editing（存盘成功回到 editing）。
+ * 岔路四条 —— conflict（远端被改）、blocked（服务器不支持原子替换）、
+ * shrink（本地内容急剧变短，像是编辑器只写了一半，message 里带"从 X 变成 Y"的实数）、
+ * error（其它失败），共同点是"本地内容还在、远端一个字节没动"，都停下来等用户裁决。
+ * 其中 shrink 与 blocked/conflict 的交互形状完全同款：出口是"仍然覆盖"（sftp:editSave
+ * 带 force）或"停止编辑"，界面照 blocked 那条路做即可。
+ * closed 只作为事件出现（停止编辑时发一次），editList 不会再返回它。
+ */
+export type RemoteEditState =
+  | 'downloading'
+  | 'editing'
+  | 'uploading'
+  | 'conflict'
+  | 'blocked'
+  | 'shrink'
+  | 'error'
+  | 'closed'
+
+/** 存盘把整个文件的行尾翻了面：只警告，不替用户改回去 */
+export type EolWarning = 'lfToCrlf' | 'crlfToLf'
+
+/**
+ * 一条正在编辑的远端文件。字段与 main 侧 RemoteEditManager 的 RemoteEditInfo 逐一对齐
+ * （靠结构类型天然兼容，不让 shared 反向 import main）。
+ */
+export interface RemoteEditEntry {
+  id: EditId
+  sessionId: SessionId
+  /** 用户点开的那条路径（软链就是软链本身）：列表 key 与界面展示都用它 */
+  remotePath: string
+  /** 真正读写的路径：软链解析后的真身，与 remotePath 相同表示不是软链 */
+  resolvedPath: string
+  /**
+   * 本地临时副本的绝对路径。**出得去、进不来** —— 界面可以显示它、可以"在文件夹中显示"，
+   * 但没有任何 channel 接受本地路径回传（理由见 main/ipc/sftp.ipc.ts 顶部那段）。
+   */
+  localPath: string
+  state: RemoteEditState
+  /** main 侧给的中文说明：失败原因 / blocked 原因 / 存上了但权限没恢复的告警 */
+  message?: string
+  eolWarning?: EolWarning
+  /** 最近一次已知的内容长度 */
+  size: number
+  savedAt?: number
+  createdAt: number
+}
 
 // ---------- 监控 ----------
 export interface MonitorStaticInfo {
@@ -218,6 +283,24 @@ export interface MonitorSnapshot {
   diskIo: Array<{ dev: string; readBps: number; writeBps: number }>
   /** best-effort，解析失败则无 */
   topProcs?: Array<{ pid: number; name: string; cpuPct: number; memPct: number }>
+  /**
+   * 连接/套接字计数。每 tick 都采（读 /proc/net/sockstat 是 O(1)，与连接数无关）；
+   * 文件缺失（非 Linux、极简容器）为 null。
+   * 注意 udpInuse 是**已打开的 UDP 套接字**数 —— UDP 无连接，不该叫"连接数"。
+   */
+  conns: {
+    socketsUsed: number
+    tcpInuse: number
+    tcpOrphan: number
+    tcpTw: number
+    udpInuse: number
+  } | null
+  /**
+   * 按 TCP 状态的明细（ESTABLISHED / LISTEN / …）。sockstat 给不出这个，
+   * 必须遍历 socket 表，所以只在 df 那一档低频 tick 采，且是 best-effort：
+   * 缺文件/缺 awk/超时一律当"没这份明细"，不影响总数、更不许把面板打成 failed。
+   */
+  tcpStates?: Record<string, number>
 }
 
 export type MonitorState = 'running' | 'failed' | 'unsupported' | 'stopped'
@@ -300,6 +383,29 @@ export interface AppSettings {
     conflictPolicy: ConflictPolicy
     showHiddenFiles: boolean
     doubleClickAction: 'download' | 'open'
+    /** 会话连上后自动展开下方 SFTP 分屏 */
+    autoOpenOnConnect: boolean
+    /**
+     * 编辑远端文件时调起的编辑器 exe 绝对路径；空串 = 交给系统默认打开方式。
+     * 只收一个 exe 路径、**不收参数模板** —— main 侧 spawn 时 shell: false + 参数数组，
+     * 从根上不给命令注入留缝（见 RemoteEditManager.launchEditor）。
+     * 字段名与那边的宽松取值一字不差，改名会让编辑器静默退化成系统默认打开。
+     */
+    externalEditorPath: string
+    /**
+     * 右键菜单里是否提供「快速删除（rm 命令）」。默认开。
+     * 关掉只是隐藏菜单项 —— main 侧的守卫（绝对路径、无 . / ..、非空路径段至少两级）
+     * 与这个开关无关，它拦的是"路径本身不该被 rm -rf"，不是"用户不该看到这个菜单"。
+     */
+    fastDelete: boolean
+    /**
+     * 目录传输时先在远端打成一个 tar、传一个文件、再本地解包。默认关。
+     *
+     * 这是**建议性**的：main 侧会自己判断值不值得（文件数、远端有没有 tar/mktemp、
+     * 空间够不够、冲突策略是否与 tar 的覆盖语义相容），付不起就静默退回逐文件，
+     * 并在那条任务的 notice 里说明原因。
+     */
+    packedTransfer: boolean
   }
   monitor: {
     intervalMs: number

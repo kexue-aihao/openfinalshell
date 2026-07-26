@@ -123,10 +123,25 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
           attachSftp(acceptSftp())
         })
 
-        // exec：监控采集用的裸 sh 通道（读 stdin 逐行执行），以及一次性命令
+        /*
+         * exec 三种形态：
+         *  - `env … sh -c <脚本>`：ExecRunner 的一次性命令。**必须排在裸 sh 前面判** ——
+         *    只按 /\bsh\b/ 判会把它误当成读 stdin 的常驻通道，于是调用方永远等不到应答、
+         *    只能等帧超时，而故障现场看起来像"网络慢"。
+         *  - 裸 `sh`：监控采集用的常驻通道（读 stdin 逐行执行）。
+         *  - 别的：监控静态帧里那些单条命令。
+         *
+         * 一次性命令这条只当**镜子**：把收到的命令原样回显，让测试能断言"发出去的字节
+         * 经过 ssh2 的 exec 一字未变"。这个 fixture 没有真文件系统也没有真 shell，
+         * 所以 rm 的真实语义在它上面**无法**被验证 —— 那些归真机验收。
+         */
         session.on('exec', (acceptExec, _rejectExec, info) => {
           const stream = acceptExec()
-          if (/\bsh\b/.test(info.command)) {
+          if (/\s-c\s/.test(info.command)) {
+            stream.write(`@@FIXTURE:EXEC@@\n${info.command}\n@@FIXTURE:END@@\n`)
+            stream.exit(0)
+            stream.end()
+          } else if (/\bsh\b/.test(info.command)) {
             attachFakeShell(stream)
           } else {
             stream.write(runFakeCommand(info.command))
@@ -274,6 +289,24 @@ const FAKE_DF = [
   '/dev/sda2         98298648 93383712   4914936      96% /data'
 ].join('\n')
 
+/** /proc/net/sockstat 与 sockstat6 拼在一起（采集脚本一次 cat 两个文件） */
+const FAKE_SOCKSTAT = [
+  'sockets: used 337',
+  'TCP: inuse 12 orphan 0 tw 3 alloc 20 mem 2',
+  'UDP: inuse 6 mem 3',
+  'UDPLITE: inuse 0',
+  'RAW: inuse 0',
+  'FRAG: inuse 0 memory 0',
+  'TCP6: inuse 4',
+  'UDP6: inuse 1',
+  'UDPLITE6: inuse 0',
+  'RAW6: inuse 0',
+  'FRAG6: inuse 0 memory 0'
+].join('\n')
+
+/** 服务器侧 awk 聚合后的形态：`<十六进制状态> <数量>`，顺序随机（awk 遍历哈希） */
+const FAKE_TCP_STATES = ['0A 9', '01 31', '06 3', '08 1'].join('\n')
+
 const FAKE_PS = [
   '    PID %CPU %MEM COMMAND',
   '   1234 45.2  3.1 node',
@@ -298,6 +331,9 @@ function runFakeCommand(cmd) {
   if (c.includes('/proc/meminfo')) return `${fakeMeminfo()}\n`
   if (c.includes('/proc/net/dev')) return `${fakeNetDev()}\n`
   if (c.includes('/proc/diskstats')) return `${fakeDiskstats()}\n`
+  if (c.includes('/proc/net/sockstat')) return `${FAKE_SOCKSTAT}\n`
+  // TCPST 段：`[timeout 3 ]awk '…' /proc/net/tcp /proc/net/tcp6`
+  if (c.includes('/proc/net/tcp')) return `${FAKE_TCP_STATES}\n`
   if (c.includes('/proc/uptime')) return `${123456 + counterTick}.78 987654.32\n`
   if (c.includes('/proc/loadavg')) return '0.52 0.31 0.24 2/345 6789\n'
   if (/\bdf\b/.test(c)) return `${FAKE_DF}\n`

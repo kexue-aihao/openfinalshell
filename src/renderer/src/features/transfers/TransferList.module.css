@@ -87,3 +87,14 @@
 .spacer {
   flex: 1;
 }
+
+/*
+ * 打包传输的一行说明（降级原因、tar 的警告）。是"说明"不是"错误"：
+ * 用 text-3 而不是 error 色，也不截断 —— 它常常是一整句话，截掉就等于没说。
+ */
+.itemNotice {
+  font-size: 11px;
+  color: var(--ofs-text-3);
+  line-height: 1.5;
+  margin-bottom: 4px;
+}

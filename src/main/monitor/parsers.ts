@@ -187,6 +187,101 @@ export function parseDf(text: string): FsUsage[] {
   return out
 }
 
+// ---------------- /proc/net/sockstat（+ sockstat6） ----------------
+export interface SockStat {
+  socketsUsed: number
+  tcpInuse: number
+  tcpOrphan: number
+  tcpTw: number
+  udpInuse: number
+}
+
+/**
+ * 解析 sockstat 与 sockstat6 拼在一起的文本：
+ *
+ *   sockets: used 337
+ *   TCP: inuse 12 orphan 0 tw 3 alloc 20 mem 2
+ *   UDP: inuse 6 mem 3
+ *   TCP6: inuse 4
+ *   UDP6: inuse 1
+ *
+ * v4 与 v6 相加。`sockets: used` 只在 sockstat 里有（v6 那份没有这行）。
+ * 一个键都认不出来时返回 null —— 文件不存在（非 Linux / 极简容器）时正是这样。
+ */
+export function parseSockstat(text: string): SockStat | null {
+  const out = { socketsUsed: 0, tcpInuse: 0, tcpOrphan: 0, tcpTw: 0, udpInuse: 0 }
+  let hit = false
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    const m = /^(sockets|TCP6?|UDP6?|UDPLITE6?|RAW6?|FRAG6?):\s+(.*)$/.exec(line)
+    if (!m) continue
+    const [, kind, rest] = m
+    const fields = new Map<string, number>()
+    const parts = rest.split(/\s+/)
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+      const value = Number(parts[i + 1])
+      if (Number.isFinite(value)) fields.set(parts[i], value)
+    }
+    if (kind === 'sockets') {
+      const used = fields.get('used')
+      if (used !== undefined) {
+        out.socketsUsed += used
+        hit = true
+      }
+      continue
+    }
+    if (kind !== 'TCP' && kind !== 'TCP6' && kind !== 'UDP' && kind !== 'UDP6') continue
+    const inuse = fields.get('inuse')
+    if (inuse === undefined) continue
+    hit = true
+    if (kind.startsWith('TCP')) {
+      out.tcpInuse += inuse
+      // orphan / tw 只在 IPv4 那份里有
+      out.tcpOrphan += fields.get('orphan') ?? 0
+      out.tcpTw += fields.get('tw') ?? 0
+    } else {
+      out.udpInuse += inuse
+    }
+  }
+  return hit ? out : null
+}
+
+// ---------------- /proc/net/tcp 的状态直方图 ----------------
+/** /proc/net/tcp 第 4 列的十六进制状态码 */
+const TCP_STATE_NAMES: Record<string, string> = {
+  '01': 'ESTABLISHED',
+  '02': 'SYN_SENT',
+  '03': 'SYN_RECV',
+  '04': 'FIN_WAIT1',
+  '05': 'FIN_WAIT2',
+  '06': 'TIME_WAIT',
+  '07': 'CLOSE',
+  '08': 'CLOSE_WAIT',
+  '09': 'LAST_ACK',
+  '0A': 'LISTEN',
+  '0B': 'CLOSING',
+  '0C': 'NEW_SYN_RECV'
+}
+
+/**
+ * 解析服务器侧 awk 聚合出的 `<十六进制状态> <数量>` 行。
+ * 认不出的状态码按 `UNKNOWN_xx` 保留而不是丢掉 —— 丢掉会让总数对不上，
+ * 而"对不上"是最难查的那种问题。
+ */
+export function parseTcpStates(text: string): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const raw of text.split('\n')) {
+    const m = /^([0-9A-Fa-f]{1,2})\s+(\d+)$/.exec(raw.trim())
+    if (!m) continue
+    const code = m[1].toUpperCase().padStart(2, '0')
+    const count = Number(m[2])
+    if (!Number.isFinite(count)) continue
+    const name = TCP_STATE_NAMES[code] ?? `UNKNOWN_${code}`
+    out[name] = (out[name] ?? 0) + count
+  }
+  return out
+}
+
 // ---------------- 静态信息 ----------------
 export interface StaticInfoRaw {
   uname: string

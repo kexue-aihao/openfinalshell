@@ -9,6 +9,23 @@
  *   - Malformed OpenSSH private key. Bad passphrase?
  *   - Unsupported key format（PKCS#8、损坏文件、非私钥内容都是这一条）
  */
+/**
+ * 开新 channel 失败时的文案。
+ *
+ * 单独一条是因为它的排查方向和"连不上"完全不同：连接是好的、认证也过了，是**通道数**用满了。
+ * sshd 的 MaxSessions 默认 10，而本项目一条会话常驻的 session 通道是
+ * N 个 shell + 1 个浏览 SFTP + 1 个监控 exec，再加一次性命令就是 N+3 ——
+ * 低配服务器上把 MaxSessions 调成 2 的不少见。ssh2 对这种失败给的原话是
+ * "(SSH) Channel open failure: open failed"，照抄给用户等于什么都没说。
+ */
+export function channelOpenError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/channel open failure|open failed|administratively prohibited/i.test(msg)) {
+    return '服务器拒绝新建通道（可能已达 sshd MaxSessions 上限），请关闭部分终端后重试'
+  }
+  return friendlySshError(err)
+}
+
 export function friendlySshError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
 

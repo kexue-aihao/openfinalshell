@@ -37,6 +37,7 @@ interface FormValues {
   readyTimeout: number
   legacyAlgorithms: boolean
   compress: boolean
+  monitorEnabled: boolean
   proxyType: 'none' | 'http' | 'socks5'
   proxyHost?: string
   proxyPort: number
@@ -83,6 +84,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         readyTimeout: editing.options.readyTimeout,
         legacyAlgorithms: editing.options.legacyAlgorithms,
         compress: editing.options.compress,
+        monitorEnabled: editing.options.monitorEnabled,
         proxyType: editing.proxy?.type ?? 'none',
         proxyHost: editing.proxy?.host,
         proxyPort: editing.proxy?.port ?? 7890,
@@ -141,7 +143,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
           readyTimeout: v.readyTimeout,
           legacyAlgorithms: v.legacyAlgorithms,
           autoReconnect: editing?.options.autoReconnect ?? true,
-          monitorEnabled: editing?.options.monitorEnabled ?? true,
+          monitorEnabled: v.monitorEnabled,
           compress: v.compress
         },
         proxy:
@@ -210,6 +212,9 @@ export function ProfileEditDrawer(): React.JSX.Element {
           readyTimeout: 15000,
           legacyAlgorithms: false,
           compress: false,
+          // 必须在 initialValues 里：折叠面板没展开过时 Form.Item 不挂载，
+          // 只有 initialValues 写进 store 的值才拿得到（见 submit 里的注释）
+          monitorEnabled: true,
           proxyType: 'none',
           proxyPort: 7890
         }}
@@ -369,6 +374,14 @@ export function ProfileEditDrawer(): React.JSX.Element {
                       <Switch />
                     </Form.Item>
                     <Form.Item name="compress" label={t('conn.compress')} valuePropName="checked">
+                      <Switch />
+                    </Form.Item>
+                    <Form.Item
+                      name="monitorEnabled"
+                      label={t('conn.monitorEnabled')}
+                      valuePropName="checked"
+                      tooltip={t('conn.monitorEnabledTip')}
+                    >
                       <Switch />
                     </Form.Item>
                   </Space>

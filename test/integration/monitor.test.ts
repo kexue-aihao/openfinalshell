@@ -148,6 +148,38 @@ describe('监控采集', () => {
     expect(snapshots().some((s) => s.diskFs === null)).toBe(true)
   })
 
+  it('连接数每帧都有（sockstat 是 O(1)），TCP 状态明细只在低频 tick 有', async () => {
+    // conns 每帧都该有 —— 这是选 sockstat 而不是 /proc/net/tcp 的直接收益：
+    // 输出恒定十几字节，可以每 tick 采，首屏不用等到第 6 帧
+    const all = snapshots()
+    expect(all.length).toBeGreaterThanOrEqual(2)
+    expect(all.every((s) => s.conns !== null)).toBe(true)
+    // fixture：TCP 12+4、UDP 6+1、tw 3、sockets 337
+    expect(all.at(-1)!.conns).toEqual({
+      socketsUsed: 337,
+      tcpInuse: 16,
+      tcpOrphan: 0,
+      tcpTw: 3,
+      udpInuse: 7
+    })
+
+    // 明细跟 df 同一档，所以"有的帧带、有的帧不带"
+    await waitFor(
+      () => snapshots().some((s) => s.tcpStates !== undefined),
+      20000,
+      'a snapshot carrying tcpStates'
+    )
+    expect(snapshots().find((s) => s.tcpStates)!.tcpStates).toEqual({
+      ESTABLISHED: 31,
+      LISTEN: 9,
+      TIME_WAIT: 3,
+      CLOSE_WAIT: 1
+    })
+    expect(snapshots().some((s) => s.tcpStates === undefined)).toBe(true)
+    // best-effort 的底线：明细这一段无论如何都不能把面板打成 failed
+    expect(eventsOf('monitor:state').filter((s) => s.state === 'failed')).toHaveLength(0)
+  })
+
   it('setInterval 改频率不重启通道', async () => {
     const before = snapshots().length
     monitorManager.setInterval(sessionId, 1000)

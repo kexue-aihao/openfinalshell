@@ -17,7 +17,9 @@ import {
   parseNetDev,
   parseProcStat,
   parsePsTop,
+  parseSockstat,
   parseStaticInfo,
+  parseTcpStates,
   parseUptime,
   SECTOR_BYTES,
   type CpuStat,
@@ -218,6 +220,7 @@ export class MonitorCollector {
     const dfText = sections.get('DF')
     if (dfText !== undefined) this.lastDiskFs = parseDf(dfText)
     const psText = sections.get('PS')
+    const tcpStText = sections.get('TCPST')
 
     return {
       ts,
@@ -247,6 +250,9 @@ export class MonitorCollector {
         }
       }),
       diskFs: dfText !== undefined ? this.lastDiskFs : null,
+      conns: parseSockstat(sections.get('SOCK') ?? ''),
+      // best-effort：这一段只在低频 tick 出现，缺失时给 undefined 让 renderer 沿用上次值
+      tcpStates: tcpStText ? parseTcpStates(tcpStText) : undefined,
       diskIo: disk.map((d) => {
         const before = prev.disk.find((x) => x.dev === d.dev)
         return {

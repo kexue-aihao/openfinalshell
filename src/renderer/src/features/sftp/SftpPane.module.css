@@ -90,9 +90,120 @@
   pointer-events: none;
 }
 
+/* 拖拽落点行：遮罩盖在整个面板上，所以行高亮要够显眼才看得见
+   （z-index 高于 .dropMask 的 20，否则被半透明遮罩盖住看不清是哪一行） */
+.dropRow > :global(.ant-table-cell) {
+  position: relative;
+  z-index: 21;
+  background: color-mix(in srgb, var(--ofs-accent) 34%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 var(--ofs-accent),
+    inset 0 -1px 0 var(--ofs-accent);
+}
+
+/* 编辑冲突/不支持原子替换的确认框正文：路径、说明、后果三段。
+   不直接堆 <p>：那会吃到全局 reset 的段落外边距，在 confirm 的窄体里松散得不像一段话。
+   路径必须允许断行 —— /etc/... 这种长路径不断行会把 Modal 顶宽出屏幕。 */
+.editDecision {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.editDecision code {
+  word-break: break-all;
+}
+
+/* 「正在编辑」列表（工具栏那颗按钮的 Popover 内容）。
+   宽度写死是故意的：内容宽度由最长的那条远端路径决定，跟着它走会让气泡忽宽忽窄；
+   路径本来就只以文件名示人（完整路径挂在 title 上）。
+   条数多时自己滚，不许把气泡顶出窗口 —— SFTP 分屏本身可能只有两百来像素高。 */
+.editList {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.editRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 0;
+  min-width: 0;
+}
+.editRow + .editRow {
+  border-top: 1px solid var(--ofs-border);
+}
+
+.editRowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.editName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--ofs-text-1);
+}
+
+.editMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}
+/* 停在 conflict / blocked / error 的那几条：这一行是用户唯一能看出"它没存上"的地方 */
+.editMetaBad {
+  color: var(--ofs-warning);
+}
+
 .emptyWrap {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ---- 快速删除的确认框 ---- */
+.fastDeleteList {
+  max-height: 132px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ofs-text-2);
+  word-break: break-all;
+}
+
+.fastDeleteHint {
+  font-size: 11px;
+  color: var(--ofs-text-3);
+  margin-bottom: 4px;
+}
+
+/*
+ * 那条 rm 命令的原文。对一条 rm -rf 来说，让用户亲眼看到引号是对的、路径是他选的那些，
+ * 是能给的最好的安全感受 —— 所以宁可占地方也要等宽、可横向滚动、不折行改变形状。
+ */
+.fastDeleteCommand {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 150px;
+  overflow: auto;
+  background: var(--ofs-bg-base);
+  border: 1px solid var(--ofs-border);
+  border-radius: 4px;
+  font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ofs-text-1);
+  white-space: pre;
 }

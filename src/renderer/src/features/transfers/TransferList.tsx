@@ -16,6 +16,21 @@ const STATE_KEY: Record<TransferTask['state'], string> = {
   canceled: 'transfer.stateCanceled'
 }
 
+/**
+ * 打包传输的阶段名。有阶段时显示它**代替**状态名 —— "运行中"对一条打包任务几乎没有信息量，
+ * 而"正在打包 / 正在解包"回答的正是用户此刻的疑问："进度条不动了，它在干什么？"
+ *
+ * 打包与解包阶段的进度**真的未知**（远端 tar 不吐进度，本地 tar 也不吐），
+ * 所以进度条就停在上次的百分比，由阶段名承载"它在动"这个信息 —— **不许编百分比**。
+ */
+const PHASE_KEY: Record<NonNullable<TransferTask['phase']>, string> = {
+  scanning: 'transfer.phaseScanning',
+  packing: 'transfer.phasePacking',
+  transferring: 'transfer.phaseTransferring',
+  extracting: 'transfer.phaseExtracting',
+  cleanup: 'transfer.phaseCleanup'
+}
+
 /** 传输任务列表（抽屉与侧栏共用） */
 export function TransferList({ compact = false }: { compact?: boolean }): React.JSX.Element {
   const { t } = useTranslation()
@@ -63,8 +78,15 @@ export function TransferList({ compact = false }: { compact?: boolean }): React.
                 <span className={styles.itemName} title={`${task.localPath} ↔ ${task.remotePath}`}>
                   {task.remotePath.split('/').pop()}
                 </span>
-                <span className={styles.itemState}>{t(STATE_KEY[task.state])}</span>
+                <span className={styles.itemState}>
+                  {task.phase && task.state === 'running'
+                    ? t(PHASE_KEY[task.phase])
+                    : t(STATE_KEY[task.state])}
+                </span>
               </div>
+
+              {/* 降级原因、tar 的警告之类：是说明不是错误，不标红 */}
+              {task.notice && <div className={styles.itemNotice}>{task.notice}</div>}
 
               {!compact && (
                 <div className={styles.itemPath} title={task.kind === 'upload' ? task.localPath : task.remotePath}>

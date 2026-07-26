@@ -8,8 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { SessionViewHost } from '@/features/sessions/SessionView'
 import { MonitorPanel } from '@/features/monitor/MonitorPanel'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
-import { useMonitorStore } from '@/stores/useMonitorStore'
+import { useSessionStore } from '@/stores/useSessionStore'
 import styles from './MainLayout.module.css'
 
 interface Props {
@@ -21,14 +20,9 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
   const patch = useSettingsStore((s) => s.patch)
   const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
+  // 停采集器现在收在 toggleMonitor 里（终端工具条那条路径绕不过去了）
   const toggleMonitor = useSessionStore((s) => s.toggleMonitor)
-  const stopMonitor = useMonitorStore((s) => s.stop)
   const activeTab = tabs.find((tab) => tab.id === activeTabId)
-
-  const closeMonitor = (tab: SessionTab): void => {
-    toggleMonitor(tab.id)
-    if (tab.sessionId) void stopMonitor(tab.sessionId).catch(() => {})
-  }
 
   if (!settings) return <div className={styles.root} />
   const { layout } = settings
@@ -85,7 +79,7 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                   maxSize={40}
                 >
                   <ErrorBoundary label="monitor">
-                    <MonitorPanel tab={activeTab} onClose={() => closeMonitor(activeTab)} />
+                    <MonitorPanel tab={activeTab} onClose={() => toggleMonitor(activeTab.id)} />
                   </ErrorBoundary>
                 </Panel>
               </>

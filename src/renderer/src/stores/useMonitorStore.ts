@@ -109,7 +109,10 @@ export function wireMonitorEvents(): void {
       const merged: MonitorSnapshot = {
         ...snapshot,
         diskFs: snapshot.diskFs ?? prev?.diskFs ?? null,
-        topProcs: snapshot.topProcs ?? prev?.topProcs
+        topProcs: snapshot.topProcs ?? prev?.topProcs,
+        // TCP 状态明细同理每 5 帧才有；不沿用的话明细行会每 5 帧闪一次。
+        // conns 反过来每帧都有，不需要沿用（真的是 null 就该显示"没有"）。
+        tcpStates: snapshot.tcpStates ?? prev?.tcpStates
       }
       return { latest: { ...s.latest, [sessionId]: merged } }
     })

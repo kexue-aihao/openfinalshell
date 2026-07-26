@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises'
 import { app, BrowserWindow } from 'electron'
 import { initLogger, logger } from './utils/logger'
 import { getSettings, settingsStore } from './services/settings'
@@ -14,7 +15,8 @@ import { registerForwardIpc } from './ipc/forward.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { forwardManager } from './forward/ForwardManager'
 import { flushForwards } from './store/forwards'
-import { transferQueue } from './sftp/TransferQueue'
+import { packTempDir, transferQueue } from './sftp/TransferQueue'
+import { remoteEditManager } from './sftp/RemoteEditManager'
 import { sshManager } from './ssh/SshConnectionManager'
 import { closeDatabase } from './store/Database'
 import { flushConnections } from './store/connections'
@@ -60,6 +62,23 @@ if (!app.requestSingleInstanceLock()) {
     registerMonitorIpc()
     registerForwardIpc()
 
+    /**
+     * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
+     * 不该在 %TEMP% 下长住。放在这儿的两个理由：
+     *  - 必须在 app ready 之后 —— 它要 app.getPath('temp')，模块顶层那会儿还没准备好；
+     *  - 必须在 requestSingleInstanceLock 之后（我们就在那个 else 分支里）——
+     *    否则第二个实例启动时会把第一个实例正在用的目录删掉。
+     * best-effort：函数内部逐个 catch，不会抛，失败也不该拦住启动。
+     */
+    void remoteEditManager.purgeStaleTempDirs()
+
+    /**
+     * 同理清掉打包下载的本地临时目录。它整个目录都是可丢的（里面只有 `<taskId>.tar`），
+     * 所以直接删整棵 —— 与上面那条一样，必须排在单实例锁之后，否则会删掉另一个实例正在传的包。
+     * 没有这条，一次 4GB 打包下载崩在中途就静默漏 4GB 的 %TEMP%。
+     */
+    void rm(packTempDir(), { recursive: true, force: true }).catch(() => {})
+
     const win = createMainWindow()
     bindMainWindow(win)
 
@@ -78,6 +97,12 @@ if (!app.requestSingleInstanceLock()) {
     transferQueue.cancelAll()
     monitorManager.stopAll()
     forwardManager.stopAll()
+    /**
+     * 停掉每条编辑并删掉本进程那个临时根 —— 不清就是把远端文件的明文副本留在 %TEMP% 里。
+     * 它是 async 而 before-quit 是同步钩子：和下面几个 flush 一样按 best-effort 处理
+     * （拖延退出去等一次目录删除不值得，真没删掉的下次启动时 purgeStaleTempDirs 会收走）。
+     */
+    void remoteEditManager.stopAll()
     sshManager.closeAll()
     void settingsStore().flush()
     void flushConnections()

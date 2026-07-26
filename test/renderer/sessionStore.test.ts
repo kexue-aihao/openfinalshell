@@ -9,6 +9,8 @@ import type { EventMap } from '@shared/ipc'
 
 type Handler = (payload: unknown) => void
 const handlers = new Map<string, Handler[]>()
+/** 记录所有 invoke，用来断言"关面板时真的发了 monitor:stop" */
+const calls: Array<[string, unknown[]]> = []
 
 /** 每个用例可替换的 invoke 实现：要模拟"事件先到、session:open 后 resolve"的真实时序 */
 let invokeImpl: (channel: string, ...args: unknown[]) => Promise<unknown> = async () => ({
@@ -17,7 +19,10 @@ let invokeImpl: (channel: string, ...args: unknown[]) => Promise<unknown> = asyn
 
 vi.mock('@/ipc/api', () => ({
   ofs: {
-    invoke: vi.fn((channel: string, ...args: unknown[]) => invokeImpl(channel, ...args)),
+    invoke: vi.fn((channel: string, ...args: unknown[]) => {
+      calls.push([channel, args])
+      return invokeImpl(channel, ...args)
+    }),
     send: vi.fn(),
     on: (channel: string, handler: Handler) => {
       const list = handlers.get(channel) ?? []
@@ -29,6 +34,9 @@ vi.mock('@/ipc/api', () => ({
 }))
 
 const { useSessionStore, wireSessionEvents } = await import('@/stores/useSessionStore')
+const { useSettingsStore } = await import('@/stores/useSettingsStore')
+const { useMonitorStore, historyOf } = await import('@/stores/useMonitorStore')
+const { DEFAULT_SETTINGS } = await import('@shared/constants')
 type SessionTab = ReturnType<typeof useSessionStore.getState>['tabs'][number]
 
 function fire<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
@@ -64,6 +72,9 @@ function tab(): NonNullable<ReturnType<typeof useSessionStore.getState>['tabs'][
 
 beforeEach(() => {
   useSessionStore.setState({ tabs: [], activeTabId: null })
+  useSettingsStore.setState({ settings: null })
+  useMonitorStore.setState({ latest: {}, staticInfo: {}, state: {} })
+  calls.length = 0
   invokeImpl = async () => ({ sessionId: 'sid-1' })
   wireSessionEvents()
 })
@@ -153,6 +164,86 @@ describe('开连期间的状态事件（tab 还不知道自己的 sessionId）',
     await useSessionStore.getState().openForProfile(PROFILE)
     expect(tab().state).toBe('ready')
     expect(tab().error).toBeUndefined()
+  })
+})
+
+/**
+ * 连上就打开 SFTP 与监控。两个开关**故意分属两处**：
+ * SFTP 是全局偏好（settings.sftp.autoOpenOnConnect），
+ * 监控是连接自己的属性（profile.options.monitorEnabled）—— 低配服务器通道紧张时
+ * 要能按连接关掉，而不是一刀切。
+ */
+describe('新会话的面板初值', () => {
+  it('默认两个面板都自动打开', async () => {
+    await useSessionStore.getState().openForProfile(PROFILE)
+    expect(tab().sftpOpen).toBe(true)
+    expect(tab().monitorOpen).toBe(true)
+  })
+
+  it('设置还没加载完时用默认值，而不是当成关', async () => {
+    // useSettingsStore.settings 此刻是 null（init 是异步的）
+    expect(useSettingsStore.getState().settings).toBeNull()
+    await useSessionStore.getState().openForProfile(PROFILE)
+    expect(tab().sftpOpen).toBe(DEFAULT_SETTINGS.sftp.autoOpenOnConnect)
+  })
+
+  it('全局设置关掉 autoOpenOnConnect → 不开 SFTP，但监控照旧', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        sftp: { ...DEFAULT_SETTINGS.sftp, autoOpenOnConnect: false }
+      }
+    })
+    await useSessionStore.getState().openForProfile(PROFILE)
+    expect(tab().sftpOpen).toBe(false)
+    expect(tab().monitorOpen).toBe(true)
+  })
+
+  it('连接自己关掉 monitorEnabled → 不开监控，但 SFTP 照旧', async () => {
+    await useSessionStore
+      .getState()
+      .openForProfile({ ...PROFILE, options: { ...PROFILE.options, monitorEnabled: false } })
+    expect(tab().monitorOpen).toBe(false)
+    expect(tab().sftpOpen).toBe(true)
+  })
+})
+
+/**
+ * 关监控必须同时停采集器。
+ * stop 早先只写在 MainLayout.closeMonitor 里，而终端悬浮工具条那个按钮直接调
+ * toggleMonitor —— 从工具条关面板时主进程仍在每 2s 采一整帧，一条泄漏的通道。
+ * 自动打开会让它从"偶发"变成"每条会话都发生"，所以护栏盯的是 store 而不是某个组件。
+ */
+describe('toggleMonitor 与采集器生命周期', () => {
+  it('关掉监控时发 monitor:stop', () => {
+    seedTab({ monitorOpen: true, state: 'ready' })
+    useSessionStore.getState().toggleMonitor('tab-1')
+    expect(tab().monitorOpen).toBe(false)
+    expect(calls.map(([c]) => c)).toContain('monitor:stop')
+  })
+
+  it('打开监控时不发 stop（采集由 MonitorPanel 自己起）', () => {
+    seedTab({ monitorOpen: false, state: 'ready' })
+    useSessionStore.getState().toggleMonitor('tab-1')
+    expect(tab().monitorOpen).toBe(true)
+    expect(calls.map(([c]) => c)).not.toContain('monitor:stop')
+  })
+
+  it('还没拿到 sessionId 就关面板：不发 stop，也不报错', () => {
+    seedTab({ monitorOpen: true, sessionId: null })
+    useSessionStore.getState().toggleMonitor('tab-1')
+    expect(calls.map(([c]) => c)).not.toContain('monitor:stop')
+  })
+
+  it('关 tab 时释放监控快照与历史（否则关掉的会话永不回收）', async () => {
+    seedTab({ state: 'ready' })
+    useMonitorStore.setState({ state: { 'sid-1': 'running' } })
+    historyOf('sid-1').cpu.push(1, 2, 3)
+
+    await useSessionStore.getState().closeTab('tab-1')
+
+    expect(useMonitorStore.getState().state['sid-1']).toBeUndefined()
+    expect(historyOf('sid-1').cpu).toEqual([])
   })
 })
 

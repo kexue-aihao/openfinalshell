@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { ConnectionProfile, SessionId, SessionState, TermId } from '@shared/types'
+import { DEFAULT_SETTINGS } from '@shared/constants'
 import { ofs } from '@/ipc/api'
+import { useSettingsStore } from './useSettingsStore'
+import { useMonitorStore } from './useMonitorStore'
 
 export interface SessionTab {
   id: string
@@ -99,6 +102,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   openForProfile: async (profile) => {
     const tabId = crypto.randomUUID()
+    // 设置可能还没加载完（init 是异步的），回退到默认值而不是当成 false
+    const sftp = useSettingsStore.getState().settings?.sftp ?? DEFAULT_SETTINGS.sftp
     const tab: SessionTab = {
       id: tabId,
       profileId: profile.id,
@@ -107,8 +112,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       title: uniqueTitle(get().tabs, profile.name),
       color: profile.color,
       state: 'connecting',
-      sftpOpen: false,
-      monitorOpen: false,
+      // 两个面板各归各家：SFTP 是全局偏好，监控是连接自己的属性
+      // （低配服务器通道紧张时要能按连接关掉，而不是一刀切）
+      sftpOpen: sftp.autoOpenOnConnect,
+      monitorOpen: profile.options.monitorEnabled,
       shellEpoch: 0
     }
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tabId }))
@@ -138,6 +145,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return { tabs, activeTabId }
     })
     if (tab?.sessionId) {
+      // 不 clear 的话，关掉的会话在 useMonitorStore 里的快照与 60 点历史永不释放
+      useMonitorStore.getState().clear(tab.sessionId)
       await ofs.invoke('session:close', tab.sessionId).catch(() => {})
     }
   },
@@ -198,10 +207,24 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   toggleSftp: (id) =>
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, sftpOpen: !t.sftpOpen } : t)) })),
 
-  toggleMonitor: (id) =>
+  /**
+   * 关掉监控必须同时停采集器。
+   * 早先 stop 只写在 MainLayout.closeMonitor 里，而终端悬浮工具条那个按钮
+   * 直接调 toggleMonitor —— 于是从工具条关面板时主进程仍在每 2s 轮询一整帧，
+   * 一条泄漏的采集通道。自动打开会让它从"偶发"变成"每条会话都发生"。
+   */
+  toggleMonitor: (id) => {
+    const tab = get().tabs.find((t) => t.id === id)
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, monitorOpen: !t.monitorOpen } : t))
     }))
+    if (tab?.monitorOpen && tab.sessionId) {
+      void useMonitorStore
+        .getState()
+        .stop(tab.sessionId)
+        .catch(() => {})
+    }
+  }
 }))
 
 let wired = false

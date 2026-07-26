@@ -1,9 +1,10 @@
 import { promises as fs } from 'node:fs'
 import { dirname } from 'node:path'
-import type { OpenMode, SFTPWrapper } from 'ssh2'
+import type { SFTPWrapper } from 'ssh2'
 import type { TransferTask } from '@shared/types'
 import { mkdirp, statSize } from './SftpManager'
-import { longPath, remoteDirname, toRemotePath, type RemotePath } from './remotePath'
+import { longPath, remoteDirname, toRemotePath } from './remotePath'
+import { sftpClose, sftpOpen, sftpRead, sftpWrite } from './sftpLowLevel'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('transfer')
@@ -246,54 +247,10 @@ async function runWindow(opts: WindowOptions): Promise<void> {
   if (firstError) throw firstError
 }
 
-// ---------------- ssh2 低阶 SFTP 操作的 Promise 包装 ----------------
-
-function sftpOpen(
-  sftp: SFTPWrapper,
-  path: RemotePath,
-  flags: OpenMode,
-  mode?: number
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const cb = (err: Error | undefined, handle: Buffer): void =>
-      err ? reject(err) : resolve(handle)
-    if (mode === undefined) sftp.open(path, flags, cb)
-    else sftp.open(path, flags, mode, cb)
-  })
-}
-
-function sftpClose(sftp: SFTPWrapper, handle: Buffer): Promise<void> {
-  return new Promise((resolve) => {
-    sftp.close(handle, () => resolve())
-  })
-}
-
-function sftpWrite(sftp: SFTPWrapper, handle: Buffer, offset: number, buf: Buffer): Promise<void> {
-  return new Promise((resolve, reject) => {
-    sftp.write(handle, buf, 0, buf.length, offset, (err) => (err ? reject(err) : resolve()))
-  })
-}
-
-function sftpRead(
-  sftp: SFTPWrapper,
-  handle: Buffer,
-  buf: Buffer,
-  length: number,
-  position: number
-): Promise<number> {
-  return new Promise((resolve, reject) => {
-    sftp.read(handle, buf, 0, length, position, (err, bytesRead) => {
-      // 读到文件尾 ssh2 给 EOF(code 1) 错误，按 0 字节处理
-      if (err) {
-        const code = (err as Error & { code?: number }).code
-        if (code === 1 || /EOF/i.test(err.message)) return resolve(0)
-        return reject(err)
-      }
-      resolve(bytesRead)
-    })
-  })
-}
-
+/**
+ * 删除失败照常继续：调用点都是"清掉可能存在的残留 .part / 待覆盖的目标"，
+ * 目标本来就不一定存在；真的是权限问题的话，紧接着的 open/rename 会报出来。
+ */
 async function removeRemoteQuietly(sftp: SFTPWrapper, path: string): Promise<void> {
   await new Promise<void>((resolve) => {
     sftp.unlink(path, (err) => {

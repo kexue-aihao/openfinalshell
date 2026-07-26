@@ -78,6 +78,10 @@ export default {
       disk: 'Disk',
       topProcs: 'Top processes',
       procName: 'Process',
+      conns: 'Connections',
+      connsSockets: 'sockets',
+      connsUdp: 'UDP sockets',
+      connsOrphan: 'Orphaned',
       collecting: 'Collecting…',
       waitingSession: 'Waiting for the session…',
       unsupported: 'Monitoring is not supported on this system (needs Linux /proc)',
@@ -90,8 +94,14 @@ export default {
       forward: 'Forward',
       up: 'Parent directory',
       refresh: 'Refresh',
+      new: 'New',
       newFolder: 'New folder',
+      newFile: 'New file',
+      kindFile: 'File',
+      kindFolder: 'Folder',
+      nameRequired: 'Enter a name first',
       upload: 'Upload file',
+      uploadMenu: 'Upload…',
       showHidden: 'Show hidden files',
       hideHidden: 'Hide hidden files',
       colName: 'Name',
@@ -101,10 +111,23 @@ export default {
       colMtime: 'Modified',
       open: 'Open',
       download: 'Download',
-      permissions: 'Permissions…',
+      permissions: 'File permissions…',
       copyPath: 'Copy path',
       deleteConfirm: 'Delete {{count}} item(s) ({{name}} …)?',
       deleteIrreversible: 'This cannot be undone; directories are removed recursively.',
+      fastDelete: 'Fast delete (rm command)',
+      packedTransfer: 'Packed transfer',
+      fastDeleteTitle: 'Fast-delete {{count}} director(ies)?',
+      fastDeleteWarning:
+        'This runs a shell command directly on the server. Deletion is immediate and permanent — no trash, no undo, no progress.',
+      fastDeleteCommandLabel: 'Command to be executed:',
+      fastDeleteMore: '… and {{count}} more',
+      fastDeleteBatches: 'Many paths — the same command runs in {{count}} batches.',
+      fastDeleteOk: 'Yes, delete',
+      fastDeleteDone: 'Deleted {{count}} director(ies)',
+      fastDeletePartial: 'Fast delete incomplete — {{count}} item(s) still present',
+      fastDeleteNonZero: 'Targets are gone, but the command returned a non-zero status ({{code}})',
+      fastDeleteUnknown: 'Could not confirm the result — refresh and verify',
       permissionTitle: 'Change permissions',
       permOctal: 'Octal',
       perm_owner: 'Owner',
@@ -119,7 +142,56 @@ export default {
       enqueuedUpload: 'Queued {{count}} upload(s)',
       dropToUpload: 'Drop to upload into {{dir}}',
       dropUnsupported: 'Could not read dropped file paths — use the upload button',
-      badNameWarning: 'This filename is not valid UTF-8 and cannot be operated on'
+      dropNoSession: 'Session is not ready yet — cannot upload',
+      badNameWarning: 'This filename is not valid UTF-8 and cannot be operated on',
+      editOpened: 'Opened in your editor: {{name}} (saving writes it back to the server)',
+      editSaved: 'Written back to the server: {{name}}',
+      editFailed: 'Could not save “{{name}}”: {{reason}}',
+      editConflictTitle: 'The remote file changed while you were editing',
+      editConflictDesc:
+        'Your copy is based on the version from when you opened it — overwriting drops whatever changed on the server since.',
+      editBlockedTitle: 'The server cannot replace the file atomically',
+      editBlockedDesc:
+        'This server has no posix-rename extension, so the only way forward is: rename the original aside as a backup, then rename the new content into place. Between those two renames the remote file briefly does not exist, and anything reading it right then (nginx -s reload, for instance) may read an empty file or fail outright. If the connection drops inside that window, the original content is left next to it under a .ofsbak- name.',
+      editShrinkTitle: 'Your local copy is far smaller than the remote file — hold on',
+      editShrinkDesc:
+        'The remote file was {{remote}}; what just landed locally is a lot shorter. The usual cause is not that you deleted the content — it is an editor that rewrites the file in place in chunks: it truncates the file, writes it back in pieces, and we read it right after the first piece landed. Overwriting now truncates the remote file to that half, so anything reading it right then (nginx -s reload, say) gets a broken config, possibly an empty one.',
+      editShrinkHint:
+        'If you are not sure, press neither: go back to your editor, make sure the content is complete and save again — that save runs the same check afresh. Once it has been written back, “Stop editing” here loses nothing.',
+      editSizeUnknown: 'unknown size',
+      editEditorFailed:
+        '{{reason}} Pick another editor under Settings → Transfers & monitor, or clear it and use the system default instead.',
+      editDecisionHint:
+        '“Overwrite anyway” replaces the remote content with your local copy. “Stop editing” discards your local changes and leaves the server untouched.',
+      editOverwrite: 'Overwrite anyway',
+      editStop: 'Stop editing (discard local changes)',
+      editErrorTitle: 'Could not write back to the server',
+      editErrorDesc:
+        'Usually a reconnecting session, a full disk, or missing permissions — nothing was written to the server, and your changes are still intact in the local temp file.',
+      editErrorHint:
+        '“Retry” checks for remote changes again before writing, so it will not overwrite what someone else changed. “Stop editing” deletes the temp file along with the changes in it — that file is the only copy.',
+      editingCount: 'Editing {{count}} remote file(s)',
+      editingListTitle: 'Remote files being edited',
+      editStateDownloading: 'Downloading',
+      editStateEditing: 'Editing',
+      editStateUploading: 'Writing back',
+      editStateConflict: 'Remote changed — needs a decision',
+      editStateBlocked: 'No atomic replace — needs a decision',
+      editStateShrink: 'Suspiciously short — needs a decision',
+      editStateError: 'Write-back failed',
+      editStateClosed: 'Finished',
+      editSavedAt: 'saved {{time}}',
+      editNeverSaved: 'never saved',
+      editShowInFolder: 'Show the local copy in its folder',
+      editShowInFolderFailed: 'Could not open the folder holding the local copy',
+      editStopShort: 'Stop editing',
+      editStopConfirm: 'Stop editing “{{name}}”?',
+      editStopConfirmDesc:
+        'The local temp copy is deleted along with any changes not yet written back. The remote file is left untouched.',
+      eolLfToCrlf:
+        '{{name}}: line endings across the whole file turned into CRLF (most likely your editor) — written back as-is',
+      eolCrlfToLf:
+        '{{name}}: line endings across the whole file turned into LF (most likely your editor) — written back as-is'
     },
     forward: {
       new: 'New forwarding rule',
@@ -164,7 +236,12 @@ export default {
       statePaused: 'Paused',
       stateDone: 'Done',
       stateError: 'Failed',
-      stateCanceled: 'Canceled'
+      stateCanceled: 'Canceled',
+      phaseScanning: 'Deciding',
+      phasePacking: 'Packing on server',
+      phaseTransferring: 'Transferring',
+      phaseExtracting: 'Extracting locally',
+      phaseCleanup: 'Cleaning up'
     },
     tab: {
       rename: 'Rename',
@@ -248,6 +325,9 @@ export default {
       legacyAlgorithmsTip:
         'Append ssh-rsa, dh-group14-sha1, aes128-cbc etc. for old switches/bastions',
       compress: 'Compression',
+      monitorEnabled: 'Auto-start monitor',
+      monitorEnabledTip:
+        'Open the server monitor on connect. Holds one exec channel open — turn it off on constrained servers',
       proxy: 'Proxy',
       proxyType: 'Proxy type',
       proxyNone: 'Direct',
@@ -346,6 +426,25 @@ export default {
       maxConcurrentPerSession: 'Concurrent transfers per session',
       maxConcurrentGlobal: 'Concurrent transfers (global)',
       showHiddenFiles: 'Show hidden files',
+      doubleClickAction: 'Double-clicking a file',
+      doubleClickActionHint: 'The context menu’s “Open” always edits; this only covers double-click',
+      doubleClickDownload: 'Downloads it',
+      doubleClickOpen: 'Opens it in the editor',
+      externalEditorPath: 'Editor for remote files',
+      externalEditorPathHint:
+        'Point this at an editor: .conf and extension-less files usually have no association on Windows, so leaving it empty means the “Open with” dialog every time. Only .exe is accepted, and it has to be chosen here — a hand-typed path will not take effect.',
+      externalEditorNone: 'Open with the system default',
+      externalEditorClear: 'Clear',
+      externalEditorPicked: 'Editor set to {{path}}',
+      autoOpenOnConnect: 'Open file manager on connect',
+      autoOpenOnConnectHint:
+        'Expands the SFTP split pane for new sessions. Whether the monitor opens is set per connection',
+      packedTransfer: 'Pack directories for transfer',
+      packedTransferHint:
+        'When downloading a whole directory, pack it into a single tar on the server, transfer that one file, then extract locally — orders of magnitude faster for thousands of small files (it removes the per-file round trips). This is advisory: too few files, no tar/mktemp on the server, not enough space, or an incompatible conflict policy all fall back to per-file transfer with the reason shown on that task. Downloads only for now.',
+      fastDelete: 'Offer "Fast delete" in the context menu',
+      fastDeleteHint:
+        'Removes a whole directory tree with rm -rf on the server — far faster than deleting entries one by one, but immediate, permanent and without progress. Directories only, and paths shallower than two segments (e.g. /etc) are rejected.',
       monitorInterval: 'Monitor interval',
       vaultAvailable: 'Credential encryption available',
       vaultAvailableDesc:

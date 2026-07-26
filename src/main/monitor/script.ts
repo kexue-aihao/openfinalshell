@@ -6,8 +6,38 @@ export const SENTINEL = {
   section: (name: string) => `@@OFS:${name}@@`
 } as const
 
-export const SECTIONS = ['STAT', 'MEM', 'NET', 'UPTIME', 'LOAD', 'DISKIO', 'DF', 'PS'] as const
+/**
+ * ⚠️ 段名只能是**大写字母**：splitSections 用 /^@@OFS:([A-Z]+)@@$/ 认段。
+ * `TCP_UDP`、`CONN2` 这类名字不会报错，会静默并进上一段的正文里。
+ * 这个数组是纯文档（没人引用），不会替你把名字检查住。
+ */
+export const SECTIONS = [
+  'STAT',
+  'MEM',
+  'NET',
+  'UPTIME',
+  'LOAD',
+  'DISKIO',
+  'SOCK',
+  'DF',
+  'PS',
+  'TCPST'
+] as const
 export type SectionName = (typeof SECTIONS)[number]
+
+/**
+ * 按状态统计 TCP 连接：在服务器侧用 awk 聚合成十几行再回传。
+ *
+ * 绝不能把 /proc/net/tcp 原文拉回来 —— 每条 socket 约 150 字节，20 万连接就是
+ * 每 tick 30MB，而 MonitorCollector 会把整条通道拼进一个 JS 字符串、每来一个 chunk
+ * 都在整个缓冲上跑一次正则，4MB 时截断且保留尾部（于是 BEGIN 哨兵丢失 → 帧必然超时
+ * → 连续三次把面板打成 failed）。三条保护会被同时踩中。
+ *
+ * FNR>1 跳掉**每个文件各自的**表头（表头第 4 列字面就是 `st`，不跳会多出一个假状态）。
+ */
+const TCP_STATE_AWK =
+  `awk 'FNR>1{c[$4]++} END{for(k in c) printf "%s %d\\n", k, c[k]}' ` +
+  '/proc/net/tcp /proc/net/tcp6'
 
 /**
  * 一个采集帧：哨兵行界定输出范围，防 bashrc 输出/欢迎语污染解析。
@@ -29,10 +59,20 @@ export function buildFrame(seq: number, opts: { withDf: boolean; withPs: boolean
     `echo "${SENTINEL.section('LOAD')}"`,
     'cat /proc/loadavg 2>/dev/null',
     `echo "${SENTINEL.section('DISKIO')}"`,
-    'cat /proc/diskstats 2>/dev/null'
+    'cat /proc/diskstats 2>/dev/null',
+    // 内核已经维护好的聚合计数，读它与连接数无关（输出十几字节），所以每 tick 都能采。
+    // sockstat6 在关掉 IPv6 的机器上不存在 —— cat 的报错被吞掉，解析侧按缺失容忍。
+    `echo "${SENTINEL.section('SOCK')}"`,
+    'cat /proc/net/sockstat /proc/net/sockstat6 2>/dev/null'
   ]
   if (opts.withDf) {
     lines.push(`echo "${SENTINEL.section('DF')}"`, `${dfCmd} 2>/dev/null`)
+    // 与 df 同一档低频 tick：awk 要走完整张 socket 表，代价在服务器 CPU。
+    // timeout 探测不到就裸跑，靠帧超时兜底（与 df 同一套处置）。
+    lines.push(
+      `echo "${SENTINEL.section('TCPST')}"`,
+      `${opts.hasTimeout ? 'timeout 3 ' : ''}${TCP_STATE_AWK} 2>/dev/null`
+    )
   }
   if (opts.withPs) {
     lines.push(

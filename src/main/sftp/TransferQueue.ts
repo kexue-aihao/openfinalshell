@@ -1,16 +1,56 @@
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { app } from 'electron'
 import type { SFTPWrapper } from 'ssh2'
-import type { SessionId, TaskId, TransferEnqueueItem, TransferTask } from '@shared/types'
+import type {
+  SessionId,
+  TaskId,
+  TransferEnqueueItem,
+  TransferPhase,
+  TransferTask
+} from '@shared/types'
 import { TRANSFER_PROGRESS_INTERVAL_MS } from '@shared/constants'
 import { emit } from '../ipc/registry'
 import { getSettings } from '../services/settings'
+import type { SshConnection } from '../ssh/SshConnection'
 import { sshManager } from '../ssh/SshConnectionManager'
+import { planPackedDownload, runPackedDownload, type PackDecision } from './packTransfer'
 import { readdirRaw, statSize } from './SftpManager'
-import { longPath, remoteJoin, sanitizeLocalName, toRemotePath } from './remotePath'
+import {
+  longPath,
+  remoteJoin,
+  sanitizeLocalName,
+  toRemotePath,
+  type RemotePath
+} from './remotePath'
 import { runTransfer, TransferAborted, type WorkerHandle } from './TransferWorker'
 import { scopedLogger } from '../utils/logger'
+
+/**
+ * 打包用的本地临时目录。放在 app.getPath('temp') 下的固定子目录，
+ * 于是启动时可以整目录清扫（见 main/index.ts）—— 没有这条，一次 4GB 打包下载
+ * 崩在中途就静默漏 4GB 的 %TEMP%。
+ */
+export function packTempDir(): string {
+  return join(app.getPath('temp'), 'ofs-pack')
+}
+
+/**
+ * 下载任务的落地名过一遍 sanitizeLocalName。
+ *
+ * 修的是一个既有 bug：`expandIfDirectory` 展开子项时用了 sanitizeLocalName，
+ * 但**顶层那一项的名字从来没过** —— 于是今天下载一个叫 `a:b` 或 `con` 的顶层文件
+ * 就已经失败（Windows 上建不出那个名字），而错误信息是一句莫名的 ENOENT/EINVAL。
+ *
+ * 放在这里而不是渲染进程：sanitizeLocalName 是 main 侧的模块，而这条 channel
+ * （transfer:enqueue）是所有下载的唯一入口，改一处就都覆盖到了。
+ */
+function sanitizeDownloadPath(p: string): string {
+  const base = basename(p)
+  const safe = sanitizeLocalName(base)
+  return safe === base ? p : join(dirname(p), safe)
+}
 
 const log = scopedLogger('queue')
 
@@ -47,7 +87,7 @@ class TransferQueue {
         id: randomUUID(),
         sessionId: item.sessionId,
         kind: item.kind,
-        localPath: item.localPath,
+        localPath: item.kind === 'download' ? sanitizeDownloadPath(item.localPath) : item.localPath,
         remotePath: toRemotePath(item.remotePath),
         size: -1,
         transferred: 0,
@@ -141,6 +181,16 @@ class TransferQueue {
       conn = sshManager.get(task.sessionId)
       sftp = await conn.acquireTransferSftp()
 
+      /*
+       * 打包传输的接入点：**排在 expandIfDirectory 之前** —— 展开正是打包要替代的那一步，
+       * 而此刻传输 SFTP 句柄已经活了（打包的 exec 就搭在同一条连接上，见 execChannel 的说明）。
+       * 判定不成立时一个字节都没发出去，原路走下面那条既有路径，一行没改。
+       */
+      if (await this.tryPackedDownload(entry, conn, sftp)) {
+        this.setState(entry, 'done')
+        return
+      }
+
       // 目录任务：展开为子任务后自身即完成
       if (await this.expandIfDirectory(entry, sftp)) {
         this.setState(entry, 'done')
@@ -176,6 +226,74 @@ class TransferQueue {
       if (sftp) conn?.releaseTransferSftp()
       this.pump()
     }
+  }
+
+  /**
+   * 打包下载：成立就整条任务在这里跑完（返回 true），不成立返回 false 让调用方走既有路径。
+   *
+   * 只对**下载目录**生效。上传方向（3c）另有一条必须先做的权限归一化，没有它不许发；
+   * 单个文件永不打包 —— 多一份远端副本、多两次 tar，省下 0 个往返。
+   *
+   * 降级一律**静默但可解释**：原因落进 task.notice，界面显示为一行弱化文字。
+   * "为什么这次没走打包"是这个功能最常被问的问题，静默且无解释会让人以为它没生效。
+   */
+  private async tryPackedDownload(
+    entry: Entry,
+    conn: SshConnection,
+    sftp: SFTPWrapper
+  ): Promise<boolean> {
+    const { task } = entry
+    if (task.kind !== 'download') return false
+    if (!getSettings().sftp.packedTransfer) return false
+
+    const remote = toRemotePath(task.remotePath)
+    const info = await statSize(sftp, remote)
+    if (!info.exists) throw new Error(`远端文件不存在：${remote}`)
+    if (!info.isDir) return false
+
+    this.setPhase(entry, 'scanning')
+    const decision = await planPackedDownload({
+      conn: conn.transferExecTarget(),
+      sessionId: task.sessionId,
+      dir: remote,
+      localPath: task.localPath,
+      conflictPolicy: getSettings().sftp.conflictPolicy
+    }).catch((err: unknown) => {
+      // 判定本身出错绝不能把传输带下去 —— 退回逐文件，把原因说出来
+      log.warn(`pack decision failed: ${err instanceof Error ? err.message : String(err)}`)
+      return { pack: false, reason: '打包判定未完成，已改用逐文件传输' } as PackDecision
+    })
+
+    if (!decision.pack) {
+      task.phase = undefined
+      task.notice = decision.reason
+      this.publish(task)
+      return false
+    }
+
+    task.packed = true
+    const run = runPackedDownload({
+      conn: conn.transferExecTarget(),
+      sftp,
+      task,
+      tmpBase: decision.tmpBase as RemotePath,
+      sizeKb: decision.sizeKb ?? 0,
+      localTmpDir: packTempDir(),
+      onProgress: (transferred) => this.reportProgress(entry, transferred),
+      onPhase: (phase, notice) => this.setPhase(entry, phase, notice)
+    })
+    entry.handle = run.handle
+    entry.attempted = true
+    await run.promise
+    task.phase = undefined
+    task.transferred = task.size >= 0 ? task.size : task.transferred
+    return true
+  }
+
+  private setPhase(entry: Entry, phase: TransferPhase, notice?: string): void {
+    entry.task.phase = phase
+    if (notice !== undefined) entry.task.notice = notice
+    this.publish(entry.task)
   }
 
   /** 目录 → 渐进式展开为文件子任务；返回 true 表示本任务是目录 */

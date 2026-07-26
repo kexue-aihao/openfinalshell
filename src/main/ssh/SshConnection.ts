@@ -10,7 +10,7 @@ import type {
   TermId
 } from '@shared/types'
 import { buildConnectConfig } from './auth'
-import { friendlySshError } from './errors'
+import { channelOpenError, friendlySshError } from './errors'
 import { checkHostkey, fingerprintSha256, parseKeyType, trustHostkey } from './hostkeys'
 import { promptBroker } from './PromptBroker'
 import { ShellSession } from './ShellSession'
@@ -390,6 +390,41 @@ export class SshConnection extends EventEmitter {
         else resolve(stream)
       })
     })
+  }
+
+  /**
+   * 一次性命令用的 exec 通道（ExecRunner.execOnce 的唯一取道；命令必须已经过 wrapShellScript）。
+   *
+   * `on` 决定它开在哪条连接上，而这个选择是有讲究的：
+   *
+   * - **`'primary'`（默认，快速删除走这条）**：浏览面板的操作本来就跑在主连接上，
+   *   一次删除不该顺手触发一次用户没预期的二次认证（高延迟链路上 1–2 秒握手，
+   *   服务器 auth log 还多一条），"我的 rm 跑在哪条连接上"也不该随传输队列是否活着而变。
+   * - **`'transfer'`（打包传输走这条）**：那时队列已经 acquireTransferSftp() 过，
+   *   第二条连接现成、开 exec 免费，而远端 tar 可能跑几分钟 —— 不该跟终端抢
+   *   主连接上那几个 session 通道，也不该给击键加延迟。
+   *
+   * 用 `'transfer'` 的前提是**调用方已经持有传输连接的引用**（队列在 start() 里
+   * acquireTransferSftp 过），所以这里不自己 acquire/release：那会让引用计数的
+   * 归属变得不清楚，而它管着"60 秒空闲就关掉第二条连接"。
+   */
+  async execChannel(command: string, on: 'primary' | 'transfer' = 'primary'): Promise<ClientChannel> {
+    if (this.state !== 'ready') throw new Error('会话未就绪')
+    const client = on === 'transfer' ? this.transferClient : this.client
+    if (!client) {
+      throw new Error(on === 'transfer' ? '传输连接未就绪' : '会话未就绪')
+    }
+    return new Promise<ClientChannel>((resolve, reject) => {
+      client.exec(command, (err, stream) => {
+        if (err) reject(new Error(channelOpenError(err)))
+        else resolve(stream)
+      })
+    })
+  }
+
+  /** 打包传输要在传输连接上开 exec —— 给它一个只认 execChannel 的窄门面 */
+  transferExecTarget(): { execChannel: (command: string) => Promise<ClientChannel> } {
+    return { execChannel: (command) => this.execChannel(command, 'transfer') }
   }
 
   // ---------------- SFTP ----------------

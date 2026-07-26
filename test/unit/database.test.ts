@@ -19,7 +19,13 @@ const LEGACY_GROUP_ID = '22222222-2222-4222-8222-222222222222'
 mkdirSync(configDir, { recursive: true })
 writeFileSync(
   join(configDir, 'settings.json'),
-  JSON.stringify({ version: 1, language: 'en-US', terminal: { fontSize: 17 } }),
+  // sftp.showHiddenFiles 显式为 false：老用户库里就是这样，用来验一次性迁移真的掀得动它
+  JSON.stringify({
+    version: 1,
+    language: 'en-US',
+    terminal: { fontSize: 17 },
+    sftp: { showHiddenFiles: false }
+  }),
   'utf8'
 )
 writeFileSync(
@@ -158,6 +164,26 @@ describe('SQLite 存储：旧 JSON 配置迁移', () => {
     expect(s.terminal.fontSize).toBe(17) // 来自旧文件
     expect(s.terminal.scrollback).toBeGreaterThan(0) // 旧文件没有 → 默认值
     expect(s.sftp.maxConcurrentGlobal).toBeGreaterThan(0)
+  })
+
+  /**
+   * 光把 DEFAULT_SETTINGS 里的 showHiddenFiles 改成 true 对老用户无效：
+   * patchSettings 每次都写整份合并结果，所以他们库里已经**显式**存着 false，
+   * 而 DocStore.data = deepMerge(defaults, stored) —— stored 赢。
+   * 所以必须真的改一次存量数据，并用 meta 标记保证只改一次
+   * （之后用户自己关掉了就不会再被掀开）。
+   */
+  it('一次性迁移把 showHiddenFiles 掀成 true，并落下标记', () => {
+    expect(settings.getSettings().sftp.showHiddenFiles).toBe(true)
+    expect(metaGet('sftp_show_hidden_default_v2')).toBeTruthy()
+
+    // 标记已在 → 再取一次不会把用户后来的选择覆盖回去
+    settings.patchSettings({
+      sftp: { ...settings.getSettings().sftp, showHiddenFiles: false }
+    })
+    expect(settings.getSettings().sftp.showHiddenFiles).toBe(false)
+    // 别把后面的用例带偏
+    settings.patchSettings({ sftp: { ...settings.getSettings().sftp, showHiddenFiles: true } })
   })
 
   it('迁移后旧文件改名为 .migrated（保留而不删，便于人工核对）', () => {
