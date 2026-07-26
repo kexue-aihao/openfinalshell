@@ -35,9 +35,37 @@ interface SessionStore {
   reconnectTab: (id: string) => Promise<void>
   renameTab: (id: string, title: string) => void
   updateTab: (id: string, patch: Partial<SessionTab>) => void
+  /** tab 拿到 sessionId：补上开连期间错过的状态事件 */
+  claimSession: (tabId: string, sessionId: SessionId) => void
   bindTerm: (tabId: string, termId: TermId) => void
   toggleSftp: (id: string) => void
   toggleMonitor: (id: string) => void
+}
+
+/**
+ * sessionId → 最近一次状态，暂存"还没有 tab 认领"的会话。
+ *
+ * session:open 要等会话 ready 才 resolve，而 connecting / authenticating / ready
+ * 这几个事件在那之前就由主进程发出去了。两者走的不是同一条路：
+ * 事件是 webContents.send，应答是 invoke 的回包，**到达顺序没有保证**。
+ *
+ * 事件先到时，tab 的 sessionId 还是 null，按 id 匹配全部落空 ——
+ * 于是 tab 永远停在 connecting：主进程明明连上了，界面一直转圈、终端也不开
+ * （TerminalPane 等的就是 ready）。这就是 v0.1.1 那个"连不上"的真身，
+ * 也解释了为什么它时好时坏：应答先到的那些时候，事件补上来反而正常了。
+ *
+ * 所以这里存下来等认领，而不是"resolve 了就当 ready" —— 两种顺序都要兜住。
+ */
+const unclaimedState = new Map<SessionId, { state: SessionState; error?: string }>()
+/** session:open 失败的会话没人会来认领，留个上限免得这张表无限长 */
+const UNCLAIMED_MAX = 32
+
+function rememberUnclaimed(sessionId: SessionId, state: SessionState, error?: string): void {
+  unclaimedState.set(sessionId, { state, error })
+  for (const key of unclaimedState.keys()) {
+    if (unclaimedState.size <= UNCLAIMED_MAX) break
+    unclaimedState.delete(key)
+  }
 }
 
 /** 同名 tab 追加 (2)(3)… 便于区分复制出的会话 */
@@ -86,7 +114,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tabId }))
     try {
       const { sessionId } = await ofs.invoke('session:open', profile.id)
-      get().updateTab(tabId, { sessionId })
+      get().claimSession(tabId, sessionId)
     } catch (err) {
       get().updateTab(tabId, {
         state: 'closed',
@@ -136,7 +164,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         await ofs.invoke('session:reconnect', tab.sessionId)
       } else {
         const { sessionId } = await ofs.invoke('session:open', tab.profileId)
-        get().updateTab(id, { sessionId })
+        get().claimSession(id, sessionId)
       }
     } catch (err) {
       get().updateTab(id, {
@@ -150,6 +178,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   updateTab: (id, patch) =>
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, ...patch } : t)) })),
+
+  claimSession: (tabId, sessionId) => {
+    const pending = unclaimedState.get(sessionId)
+    unclaimedState.delete(sessionId)
+    // session:open 只在成功后 resolve，所以至少已经 ready 过；
+    // 但开连到 resolve 之间可能又掉线了，那就用真实的最新状态，不能一律硬写 ready
+    const state = pending?.state ?? 'ready'
+    get().updateTab(tabId, {
+      sessionId,
+      state,
+      error: pending?.error,
+      ...(state === 'ready' ? { everReady: true } : {})
+    })
+  },
 
   bindTerm: (tabId, termId) => get().updateTab(tabId, { termId }),
 
@@ -171,8 +213,10 @@ export function wireSessionEvents(): void {
 
   ofs.on('session:state', ({ sessionId, state, error }) => {
     const { tabs, updateTab } = useSessionStore.getState()
+    let claimed = false
     for (const tab of tabs) {
       if (tab.sessionId !== sessionId) continue
+      claimed = true
       updateTab(tab.id, { state, error })
       if (state !== 'ready') continue
       // 注意 tab 是本次更新前的快照：everReady 为假即首次连上，不算"恢复"
@@ -183,6 +227,8 @@ export function wireSessionEvents(): void {
         updateTab(tab.id, { everReady: true })
       }
     }
+    // 还没有 tab 认领这个 sessionId（session:open 尚未 resolve）→ 存下来等认领
+    if (!claimed) rememberUnclaimed(sessionId, state, error)
   })
 
   ofs.on('term:exit', ({ termId, reason }) => {

@@ -7,6 +7,8 @@ export default defineConfig({
       '@shared': resolve(__dirname, 'src/shared'),
       '@': resolve(__dirname, 'src/renderer/src'),
       // main 进程模块在测试环境下用 electron 桩（safeStorage/app.getPath 等）
+      // 顺序要紧：更具体的 'electron-log/main' 必须排在 'electron' 前面
+      'electron-log/main': resolve(__dirname, 'test/stubs/electronLog.ts'),
       electron: resolve(__dirname, 'test/stubs/electron.ts')
     }
   },

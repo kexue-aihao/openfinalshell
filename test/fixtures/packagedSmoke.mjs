@@ -277,9 +277,10 @@ async function main() {
     openBtn.click()
     await new Promise((r) => setTimeout(r, 1000))
 
-    for (const [id, value] of [['name', 'form-smoke'], ['host', '203.0.113.9'],
-                               ['port', '2222'], ['username', 'formuser'],
-                               ['password', 'form-pw']]) {
+    // 填的是能真连上的 fixture 服务器：这条连接接着要被双击用来验证界面能不能连上
+    for (const [id, value] of [['name', 'form-smoke'], ['host', '127.0.0.1'],
+                               ['port', '${sshPort}'], ['username', 'test'],
+                               ['password', 'test123']]) {
       const el = document.getElementById(id)
       if (!el) return { error: '表单里找不到字段 ' + id }
       setInput(el, value)
@@ -295,7 +296,7 @@ async function main() {
     const toasts = [...document.querySelectorAll('.ant-message-notice-content')].map((e) => e.innerText.trim())
     const { profiles } = await window.ofs.invoke('conn:list')
     const saved = profiles.find((p) => p.name === 'form-smoke')
-    if (saved) await window.ofs.invoke('conn:delete', saved.id)
+    // 先不删：下一步要在树里双击它，验证界面真的能连上
     return {
       toasts,
       drawerStillOpen: Boolean(document.querySelector('.ant-drawer-open')),
@@ -327,6 +328,80 @@ async function main() {
   console.log(
     `OK 表单保存连接（未展开折叠面板）：charset=${s.charset} termType=${s.termType} ` +
       `keepalive=${s.keepaliveInterval} timeout=${s.readyTimeout}`
+  )
+
+  // 8.5) 在连接树里双击 —— 用户真正的连接姿势，确认界面真的能连上
+  //    此前所有连接用例都直接调 IPC 看 session:state，那只证明**主进程**连上了；
+  //    v0.1.1 就是这样发出去的：IPC 层全绿，而界面一直停在"正在连接"。
+  //
+  //    说明白这一步的边界：它只能保证"界面能连上"，**不是**那个竞态的护栏。
+  //    根因是 session:state 事件（webContents.send）与 session:open 应答（invoke 回包）
+  //    到达顺序没有保证，事件先到时渲染层按 sessionId 匹配落空。顺序无法在这里强制 ——
+  //    实测同一个有 bug 的构建，这里能过、单独起一个实例就复现。
+  //    竞态本身由 test/renderer/sessionStore.test.ts 钉住（那里能精确编排顺序）。
+  //    autoReconnect 必须关掉：开着的话首连卡住后会掉线重连，重连的 ready 事件
+  //    在 tab 已知 sessionId 之后到达，会把卡住的状态"修好"，这条判定就形同虚设
+  //    （第一版就是这样在有 bug 的构建上照样通过的）。
+  //    连接经 IPC 建好后 reload 一次窗口，让连接树从库里重新读 —— 之后才是纯界面操作。
+  await evaluate(`
+    await window.ofs.invoke('conn:save', {
+      name: 'ui-smoke', groupId: null, host: '127.0.0.1', port: ${sshPort}, username: 'test',
+      auth: { method: 'password', password: 'test123' },
+      terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      options: { keepaliveInterval: 15000, readyTimeout: 10000, legacyAlgorithms: false,
+                 autoReconnect: false, monitorEnabled: false, compress: false }
+    })
+    return true
+  `)
+  await evaluate('location.reload(); return true').catch(() => {})
+  await sleep(4000)
+
+  const uiConnect = await evaluate(`
+    // 判定要盯**直接反映 tab.state 的东西**：标签上的状态点 class 由 tab.state 决定
+    // （dotReady / dotConnecting / dotClosed），CSS Modules 加了哈希后缀，故用包含匹配。
+    //
+    // 别拿"有没有 xterm 节点"当判据 —— TerminalPane 一挂载就建 xterm，
+    // 连不上时它照样在，只是浮层盖在上面（这个坑踩过）。
+    const ready = () => document.querySelectorAll('[class*=dotReady]').length
+    const spinner = () => [...document.querySelectorAll('*')].some(
+      (e) => e.children.length === 0 && /正在连接/.test(e.textContent || '')
+    )
+    if (typeof window.ofs !== 'object') return { error: 'reload 后 preload 桥没回来' }
+    const before = ready()
+
+    const title = [...document.querySelectorAll('.ant-tree-title')].find((n) =>
+      n.textContent.includes('ui-smoke')
+    )
+    if (!title) return { error: 'reload 后连接树里找不到 ui-smoke' }
+    // onDoubleClick 挂在 .ant-tree-title 里层的 span 上：事件只往上冒泡，
+    // 派发到 .ant-tree-title 上 React 收不到
+    const node = title.querySelector('span') || title
+    node.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, view: window }))
+
+    let sawSpinner = false
+    for (let i = 0; i < 60; i++) {
+      if (spinner()) sawSpinner = true
+      if (ready() > before) break
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    return {
+      就绪标签: ready() - before,
+      浮层还在: spinner(),
+      曾出现浮层: sawSpinner,
+      终端节点: document.querySelectorAll('.xterm-screen').length
+    }
+  `)
+  if (uiConnect.error) fail(uiConnect.error)
+  if (uiConnect.就绪标签 < 1) {
+    fail(
+      '双击连接后标签始终没变成"已连接"' +
+        (uiConnect.终端节点 > 0 ? '（终端容器建了，但会话没 ready）' : '') +
+        ' —— 主进程大概已连上而渲染层没收到 ready（session:state 按 sessionId 匹配落空）'
+    )
+  }
+  if (uiConnect.浮层还在) fail('会话已就绪，"正在连接"浮层却还在')
+  console.log(
+    `OK 界面双击连接：标签变为已连接，"正在连接"浮层${uiConnect.曾出现浮层 ? '出现过并已消失' : '未出现'}`
   )
 
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
@@ -404,6 +479,11 @@ async function main() {
     await window.ofs.invoke('monitor:stop', '${session.sessionId}')
     await window.ofs.invoke('session:close', '${session.sessionId}')
     await window.ofs.invoke('conn:delete', '${profile.id}')
+    // 表单建的那条留到最后删（前面双击连接要用它）
+    const { profiles } = await window.ofs.invoke('conn:list')
+    for (const p of profiles.filter((x) => x.name === 'form-smoke' || x.name === 'ui-smoke')) {
+      await window.ofs.invoke('conn:delete', p.id)
+    }
     return true
   `)
   console.log('OK cleanup done')
