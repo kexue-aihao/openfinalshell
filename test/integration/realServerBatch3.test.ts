@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
-import type { ProfileDraft, TransferTask } from '@shared/types'
+import type { MonitorSnapshot, ProfileDraft, TransferTask } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
@@ -33,6 +33,7 @@ import { createRemoteEditManager } from '../../src/main/sftp/RemoteEditManager'
 import { fastDelete, fastDeletePreview } from '../../src/main/sftp/fastDelete'
 import { buildProbeScript, parseRemoteProbe } from '../../src/main/sftp/packTransfer'
 import { transferQueue } from '../../src/main/sftp/TransferQueue'
+import { monitorManager } from '../../src/main/monitor/MonitorManager'
 import { toRemotePath } from '../../src/main/sftp/remotePath'
 
 const HOST = process.env.OFS_TEST_HOST
@@ -425,6 +426,69 @@ suite('打包下载', () => {
       list.filter((l) => !l.endsWith('./link-to-f1')).sort()
     expect(onlyBoth(perFile)).toEqual(onlyBoth(packed))
   }, 600_000)
+})
+
+// ---------------------------------------------------------------------------
+// 监控的连接数：与 ss -s 独立对照
+// ---------------------------------------------------------------------------
+
+suite('监控连接数', () => {
+  /**
+   * 与 `ss -s` 对照。**不能拿 `cat /proc/net/sockstat` 来对**——那正是我们自己的数据源，
+   * 对上了只证明 cat 没坏。`ss` 走 netlink 自己数，是独立读数。
+   *
+   * 只比同量级：`ss -s` 的 "TCP: N" 与 sockstat 的 inuse 统计口径本就不同
+   * （前者含更多状态），而且两次采样之间连接数本来就在变。
+   */
+  it('conns 每帧都有，tcpStates 只在低频 tick 出现，且与 ss -s 同量级', async () => {
+    const snapshots: MonitorSnapshot[] = []
+    const info = await monitorManager.start(sessionId, 1000)
+    expect(info).not.toBeNull()
+
+    await waitFor(
+      () => eventsOf('monitor:data').filter((e) => e.sessionId === sessionId).length >= 14,
+      90_000,
+      '攒够 14 帧（低频 tick 每 5 帧一次）'
+    )
+    for (const e of eventsOf('monitor:data')) {
+      if (e.sessionId === sessionId) snapshots.push(e.snapshot)
+    }
+    monitorManager.stop(sessionId)
+
+    // 每一帧都该有 conns（读 /proc/net/sockstat 是 O(1)，所以每 tick 都采）
+    const withConns = snapshots.filter((s) => s.conns !== null)
+    observed['monitor.frames'] = String(snapshots.length)
+    observed['monitor.framesWithConns'] = String(withConns.length)
+    expect(withConns.length).toBe(snapshots.length)
+
+    const last = withConns.at(-1)?.conns
+    expect(last).toBeTruthy()
+    observed['monitor.tcpInuse'] = String(last?.tcpInuse)
+    observed['monitor.tcpTw'] = String(last?.tcpTw)
+    observed['monitor.udpInuse'] = String(last?.udpInuse)
+    observed['monitor.socketsUsed'] = String(last?.socketsUsed)
+
+    // tcpStates 只在低频 tick 出现，但至少要出现过一次
+    const withStates = snapshots.filter((s) => s.tcpStates !== undefined)
+    observed['monitor.framesWithTcpStates'] = `${withStates.length}/${snapshots.length}`
+    expect(withStates.length).toBeGreaterThan(0)
+    expect(withStates.length).toBeLessThan(snapshots.length)
+    observed['monitor.tcpStates'] = JSON.stringify(withStates.at(-1)?.tcpStates ?? {})
+
+    // 独立读数
+    const ss = await sh(`ss -s 2>/dev/null || echo "(no ss)"`)
+    observed['ss -s'] = ss.split('\n').slice(0, 3).join(' | ')
+    const m = /TCP:\s+(\d+)/.exec(ss)
+    if (m) {
+      const ssTcp = Number(m[1])
+      observed['monitor.vs.ss'] = `sockstat inuse=${last?.tcpInuse} / ss TCP=${ssTcp}`
+      // 同量级：两边都在 1..10000 这个范围内，且不差两个数量级
+      expect(ssTcp).toBeGreaterThan(0)
+      expect((last as { tcpInuse: number }).tcpInuse).toBeGreaterThan(0)
+      const ratio = Math.max(ssTcp, last!.tcpInuse) / Math.min(ssTcp, last!.tcpInuse)
+      expect(ratio).toBeLessThan(100)
+    }
+  }, 180_000)
 })
 
 // ---------------------------------------------------------------------------
