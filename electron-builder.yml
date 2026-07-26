@@ -20,11 +20,11 @@ asarUnpack:
 npmRebuild: true
 
 win:
-  target:
-    - target: nsis
-      arch: [x64, ia32]
-    - target: portable
-      arch: [x64, ia32]
+  # 刻意不写 arch：由命令行 --x64 / --ia32 决定（不给则只出宿主架构）。
+  # 一旦在这里写死 arch: [x64, ia32]，命令行标志对安装包目标就会被忽略 ——
+  # 每次调用都把两个架构、外加一个双架构合体包全建一遍（实测单个 job 产出 732MB、耗时翻倍）。
+  # 注意 `--dir` 验证不出这个问题：它只跑打包、不跑安装包目标。
+  target: [nsis, portable]
   # 只提供 512×512 PNG，electron-builder 自动转 ICO
   icon: build/icon.png
   artifactName: ${productName}-${version}-${arch}.${ext}

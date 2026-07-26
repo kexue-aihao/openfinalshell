@@ -33,8 +33,14 @@ export function handle<K extends keyof InvokeMap>(
     if (schema) {
       const parsed = schema.safeParse(args)
       if (!parsed.success) {
+        // 带上出错字段的路径与规则名，只说"校验失败"排查起来毫无线索。
+        // 但绝不回显收到的值 —— args 里可能有明文密码。
+        const where = parsed.error.issues
+          .slice(0, 4)
+          .map((i) => `${i.path.slice(1).join('.') || '(根)'}=${i.code}`)
+          .join('; ')
         log.warn(`invalid args for ${channel}: ${parsed.error.message}`)
-        throw new Error(`参数校验失败: ${channel}`)
+        throw new Error(`参数校验失败 ${channel} → ${where}`)
       }
     }
     return fn(...(args as InvokeMap[K]['args']))

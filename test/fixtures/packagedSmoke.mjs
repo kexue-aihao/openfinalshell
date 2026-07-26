@@ -10,6 +10,7 @@
  */
 import { spawn } from 'node:child_process'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 
 const exePath = process.argv[2] ?? join(process.cwd(), 'release', 'win-unpacked', 'OpenFinalShell.exe')
 const sshPort = Number(process.argv[3] ?? 2270)
@@ -70,7 +71,12 @@ async function evaluate(expression) {
 
 async function main() {
   console.log(`launching ${exePath} (cdp ${cdpPort})`)
-  app = spawn(exePath, [`--remote-debugging-port=${cdpPort}`], { stdio: ['ignore', 'pipe', 'pipe'] })
+  // 独立 user-data-dir：① 单实例锁按 userData 路径算，这样能与正在使用的实例并存；
+  // ② 不再往真实连接列表里塞 packaged-smoke 条目（跑挂时会留下残留）
+  const dataDir = join(tmpdir(), `ofs-smoke-${process.pid}`)
+  app = spawn(exePath, [`--remote-debugging-port=${cdpPort}`, `--user-data-dir=${dataDir}`], {
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
   app.stderr.on('data', (d) => {
     const text = d.toString()
     if (/error|fail/i.test(text)) console.log(`[app stderr] ${text.trim().slice(0, 300)}`)
@@ -254,7 +260,76 @@ async function main() {
     console.log(`OK 无元素落入原生窗口按钮区 (x ${c.left}–${c.right}, y 0–${c.bottom})`)
   }
 
-  // 8) 清理
+  // 8) 走一遍真实表单保存连接
+  //    此前所有用例都是直接调 conn:save 传一份手写的完整草稿，绕过了表单 ——
+  //    于是"折叠面板没展开时表单少传字段、被主进程 zod 拒收"这种 bug 一路漏到了用户手上。
+  //    这里刻意只填可见字段、不展开任何折叠面板，就是用户的真实操作路径。
+  const formSave = await evaluate(`
+    const setInput = (el, value) => {
+      const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value)
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    const openBtn = [...document.querySelectorAll('button[title]')].find(
+      (b) => b.title === '新建连接' && b.className.includes('ant-btn')
+    )
+    if (!openBtn) return { error: '没找到新建连接按钮' }
+    openBtn.click()
+    await new Promise((r) => setTimeout(r, 1000))
+
+    for (const [id, value] of [['name', 'form-smoke'], ['host', '203.0.113.9'],
+                               ['port', '2222'], ['username', 'formuser'],
+                               ['password', 'form-pw']]) {
+      const el = document.getElementById(id)
+      if (!el) return { error: '表单里找不到字段 ' + id }
+      setInput(el, value)
+    }
+    await new Promise((r) => setTimeout(r, 300))
+
+    const save = [...document.querySelectorAll('.ant-drawer-header button')].find(
+      (b) => b.textContent.replace(/\\s/g, '') === '保存'
+    )
+    save.click()
+    await new Promise((r) => setTimeout(r, 2000))
+
+    const toasts = [...document.querySelectorAll('.ant-message-notice-content')].map((e) => e.innerText.trim())
+    const { profiles } = await window.ofs.invoke('conn:list')
+    const saved = profiles.find((p) => p.name === 'form-smoke')
+    if (saved) await window.ofs.invoke('conn:delete', saved.id)
+    return {
+      toasts,
+      drawerStillOpen: Boolean(document.querySelector('.ant-drawer-open')),
+      saved: saved
+        ? {
+            host: saved.host, port: saved.port, username: saved.username,
+            charset: saved.terminal.charset, termType: saved.terminal.termType,
+            keepaliveInterval: saved.options.keepaliveInterval,
+            readyTimeout: saved.options.readyTimeout,
+            hasRef: Boolean(saved.auth.passwordRef),
+            leaked: JSON.stringify(saved).includes('form-pw'),
+            proxy: saved.proxy ?? null
+          }
+        : null
+    }
+  `)
+  if (formSave.error) fail(formSave.error)
+  const bad = formSave.toasts.filter((t) => /失败|Error|error/.test(t))
+  if (bad.length > 0) fail(`表单保存报错：${bad.join(' | ')}`)
+  if (!formSave.saved) fail('表单保存后 conn:list 里找不到该连接')
+  // 折叠面板里的字段必须带着默认值一起提交，而不是 undefined
+  const s = formSave.saved
+  if (!s.charset || !s.termType || !s.keepaliveInterval || !s.readyTimeout) {
+    fail(`折叠面板内的字段未随表单提交：${JSON.stringify(s)}`)
+  }
+  if (!s.hasRef || s.leaked) fail('表单保存的凭据未走 Vault 引用')
+  if (s.proxy) fail(`未配置代理却写入了 proxy：${JSON.stringify(s.proxy)}`)
+  if (formSave.drawerStillOpen) fail('保存成功后抽屉未关闭')
+  console.log(
+    `OK 表单保存连接（未展开折叠面板）：charset=${s.charset} termType=${s.termType} ` +
+      `keepalive=${s.keepaliveInterval} timeout=${s.readyTimeout}`
+  )
+
+  // 9) 清理
   await evaluate(`
     await window.ofs.invoke('monitor:stop', '${session.sessionId}')
     await window.ofs.invoke('session:close', '${session.sessionId}')

@@ -92,9 +92,25 @@ jobs:
       - name: electron-builder (${{ matrix.arch }})
         run: npx electron-builder --win --${{ matrix.arch }} --publish never
 
-      - name: 列出产物
+      # 每个 job 只该出本架构的 2 个 exe（安装版 + 免安装）。
+      # 多出来通常意味着 electron-builder.yml 里又给 win.target 写死了 arch ——
+      # 那样命令行的架构标志会被忽略，两个架构外加合体包全建一遍。
+      - name: 断言产物只有本架构的两个 exe
         shell: bash
-        run: ls -lh release/*.exe
+        run: |
+          files=$(cd release && ls *.exe | sort)
+          echo "$files"
+          count=$(echo "$files" | grep -c . || true)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::期望 2 个 exe，实际 $count 个"
+            exit 1
+          fi
+          for f in $files; do
+            case "$f" in
+              *-${{ matrix.arch }}.exe) ;;
+              *) echo "::error::产物 $f 不属于架构 ${{ matrix.arch }}"; exit 1 ;;
+            esac
+          done
 
       - uses: actions/upload-artifact@v4
         with:

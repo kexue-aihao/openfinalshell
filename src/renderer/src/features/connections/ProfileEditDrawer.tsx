@@ -109,7 +109,12 @@ export function ProfileEditDrawer(): React.JSX.Element {
   }
 
   const submit = async (): Promise<void> => {
-    const v = await form.validateFields()
+    await form.validateFields()
+    // 必须取整个 store，不能用 validateFields() 的返回值：
+    // 后者只含"已挂载"的字段，而折叠面板（高级选项 / 代理）没被展开过时里面的
+    // Form.Item 根本没挂载 —— 取到的全是 undefined，主进程 zod 直接拒收。
+    // initialValues / setFieldsValue 写入的值在 store 里始终存在，与挂载状态无关。
+    const v = form.getFieldsValue(true) as FormValues
     setSaving(true)
     try {
       const draft: ProfileDraft = {
