@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Empty, Tooltip } from 'antd'
+import { Button, Empty } from 'antd'
 import { ChevronDown, ChevronRight, RefreshCw, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { MonitorSnapshot } from '@shared/types'
@@ -7,6 +7,7 @@ import { historyOf, useMonitorStore } from '@/stores/useMonitorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import { EChart } from '@/components/EChart'
+import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { formatBytes, formatDuration } from '@/utils/format'
 import { areaOption, dualLineOption } from './charts'
 import styles from './MonitorPanel.module.css'
@@ -70,14 +71,14 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
       <span>{t('monitor.title')}</span>
       <span style={{ display: 'flex', gap: 2 }}>
         {state === 'failed' && (
-          <Tooltip title={t('common.retry')}>
+          <TitlebarSafeTooltip title={t('common.retry')}>
             <Button
               size="small"
               type="text"
               icon={<RefreshCw size={13} strokeWidth={1.75} />}
               onClick={() => sessionId && void start(sessionId, settings.monitor.intervalMs)}
             />
-          </Tooltip>
+          </TitlebarSafeTooltip>
         )}
         <Button size="small" type="text" icon={<X size={13} strokeWidth={1.75} />} onClick={onClose} />
       </span>

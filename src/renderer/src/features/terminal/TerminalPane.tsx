@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { App as AntdApp, Button, Dropdown, Spin, Tooltip } from 'antd'
+import { App as AntdApp, Button, Dropdown, Spin } from 'antd'
 import { Activity, Eraser, FolderTree, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
+import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { createTerminal, type TerminalBundle } from './createTerminal'
 import { registerTerm, unregisterTerm } from './termRegistry'
 import { SearchOverlay } from './SearchOverlay'
@@ -242,39 +243,39 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
 
       {active && !connecting && !closed && (
         <div className={styles.hoverTools}>
-          <Tooltip title={tab.sftpOpen ? t('terminal.closeSftp') : t('terminal.openSftp')}>
+          <TitlebarSafeTooltip title={tab.sftpOpen ? t('terminal.closeSftp') : t('terminal.openSftp')}>
             <Button
               size="small"
               type={tab.sftpOpen ? 'primary' : 'text'}
               icon={<FolderTree size={14} strokeWidth={1.75} />}
               onClick={() => toggleSftp(tab.id)}
             />
-          </Tooltip>
-          <Tooltip title={tab.monitorOpen ? t('terminal.closeMonitor') : t('terminal.openMonitor')}>
+          </TitlebarSafeTooltip>
+          <TitlebarSafeTooltip title={tab.monitorOpen ? t('terminal.closeMonitor') : t('terminal.openMonitor')}>
             <Button
               size="small"
               type={tab.monitorOpen ? 'primary' : 'text'}
               icon={<Activity size={14} strokeWidth={1.75} />}
               onClick={() => toggleMonitor(tab.id)}
             />
-          </Tooltip>
-          <Tooltip title={t('terminal.search')}>
+          </TitlebarSafeTooltip>
+          <TitlebarSafeTooltip title={t('terminal.search')}>
             <Button
               size="small"
               type="text"
               icon={<Search size={14} strokeWidth={1.75} />}
               onClick={() => setSearchOpen(true)}
             />
-          </Tooltip>
-          <Tooltip title={t('terminal.clear')}>
+          </TitlebarSafeTooltip>
+          <TitlebarSafeTooltip title={t('terminal.clear')}>
             <Button
               size="small"
               type="text"
               icon={<Eraser size={14} strokeWidth={1.75} />}
               onClick={() => bundleRef.current?.term.clear()}
             />
-          </Tooltip>
-          <Tooltip title={t('terminal.disconnect')}>
+          </TitlebarSafeTooltip>
+          <TitlebarSafeTooltip title={t('terminal.disconnect')}>
             <Button
               size="small"
               type="text"
@@ -282,7 +283,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               icon={<Unplug size={14} strokeWidth={1.75} />}
               onClick={() => void closeTab(tab.id)}
             />
-          </Tooltip>
+          </TitlebarSafeTooltip>
         </div>
       )}
 

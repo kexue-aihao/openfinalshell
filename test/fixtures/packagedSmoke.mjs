@@ -250,8 +250,18 @@ async function main() {
     return { controls, hits, checkedDrawer }
   `)
   if (overlay.skipped) {
+    // 在 Windows 上拿不到矩形，等于这条检查静默空过 —— 宁可红，不要假绿
+    if (process.platform === 'win32') fail('Windows 上却拿不到 windowControlsOverlay 矩形，遮挡检查会空过')
     console.log('SKIP window controls overlay 不可用（非 Windows？）')
   } else {
+    // 退化矩形（按钮区宽 0）会让下面的相交判断永远为假，检查从此永久假绿
+    const w = overlay.controls.right - overlay.controls.left
+    if (w < 60 || overlay.controls.bottom < 24) {
+      fail(
+        `原生按钮区矩形不可信：x ${overlay.controls.left}–${overlay.controls.right}（宽 ${w}）` +
+          ` y 0–${overlay.controls.bottom}`
+      )
+    }
     if (!overlay.checkedDrawer) fail('没能打开连接编辑抽屉，遮挡检查没覆盖到它')
     if (overlay.hits.length > 0) {
       fail(`有 ${overlay.hits.length} 个可交互元素被原生窗口按钮遮挡：\n  ${overlay.hits.join('\n  ')}`)
@@ -404,6 +414,200 @@ async function main() {
     `OK 界面双击连接：标签变为已连接，"正在连接"浮层${uiConnect.曾出现浮层 ? '出现过并已消失' : '未出现'}`
   )
 
+  // 8.6) 顶部悬浮工具条的 tooltip 会不会被原生窗口按钮切掉
+  //    step 7 扫的是"元素自己的矩形"，扫不到 tooltip，两个独立原因：① 它从不 hover，而 antd 的
+  //    气泡是 hover 才挂到 body 的 portal，扫描那一刻 DOM 里没有它；② 就算挂着，气泡是
+  //    div.ant-tooltip-inner，不在 step 7 的选择器名单里。于是"工具条贴在标题栏下方 +
+  //    Tooltip 默认 placement=top"把气泡送进了原生按钮区 —— 用户看到的「打开文件管理」只剩「打开」。
+  //
+  //    这一步只覆盖终端悬浮工具条与查找条。监控面板头部的重试按钮同样在危险区，
+  //    但它只在采集失败时才出现，冒烟里造不稳定，故不纳入 —— 不假装覆盖了。
+  const tipEnv = await evaluate(`
+    const wco = navigator.windowControlsOverlay
+    if (!wco || !wco.visible) return { skipped: true }
+    const bar = wco.getTitlebarAreaRect()
+    // 原生按钮区 = 标题栏整条 减去 可用标题栏区。Windows 在右、macOS 在左，都不硬编码尺寸
+    const controls =
+      bar.x > 0
+        ? { left: 0, right: Math.round(bar.x), bottom: Math.round(bar.height) }
+        : { left: Math.round(bar.x + bar.width), right: window.innerWidth, bottom: Math.round(bar.height) }
+
+    const clean = (s) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim()
+    const api = { controls }
+    window.__ofsTip = api
+
+    // 只认"可见"气泡：rc-tooltip 是 removeOnLeave:false，关掉的气泡会留在 DOM 里带 -hidden 类，
+    // 量到那种全零矩形永远不相交 —— 正是这条检查最容易被静默架空的地方
+    api.visibleTips = () =>
+      [...document.querySelectorAll('.ant-tooltip')].filter(
+        (n) => !String(n.className).includes('-hidden') && n.getBoundingClientRect().width > 1
+      )
+
+    api.triggers = (kind) => {
+      let root = null
+      if (kind === 'hoverTools') root = document.querySelector('[class*=hoverTools]')
+      // 查找条与"正在连接/已断开"浮层的 CSS Module 类名都叫 overlay，靠"里面有 input"区分
+      else root = [...document.querySelectorAll('[class*=overlay]')].find((n) => n.querySelector('input'))
+      if (!root) return null
+      return [...root.querySelectorAll('button')].map((el) => {
+        const r = el.getBoundingClientRect()
+        return {
+          cx: Math.round(r.left + r.width / 2),
+          cy: Math.round(r.top + r.height / 2),
+          // rc-tooltip 把这个 id 同时放在触发器的 aria-describedby 与气泡的 .ant-tooltip-inner 上，
+          // 是精确的一对一。不靠"当前可见的第一个气泡" —— 上一颗还在淡出时会被认成这一颗，
+          // 实测就是这样量出了两次「打开文件管理」
+          id: el.getAttribute('aria-describedby') || ''
+        }
+      })
+    }
+
+    // React 18 的 id 形如 ":r7:"，只能 getElementById（querySelector('#:r7:') 会抛）
+    api.tipOf = (id) => (id ? document.getElementById(id) : null)
+
+    api.measure = async (id) => {
+      for (let i = 0; i < 32; i++) {
+        await new Promise((r) => setTimeout(r, 25))
+        const inner = api.tipOf(id)
+        if (!inner) continue
+        const root = inner.closest('.ant-tooltip') || inner
+        // 关掉的气泡留在 DOM 里（removeOnLeave:false + -hidden），量它永远不相交
+        if (String(root.className).includes('-hidden')) continue
+        const r = inner.getBoundingClientRect()
+        // 对齐算完之前 rc-trigger 把气泡摆在 left:-1000vw，那一帧量到的是天外飞仙
+        if (r.width < 1 || r.left < -500) continue
+        const c = api.controls
+        const ox = Math.min(r.right, c.right) - Math.max(r.left, c.left)
+        const oy = Math.min(r.bottom, c.bottom) - Math.max(r.top, 0)
+        return {
+          text: clean(inner.textContent).slice(0, 30),
+          placement: (String(root.className).match(/placement-([A-Za-z]+)/) || ['', '?'])[1],
+          rect: {
+            top: Math.round(r.top),
+            left: Math.round(r.left),
+            right: Math.round(r.right),
+            bottom: Math.round(r.bottom)
+          },
+          covered: ox > 0 && oy > 0 ? Math.round(ox) : 0
+        }
+      }
+      return null
+    }
+
+    /** 等这一颗气泡谢幕；返回此刻仍可见的气泡数（一直攒着说明取消 hover 没生效） */
+    api.waitGone = async (id) => {
+      for (let i = 0; i < 40; i++) {
+        const inner = api.tipOf(id)
+        const root = inner && (inner.closest('.ant-tooltip') || inner)
+        if (!inner || String(root.className).includes('-hidden') || inner.getBoundingClientRect().width < 1) break
+        await new Promise((r) => setTimeout(r, 25))
+      }
+      return api.visibleTips().length
+    }
+
+    // 停车点：hover 完把鼠标移到这里。落在终端里，既没有 tooltip 触发器，
+    // 又能让 .pane:hover 保持成立（工具条不会闪回 opacity:0）
+    const screen = document.querySelector('.xterm-screen')
+    api.park = screen
+      ? (() => {
+          const r = screen.getBoundingClientRect()
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height * 0.7) }
+        })()
+      : null
+    return { controls, park: api.park, innerWidth: window.innerWidth }
+  `)
+
+  if (tipEnv.skipped) {
+    // 在 Windows 上拿不到矩形，等于这条检查静默空过 —— 宁可红，不要假绿
+    if (process.platform === 'win32') fail('Windows 上却拿不到 windowControlsOverlay 矩形，tooltip 遮挡检查会空过')
+    console.log('SKIP tooltip 遮挡检查（windowControlsOverlay 不可用，非 Windows？）')
+  } else {
+    const cr = tipEnv.controls
+    const crW = cr.right - cr.left
+    // 退化矩形（宽 0）会让"相交"永远为假，检查从此永久假绿 —— 必须当场报错
+    if (crW < 60 || cr.bottom < 24) {
+      fail(`原生按钮区矩形不可信：x ${cr.left}–${cr.right}（宽 ${crW}）y 0–${cr.bottom}，innerWidth=${tipEnv.innerWidth}`)
+    }
+    if (!tipEnv.park) fail('找不到 .xterm-screen 作停车点，无法在候选之间取消 hover')
+
+    // 用 CDP 注入真实鼠标移动，而不是 dispatchEvent(new MouseEvent('mouseover'))：
+    // 真实注入会走 Chromium 的命中测试与 :hover —— .hoverTools 平时是 opacity:0 靠
+    // .pane:hover 显形，被浮层压住的按钮也本该 hover 不到。合成事件会"hover"到用户
+    // 其实点不到的元素，把结论做假。
+    const moveTo = (x, y) =>
+      send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0, clickCount: 0 })
+
+    const sweepTips = async (label, kind, expected) => {
+      const pts = await evaluate(`return window.__ofsTip.triggers(${JSON.stringify(kind)})`)
+      if (!pts || pts.length === 0) fail(`${label}：找不到工具条容器或里面没有按钮 —— 这一轮在空转`)
+      const measured = []
+      let leftover = 0
+      for (const p of pts) {
+        if (!p.id) continue // 没挂 Tooltip 的按钮（如查找条的关闭）直接跳过，不白等
+        await moveTo(p.cx, p.cy)
+        const m = await evaluate(`return await window.__ofsTip.measure(${JSON.stringify(p.id)})`)
+        if (m) measured.push(m)
+        await moveTo(tipEnv.park.x, tipEnv.park.y)
+        leftover = Math.max(leftover, await evaluate(`return await window.__ofsTip.waitGone(${JSON.stringify(p.id)})`))
+      }
+      if (measured.length === 0) fail(`${label}：一个 tooltip 都没量到（候选 ${pts.length} 个）—— 这一轮在空转`)
+      if (leftover > 1) fail(`${label}：气泡在累积（同时可见 ${leftover} 颗）—— 取消 hover 没生效，量到的可能是上一颗`)
+      // 反空转：预期的气泡必须真的量到过。否则"什么都没测到"会伪装成"没问题"
+      const texts = measured.map((m) => m.text)
+      const missing = expected.filter((e) => !texts.includes(e))
+      if (missing.length > 0) {
+        fail(
+          `${label}：没量到 tooltip「${missing.join('」「')}」（实际量到：${texts.join(' / ') || '一个都没有'}）` +
+            ' —— hover 没生效或按钮被压住，这一轮的结论不可信'
+        )
+      }
+      const hits = measured.filter((m) => m.covered > 0)
+      if (hits.length > 0) {
+        fail(
+          `${label}：${hits.length} 个 tooltip 落进原生窗口按钮区：\n  ` +
+            hits
+              .map(
+                (h) =>
+                  `「${h.text}」placement=${h.placement} 气泡 x ${h.rect.left}–${h.rect.right} ` +
+                  `y ${h.rect.top}–${h.rect.bottom}，右侧 ${h.covered}px 被系统按钮压住`
+              )
+              .join('\n  ')
+        )
+      }
+      return measured.length
+    }
+
+    const n1 = await sweepTips('终端悬浮工具条', 'hoverTools', [
+      '打开文件管理',
+      '打开服务器监控',
+      '查找',
+      '清屏',
+      '断开连接'
+    ])
+
+    // 查找条贴同一条边，且 z-index 10 会盖住工具条的 8 —— 必须排在工具条之后扫
+    const searchOpen = await evaluate(`
+      const btns = [...document.querySelectorAll('[class*=hoverTools] button')]
+      if (btns.length < 3) return false
+      btns[2].click()
+      await new Promise((r) => setTimeout(r, 600))
+      return Boolean([...document.querySelectorAll('input')].find((x) => String(x.placeholder || '').startsWith('查找内容')))
+    `)
+    if (!searchOpen) fail('点不开终端查找条 —— tooltip 遮挡检查漏掉了这块布局')
+    const n2 = await sweepTips('终端查找条', 'search', ['上一个', '下一个', '区分大小写', '正则表达式'])
+
+    await evaluate(`
+      const inp = [...document.querySelectorAll('input')].find((x) => String(x.placeholder || '').startsWith('查找内容'))
+      if (inp) inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      await new Promise((r) => setTimeout(r, 300))
+      return true
+    `)
+    console.log(
+      `OK 顶部 tooltip 全部落在原生按钮区外（工具条 ${n1} 个 + 查找条 ${n2} 个，` +
+        `按钮区 x ${cr.left}–${cr.right} y 0–${cr.bottom}）`
+    )
+  }
+
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
   //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，
   //    真正的导入语义（冲突策略、凭据归属、指纹不被覆盖）由 test/unit/importData.test.ts 覆盖。
@@ -428,8 +632,13 @@ async function main() {
     // 原生窗口按钮区遮挡检查（设置弹窗是居中的，理论上不该撞上，但改布局时容易踩）
     const wco = navigator.windowControlsOverlay
     let hits = []
+    let rectBad = ''
     if (wco && wco.visible) {
       const bar = wco.getTitlebarAreaRect()
+      // 退化矩形（按钮区宽 0）会让下面的相交判断永远为假 —— 那样这条检查是假绿
+      if (window.innerWidth - bar.width < 60 || bar.height < 24) {
+        rectBad = '可用标题栏宽 ' + Math.round(bar.width) + ' / 视口 ' + window.innerWidth + '，高 ' + Math.round(bar.height)
+      }
       for (const el of modal.querySelectorAll('button, input, .ant-menu-item')) {
         const r = el.getBoundingClientRect()
         if (r.width === 0 || r.height === 0) continue
@@ -440,9 +649,10 @@ async function main() {
     const close = modal.querySelector('.ant-modal-close')
     if (close) close.click()
     await new Promise((r) => setTimeout(r, 400))
-    return { buttons, hits, crashed: modal.innerText.includes('该面板出现异常') }
+    return { buttons, hits, rectBad, crashed: modal.innerText.includes('该面板出现异常') }
   `)
   if (settingsPanel.error) fail(settingsPanel.error)
+  if (settingsPanel.rectBad) fail(`原生按钮区矩形不可信，设置弹窗的遮挡检查会假绿：${settingsPanel.rectBad}`)
   if (settingsPanel.crashed) fail('安全与数据面板渲染崩溃（ErrorBoundary 兜住了）')
   for (const label of ['导出…', '选择文件导入…']) {
     if (!settingsPanel.buttons.includes(label)) {

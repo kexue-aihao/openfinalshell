@@ -95,10 +95,18 @@ npm run smoke:packaged
 （用一个假 token 调 `app:importData`，期望被服务层拒绝而不是卡在参数校验或未注册）；
 导入的语义（冲突策略、凭据引用归属、指纹不被覆盖、坏条目跳过）由 `test/unit/importData.test.ts` 覆盖。
 
-最后一步还会检查**没有可交互元素落进原生窗口按钮区**：Windows 的 `titleBarOverlay` 由 OS 绘制、
-永远盖在页面之上，落进那块矩形的按钮会被压住且点不到。判定用 `navigator.windowControlsOverlay`
-的实际矩形而非硬编码尺寸，覆盖主界面与连接编辑抽屉两种布局。这类问题只在真实窗口里可见 ——
-单元测试和浏览器 mock 模式都抓不到。
+还有两步专门盯**原生窗口按钮区**：Windows 的 `titleBarOverlay` 由 OS 绘制、永远盖在页面之上，
+落进那块矩形的东西会被压住且点不到。判定一律用 `navigator.windowControlsOverlay` 的实际矩形而非
+硬编码尺寸，并且会在矩形退化（按钮区宽 0）时直接报错 —— 否则"永远不相交"会让检查一直假绿。
+
+- **静态**：扫描可交互元素自己的矩形，覆盖主界面、连接编辑抽屉、设置弹窗三种布局。
+- **hover 后**：静态扫描抓不到 tooltip —— antd 的气泡是 hover 才挂到 body 的 portal，
+  扫描那一刻 DOM 里没有它。所以另有一步用 CDP 注入真实鼠标移动，逐个 hover 终端右上角悬浮工具条
+  与 `Ctrl+F` 查找条上的按钮，量气泡矩形与按钮区求交。这类 bug 真出过：工具条贴在标题栏下方，
+  Tooltip 默认朝上弹，「打开文件管理」被系统按钮切成了「打开」（v0.1.2，见
+  `components/TitlebarSafeTooltip.tsx`）。
+
+这类问题只在真实窗口里可见 —— 单元测试和浏览器 mock 模式都抓不到。
 
 > 注意：应用有单实例锁，跑之前先关掉开发模式的实例。
 
