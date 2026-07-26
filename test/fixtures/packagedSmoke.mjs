@@ -201,7 +201,60 @@ async function main() {
     `OK monitor: ${monitor.info.distro} / ${monitor.info.cpuCores} cores, ${monitor.snapshots} snapshots`
   )
 
-  // 7) 清理
+  // 7) 原生窗口按钮遮挡检查
+  //    Windows 的 titleBarOverlay 由 OS 绘制、永远盖在页面之上，落到那块矩形里的
+  //    按钮会被压住且点不到。这类问题只在真实窗口里才看得见 —— 单测与浏览器 mock 都抓不到，
+  //    所以放在打包冒烟里，用 windowControlsOverlay 的实际矩形（不硬编码尺寸）来判。
+  const overlay = await evaluate(`
+    const wco = navigator.windowControlsOverlay
+    if (!wco || !wco.visible) return { skipped: true }
+    const bar = wco.getTitlebarAreaRect()
+    // 可用标题栏区右侧剩下的就是原生按钮区
+    const controls = { left: bar.width, top: 0, right: window.innerWidth, bottom: bar.height }
+
+    const covered = (label) => {
+      const hits = []
+      for (const el of document.querySelectorAll('button, input, select, textarea, a, [role=radio], [role=tab], .ant-collapse-header')) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        if (r.top < controls.bottom && r.right > controls.left && r.left < controls.right) {
+          hits.push(label + ': ' + (el.textContent || el.getAttribute('placeholder') || el.className).replace(/\\s+/g, ' ').trim().slice(0, 30))
+        }
+      }
+      return hits
+    }
+
+    const hits = covered('主界面')
+    // 连接编辑抽屉贴着窗口右上角，是最容易撞上的一处
+    const openBtn = [...document.querySelectorAll('button[title]')].find(
+      (b) => b.title === '新建连接' && b.className.includes('ant-btn')
+    )
+    let checkedDrawer = false
+    if (openBtn) {
+      openBtn.click()
+      await new Promise((r) => setTimeout(r, 1200))
+      if (document.querySelector('.ant-drawer-open')) {
+        checkedDrawer = true
+        hits.push(...covered('连接编辑抽屉'))
+      }
+      const closeBtn = document.querySelector('.ant-drawer-close')
+      if (closeBtn) closeBtn.click()
+      await new Promise((r) => setTimeout(r, 600))
+    }
+    return { controls, hits, checkedDrawer }
+  `)
+  if (overlay.skipped) {
+    console.log('SKIP window controls overlay 不可用（非 Windows？）')
+  } else {
+    if (!overlay.checkedDrawer) fail('没能打开连接编辑抽屉，遮挡检查没覆盖到它')
+    if (overlay.hits.length > 0) {
+      fail(`有 ${overlay.hits.length} 个可交互元素被原生窗口按钮遮挡：\n  ${overlay.hits.join('\n  ')}`)
+    }
+    const c = overlay.controls
+    console.log(`OK 无元素落入原生窗口按钮区 (x ${c.left}–${c.right}, y 0–${c.bottom})`)
+  }
+
+  // 8) 清理
   await evaluate(`
     await window.ofs.invoke('monitor:stop', '${session.sessionId}')
     await window.ofs.invoke('session:close', '${session.sessionId}')

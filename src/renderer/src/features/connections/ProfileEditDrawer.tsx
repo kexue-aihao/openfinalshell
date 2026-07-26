@@ -176,6 +176,12 @@ export function ProfileEditDrawer(): React.JSX.Element {
       open={open}
       onClose={close}
       destroyOnHidden
+      /*
+       * 从标题栏下方开始，不要顶到窗口顶端。
+       * Windows 的原生窗口按钮（titleBarOverlay）由 OS 绘制、永远盖在页面之上，
+       * 抽屉顶上去的话头部的"取消/保存"会被压住，右上角还会糊出一块标题栏底色的方块。
+       */
+      rootStyle={{ top: 'var(--ofs-titlebar-height)' }}
       extra={
         <Space>
           <Button onClick={close}>{t('common.cancel')}</Button>

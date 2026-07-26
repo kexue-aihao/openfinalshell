@@ -86,6 +86,11 @@ npm run smoke:packaged
 
 它用 CDP 连上打包后的真实应用，依次验证 preload 桥注入、`safeStorage` 可用、凭据不回传明文、SSH 握手、终端中文+emoji 回显、SFTP 浏览、监控采集 —— 能抓到只在打包环境才出现的问题（asar、preload 路径、原生依赖）。
 
+最后一步还会检查**没有可交互元素落进原生窗口按钮区**：Windows 的 `titleBarOverlay` 由 OS 绘制、
+永远盖在页面之上，落进那块矩形的按钮会被压住且点不到。判定用 `navigator.windowControlsOverlay`
+的实际矩形而非硬编码尺寸，覆盖主界面与连接编辑抽屉两种布局。这类问题只在真实窗口里可见 ——
+单元测试和浏览器 mock 模式都抓不到。
+
 > 注意：应用有单实例锁，跑之前先关掉开发模式的实例。
 
 ### 传输吞吐
