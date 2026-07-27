@@ -535,3 +535,50 @@ describe('planDraftSwap：换文件时草稿的去留', () => {
     ).toBe('rebuild')
   })
 })
+
+/**
+ * 脏标记不许在按键路径上做 O(整个文档) 的活。
+ *
+ * 这一条只能靠源码护栏：`doc.toString() !== base` 与 `!sameDoc(doc, baseText)` **行为完全一样**，
+ * 所有脏标记的行为用例对两者都是绿的。差别只在代价，而代价随文档大小走 ——
+ * 实测每按键 1MB 1.8ms / 8MB 7.4ms / 32MB 14.3ms（一帧才 16ms）。
+ * 在小文件上永远看不出来，而 MAX_EDIT_BYTES 正是刚从 2MB 放宽到 8MB。
+ */
+describe('脏标记的代价', () => {
+  const src = stripComments(read('src/renderer/src/features/editor/CodeEditor.tsx'))
+
+  it('updateListener 里不出现 doc.toString()', () => {
+    const at = src.indexOf('updateListener.of')
+    expect(at, 'updateListener 没了？').toBeGreaterThan(0)
+    const body = flat(src.slice(at, at + 260))
+    expect(body, '脏标记又回到 O(整个文档) 的字符串比较了').not.toContain('toString()')
+    expect(body).toContain('sameDoc(')
+  })
+
+  it('sameDoc 先比 length 再 Text.eq —— 顺序反了就等于没优化', () => {
+    const at = src.indexOf('function sameDoc')
+    expect(at).toBeGreaterThan(0)
+    const body = flat(src.slice(at, src.indexOf('\n}', at)))
+    const lenAt = body.indexOf('doc.length !== base.length')
+    const eqAt = body.indexOf('doc.eq(base)')
+    expect(lenAt, 'length 那一步没了').toBeGreaterThan(0)
+    expect(eqAt, 'Text.eq 那一步没了').toBeGreaterThan(0)
+    expect(eqAt, 'length 必须在 Text.eq 之前').toBeGreaterThan(lenAt)
+    // 基准不在时必须当作脏 —— 宁可多问一次，不许静默丢改动
+    expect(body).toContain('if (!base) return false')
+  })
+
+  /**
+   * 三处写基准的地方（首次挂载 / rebuild / keep）都得同时写 rope 那一份。
+   * 漏一处的症状是"那个文件的脏标记永远亮着"（基准取不到 → sameDoc 返回 false）——
+   * 关标签时每次都白问一次，而行为用例里那些都是小文件、不会注意到。
+   */
+  it('docBaseText 与 docBase 成对写、成对清', () => {
+    expect((src.match(/docBaseText\.current\.set/g) ?? []).length).toBe(
+      (src.match(/docBase\.current\.set/g) ?? []).length
+    )
+    expect((src.match(/docBaseText\.current\.delete/g) ?? []).length).toBe(
+      (src.match(/docBase\.current\.delete/g) ?? []).length
+    )
+  })
+})

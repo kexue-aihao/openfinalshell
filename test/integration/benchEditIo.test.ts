@@ -14,6 +14,10 @@
  *   8KB 681/1136 → 836/1389（噪声）   64KB 1135/1589 → 1109/1939（持平）
  *   200KB 2043/2502 → 1385/1664       512KB 4099/4552 → 1112/1937
  *   2MB 15007/15503 → **1681/2499**
+ *
+ * ⚠️ 4MB / 8MB 两档是后来加的，**还没有真机数**。MAX_EDIT_BYTES 从 2MB 放宽到 8MB 那次，
+ * 传输耗时是按 2MB 那一行线性外推的（约 5–8 秒），而界面与 main 侧的代价是实测的 ——
+ * 哪一半是量的、哪一半是推的，写在 MAX_EDIT_BYTES 的注释里。下次跑这个基准就能把它校准。
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -95,7 +99,13 @@ suite('编辑 IO 基准', () => {
   it('读回 + 写回各档尺寸', async () => {
     const sftp = await sshManager.get(sessionId).browseSftpSession()
     const rows: string[] = []
-    for (const kb of [8, 64, 200, 512, 2048]) {
+    /*
+     * 档位一直排到 8192KB（= 当前的 MAX_EDIT_BYTES）。超过上限的档会被下面那句 continue
+     * 跳掉，所以这张表**自动跟着上限走**：上限放宽了就多量一档，不需要有人记得回来改。
+     * 8MB 那一档目前还没有真机数 —— MAX_EDIT_BYTES 从 2MB 放宽到 8MB 时，
+     * 传输耗时那一半是按 2MB 的实测线性外推的（见那个常量的注释），下次跑这个基准就能校准。
+     */
+    for (const kb of [8, 64, 200, 512, 2048, 4096, 8192]) {
       const bytes = kb * 1024
       if (bytes > MAX_EDIT_BYTES) continue
       const payload = Buffer.alloc(bytes, 0x61)

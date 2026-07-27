@@ -478,9 +478,16 @@ describe('硬拒：超过字节上限', () => {
     fake.putFile(P, 'x\n')
     await viewRemoteFile(SID, P, 'utf8')
 
-    // 80 万个中文按 UTF-8 是 240 万字节 > 2MB，而字符数只有 80 万（远低于上限）
-    const text = '配'.repeat(800_000)
-    expect(text.length).toBeLessThan(MAX_EDIT_BYTES)
+    /*
+     * 中文在 UTF-8 里是 3 字节、在 JS 字符串里是 1 个码元，所以"字符数刚好不到上限、
+     * 字节数超过上限"这个反差是天然的。**条数从 MAX_EDIT_BYTES 推出来，不写死** ——
+     * 上一版写死了 80 万（当时上限是 2MB），上限放宽到 8MB 之后 240 万字节不再越界，
+     * 这条用例就**静默停止了测试**（照样绿，只是什么都没验）。是放宽那天它红了才发现。
+     */
+    const text = '配'.repeat(Math.ceil(MAX_EDIT_BYTES / 3) + 1)
+    expect(text.length, '字符数必须仍在上限之内，否则验的就不是"按字节判"了').toBeLessThan(
+      MAX_EDIT_BYTES
+    )
     expect(Buffer.byteLength(text, 'utf8')).toBeGreaterThan(MAX_EDIT_BYTES)
 
     await expect(
