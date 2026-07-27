@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { REMOTE_CHARSETS } from '@shared/constants'
+import { existsSync } from 'node:fs'
+import { DEFAULT_SETTINGS, REMOTE_CHARSETS } from '@shared/constants'
 import { createMockOfs } from '@/ipc/mock'
 import { blockAfter, channelsOf, flat, read, stripComments } from '../sourceGuard'
 
@@ -15,7 +16,6 @@ const IPC = 'src/shared/ipc.ts'
 const SFTP_IPC = 'src/main/ipc/sftp.ipc.ts'
 const SESSION_VIEW = 'src/renderer/src/features/sessions/SessionView.tsx'
 const SESSION_STORE = 'src/renderer/src/stores/useSessionStore.ts'
-const EDIT_MANAGER = 'src/main/sftp/RemoteEditManager.ts'
 
 describe('契约与 IPC 边界', () => {
   it('sftp:fileView 在契约里，且落在 sftp: 前缀下', () => {
@@ -54,10 +54,24 @@ describe('契约与 IPC 边界', () => {
     expect(REMOTE_CHARSETS as readonly string[]).toContain('gbk')
   })
 
-  it('只读查看的返回里没有本地路径（本地路径只出不进那条铁律的另一半）', () => {
+  /**
+   * 内置编辑器的两条 channel 里都不许出现本地路径。
+   *
+   * 上一版这条只管 fileView，而且截止点取的是 'sftp:editOpen'（外部编辑器那条，
+   * 它的返回里**确实**带着 localPath）。那条 channel 删掉之后截止点换成 transfer:enqueue ——
+   * 传输队列是本项目里唯一正当地收本地路径的地方。
+   *
+   * 截止点用**代码里的那个 channel 名**而不是分节注释：stripComments 会把
+   * `// --- 传输队列 ---` 整行吃掉，拿它当锚点会得到 -1，于是切片变成"从 fileView 到开头"、
+   * 空字符串，断言恒真。（第一版就是这么写的，是下面那句 toBeGreaterThan 抓住的。）
+   */
+  it('fileView / fileSave 的契约里都没有本地路径', () => {
     const src = stripComments(read(IPC))
-    const decl = flat(src.slice(src.indexOf("'sftp:fileView'"), src.indexOf("'sftp:editOpen'")))
-    expect(decl).not.toContain('localPath')
+    const from = src.indexOf("'sftp:fileView'")
+    const to = src.indexOf("'transfer:enqueue'")
+    expect(from).toBeGreaterThan(0)
+    expect(to).toBeGreaterThan(from)
+    expect(flat(src.slice(from, to))).not.toContain('localPath')
   })
 
   it('mock 里有 fileView，否则浏览器 mock 模式一点开就抛', async () => {
@@ -111,27 +125,99 @@ describe('不泄漏', () => {
   })
 })
 
-describe('只读查看与外部编辑器共用同一份门禁', () => {
+describe('读和写共用同一份门禁', () => {
   /**
-   * 软链解析 + 三道门（类型 / 尺寸 / 二进制）只能有一份实现。
+   * 软链解析只能有一份实现，而现在它的两个消费者是**读**（readRemoteTextFile）
+   * 与**写**（fileSave）—— 上一版是"只读查看"与"外部编辑器"。
    *
-   * 软链那条不做的后果是致命的：写回用的 rename 会把软链**本身**替换成普通文件，
-   * 而 /etc/nginx/sites-enabled/* 全是软链。两份实现漂开的第一天就会有一边写坏文件，
-   * 所以这条断言的是"RemoteEditManager 不再自己做这些判断"。
+   * 不解析的后果是致命的：写回用的 rename 会把软链**本身**替换成普通文件，
+   * 而 /etc/nginx/sites-enabled/* 全是软链。所以断言的是"fileSave 不自己判软链"。
    */
-  it('RemoteEditManager 走 readRemoteTextFile，不再自己判软链/类型/尺寸/二进制', () => {
-    const src = stripComments(read(EDIT_MANAGER))
-    expect(src).toContain('readRemoteTextFile(sftp, remotePath)')
-    // 这四个是被提走的判断，留在这儿就说明有人把它们抄回来了
+  it('fileSave 走 resolveRemoteTarget，不自己 lstat/realpath', () => {
+    const src = stripComments(read('src/main/sftp/fileSave.ts'))
+    expect(src).toContain('resolveRemoteTarget(sftp, path)')
     for (const gone of ['sftpLstat(', 'sftpRealpath(', "=== 'symlink'", 'typeFromMode(']) {
-      expect(src, `${gone} 又回到 RemoteEditManager 里了 —— 门禁出现了第二份实现`).not.toContain(gone)
+      expect(src, `${gone} 出现在 fileSave 里了 —— 软链解析有了第二份实现`).not.toContain(gone)
     }
   })
 
-  it('只读查看那条路上没有 spawn、没有本地临时文件', () => {
-    const src = stripComments(read('src/main/sftp/fileView.ts'))
-    for (const forbidden of ['child_process', 'spawn', 'writeFile', 'mkdtemp', 'app.getPath']) {
-      expect(src, `只读查看不该碰 ${forbidden}`).not.toContain(forbidden)
+  it('读那条路也走同一个函数', () => {
+    const src = stripComments(read('src/main/sftp/remoteTextFile.ts'))
+    expect(src).toContain('await resolveRemoteTarget(sftp, remotePath)')
+  })
+
+  /**
+   * 内置编辑器这条路上不该出现本地文件与子进程。
+   *
+   * 上一版这条盯的是"只读查看别学外部编辑器那套"；现在外部编辑器没了，
+   * 它盯的是**别把那套重新长出来** —— 内容以字符串来回，main 侧一个本地文件都不落。
+   */
+  it('查看与保存两条路上都没有 spawn、没有本地临时文件', () => {
+    for (const f of ['src/main/sftp/fileView.ts', 'src/main/sftp/fileSave.ts']) {
+      const src = stripComments(read(f))
+      for (const forbidden of ['child_process', 'spawn', 'writeFile', 'mkdtemp', 'app.getPath']) {
+        expect(src, `${f} 不该碰 ${forbidden}`).not.toContain(forbidden)
+      }
     }
+  })
+})
+
+/**
+ * 外部编辑器那条路删干净了没有。
+ *
+ * 半删是最坏的状态：契约里留着一条没人实现的 channel、界面上留着一个点了没反应的菜单项、
+ * 或者反过来 —— 实现还在但没人调（那就是一片没有测试保护的活代码）。所以这里两头都查。
+ */
+describe('外部编辑器整条路已删净', () => {
+  it('那几条 channel 从契约里消失了', () => {
+    const invoke = channelsOf('InvokeMap')
+    // 反空转：正则失配时下面这些断言会在空数组上空跑
+    expect(invoke.length).toBeGreaterThan(30)
+    for (const gone of [
+      'sftp:editOpen',
+      'sftp:editList',
+      'sftp:editSave',
+      'sftp:editRetry',
+      'sftp:editStop',
+      'sftp:pickEditor',
+      'sftp:clearEditor'
+    ]) {
+      expect(invoke, `${gone} 还在契约里`).not.toContain(gone)
+    }
+    // 该留的还在
+    expect(invoke).toContain('sftp:fileView')
+    expect(invoke).toContain('sftp:fileSave')
+  })
+
+  it('事件表里没有 sftp:editState', () => {
+    const events = channelsOf('EventMap')
+    expect(events.length).toBeGreaterThan(5)
+    expect(events).not.toContain('sftp:editState')
+  })
+
+  it('那两个模块的文件真的不在了', () => {
+    for (const gone of [
+      'src/main/sftp/RemoteEditManager.ts',
+      'src/main/sftp/localFileWatch.ts',
+      'src/renderer/src/features/sftp/editUiState.ts'
+    ]) {
+      expect(existsSync(gone), `${gone} 还在`).toBe(false)
+    }
+  })
+
+  it('设置里没有 externalEditorPath 了（连默认值一起）', () => {
+    expect(Object.keys(DEFAULT_SETTINGS.sftp)).not.toContain('externalEditorPath')
+  })
+
+  /**
+   * **「打开」必须落到内置编辑器。** 这是这一片里用户唯一看得见的行为变化：
+   * 那个菜单项与双击（doubleClickAction='open'）走的是同一个分支，
+   * 上一版它调 startEdit（起外部编辑器）。接错的症状是"点「打开」什么都不发生"——
+   * 不报错、不抛异常，只是没反应。
+   */
+  it('openEntry 的 edit 分支调的是内置编辑器', () => {
+    const src = stripComments(read('src/renderer/src/features/sftp/SftpPane.tsx'))
+    expect(flat(src)).toContain("else if (fileAction === 'edit') void openInEditor(entry)")
+    expect(src, 'startEdit 还在 —— 外部编辑器那条路没删净').not.toContain('startEdit')
   })
 })

@@ -16,7 +16,6 @@ import { monitorManager } from './monitor/MonitorManager'
 import { forwardManager } from './forward/ForwardManager'
 import { flushForwards } from './store/forwards'
 import { packTempDir, transferQueue } from './sftp/TransferQueue'
-import { remoteEditManager } from './sftp/RemoteEditManager'
 import { sshManager } from './ssh/SshConnectionManager'
 import { closeDatabase } from './store/Database'
 import { flushConnections } from './store/connections'
@@ -83,7 +82,6 @@ if (!app.requestSingleInstanceLock()) {
      *    否则第二个实例启动时会把第一个实例正在用的目录删掉。
      * best-effort：函数内部逐个 catch，不会抛，失败也不该拦住启动。
      */
-    void remoteEditManager.purgeStaleTempDirs()
 
     /**
      * 同理清掉打包下载的本地临时目录。它整个目录都是可丢的（里面只有 `<taskId>.tar`），
@@ -115,7 +113,6 @@ if (!app.requestSingleInstanceLock()) {
      * 它是 async 而 before-quit 是同步钩子：和下面几个 flush 一样按 best-effort 处理
      * （拖延退出去等一次目录删除不值得，真没删掉的下次启动时 purgeStaleTempDirs 会收走）。
      */
-    void remoteEditManager.stopAll()
     sshManager.closeAll()
     void settingsStore().flush()
     void flushConnections()

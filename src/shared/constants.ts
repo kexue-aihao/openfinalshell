@@ -37,7 +37,7 @@ export const MONITOR_FRAME_TIMEOUT_MS = 5000
  * 编辑远端文件的单文件上限。超过这个尺寸的"配置文件"基本都是日志或数据文件，
  * 编辑器打开也是灾难（而且要经 IPC 把全文搬进渲染进程）。
  *
- * 放在 shared 而不是留在 RemoteEditManager 里：内置编辑器之后，渲染进程也要知道这个数
+ * 放在 shared 而不是留在 main 里：渲染进程也要知道这个数
  * （在打开之前就能给出"这个文件太大"的说明，而不是发一趟 IPC 再被拒），
  * 而两处各写一个 2MB 迟早会漂。
  */
@@ -129,7 +129,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoOpenOnConnect: true,
     // 空串 = 系统默认打开方式。默认不预填任何路径：猜错了会静默起一个用户没想用的程序，
     // 而"没配"这条路（shell.openPath）在每个平台上都能工作
-    externalEditorPath: '',
     // 默认**开**：普通删除同样不可恢复，这个只是更快 —— 默认关会让这个对标 FinalShell 的
     // 功能没人发现。安全预算花在"深度至少两级"的守卫和那个独立的确认框上，不花在藏起来
     fastDelete: true,

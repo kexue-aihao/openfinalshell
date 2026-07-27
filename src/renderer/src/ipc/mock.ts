@@ -6,7 +6,6 @@ import type {
   ForwardRule,
   ForwardRuntime,
   ProfileDraft,
-  RemoteEditEntry,
   SftpEntry,
   Snippet,
   SnippetGroup,
@@ -138,37 +137,6 @@ export function createMockOfs(): OfsApi {
       })
   }
 
-  /**
-   * 假远端编辑：内存里假装每一步都成功，够界面把 downloading→editing→uploading→editing
-   * 这条状态链跑通。真实现里这些状态之间是 SFTP 往返 + 本地文件监视，
-   * 这里全用 setTimeout 兑现 —— 否则浏览器调试模式下永远只看得到终态，
-   * 骨架屏/进度提示这类只在中间态出现的 UI 根本没法验。
-   */
-  const mockEdits = new Map<string, RemoteEditEntry>()
-
-  const emitEdit = (e: RemoteEditEntry): void => {
-    const halted = e.state === 'conflict' || e.state === 'blocked' || e.state === 'error'
-    emit('sftp:editState', {
-      editId: e.id,
-      sessionId: e.sessionId,
-      remotePath: e.remotePath,
-      state: e.state,
-      error: halted ? e.message : undefined,
-      warning: halted ? undefined : e.message,
-      eolWarning: e.eolWarning
-    })
-  }
-
-  /** 只有还在册的编辑才许改状态：停止编辑之后那些在飞的 setTimeout 不该让一行凭空复活 */
-  const laterEdit = (id: string, ms: number, mutate: (e: RemoteEditEntry) => void): void => {
-    setTimeout(() => {
-      const e = mockEdits.get(id)
-      if (!e) return
-      mutate(e)
-      emitEdit(e)
-    }, ms)
-  }
-
   // --- 假端口转发 ---
   const mockForwards: ForwardRule[] = []
   const mockForwardRuntimes = new Map<string, ForwardRuntime>()
@@ -296,10 +264,12 @@ export function createMockOfs(): OfsApi {
   const handlers: Record<string, (...args: never[]) => unknown> = {
     'settings:get': () => settings,
     /**
-     * 与 main 侧一致：MAIN_ONLY_SETTINGS_PATHS 里的键（现在只有 sftp.externalEditorPath）
-     * 从这条 channel 进来一律不生效 —— 它最终会成为 main 侧 spawn 的可执行文件，
-     * 只能由 sftp:pickEditor 写。桩上也照做，否则设置页在浏览器里"能改"、
-     * 到了 Electron 里静默不生效，这类差异最难查。
+     * 与 main 侧一致：MAIN_ONLY_SETTINGS_PATHS 里的键从这条 channel 进来一律不生效。
+     * 桩上也照做，否则设置页在浏览器里"能改"、到了 Electron 里静默不生效，
+     * 这类差异最难查。
+     *
+     * ⚠️ 那张表**目前是空的**（唯一那条 sftp.externalEditorPath 随外部编辑器删掉了），
+     * 所以这个循环此刻一圈都不转。留着是为了机制别在两处漂开，见那张表的注释。
      */
     'settings:set': (patch: never) => {
       const next = structuredClone(patch as unknown as Record<string, unknown>)
@@ -417,8 +387,8 @@ export function createMockOfs(): OfsApi {
     /**
      * 快速删除。**刻意不在这里重实现 main 侧的守卫与命令构造** ——
      * 那些的正主是 test/unit/fastDelete.test.ts（纯函数、精确字符串比对）。
-     * 这里重写一遍只会得到一个"自己跟自己对"的假绿：以前 externalEditorPath
-     * 那条护栏就是这么空转的（渲染进程 mock 里的重实现绿着，main 侧整个删掉照样绿）。
+     * 这里重写一遍只会得到一个"自己跟自己对"的假绿 —— 渲染进程 mock 里的重实现绿着，
+     * main 侧整个删掉照样绿。（这不是假想：外部编辑器那条护栏就曾经这么空转过。）
      * 所以 mock 只负责让界面能走完一遍流程，命令原文明确标成占位。
      */
     'sftp:fastDeletePreview': (arg: never) => {
@@ -490,95 +460,6 @@ export function createMockOfs(): OfsApi {
       // 字节数按 UTF-8 估（mock 里没有 iconv）；charset 只是拿来确认参数真的传到了
       const bytes = new TextEncoder().encode(body).length + (hasBom && charset === 'utf8' ? 3 : 0)
       return { kind: 'saved' as const, bytes, mode: 0o644 }
-    },
-
-    'sftp:editOpen': (arg: never) => {
-      const { sessionId, path } = arg as unknown as { sessionId: string; path: string }
-      // 与 main 侧一致：同一会话同一路径重复打开复用同一条编辑
-      const dup = [...mockEdits.values()].find(
-        (e) => e.sessionId === sessionId && e.remotePath === path
-      )
-      if (dup) return dup
-      const id = crypto.randomUUID()
-      const entry: RemoteEditEntry = {
-        id,
-        sessionId,
-        remotePath: path,
-        resolvedPath: path,
-        // 形状照着 main 侧派生出来的样子摆（<temp>\ofs-edit-XXXXXX\<16hex>\<basename>）；
-        // 浏览器里当然没有这个文件
-        localPath: `C:\\Users\\demo\\AppData\\Local\\Temp\\ofs-edit-a1b2c3\\${id.slice(0, 16)}\\${path.split('/').pop() ?? 'file'}`,
-        state: 'downloading',
-        size: 2048,
-        createdAt: Date.now()
-      }
-      mockEdits.set(id, entry)
-      laterEdit(id, 400, (e) => {
-        e.state = 'editing'
-      })
-      return entry
-    },
-    'sftp:editList': (arg: never) => {
-      const { sessionId } = arg as unknown as { sessionId: string }
-      return [...mockEdits.values()].filter((e) => e.sessionId === sessionId)
-    },
-    'sftp:editSave': (arg: never) => {
-      const { editId, force } = arg as unknown as { editId: string; force?: boolean }
-      // 与 main 侧同样拒缺省 force：这个约束要在浏览器调试时就炸出来，不能留到 Electron 里
-      if (force !== true) {
-        throw new Error('普通存盘由本地文件监视自动触发；此接口只用于用户确认后的"仍然覆盖"')
-      }
-      const entry = mockEdits.get(editId)
-      if (!entry) throw new Error('该编辑已结束')
-      entry.state = 'uploading'
-      entry.message = undefined
-      emitEdit(entry)
-      laterEdit(editId, 500, (e) => {
-        e.state = 'editing'
-        e.savedAt = Date.now()
-      })
-      return entry
-    },
-    /**
-     * 重试与"仍然覆盖"是两条不同的路：这条**不需要** force（它保留冲突检测），
-     * 桩上照样分成两个 handler，免得界面把两颗按钮接到同一个 channel 上还能跑。
-     */
-    'sftp:editRetry': (arg: never) => {
-      const { editId } = arg as unknown as { editId: string }
-      const entry = mockEdits.get(editId)
-      if (!entry) throw new Error('该编辑已结束')
-      entry.state = 'uploading'
-      entry.message = undefined
-      emitEdit(entry)
-      laterEdit(editId, 500, (e) => {
-        e.state = 'editing'
-        e.savedAt = Date.now()
-      })
-      return entry
-    },
-    'sftp:editStop': (arg: never) => {
-      const { editId } = arg as unknown as { editId: string }
-      const entry = mockEdits.get(editId)
-      if (!entry) return
-      mockEdits.delete(editId)
-      // 先删再发：closed 是这条编辑的最后一条事件，之后不该再有任何状态
-      emitEdit({ ...entry, state: 'closed' })
-    },
-    /**
-     * 外部编辑器：真实现里对话框、校验、落库全在 main 侧，渲染进程只拿回一个字符串 ——
-     * 这里也照这个形状来（浏览器里没有原生对话框，给个固定的假 exe）。
-     * 桩同样要 emit settings:changed：界面不能靠自己 settings:set 写这个字段
-     * （main 侧会把它剥掉），只能等这条事件回来，那条依赖必须在浏览器调试时就成立。
-     */
-    'sftp:pickEditor': () => {
-      const picked = 'C:\\Program Files\\Notepad++\\notepad++.exe'
-      settings.sftp.externalEditorPath = picked
-      emit('settings:changed', structuredClone(settings))
-      return picked
-    },
-    'sftp:clearEditor': () => {
-      settings.sftp.externalEditorPath = ''
-      emit('settings:changed', structuredClone(settings))
     },
 
     'snippet:list': () => ({ groups: snippetGroups, snippets }),

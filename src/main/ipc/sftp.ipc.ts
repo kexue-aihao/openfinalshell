@@ -1,8 +1,7 @@
-import { app, dialog } from 'electron'
+import { app } from 'electron'
 import { z } from 'zod'
 import { MAX_EDIT_BYTES, REMOTE_CHARSETS } from '@shared/constants'
-import { emit, handle } from './registry'
-import { remoteEditManager, type EditId, type RemoteEditInfo } from '../sftp/RemoteEditManager'
+import { handle } from './registry'
 import { fastDelete, fastDeletePreview } from '../sftp/fastDelete'
 import { saveRemoteTextFile } from '../sftp/fileSave'
 import { viewRemoteFile } from '../sftp/fileView'
@@ -10,31 +9,17 @@ import { chmod, mkdir, readdir, realpath, remove, rename } from '../sftp/SftpMan
 import { sftpClose, sftpOpen, sftpStat } from '../sftp/sftpLowLevel'
 import { toRemotePath } from '../sftp/remotePath'
 import { transferQueue } from '../sftp/TransferQueue'
-import { assertUsableEditor, getSettings, patchSettings } from '../services/settings'
 import { sshManager } from '../ssh/SshConnectionManager'
-import { scopedLogger } from '../utils/logger'
-
-const log = scopedLogger('sftp-ipc')
 
 /**
- * 远端编辑相关 channel 的一条铁律：**没有任何 channel 接受本地路径**。
- * 临时文件的位置 100% 由 main 从 (sessionId, remotePath) 派生（RemoteEditManager.land），
- * 渲染进程只能拿到不透明的 editId 和一个只读的 localPath 展示值。
+ * 这个文件里所有 channel 都**只收远端路径**，一条本地路径都不收。
  *
- * 这一条就是 RemoteEditManager 里那句 shell.openPath / spawn(编辑器) 得以存在的唯一理由：
- * 被打开/被执行的路径不可能来自渲染进程。哪天有人给这几个 channel 加上"本地路径"参数
- * （哪怕只是为了"在文件夹中显示"），那一行就立刻变成任意文件打开/执行。
- *
- * 但那句话此前只覆盖了 spawn 的 **argv**，没覆盖 **file** —— 被执行的那个 exe 来自
- * settings.sftp.externalEditorPath，而 settings:set 曾经对内容零校验，于是
- * 「下载任意文件到任意本地路径 → 把这个字段指向它 → 编辑任何远端文件」三步就是任意程序执行。
- * 补上的另一半分两层，两层都在 services/settings.ts 里：
- *  - **写入侧**：这个字段只由下面 sftp:pickEditor 一条路写入（对话框 + assertUsableEditor），
- *    settings:set 与导入配置这两个外来入口都会把这一键剥掉（stripMainOnlyPaths）；
- *  - **使用侧**：spawn 之前再调一次 assertUsableEditor —— 库里的值可能是老版本、
- *    导入文件或手改 SQLite 留下的，写入时校验管不到它们。
+ * 上一版这条铁律还有下半句（临时文件的位置 100% 由 main 派生、所以 shell.openPath 与
+ * spawn(编辑器) 是安全的）—— 外部编辑器整条路已经删掉，那两个调用点也就都不存在了。
+ * 留着上半句：`sftp:fileView` / `sftp:fileSave` 都只吃 (sessionId, remotePath)，
+ * 内容以字符串来回，main 侧不落任何本地文件。哪天有人给这几个 channel 加上"本地路径"
+ * 参数（哪怕只是为了"在文件夹中显示"），得先想清楚它会不会变成任意文件写。
  */
-
 const sessionPath = z.object({ sessionId: z.string(), path: z.string().max(4096) })
 /**
  * 快速删除的路径数组。zod 这一层只管形状（非空、不超长、条数有上限）——
@@ -43,42 +28,6 @@ const sessionPath = z.object({ sessionId: z.string(), path: z.string().max(4096)
  * 而"守卫只有一处"是这条链路唯一好审计的形状。
  */
 const fastDeletePaths = z.array(z.string().min(1).max(4096)).min(1).max(200)
-/** editId 是 main 侧 randomUUID 生成的不透明串，除了"非空且不长"没有别的要校验 */
-const editRef = z.object({ editId: z.string().min(1).max(128) })
-
-/** 写 externalEditorPath 的唯一去处：写完主动推一次设置，界面（含设置页回显）跟着刷 */
-function saveEditorPath(exePath: string): void {
-  const next = patchSettings({ sftp: { ...getSettings().sftp, externalEditorPath: exePath } })
-  emit('settings:changed', next)
-}
-
-/** 状态转发：main 侧的 message 按状态拆成 error / warning（见 EventMap 的说明） */
-function forwardEditState(info: RemoteEditInfo): void {
-  const halted = info.state === 'conflict' || info.state === 'blocked' || info.state === 'error'
-  emit('sftp:editState', {
-    editId: info.id,
-    sessionId: info.sessionId,
-    remotePath: info.remotePath,
-    state: info.state,
-    error: halted ? info.message : undefined,
-    warning: halted ? undefined : info.message,
-    eolWarning: info.eolWarning
-  })
-}
-
-/**
- * forceSave / retry 都不回快照（它们只管把内容写上去），写完从注册表里再取一次。
- * 取不到只有一种可能：这期间用户点了"停止编辑"。
- *
- * 这两个入口在 pending 为空时是**抛错**的（"没有待保存的内容（可能已经写回成功了）…"），
- * 那句人话会原样穿过 invoke 抛回渲染进程 —— 界面要能把它显示出来，不许当成"未知错误"吞掉。
- */
-function afterWriteBack(editId: EditId): RemoteEditInfo {
-  const info = remoteEditManager.list().find((e) => e.id === editId)
-  if (!info) throw new Error('该编辑已结束')
-  return info
-}
-
 export function registerSftpIpc(): void {
   handle('sftp:readdir', ({ sessionId, path }) => readdir(sessionId, path), z.tuple([sessionPath]))
   handle('sftp:realpath', ({ sessionId, path }) => realpath(sessionId, path), z.tuple([sessionPath]))
@@ -190,81 +139,6 @@ export function registerSftpIpc(): void {
       })
     ])
   )
-
-  // ---- 远端文件编辑（本地路径只出不进，见文件顶部） ----
-  remoteEditManager.onState(forwardEditState)
-
-  handle(
-    'sftp:editOpen',
-    ({ sessionId, path }) => remoteEditManager.open(sessionId, path),
-    z.tuple([sessionPath])
-  )
-
-  handle(
-    'sftp:editList',
-    ({ sessionId }) => remoteEditManager.list().filter((e) => e.sessionId === sessionId),
-    z.tuple([z.object({ sessionId: z.string() })])
-  )
-
-  handle(
-    'sftp:editSave',
-    async ({ editId, force }) => {
-      /**
-       * 只认 force === true。这个 channel 对应的是 forceSave —— 跳过冲突检测、
-       * 允许在服务器不支持原子替换时退化；普通存盘是本地文件监视自动触发的、界面催不动。
-       * 所以缺省值这里必须拒 —— 否则一个叫"保存"的按钮会悄悄走上覆盖别人改动的那条路。
-       * 想"再试一次但别跳过检测"的走 sftp:editRetry。
-       */
-      if (force !== true) {
-        throw new Error('普通存盘由本地文件监视自动触发；此接口只用于用户确认后的"仍然覆盖"')
-      }
-      await remoteEditManager.forceSave(editId)
-      return afterWriteBack(editId)
-    },
-    z.tuple([editRef.extend({ force: z.boolean().optional() })])
-  )
-
-  /**
-   * 重试：**保留冲突检测**，只是把 main 侧留着的 pending 再走一遍写回。
-   * error 态的默认出口（那些"会话未就绪"之类的瞬时故障重试一下就好），
-   * 和上面那条"仍然覆盖"是两个不同的按钮、两个不同的语义。
-   */
-  handle(
-    'sftp:editRetry',
-    async ({ editId }) => {
-      await remoteEditManager.retry(editId)
-      return afterWriteBack(editId)
-    },
-    z.tuple([editRef])
-  )
-
-  handle('sftp:editStop', ({ editId }) => remoteEditManager.stop(editId), z.tuple([editRef]))
-
-  /**
-   * 选外部编辑器。对话框在 main 侧弹、路径在 main 侧校验、设置在 main 侧写 ——
-   * 渲染进程从头到尾只拿回一个字符串用于回显（它自己写不进这个字段，见文件顶部）。
-   */
-  handle('sftp:pickEditor', async () => {
-    const r = await dialog.showOpenDialog({
-      title: '选择编辑远端文件用的编辑器',
-      properties: ['openFile'],
-      // 只是过滤器，不是校验 —— 真正的校验在 assertUsableEditor（用户可以把过滤器切成"全部文件"），
-      // 那个函数现在归 services/settings.ts，spawn 之前也要再调一次（见文件顶部）
-      filters:
-        process.platform === 'win32' ? [{ name: '可执行文件', extensions: ['exe'] }] : undefined
-    })
-    if (r.canceled || r.filePaths.length === 0) return null
-    const picked = r.filePaths[0]
-    await assertUsableEditor(picked)
-    saveEditorPath(picked)
-    log.info(`external editor set to ${picked}`)
-    return picked
-  })
-
-  /** 清空 = 回到"系统默认打开方式"（shell.openPath），不是"禁用编辑" */
-  handle('sftp:clearEditor', () => {
-    saveEditorPath('')
-  })
 
   handle(
     'transfer:enqueue',

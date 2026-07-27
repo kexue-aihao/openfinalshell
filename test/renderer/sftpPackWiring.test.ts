@@ -132,16 +132,17 @@ describe('清场', () => {
 
 describe('child_process 的用处清单', () => {
   /**
-   * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力。到目前为止只有两处，
-   * 各有各的理由：
-   *  - `RemoteEditManager.ts`：起用户指定的外部编辑器（第二批加的；exe 路径只能由
-   *    sftp:pickEditor 写入，且 spawn 之前再校验一次）；
-   *  - `localTar.ts`：调 System32 的 bsdtar 列/解归档（本批加的）。
+   * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力。现在只有一处：
+   * `localTar.ts` 调 System32 的 bsdtar 列/解归档。
+   *
+   * 曾经还有 `RemoteEditManager.ts`（起用户指定的那个外部编辑器 exe）——
+   * 外部编辑器整条路删掉之后它也没了，于是本项目的子进程面**从两处收窄到一处**。
+   * 那一处的风险面是最麻烦的一类：被执行的 exe 路径来自设置，而设置有两个外来入口。
    *
    * 这条用例是**清单**而不是"只许一处"：多一处就多一个"命令串怎么拼"的风险面，
    * 所以要让新增者被迫改这张表、连带在评审里解释一句。
    */
-  it('src/main 下引用 child_process 的就是清单上那两个文件', () => {
+  it('src/main 下引用 child_process 的就是清单上那一个文件', () => {
     const offenders: string[] = []
     const walk = (dir: string): void => {
       for (const name of readdirSync(dir)) {
@@ -154,7 +155,7 @@ describe('child_process 的用处清单', () => {
       }
     }
     walk('src/main')
-    expect(offenders.sort()).toEqual([LT, 'src/main/sftp/RemoteEditManager.ts'].sort())
+    expect(offenders).toEqual([LT])
   })
 
   it('localTar 里一律 shell: false，且不用 exec / windowsVerbatimArguments', () => {

@@ -8,11 +8,13 @@ import { readRemoteFile, sftpLstat, sftpRealpath, sftpStat } from './sftpLowLeve
 /**
  * "把一个远端路径当文本文件读出来"：软链解析 + 三道门（类型 / 尺寸 / 二进制）+ 整文件读。
  *
- * 提成一处是因为**两条路要走同一份**：内置编辑器的只读查看（sftp:fileView）与
- * 外部编辑器的下载-编辑（RemoteEditManager.download）。这三道门每一条都是踩出来的，
- * 两份实现漂开的第一天就会有一边写坏文件 —— 尤其软链那条，见下面的说明。
+ * 三道门每一条都是踩出来的，尤其软链那条 —— 见 resolveRemoteTarget 的说明。
  *
- * 它**只读**，不产生任何远端副作用，所以两条路共用它没有语义冲突。
+ * 提成一处的理由变过一次，值得记一笔：原先是"只读查看"与"外部编辑器的下载-编辑"
+ * 两条路要走同一份（后者已删）。现在读只有一个消费者，但**软链解析那一半仍然有两个** ——
+ * 读（这里）和写（fileSave），所以它被单独提成了 resolveRemoteTarget。
+ *
+ * 它**只读**，不产生任何远端副作用。
  */
 export interface RemoteTextRead {
   /** 软链解析后的真身。与传入路径相同表示不是软链 */

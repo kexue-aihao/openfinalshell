@@ -344,13 +344,14 @@ function openSecrets(sealed: SealedSecrets, passphrase: string): Record<string, 
  * 导入文件可能来自别人，不能让任意结构直接 deepMerge 进设置文档。
  *
  * ⚠️ 顶层键这一层只管结构，管不到**段内**那些只许 main 自己写的键：sftp 只要
- * `typeof value === typeof defaults.sftp` 成立就整段原样进 patch，
- * externalEditorPath（最终是 spawn 的可执行文件）跟着就落库了。
- * 这条路的用途正是换机迁移 / 同事分享一份导出文件，所以它和渲染进程一样是**外来数据**：
- * 递给受害者一份"导出的配置"，其中的 externalEditorPath 指向下载目录里的 payload.exe，
- * 用户点一次导入，此后每次"编辑远端文件"都会执行它 —— 写入侧的 assertUsableEditor
- * 与 settings:set 的剥离两道门全被绕过。所以这里必须也过一遍 stripMainOnlyPaths
- * （那一份实现与分层说明见 ./settings.ts）。
+ * `typeof value === typeof defaults.sftp` 成立就整段原样进 patch。
+ * 这条路的用途正是换机迁移 / 同事分享一份导出文件，所以它和渲染进程一样是**外来数据**，
+ * 必须也过一遍 stripMainOnlyPaths（那份实现与分层说明见 ./settings.ts）。
+ *
+ * 这一条是踩出来的：上一版只有 settings:set 剥，这条路整条绕过去 —— 当时表里那个键
+ * （外部编辑器的 exe 路径）一旦被导入文件写进来，此后每次编辑都会执行它，全程静默。
+ * 那个字段现在随外部编辑器一起删掉了、表也空了，但**入口必须一直接着**：
+ * 下一次往表里加键的人不该再重新发现一遍这件事。
  *
  * 刻意不导入的三项：
  * - window：窗口尺寸与最大化状态是本机状态，跟着别人的机器走可能让窗口落到屏幕外
@@ -385,13 +386,14 @@ function sanitizeSettings(raw: Record<string, unknown>): {
 
   /**
    * 剥掉只许 main 自己写的键，并往 notes 里说人话 —— notes 是会显示给用户的：
-   * 静默丢掉的话，用户只会发现"导了配置，可编辑器怎么没跟过来"，然后无从查起。
-   * 现在表里只有 sftp.externalEditorPath 一条，所以这句话是具体的；
-   * 表里以后多了别的键，这句话要跟着改（护栏会盯着 stripped 非空这件事）。
+   * 静默丢掉的话，用户只会发现"导了配置，可某一项怎么没跟过来"，然后无从查起。
+   *
+   * 文案里**把剥掉的键名列出来**，不写死某一个字段：那张表目前是空的，
+   * 这段代码此刻不会执行；等它再有内容时，这句提示不需要有人记得回来改。
    */
   const guarded = stripMainOnlyPaths(patch as Partial<AppSettings>, getSettings())
   if (guarded.stripped.length > 0) {
-    notes.push('配置文件里的外部编辑器路径出于安全未导入，请在设置里重新选择')
+    notes.push(`出于安全，以下设置未随文件导入，请在设置里重新指定：${guarded.stripped.join('、')}`)
   }
   return { patch: guarded.patch, notes }
 }

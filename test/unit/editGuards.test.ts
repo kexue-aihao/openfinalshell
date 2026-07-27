@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectEolRegression, looksBinary, sha256Hex, tempRelPath } from '../../src/main/sftp/editGuards'
+import { looksBinary, sha256Hex } from '../../src/main/sftp/editGuards'
 
 /**
  * looksBinary 曾经只嗅前 8KB。窗口已经拆掉（改成全量扫描），但这个数字仍然留着当坐标：
@@ -7,7 +7,7 @@ import { detectEolRegression, looksBinary, sha256Hex, tempRelPath } from '../../
  */
 const OLD_SNIFF_BYTES = 8192
 
-/** 调用方 RemoteEditManager 的 MAX_EDIT_BYTES：能进这个函数的 buffer 最大就是这么大 */
+/** 调用方那侧的 MAX_EDIT_BYTES：能进这个函数的 buffer 最大就是这么大 */
 const MAX_EDIT_BYTES = 2 * 1024 * 1024
 
 describe('looksBinary', () => {
@@ -73,112 +73,6 @@ describe('looksBinary', () => {
   })
 })
 
-describe('tempRelPath', () => {
-  it('同一 (sessionId, remotePath) 必须得到同一结果（重复打开复用同一目录）', () => {
-    const a = tempRelPath('s1', '/etc/nginx/nginx.conf')
-    const b = tempRelPath('s1', '/etc/nginx/nginx.conf')
-    expect(a).toEqual(b)
-  })
-
-  it('同名不同路径的远端文件落到不同目录', () => {
-    const a = tempRelPath('s1', '/etc/nginx/nginx.conf')
-    const b = tempRelPath('s1', '/etc/nginx/sites/nginx.conf')
-    expect(a.file).toBe(b.file)
-    expect(a.dir).not.toBe(b.dir)
-  })
-
-  it('sessionId 不同则目录不同（同一路径在两台机器上互不覆盖）', () => {
-    expect(tempRelPath('s1', '/etc/hosts').dir).not.toBe(tempRelPath('s2', '/etc/hosts').dir)
-  })
-
-  it('目录名是 16 位小写十六进制，且 dir/file 都是单个路径片段', () => {
-    const { dir, file } = tempRelPath('s1', '/etc/nginx/nginx.conf')
-    expect(dir).toMatch(/^[0-9a-f]{16}$/)
-    expect(file).not.toMatch(/[/\\]/)
-  })
-
-  it('保留扩展名（编辑器靠它选语法高亮）', () => {
-    expect(tempRelPath('s1', '/var/www/app.min.js').file).toBe('app.min.js')
-    expect(tempRelPath('s1', '/root/deploy.sh').file).toBe('deploy.sh')
-    expect(tempRelPath('s1', '/root/README').file).toBe('README')
-  })
-
-  it('远端 basename 为空时回退成 file', () => {
-    expect(tempRelPath('s1', '/').file).toBe('file')
-    expect(tempRelPath('s1', '').file).toBe('file')
-  })
-
-  it('Windows 非法名清洗后仍然是合法文件名', () => {
-    const names = ['con', 'a:b', '报告.']
-    const cleaned = names.map((n) => tempRelPath('s1', `/tmp/${n}`).file)
-
-    if (process.platform !== 'win32') {
-      // 非 win32 上这些名字本来合法，原样落地
-      expect(cleaned).toEqual(names)
-      return
-    }
-    expect(cleaned).toEqual(['_con', 'a_b', '报告'])
-    // 不用 \u 转义写字符类，免得源文件里真被塞进控制字节
-    const illegalChars = '<>:"/\\|?*'
-    for (const name of cleaned) {
-      expect([...name].some((c) => illegalChars.includes(c))).toBe(false)
-      expect([...name].some((c) => c.charCodeAt(0) < 0x20)).toBe(false)
-      expect(name).not.toMatch(/[. ]$/)
-      expect(name).not.toMatch(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i)
-    }
-  })
-})
-
-describe('detectEolRegression', () => {
-  const lf = (lines: string[]): Buffer => Buffer.from(`${lines.join('\n')}\n`, 'utf8')
-  const crlf = (lines: string[]): Buffer => Buffer.from(`${lines.join('\r\n')}\r\n`, 'utf8')
-
-  it('纯 LF 存成全 CRLF（记事本的经典毁法）', () => {
-    expect(detectEolRegression(lf(['a', 'b', 'c']), crlf(['a', 'b', 'c']))).toBe('lfToCrlf')
-  })
-
-  it('反向：纯 CRLF 存成全 LF', () => {
-    expect(detectEolRegression(crlf(['a', 'b', 'c']), lf(['a', 'b', 'c']))).toBe('crlfToLf')
-  })
-
-  it('两边都是 LF 就是 none（改了内容也不报）', () => {
-    expect(detectEolRegression(lf(['a', 'b']), lf(['a', 'b', 'c', 'd']))).toBe('none')
-  })
-
-  it('两边都是 CRLF 也是 none', () => {
-    expect(detectEolRegression(crlf(['a', 'b']), crlf(['a', 'b', 'c']))).toBe('none')
-  })
-
-  it('本来就混行尾的文件不报（无从判断是不是回归）', () => {
-    const mixed = Buffer.from('a\nb\r\nc\nd\r\n', 'utf8')
-    expect(detectEolRegression(mixed, mixed)).toBe('none')
-    // 混行尾被统一成 CRLF 也不报：这本可能正是用户想要的
-    expect(detectEolRegression(mixed, crlf(['a', 'b', 'c', 'd']))).toBe('none')
-  })
-
-  // 30 行 LF + 1 行 CRLF：既用来验证"基本"不是"完全"，也用来验证个别 CRLF 不触发误报
-  const lines = Array.from({ length: 30 }, (_, i) => `line${i}`)
-  const almostLf = Buffer.concat([lf(lines), Buffer.from('tail\r\n', 'utf8')])
-  const allCrlf = crlf([...lines, 'tail'])
-
-  it('原文夹着零星 CRLF 仍然要报（阈值是"基本"而不是"完全"）', () => {
-    expect(detectEolRegression(almostLf, allCrlf)).toBe('lfToCrlf')
-  })
-
-  it('反向同样宽容：整体转 LF 时残留个别 CRLF 仍然要报', () => {
-    expect(detectEolRegression(allCrlf, almostLf)).toBe('crlfToLf')
-  })
-
-  it('存盘只夹进个别 CRLF 不算行尾回归（否则改一行就误报）', () => {
-    expect(detectEolRegression(lf([...lines, 'tail']), almostLf)).toBe('none')
-  })
-
-  it('没有换行的单行文件与空文件都是 none', () => {
-    expect(detectEolRegression(Buffer.from('no newline'), Buffer.from('no newline!'))).toBe('none')
-    expect(detectEolRegression(Buffer.alloc(0), crlf(['a', 'b']))).toBe('none')
-  })
-})
-
 describe('sha256Hex', () => {
   it('对上标准向量', () => {
     expect(sha256Hex(Buffer.from('abc', 'utf8'))).toBe(
@@ -193,12 +87,13 @@ describe('sha256Hex', () => {
     expect(sha256Hex(Buffer.from([0x00]))).not.toBe(sha256Hex(Buffer.from([0x01])))
   })
 
-  // 这一份是全项目唯一的 sha256 出口，两类用途都得对着它钉住：
-  // 签名 (buf: Buffer) => string 不能变（上层比对内容直接调它），
-  // tempRelPath 的目录名也必须真的由它派生 —— 否则"唯一一份"就只是注释里的说法。
-  it('tempRelPath 的目录名就是本函数摘要的前 16 位（导出签名与用途都钉住）', () => {
-    const dir: string = tempRelPath('s1', '/etc/nginx/nginx.conf').dir
-    const expected: string = sha256Hex(Buffer.from('s1\0/etc/nginx/nginx.conf', 'utf8')).slice(0, 16)
-    expect(dir).toBe(expected)
+  /**
+   * 这一份是全项目唯一的 sha256 出口，签名 (buf: Buffer) => string 不能变 ——
+   * 冲突检测与基线都直接调它（见 remoteTextWrite / editBaselines）。
+   * 原先这里还钉着「tempRelPath 的目录名由它派生」，那条随外部编辑器一起删掉了。
+   */
+  it('导出签名钉住：吃 Buffer、吐 64 位十六进制', () => {
+    const hex: string = sha256Hex(Buffer.from('x', 'utf8'))
+    expect(hex).toMatch(/^[0-9a-f]{64}$/)
   })
 })

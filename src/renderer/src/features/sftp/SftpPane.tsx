@@ -6,11 +6,9 @@ import {
   Dropdown,
   Empty,
   Input,
-  Popover,
   Spin,
   Table,
   Tooltip,
-  Typography,
   type MenuProps,
   type TableColumnsType
 } from 'antd'
@@ -21,36 +19,18 @@ import {
   Check,
   Eye,
   EyeOff,
-  FilePen,
-  FolderOpen,
   FolderPlus,
   RefreshCw,
-  Upload,
-  X
+  Upload
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type {
-  EditId,
-  EolWarning,
-  RemoteEditEntry,
-  RemoteEditState,
-  SessionId,
-  SftpEntry
-} from '@shared/types'
+import type { SessionId, SftpEntry } from '@shared/types'
 import { ofs } from '@/ipc/api'
-import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { useEditorStore } from '@/stores/useEditorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useTransferStore } from '@/stores/useTransferStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import { formatBytes, formatTimestamp } from '@/utils/format'
-import {
-  applyEditEvent,
-  createEditUiBook,
-  onEditState,
-  rememberEdits,
-  savedIsNew
-} from './editUiState'
 import { FileIcon } from './FileIcon'
 import { PermissionModal } from './PermissionModal'
 import styles from './SftpPane.module.css'
@@ -70,20 +50,6 @@ function firstLines(text: string, n: number): string {
 /** 兜底：任务卡住时别把订阅永远挂着，到点无条件刷一次 */
 const SETTLE_WATCH_TIMEOUT_MS = 120_000
 
-/**
- * "外部编辑器没能启动"那句 main 侧原话的开头。
- *
- * 为什么要在界面上认这句话：编辑器起不来时 main **刻意不改状态**（编辑本身没坏 ——
- * 文件已落地、watcher 还在盯着，用户手动打开那个文件照样能存回远端），只在原状态上
- * 挂一句 message。于是它混在普通 warning 里到达，而它需要的出口跟"写回失败"完全不同：
- * 用户要做的是去设置里把编辑器换掉，不是重试写回。
- * 前缀由 test/renderer/sftpEditWiring.test.ts 两侧对钉 —— main 侧改这句话会报红。
- */
-const EDITOR_LAUNCH_FAILED_MARKER = '外部编辑器没能启动'
-
-/** 编辑器起不来这条提示比一般的红字长（带上原因和本地路径），默认 3 秒读不完 */
-const EDITOR_FAILED_TOAST_SECONDS = 10
-
 /** 远端路径工具（renderer 侧只做展示用拼接，真正的规范化在 main） */
 function joinRemote(dir: string, name: string): string {
   return dir === '/' ? `/${name}` : `${dir}/${name}`
@@ -93,26 +59,6 @@ function parentOf(dir: string): string {
   const trimmed = dir.replace(/\/$/, '')
   const idx = trimmed.lastIndexOf('/')
   return idx <= 0 ? '/' : trimmed.slice(0, idx)
-}
-/** 提示语里只放文件名：远端路径常常长得撑爆一条 message */
-function baseNameOf(remotePath: string): string {
-  return remotePath.split('/').pop() || remotePath
-}
-
-/** 停下来等"是否仍然覆盖"的三个状态：交互形状同款，只有文案与危险程度不同 */
-type OverwriteVariant = 'conflict' | 'blocked' | 'shrink'
-
-/**
- * 哪些状态要弹覆盖确认框。
- *
- * 按**状态**分岔而不是按 editUiState 那个 askOverwrite 动作分岔：那个动作只带一个
- * blocked 布尔，而 shrink 是第三种形态（标题、说明、默认按钮全不一样）——
- * 把布尔撑成三态得连带改 editUiState 的所有调用方与用例，而账本那边真正需要的
- * 只是"这条不再等写回结果了"，那件事 onEditState 已经做了。
- */
-function overwriteVariantOf(state: RemoteEditState): OverwriteVariant | null {
-  if (state === 'conflict' || state === 'blocked' || state === 'shrink') return state
-  return null
 }
 
 export function SftpPane({ tab, active }: Props): React.JSX.Element {
@@ -132,9 +78,6 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [permTarget, setPermTarget] = useState<SftpEntry | null>(null)
   const [dragOver, setDragOver] = useState(false)
-  /** 正在编辑的远端文件（不含 closed）。空数组时工具栏那颗按钮整个不出现 */
-  const [edits, setEdits] = useState<RemoteEditEntry[]>([])
-  const [editListOpen, setEditListOpen] = useState(false)
   /** 拖到某个目录行上时的落点（null = 落到当前目录） */
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   /**
@@ -157,26 +100,6 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   /** 刷新时要用最新的 cwd，不能用入队那一刻闭包里的旧值 */
   const cwdRef = useRef('')
   cwdRef.current = cwd
-  /**
-   * 最新的编辑列表快照。shrink 的确认框要拿"远端现在有多大"跟本地这份比，
-   * 而 editState 事件刻意不带 size（见 EventMap 的说明），只能从这份列表里取。
-   */
-  const editsRef = useRef<RemoteEditEntry[]>([])
-  editsRef.current = edits
-  /** 正在等用户裁决的编辑：同一条编辑不许叠两个确认框 */
-  const decidingRef = useRef(new Set<EditId>())
-  /**
-   * 上次为某条编辑提示过的行尾告警。main 侧的 eolWarning 是"这次存盘的判定结果"，
-   * 每次存盘都会重发一遍同一个码 —— 编辑器一开自动保存就变成满屏黄条。
-   */
-  const eolNotifiedRef = useRef(new Map<EditId, EolWarning>())
-  /**
-   * "哪几条在等写回结果、哪几条已经报过已写回"的账本。逻辑全在 editUiState.ts ——
-   * 早先这里是一个裸 Set，conflict/blocked 分支忘了从里面删，于是"内容没变"的短路存盘
-   * 会弹出一条远端根本没发生的"已写回远端"。
-   */
-  const editBookRef = useRef(createEditUiBook())
-
   useEffect(
     () => () => {
       for (const off of settleWatchersRef.current) off()
@@ -247,6 +170,9 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   /**
    * 「打开」：目录一律进去，文件按调用方给的意图分岔 ——
    * 右键菜单的「打开」固定是编辑（下载在菜单里另有一条），双击则听 doubleClickAction。
+   *
+   * 'edit' 现在落到**内置编辑器**。上一版它是"下载到本机临时目录 + 起一个外部 exe +
+   * 挂文件监视"，那条路整条删掉了 —— 用户的意图没变，兑现方式换成了更安全的那个。
    */
   const openEntry = (entry: SftpEntry, fileAction: 'edit' | 'download'): void => {
     if (entry.badName) {
@@ -254,16 +180,16 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       return
     }
     if (isDir(entry)) void load(entry.path)
-    else if (fileAction === 'edit') void startEdit(entry)
+    else if (fileAction === 'edit') void openInEditor(entry)
     else void download([entry])
   }
 
   /**
-   * 在内置编辑器里打开（只读查看）。
+   * 在内置编辑器里打开。
    *
-   * 与 startEdit 的区别不只是"用哪个编辑器"：这条路远端**零副作用、本地零文件**，
-   * 失败就是失败、重试就是再读一次；那条路会下载到本机临时目录、起一个外部进程、
-   * 挂文件监视，并在整个编辑期间持有一个 8 态的状态机。
+   * 远端**零副作用、本机零文件**：读一次字节、解一次码，失败就是失败、重试就是再读一次。
+   * （上一版这里还得跟 startEdit 划清界限 —— 那条路会下载到本机临时目录、起一个外部
+   * 进程、挂文件监视、并在整个编辑期间持有一个 8 态状态机。它已经被删掉了。）
    *
    * 到上限（同时 10 个）时 open 会抛，这里把那句人话显示出来 —— 静默不响应
    * 会让用户以为是这个文件打不开。
@@ -304,334 +230,6 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     )
     message.success(t('sftp.enqueuedDownload', { count: items.length }))
   }
-
-  // ---------------- 远端编辑 ----------------
-
-  /**
-   * 拉到本机、起编辑器。这里只发起，后面的每一步（下完、存盘、冲突）都从
-   * sftp:editState 事件里来 —— 存盘是编辑器那边什么时候按 Ctrl+S 的事，
-   * invoke 的返回值只代表"文件已经躺在本机、编辑器已经被叫起来了"。
-   */
-  const startEdit = async (entry: SftpEntry): Promise<void> => {
-    if (!tab.sessionId) return
-    try {
-      const opened = await ofs.invoke('sftp:editOpen', { sessionId: tab.sessionId, path: entry.path })
-      message.success(t('sftp.editOpened', { name: entry.name }))
-      // 立刻进"正在编辑"列表：downloading 那条事件可能比 invoke 的回包先到，
-      // 而那时列表里还没有这一行，applyEditEvent 是不凭事件造行的
-      setEdits((prev) => (prev.some((e) => e.id === opened.id) ? prev : [...prev, opened]))
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  /** 拉一次全量：事件不带 size/savedAt，那两个数只能从 editList 来 */
-  const refreshEdits = useCallback(
-    async (sessionId: SessionId): Promise<RemoteEditEntry[]> => {
-      const list = await ofs.invoke('sftp:editList', { sessionId })
-      rememberEdits(editBookRef.current, list)
-      setEdits(list)
-      return list
-    },
-    []
-  )
-
-  /**
-   * 停下来让用户二选一的三态：conflict（远端被改）、blocked（服务器不支持原子替换）、
-   * shrink（本地内容急剧变短，像是编辑器只写了一半）。三者的共同点是"远端一个字节都没动、
-   * 本地内容还在"，出口也同一个：强制覆盖（editSave force）或停止编辑。
-   * **error 不在这里**——它走下面那个重试框，"仍然覆盖"会跳过冲突检测。
-   *
-   * Esc 和点遮罩都堵掉（keyboard/maskClosable 全关）：这个框的"取消"是**停止编辑**，
-   * 它会连本地那份改动一起删掉 —— 随手按一下 Esc 不该等于"我不要我改的东西了"。
-   * 想拖一会儿也行：框留在那儿，回编辑器再存一次盘，main 会重新判一遍。
-   */
-  const askEditOverwrite = useCallback(
-    (
-      editId: EditId,
-      remotePath: string,
-      variant: OverwriteVariant,
-      reason?: string,
-      /** 远端现在有多大（RemoteEditEntry.size）；只有 shrink 的说明用得上，取不到就说"未知" */
-      remoteSize?: number
-    ): void => {
-      if (decidingRef.current.has(editId)) return
-      decidingRef.current.add(editId)
-      // 三态的标题/说明逐条写字面量 t()：checkI18n 只认得字面量，查表会被它当成"未使用"
-      const title =
-        variant === 'shrink'
-          ? t('sftp.editShrinkTitle')
-          : variant === 'blocked'
-            ? t('sftp.editBlockedTitle')
-            : t('sftp.editConflictTitle')
-      const desc =
-        variant === 'shrink'
-          ? t('sftp.editShrinkDesc', {
-              remote:
-                remoteSize === undefined ? t('sftp.editSizeUnknown') : formatBytes(remoteSize)
-            })
-          : variant === 'blocked'
-            ? t('sftp.editBlockedDesc')
-            : t('sftp.editConflictDesc')
-      modal.confirm({
-        title,
-        width: 520,
-        keyboard: false,
-        maskClosable: false,
-        /**
-         * shrink 不给默认按钮，另两态沿用 antd 的默认焦点（确定键）。
-         * 这一态最可能的成因是编辑器还没写完就被读到了，"仍然覆盖"会把远端文件
-         * 截断成这半截内容 —— 顺手一个回车不该等于按下它。
-         */
-        autoFocusButton: variant === 'shrink' ? null : 'ok',
-        content: (
-          <div className={styles.editDecision}>
-            <Typography.Text code>{remotePath}</Typography.Text>
-            <span>{desc}</span>
-            {/* main 给的原话在 conflict 与 shrink 时都要补上：conflict 分"远端没了"和
-                "远端被改过"两种，shrink 那句里带着"从 X 字节变成 Y 字节"的实数 ——
-                都是用户裁决真正要看的东西。blocked 的原话与上面那段说的是同一件事，不重复。
-                （原话是 main 侧硬编码的中文，沿用既有约定，不进 t()） */}
-            {variant !== 'blocked' && reason && (
-              <Typography.Text type="secondary">{reason}</Typography.Text>
-            )}
-            {/* shrink 多给一条出路：这一态的正确动作往往是"两个按钮都先别点" */}
-            {variant === 'shrink' && <span>{t('sftp.editShrinkHint')}</span>}
-            <span>{t('sftp.editDecisionHint')}</span>
-          </div>
-        ),
-        okText: t('sftp.editOverwrite'),
-        okButtonProps: { danger: true },
-        cancelText: t('sftp.editStop'),
-        onOk: async () => {
-          decidingRef.current.delete(editId)
-          try {
-            // force 必须显式给 true：不带它 main 会拒（普通存盘是文件监视自己触发的）
-            await ofs.invoke('sftp:editSave', { editId, force: true })
-          } catch (err) {
-            /**
-             * pending 已经空了（另一次存盘先把内容写上去了）时 main 抛的是一句人话：
-             * "没有待保存的内容（可能已经写回成功了），请刷新后再看"。原样显示出来 ——
-             * 这条分支以前是 main 侧静默 return，用户看到的是"点了完全没反应"。
-             */
-            message.error(err instanceof Error ? err.message : String(err))
-            if (tab.sessionId) void refreshEdits(tab.sessionId).catch(() => {})
-          }
-        },
-        onCancel: () => {
-          decidingRef.current.delete(editId)
-          void ofs.invoke('sftp:editStop', { editId }).catch(() => {})
-        }
-      })
-    },
-    [message, modal, t, refreshEdits, tab.sessionId]
-  )
-
-  /**
-   * 写回失败（error）：**重试** 或 **停止编辑**。
-   *
-   * 为什么必须有这个框 —— 用户自己没法重试：localFileWatch 在回调前就把 knownSha 推进到了
-   * 这份内容，再按一次 Ctrl+S 存同样的字节时哈希相同、watcher 压根不会触发，
-   * 除非他真的再动一个字。所以 error 态在界面上过去是一条死路（只有一行红字）。
-   *
-   * 出口刻意**不是**"仍然覆盖"：最常见的 error 是重连中的"会话未就绪"这类瞬时故障，
-   * 一次网络抖动不该把用户推上无条件覆盖别人改动的路。重试走 sftp:editRetry，
-   * 冲突检测还在。
-   *
-   * Esc / 点遮罩同样堵掉，理由与上面那个框一致（取消 = 丢掉本地改动）。
-   */
-  const askEditRetry = useCallback(
-    (editId: EditId, remotePath: string, reason?: string): void => {
-      if (decidingRef.current.has(editId)) return
-      decidingRef.current.add(editId)
-      modal.confirm({
-        title: t('sftp.editErrorTitle'),
-        width: 520,
-        keyboard: false,
-        maskClosable: false,
-        content: (
-          <div className={styles.editDecision}>
-            <Typography.Text code>{remotePath}</Typography.Text>
-            {/* main 侧硬编码的中文原因，沿用既有约定不进 t() */}
-            {reason && <Typography.Text type="secondary">{reason}</Typography.Text>}
-            <span>{t('sftp.editErrorDesc')}</span>
-            <span>{t('sftp.editErrorHint')}</span>
-          </div>
-        ),
-        okText: t('common.retry'),
-        cancelText: t('sftp.editStop'),
-        onOk: async () => {
-          decidingRef.current.delete(editId)
-          try {
-            await ofs.invoke('sftp:editRetry', { editId })
-          } catch (err) {
-            // 同上：pending 空了 / 编辑已结束都是一句人话，别吞成"未知错误"
-            message.error(err instanceof Error ? err.message : String(err))
-            if (tab.sessionId) void refreshEdits(tab.sessionId).catch(() => {})
-          }
-        },
-        onCancel: () => {
-          decidingRef.current.delete(editId)
-          void ofs.invoke('sftp:editStop', { editId }).catch(() => {})
-        }
-      })
-    },
-    [message, modal, t, refreshEdits, tab.sessionId]
-  )
-
-  /** 列表里那颗"停止编辑"：它会连本地临时副本一起删掉，先问一句 */
-  const confirmStopEdit = (entry: RemoteEditEntry): void => {
-    modal.confirm({
-      title: t('sftp.editStopConfirm', { name: baseNameOf(entry.remotePath) }),
-      content: t('sftp.editStopConfirmDesc'),
-      okText: t('sftp.editStopShort'),
-      okButtonProps: { danger: true },
-      cancelText: t('common.cancel'),
-      onOk: async () => {
-        try {
-          await ofs.invoke('sftp:editStop', { editId: entry.id })
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : String(err))
-        }
-      }
-    })
-  }
-
-  /**
-   * 远端编辑的状态流。
-   *
-   * 订阅挂在本组件上有个代价要说清：用户收起 SFTP 分屏时 SftpPane 会被卸载
-   * （SessionView 只保留终端那一格），订阅跟着断 —— 那期间进 conflict 的编辑不会弹框，
-   * 会一直停在 main 侧等裁决。补救有两道：重新展开时下面那次 editList 会把停住的捞出来，
-   * 再存一次盘 main 也会把冲突重报一遍。要做到"永不错过"得把订阅提到 App 层，不属于本片。
-   */
-  useEffect(() => {
-    const sessionId = tab.sessionId
-    if (!sessionId || tab.state !== 'ready') {
-      /**
-       * 会话一断，main 侧的 stopBySession 会把这条会话上的编辑连本地临时副本一起收走，
-       * 而那几条 closed 事件正好落在"订阅已经断了"的窗口里 —— 列表只能自己清干净，
-       * 否则气泡里留着一排本地副本已经不存在的行（"在文件夹中显示"指向空目录）。
-       */
-      setEdits((prev) => (prev.length === 0 ? prev : []))
-      return
-    }
-
-    const notifyEol = (editId: EditId, name: string, eol?: EolWarning): void => {
-      if (!eol) {
-        eolNotifiedRef.current.delete(editId)
-        return
-      }
-      if (eolNotifiedRef.current.get(editId) === eol) return
-      eolNotifiedRef.current.set(editId, eol)
-      // 码→文案的映射写成两个字面量 t()，不走查表：checkI18n 只认得字面量
-      if (eol === 'lfToCrlf') message.warning(t('sftp.eolLfToCrlf', { name }))
-      else message.warning(t('sftp.eolCrlfToLf', { name }))
-    }
-
-    /**
-     * "已写回远端"只在**真的写过**时才说。判据是 savedAt 变新 —— 它由 main 在内容确实
-     * 落到远端之后才推进；事件本身不带这个字段（EventMap 那边刻意瘦身），所以得回头
-     * 拉一次 editList。代价是提示比事件晚一个往返，换来的是它不再说谎：
-     * main 的"内容没变"短路分支同样会发一条 editing，那一趟远端一个字节都没动。
-     */
-    const verifySaved = async (editId: EditId, name: string): Promise<void> => {
-      try {
-        const list = await ofs.invoke('sftp:editList', { sessionId })
-        const row = list.find((e) => e.id === editId)
-        const wrote = savedIsNew(editBookRef.current, editId, row?.savedAt)
-        rememberEdits(editBookRef.current, list)
-        setEdits(list)
-        if (wrote) message.success(t('sftp.editSaved', { name }))
-      } catch {
-        // 会话刚断开时这一发会失败。提示没了不算大事，别再叠一条红字
-      }
-    }
-
-    const off = ofs.on('sftp:editState', (p) => {
-      if (p.sessionId !== sessionId) return
-      const name = baseNameOf(p.remotePath)
-      setEdits((prev) => applyEditEvent(prev, p))
-
-      /**
-       * main 那句人话在事件里按状态落进 error 或 warning 两个槽之一（见 forwardEditState
-       * 的 halted 名单），这里两个都收：裁决要用的实数就在那句里（shrink 的"从 X 字节
-       * 变成 Y 字节"），它落在哪个槽不该决定用户能不能看见。
-       */
-      const note = p.error ?? p.warning
-      /** 编辑器起不来：main 不改状态、只挂这一句（理由见常量处），靠开头认出来 */
-      const editorDown = note !== undefined && note.startsWith(EDITOR_LAUNCH_FAILED_MARKER)
-      if (editorDown) {
-        /**
-         * 摆到界面上，并且引到设置里去换一个 —— 这条以前只进日志，用户看到的是
-         * startEdit 那条"已在编辑器中打开"，会以为设置里配的编辑器生效了，
-         * 然后对着一个没弹出来的窗口发愣。它不是"写回失败"，所以不走下面那个重试框。
-         */
-        message.error(t('sftp.editEditorFailed', { reason: note }), EDITOR_FAILED_TOAST_SECONDS)
-      }
-
-      const action = onEditState(editBookRef.current, p)
-      const variant = overwriteVariantOf(p.state)
-      if (variant) {
-        askEditOverwrite(
-          p.editId,
-          p.remotePath,
-          variant,
-          note,
-          editsRef.current.find((e) => e.id === p.editId)?.size
-        )
-      } else if (action.kind === 'askRetry') {
-        // 红字仍然发一条：确认框会被用户关掉，消息条留着可以回头看
-        message.error(t('sftp.editFailed', { name, reason: p.error ?? '' }))
-        askEditRetry(p.editId, p.remotePath, p.error)
-      } else if (action.kind === 'verifySaved') {
-        void verifySaved(p.editId, name)
-      } else if (action.kind === 'forget') {
-        eolNotifiedRef.current.delete(p.editId)
-        decidingRef.current.delete(p.editId)
-      }
-
-      // 新开的编辑（可能是本面板卸载期间开的）事件里没有 localPath/size，补一次全量
-      if (p.state === 'downloading') void refreshEdits(sessionId).catch(() => {})
-
-      if (p.state === 'editing') {
-        // main 说"存上了但有话说"（例如权限位没能恢复）。这是中文原话，
-        // 与 main 侧文案硬编码中文的既有约定一致，不进 t()。
-        // editorDown 那句已经在上面单独报过（还带了"去设置里换一个"），不重复弹
-        if (p.warning && !editorDown) message.warning(p.warning)
-        /**
-         * 行尾告警只在这里看：uploading 那条事件带的是上一次存盘的旧值
-         * （main 只在写回成功/blocked 时才重算），blocked 时还没真写，说了也白说。
-         * 存盘后目录里的 size/mtime 已经变了，但这里**故意不刷新目录列表** ——
-         * 编辑器每按一次 Ctrl+S 就重拉一次目录（还会清掉用户的勾选）不值当。
-         */
-        notifyEol(p.editId, name, p.eolWarning)
-      }
-    })
-
-    // 重新挂载时对齐一次：卸载期间停住的编辑还在 main 侧等裁决
-    void refreshEdits(sessionId)
-      .then((list) => {
-        for (const e of list) {
-          const variant = overwriteVariantOf(e.state)
-          // size 从行上直接给：这一发的 setEdits 还没落成一次渲染，editsRef 里是空的
-          if (variant) askEditOverwrite(e.id, e.remotePath, variant, e.message, e.size)
-          else if (e.state === 'error') askEditRetry(e.id, e.remotePath, e.message)
-        }
-      })
-      // 会话刚断开时这一发会失败，不值得为它打扰用户
-      .catch(() => {})
-
-    return off
-  }, [tab.sessionId, tab.state, askEditOverwrite, askEditRetry, refreshEdits, message, t])
-
-  /**
-   * 最后一条编辑结束时把气泡的开关也收回来。整块 UI 是 `edits.length > 0` 才渲染的，
-   * 开关留在 true 会让下一次开编辑时凭空弹出一个列表。
-   */
-  useEffect(() => {
-    if (edits.length === 0 && editListOpen) setEditListOpen(false)
-  }, [edits.length, editListOpen])
 
   /**
    * 等这次上传真正落地再刷新目录。
@@ -922,67 +520,6 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     })
   }
 
-  /** 状态→文案。逐条写字面量 t()：checkI18n 只认得字面量，查表会被它当成"未使用" */
-  const editStateLabel = (state: RemoteEditState): string => {
-    if (state === 'downloading') return t('sftp.editStateDownloading')
-    if (state === 'uploading') return t('sftp.editStateUploading')
-    if (state === 'conflict') return t('sftp.editStateConflict')
-    if (state === 'blocked') return t('sftp.editStateBlocked')
-    if (state === 'shrink') return t('sftp.editStateShrink')
-    if (state === 'error') return t('sftp.editStateError')
-    if (state === 'closed') return t('sftp.editStateClosed')
-    return t('sftp.editStateEditing')
-  }
-
-  /**
-   * 一行"正在编辑"。localPath 只用来喂 app:openPath（showItemInFolder）——
-   * 它是"出得去进不来"的展示值，没有任何 channel 接受本地路径回传。
-   */
-  const renderEditRow = (entry: RemoteEditEntry): React.JSX.Element => {
-    // 三个等裁决的态 + error 都算"停住了"，行上的元信息标红
-    const halted = overwriteVariantOf(entry.state) !== null || entry.state === 'error'
-    return (
-      <div key={entry.id} className={styles.editRow}>
-        <div className={styles.editRowMain}>
-          {/* 列表里只放文件名，完整远端路径挂 title —— 长路径会把气泡撑到屏幕外 */}
-          <span className={styles.editName} title={entry.remotePath}>
-            {baseNameOf(entry.remotePath)}
-          </span>
-          <span className={`${styles.editMeta} ${halted ? styles.editMetaBad : ''}`}>
-            {editStateLabel(entry.state)}
-            {' · '}
-            {formatBytes(entry.size)}
-            {' · '}
-            {entry.savedAt
-              ? t('sftp.editSavedAt', { time: formatTimestamp(entry.savedAt) })
-              : t('sftp.editNeverSaved')}
-          </span>
-        </div>
-        <Tooltip title={t('sftp.editShowInFolder')}>
-          <Button
-            size="small"
-            type="text"
-            icon={<FolderOpen size={13} strokeWidth={1.75} />}
-            onClick={() =>
-              void ofs
-                .invoke('app:openPath', entry.localPath)
-                .catch(() => message.error(t('sftp.editShowInFolderFailed')))
-            }
-          />
-        </Tooltip>
-        <Tooltip title={t('sftp.editStopShort')}>
-          <Button
-            size="small"
-            type="text"
-            danger
-            icon={<X size={13} strokeWidth={1.75} />}
-            onClick={() => confirmStopEdit(entry)}
-          />
-        </Tooltip>
-      </div>
-    )
-  }
-
   const columns: TableColumnsType<SftpEntry> = [
     {
       title: t('sftp.colName'),
@@ -1088,10 +625,12 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       { type: 'divider' },
       { key: 'open', label: t('sftp.open'), disabled: !usable },
       /*
-       * 内置编辑器（只读查看）。与上面那条「打开」并列而不是替掉它：
-       * 「打开」目前仍是"下载到本地临时目录 + 起外部编辑器 + 盯存盘"那条老路，
-       * 而这条是新的内置查看器。两条并存是**过渡态** —— 内置编辑器可写之后
-       * 外部编辑器那条整体删掉（连临时文件与文件监视一起），届时这里合成一条。
+       * 内置编辑器。与上面那条「打开」并列，但两者现在**通向同一个地方** ——
+       * 「打开」对文件就是在内置编辑器里打开（目录则是进去）。
+       *
+       * 那为什么还留两条？因为「打开」对目录和文件的含义不同，而这一条只对文件出现、
+       * 名字里写明了去处。曾经它们是两条不同的路（「打开」= 起外部编辑器），
+       * 那条已经删掉；合成一条得先决定目录该不该有"在编辑器里打开"，不属于本片。
        */
       { key: 'view', label: t('sftp.viewInEditor'), disabled: !viewable },
       { type: 'divider' },
@@ -1345,35 +884,6 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           />
         </Tooltip>
 
-        {/*
-         * "正在编辑"入口：有条目才出现。没有它的话 RemoteEditEntry 的
-         * localPath/size/savedAt 在渲染进程一个消费者都没有，而 editStop 唯一可达的
-         * 调用点是冲突框的取消键 —— 用户看不到自己开着几条编辑，20 个槽耗尽后无路可走。
-         *
-         * 用 TitlebarSafeTooltip 而不是裸 Tooltip：这排按钮所在的工具条会随分屏被拖到很靠上，
-         * 而 Windows 原生的最小化/最大化/关闭三个按钮永远盖在页面内容之上、对布局不可见，
-         * placement=top 的气泡会被它们切掉半截（v0.1.3 修过的坑，别复发）。
-         */}
-        {edits.length > 0 && (
-          <TitlebarSafeTooltip title={t('sftp.editingCount', { count: edits.length })}>
-            <Popover
-              open={editListOpen}
-              onOpenChange={(next) => {
-                setEditListOpen(next)
-                // 打开时对齐一次：size/savedAt 不在事件里，只能靠 editList
-                if (next && tab.sessionId) void refreshEdits(tab.sessionId).catch(() => {})
-              }}
-              trigger="click"
-              placement="bottomRight"
-              title={t('sftp.editingListTitle')}
-              content={<div className={styles.editList}>{edits.map(renderEditRow)}</div>}
-            >
-              <Button size="small" type="text" icon={<FilePen size={14} strokeWidth={1.75} />}>
-                {edits.length}
-              </Button>
-            </Popover>
-          </TitlebarSafeTooltip>
-        )}
       </div>
 
       {/* 空白处右键也要出菜单（FinalShell 同款）：onRow 只覆盖到行上，

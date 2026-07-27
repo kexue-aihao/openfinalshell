@@ -13,8 +13,8 @@ import { sshManager } from '../ssh/SshConnectionManager'
  *
  * **幂等**：远端不留任何东西、没有 id、没有本地临时文件，所以"重试"就是再调一次，
  * "换个编码看看"也是再调一次 —— 不需要任何状态迁移，也不可能出现"界面以为在看 A、
- * main 侧记着的是 B"。与 RemoteEditManager 那条（8 个态、本地明文副本、文件监视）
- * 的区别见 shared/types.ts 里 RemoteFileView 的说明。
+ * main 侧记着的是 B"。（曾经与之并存的那条有状态的路 —— 8 个态、本地明文副本、
+ * 文件监视 —— 已经删掉；为什么这个类型这么朴素，见 shared/types.ts 里 RemoteFileView。）
  *
  * ⚠️ 但它**不再是完全无状态的**（片 2 那会儿是）：保存要回答"远端在你打开它之后
  * 变过没有"，而"你打开它的那一刻"只能被记住。那份记忆放在 editBaselines.ts、

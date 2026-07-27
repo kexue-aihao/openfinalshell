@@ -20,7 +20,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
-import type { MonitorSnapshot, ProfileDraft, TransferTask } from '@shared/types'
+import type {
+  MonitorSnapshot,
+  ProfileDraft,
+  RemoteFileSaveResult,
+  RemoteSaveGates,
+  TransferTask
+} from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
@@ -29,7 +35,8 @@ import { promptBroker } from '../../src/main/ssh/PromptBroker'
 import { sshManager } from '../../src/main/ssh/SshConnectionManager'
 import { execOnce } from '../../src/main/ssh/ExecRunner'
 import { shQuote } from '../../src/main/ssh/shellQuote'
-import { createRemoteEditManager } from '../../src/main/sftp/RemoteEditManager'
+import { saveRemoteTextFile } from '../../src/main/sftp/fileSave'
+import { viewRemoteFile } from '../../src/main/sftp/fileView'
 import { fastDelete, fastDeletePreview } from '../../src/main/sftp/fastDelete'
 import { buildProbeScript, parseRemoteProbe } from '../../src/main/sftp/packTransfer'
 import { transferQueue } from '../../src/main/sftp/TransferQueue'
@@ -495,42 +502,76 @@ suite('监控连接数', () => {
 // 编辑远端文件
 // ---------------------------------------------------------------------------
 
-suite('编辑远端文件', () => {
-  /** 不启动任何编辑器：openEditor 是 no-op，测试自己扮演编辑器去写那个临时文件 */
-  const manager = createRemoteEditManager({ openEditor: async () => {} })
+suite('编辑远端文件（内置编辑器）', () => {
+  /**
+   * 三个开关全关：真服务器上 **posix-rename 是通告的**，所以正常保存必须一次就成。
+   * 这一条顺带把 fixture 上验不到的那件事验了 —— fixture 不通告任何 SFTP 扩展，
+   * 那边每次保存都必然落到 nonAtomic 分支。
+   */
+  const NO_GATES = {
+    overwriteRemoteChanges: false,
+    allowNonAtomic: false,
+    allowShrink: false
+  }
 
-  it('往返：改本地临时文件 → 远端内容变了，权限位保住', async () => {
+  /** 打开（记基线）→ 保存。编码/行尾/BOM 一律照打开时那份，不猜 */
+  const save = async (
+    path: string,
+    text: string,
+    gates: RemoteSaveGates = NO_GATES
+  ): Promise<RemoteFileSaveResult> => {
+    const view = await viewRemoteFile(sessionId, path)
+    return saveRemoteTextFile({
+      sessionId,
+      path,
+      text,
+      charset: view.charset,
+      eol: view.eol,
+      hasBom: view.hasBom,
+      gates
+    })
+  }
+
+  it('往返：原子替换真的走通了，权限位与属主都保住', async () => {
     const target = `${sandbox}/edit/nginx.conf`
     await sh(
       `mkdir -p '${sandbox}/edit' && printf 'server {\\n  listen 80;\\n}\\n' > '${target}' && chmod 640 '${target}'`
     )
     const modeBefore = (await sh(`stat -c '%a' '${target}'`)).trim()
+    const ownerBefore = (await sh(`stat -c '%U' '${target}'`)).trim()
     observed['edit.modeBefore'] = modeBefore
 
-    const entry = await manager.open(sessionId, target)
-    await waitFor(
-      () => manager.list().find((e) => e.id === entry.id)?.state === 'editing',
-      60_000,
-      '编辑就绪'
-    )
-    // 扮演编辑器：原地覆盖（最常见的存盘方式之一）
-    await fs.writeFile(entry.localPath, 'server {\n  listen 8080;\n}\n', 'utf8')
-    await waitFor(
-      () => (manager.list().find((e) => e.id === entry.id)?.savedAt ?? 0) > 0,
-      60_000,
-      '写回完成'
-    )
+    const r = await save(target, 'server {\n  listen 8080;\n}\n')
+    /**
+     * **必须是 saved 而不是 nonAtomic。** 这是这条用例最值的一句：
+     * 真服务器通告了 posix-rename，所以那次能力探测（真调一回 ext_openssh_rename）
+     * 必须成功。回 nonAtomic 就说明原子替换这条主路径在真机上从来没走通过 ——
+     * 而 fixture 永远抓不到这件事（它不通告扩展，那边本来就该 nonAtomic）。
+     */
+    expect(r.kind).toBe('saved')
 
-    expect((await sh(`cat '${target}'`))).toContain('listen 8080')
+    expect(await sh(`cat '${target}'`)).toContain('listen 8080')
     const modeAfter = (await sh(`stat -c '%a' '${target}'`)).trim()
     observed['edit.modeAfter'] = modeAfter
     expect(modeAfter).toBe(modeBefore)
+    /**
+     * 属主：原子 rename 换的是 inode，新 inode 的属主是登录用户。
+     * 以同一个用户身份改自己的文件时属主不变 —— 这条断言的是"没有意外的属主漂移"。
+     * （用 root 改别人的文件时属主**会**变，那是原子替换的固有代价，README 里写着。）
+     */
     const ownerAfter = (await sh(`stat -c '%U' '${target}'`)).trim()
     observed['edit.ownerAfter'] = ownerAfter
-    await manager.stop(entry.id)
+    expect(ownerAfter).toBe(ownerBefore)
+
+    // 同目录下不许留临时文件（.ofsedit-* / .ofsbak-*）—— 那都是明文副本
+    const leftover = (
+      await sh(`ls -a '${sandbox}/edit' | grep -c 'ofsedit\\|ofsbak' || true`)
+    ).trim()
+    observed['edit.leftoverTemp'] = leftover
+    expect(leftover).toBe('0')
   }, 180_000)
 
-  it('软链：编辑完仍然是软链，指向的真身内容变了', async () => {
+  it('软链：保存完仍然是软链，指向的真身内容变了', async () => {
     const real = `${sandbox}/edit/sites-available/site.conf`
     const link = `${sandbox}/edit/sites-enabled/site.conf`
     await sh(
@@ -541,51 +582,70 @@ suite('编辑远端文件', () => {
       ].join('\n')
     )
 
-    const entry = await manager.open(sessionId, link)
-    await waitFor(
-      () => manager.list().find((e) => e.id === entry.id)?.state === 'editing',
-      60_000,
-      '软链编辑就绪'
-    )
-    await fs.writeFile(entry.localPath, 'listen 9090;\n', 'utf8')
-    await waitFor(
-      () => (manager.list().find((e) => e.id === entry.id)?.savedAt ?? 0) > 0,
-      60_000,
-      '软链写回完成'
-    )
+    expect((await save(link, 'listen 9090;\n')).kind).toBe('saved')
 
     const kind = (await sh(`[ -L '${link}' ] && echo symlink || echo regular`)).trim()
     observed['edit.symlinkStaysSymlink'] = kind
     expect(kind).toBe('symlink')
     expect(await sh(`cat '${real}'`)).toContain('listen 9090')
-    await manager.stop(entry.id)
   }, 180_000)
 
-  it('远端被别人改过：拦下来等裁决，一个字节都不写', async () => {
+  it('远端被别人改过：拦下来一个字节都不写；确认后才盖上去', async () => {
     const target = `${sandbox}/edit/conflict.txt`
     await sh(`printf 'original\\n' > '${target}'`)
 
-    const entry = await manager.open(sessionId, target)
-    await waitFor(
-      () => manager.list().find((e) => e.id === entry.id)?.state === 'editing',
-      60_000,
-      '冲突用例就绪'
-    )
-    // 模拟"别人改了远端"
+    // 打开（记下基线），然后模拟"别人改了远端"
+    await viewRemoteFile(sessionId, target)
     await sh(`printf 'changed-by-someone-else\\n' > '${target}'`)
-    await fs.writeFile(entry.localPath, 'my-local-change\n', 'utf8')
 
-    await waitFor(
-      () => manager.list().find((e) => e.id === entry.id)?.state === 'conflict',
-      60_000,
-      '进入 conflict'
-    )
+    const args = {
+      sessionId,
+      path: target,
+      text: 'my-local-change\n',
+      charset: 'utf8' as const,
+      eol: 'lf' as const,
+      hasBom: false
+    }
+    const blocked = await saveRemoteTextFile({ ...args, gates: NO_GATES })
+    expect(blocked.kind).toBe('conflict')
     // 远端内容必须还是别人那一版
     expect(await sh(`cat '${target}'`)).toContain('changed-by-someone-else')
 
     // 用户点"仍然覆盖"
-    await manager.forceSave(entry.id)
+    const forced = await saveRemoteTextFile({
+      ...args,
+      gates: { ...NO_GATES, overwriteRemoteChanges: true }
+    })
+    expect(forced.kind).toBe('saved')
     expect(await sh(`cat '${target}'`)).toContain('my-local-change')
-    await manager.stop(entry.id)
+  }, 180_000)
+
+  it('真实 umask 下临时文件不会把权限放宽（644 存完还是 644）', async () => {
+    const target = `${sandbox}/edit/umask.conf`
+    await sh(`printf 'a=1\\n' > '${target}' && chmod 644 '${target}'`)
+    expect((await save(target, 'a=2\n')).kind).toBe('saved')
+    const mode = (await sh(`stat -c '%a' '${target}'`)).trim()
+    observed['edit.umaskMode'] = mode
+    expect(mode).toBe('644')
+  }, 180_000)
+
+  it('中文与 CRLF 都能原样往返（真机上的编码/行尾）', async () => {
+    const target = `${sandbox}/edit/cjk-crlf.conf`
+    // 故意造一个 CRLF + 中文的文件：printf 里的 \r 让行尾成为 CRLF
+    await sh(`printf '\\u76d1\\u542c = 80\\r\\n\\u5907\\u6ce8 = a\\r\\n' > '${target}'`)
+    const view = await viewRemoteFile(sessionId, target)
+    observed['edit.cjkEol'] = view.eol
+    observed['edit.cjkLossless'] = String(view.lossless)
+    expect(view.eol).toBe('crlf')
+    // 编辑器内部只见 LF
+    expect(view.text.includes('\r')).toBe(false)
+
+    expect((await save(target, view.text.replace('80', '443'))).kind).toBe('saved')
+    // 行尾还原成 CRLF，中文没被改写
+    const back = await sh(`od -c '${target}' | head -c 400`)
+    observed['edit.cjkBytes'] = back.replace(/\s+/g, ' ').slice(0, 120)
+    expect(await sh(`cat '${target}'`)).toContain('443')
+    const crlfCount = (await sh(`grep -c $'\\r' '${target}' || true`)).trim()
+    expect(crlfCount).toBe('2')
   }, 180_000)
 })

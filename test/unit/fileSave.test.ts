@@ -766,3 +766,189 @@ describe('基线不下发的源码护栏', () => {
     expect(window).not.toMatch(/\bbaseline\b|\bsha\b|\bmtime\b/)
   })
 })
+
+// ---------------- 从 remoteEditManager.test.ts 搬过来的那几条 ----------------
+
+/**
+ * 这一组原本长在 test/unit/remoteEditManager.test.ts 里。那个文件随外部编辑器一起删掉
+ * （片 4），但下面这些断言**与外部编辑器无关** —— 它们钉的是 remoteTextWrite.ts 里
+ * 那份共用的写回核心：排他创建、备份回滚、权限保留、大文件的冲突判据。
+ *
+ * 所以是**搬**而不是删。删掉它们等于在删一个功能的同时悄悄削掉另一个功能的护栏，
+ * 而这一片正是"两条路共用一份写回"的那份。
+ */
+describe('写回核心（原属外部编辑器那套用例）', () => {
+  it("临时文件是排他创建：全撞上就报错，绝不退化成 'w' 覆盖目标", async () => {
+    fake.putFile(P, 'old\n')
+    await viewRemoteFile(SID, P, 'utf8')
+    fake.refuseExclusive = true
+
+    await expect(
+      saveRemoteTextFile({
+        sessionId: SID,
+        path: P,
+        text: 'new\n',
+        charset: 'utf8',
+        eol: 'lf',
+        hasBom: false,
+        gates: ALL_GATES
+      })
+    ).rejects.toThrow(/临时文件/)
+
+    // 目标一个字节都没被动，也没有任何一次 'w' 落在临时名上
+    expect(fake.contentOf(P)).toBe('old\n')
+    expect(fake.paths()).toEqual([P])
+    const exclusive = fake.calls.filter((c) => /^open .*\.ofsedit-\w+ wx /.test(c))
+    expect(exclusive).toHaveLength(3)
+    // 每次换一个新随机名，不是死磕同一个（残留撞名时换名才有意义）
+    expect(new Set(exclusive).size).toBe(3)
+    expect(fake.calls.filter((c) => /^open .*\.ofsedit-\w+ w /.test(c))).toEqual([])
+  })
+
+  it('退化替换抛错时临时文件与备份都要回收，原内容靠备份回滚救回来', async () => {
+    fake.putFile(P, 'old\n', 0o600)
+    await viewRemoteFile(SID, P, 'utf8')
+    fake.posixRename = false
+    // 只让 tmp→target 那一步失败（只读挂载、权限）：备份回滚那一步照样能走
+    fake.renameFails = (from) => from.includes('.ofsedit-')
+
+    await expect(
+      saveRemoteTextFile({
+        sessionId: SID,
+        path: P,
+        text: 'new\n',
+        charset: 'utf8',
+        eol: 'lf',
+        hasBom: false,
+        gates: { ...NO_GATES, allowNonAtomic: true }
+      })
+    ).rejects.toThrow(/Permission denied/)
+
+    // 原内容回来了，且既没留临时文件也没留备份名 —— 那两个都是明文副本
+    expect(fake.contentOf(P)).toBe('old\n')
+    expect(fake.paths()).toEqual([P])
+  })
+
+  it('权限保留：临时文件 open 就带原 mode，写完再显式 chmod 一次', async () => {
+    const secret = '/etc/secret.conf'
+    fake.putFile(secret, 'k=v\n', 0o640)
+    await viewRemoteFile(SID, secret, 'utf8')
+
+    const r = await saveRemoteTextFile({
+      sessionId: SID,
+      path: secret,
+      text: 'k=v2\n',
+      charset: 'utf8',
+      eol: 'lf',
+      hasBom: false,
+      gates: NO_GATES
+    })
+    expect(r.kind).toBe('saved')
+
+    /*
+     * open 时就带 mode：不留"先 0666 建好、再 chmod 收紧"的全局可写窗口。
+     * flags 必须是 'wx' 而不是 'w' —— 临时名的格式是公开的，'w' 会顺着别人先摆好的
+     * 符号链接把特权内容写到他选的路径去（见 writeRemoteTemp 的注释）。
+     */
+    expect(fake.calls.some((c) => /^open \/etc\/\.secret\.conf\.ofsedit-\w+ wx 640$/.test(c))).toBe(
+      true
+    )
+    // 有些服务器对 open 的 mode 施加 umask，所以写完还要补一次
+    expect(fake.calls).toContain(`chmod ${secret} 640`)
+    expect(fake.modeOf(secret)).toBe(0o640)
+  })
+
+  it('大文件（>256KB）靠 size+mtime 判冲突：同长度但被改过也算变了', async () => {
+    const big = 'x'.repeat(300 * 1024)
+    fake.putFile(P, `${big}\n`)
+    await viewRemoteFile(SID, P, 'utf8')
+
+    // 长度一模一样，只有内容与 mtime 变了 —— 哈希那条路走不到，只能靠 mtime 抓
+    fake.thirdPartyWrite(P, `${'y'.repeat(300 * 1024)}\n`)
+    const r = await saveRemoteTextFile({
+      sessionId: SID,
+      path: P,
+      text: `${big}!\n`,
+      charset: 'utf8',
+      eol: 'lf',
+      hasBom: false,
+      gates: NO_GATES
+    })
+    expect(r.kind).toBe('conflict')
+    expect(fake.contentOf(P)).toBe(`${'y'.repeat(300 * 1024)}\n`)
+  })
+
+  it('大文件没被动过时照样存得回去', async () => {
+    const big = 'x'.repeat(300 * 1024)
+    fake.putFile(P, `${big}\n`)
+    await viewRemoteFile(SID, P, 'utf8')
+
+    const r = await saveRemoteTextFile({
+      sessionId: SID,
+      path: P,
+      text: `${big}b\n`,
+      charset: 'utf8',
+      eol: 'lf',
+      hasBom: false,
+      gates: NO_GATES
+    })
+    expect(r.kind).toBe('saved')
+    expect(fake.contentOf(P)).toBe(`${big}b\n`)
+  })
+
+  it('写回后那次 stat 打不通 → 下一次保存不许误判成冲突（mtime 未知不等于 mtime 是 0）', async () => {
+    const big = 'x'.repeat(300 * 1024)
+    fake.putFile(P, `${big}a\n`)
+    await viewRemoteFile(SID, P, 'utf8')
+
+    /*
+     * 只掐掉紧跟在 chmod 之后的那一次 stat —— 写回流水线的顺序是
+     * posix-rename → chmod → stat(刷新基线)，所以这个条件精确命中"写回后那次"。
+     * armed 让它只发生一次，否则第二趟的冲突检测 stat 也会被掐掉（那就变成另一个 bug 了）。
+     */
+    let armed = true
+    fake.statHook = (path) => {
+      if (!armed || path !== P) return false
+      if (!fake.calls[fake.calls.length - 1]?.startsWith('chmod ')) return false
+      armed = false
+      return true
+    }
+
+    const args = {
+      sessionId: SID,
+      path: P,
+      charset: 'utf8' as const,
+      eol: 'lf' as const,
+      hasBom: false,
+      gates: NO_GATES
+    }
+    expect((await saveRemoteTextFile({ ...args, text: `${big}b\n` })).kind).toBe('saved')
+    expect(armed, '那次 stat 没有真的被掐掉 —— 用例自己没生效').toBe(false)
+
+    // 远端没有任何第三方改动，第二次保存必须照样过；长度也故意保持一致，
+    // 逼判定只能落在 mtime 这一项上
+    expect((await saveRemoteTextFile({ ...args, text: `${big}c\n` })).kind).toBe('saved')
+    expect(fake.contentOf(P)).toBe(`${big}c\n`)
+  })
+
+  it('空文件第一次保存进得去；有了内容之后再清空才拦', async () => {
+    fake.putFile(P, '')
+    await viewRemoteFile(SID, P, 'utf8')
+
+    const args = {
+      sessionId: SID,
+      path: P,
+      charset: 'utf8' as const,
+      eol: 'lf' as const,
+      hasBom: false,
+      gates: NO_GATES
+    }
+    expect((await saveRemoteTextFile({ ...args, text: 'listen 80;\n' })).kind).toBe('saved')
+    expect(fake.contentOf(P)).toBe('listen 80;\n')
+
+    // 现在有内容了，再清空就该被闸门拦下
+    const s = await saveRemoteTextFile({ ...args, text: '' })
+    expect(s).toMatchObject({ kind: 'shrink', remoteBytes: 11, localBytes: 0 })
+    expect(fake.contentOf(P)).toBe('listen 80;\n')
+  })
+})

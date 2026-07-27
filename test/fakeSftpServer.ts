@@ -12,9 +12,9 @@ import type { SFTPWrapper } from 'ssh2'
  *   4. 未通告扩展时 ext_openssh_rename **同步 throw**（ssh2 1.17 的真实行为）。
  *
  * 放在 test/ 根下而不是某个测试文件里，理由和 test/sourceGuard.ts、test/posixSh.ts 一样：
- * 它有多个消费者。具体地说，remoteEditManager.test.ts（外部编辑器那条路）和
- * fileSave.test.ts（内置编辑器那条路）都靠它，而**前者迟早要随外部编辑器一起删掉** ——
- * 那天不该顺手带走后者的地基。
+ * 它当时有两个消费者 —— remoteEditManager.test.ts（外部编辑器那条路）与
+ * fileSave.test.ts（内置编辑器那条路），而**前者迟早要随外部编辑器一起删掉**，
+ * 那天不该顺手带走后者的地基。那一天已经到了：前者没了，这个文件与它的消费者都还在。
  */
 
 interface FakeNode {

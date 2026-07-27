@@ -5,11 +5,14 @@ import { read, stripComments } from '../sourceGuard'
 /**
  * 写回那一层的纯函数。
  *
- * `saveRemoteText` 本身的语义（冲突检测、原子替换、非原子替换的备份顺序、chmod 兜底）
- * 目前由 test/unit/remoteEditManager.test.ts 的 67 条用例覆盖 —— 那些工具函数就是从
- * 那条路上提出来的，两边跑的是同一份代码。等内置编辑器的保存接上来（片 3 剩下的部分），
- * 这里要补一套直接对着 saveRemoteText 的用例，因为届时 gates 的三个开关
- * （overwriteRemoteChanges / allowNonAtomic / allowShrink）会成为渲染进程可控输入。
+ * `saveRemoteText` 本身的语义（冲突检测、原子替换、非原子替换的备份顺序、chmod 兜底、
+ * 排他创建、大文件的 size+mtime 判据）由 **test/unit/fileSave.test.ts** 覆盖 ——
+ * 那边是从真实入口（sftp:fileSave 的实现）打进来的，而 gates 的三个开关在那条路上
+ * 正是渲染进程可控输入。
+ *
+ * 这些断言原先长在 test/unit/remoteEditManager.test.ts 里（外部编辑器那条路）。
+ * 那个文件随功能一起删掉时，与外部编辑器无关的那几条被**搬**进了 fileSave.test.ts 末尾，
+ * 没有跟着一起删 —— 删掉它们等于在删一个功能的同时悄悄削掉另一个功能的护栏。
  */
 
 describe('looksTruncated', () => {

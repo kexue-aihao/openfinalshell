@@ -211,64 +211,15 @@ export interface TransferEnqueueItem {
 
 export type ConflictPolicy = 'ask' | 'overwrite' | 'skip' | 'rename' | 'resume'
 
-// ---------- 远端文件编辑（本机编辑器改远端文件） ----------
-export type EditId = string
-
+// ---------- 内置编辑器 ----------
 /**
- * downloading → editing → uploading → editing（存盘成功回到 editing）。
- * 岔路四条 —— conflict（远端被改）、blocked（服务器不支持原子替换）、
- * shrink（本地内容急剧变短，像是编辑器只写了一半，message 里带"从 X 变成 Y"的实数）、
- * error（其它失败），共同点是"本地内容还在、远端一个字节没动"，都停下来等用户裁决。
- * 其中 shrink 与 blocked/conflict 的交互形状完全同款：出口是"仍然覆盖"（sftp:editSave
- * 带 force）或"停止编辑"，界面照 blocked 那条路做即可。
- * closed 只作为事件出现（停止编辑时发一次），editList 不会再返回它。
- */
-export type RemoteEditState =
-  | 'downloading'
-  | 'editing'
-  | 'uploading'
-  | 'conflict'
-  | 'blocked'
-  | 'shrink'
-  | 'error'
-  | 'closed'
-
-/** 存盘把整个文件的行尾翻了面：只警告，不替用户改回去 */
-export type EolWarning = 'lfToCrlf' | 'crlfToLf'
-
-/**
- * 一条正在编辑的远端文件。字段与 main 侧 RemoteEditManager 的 RemoteEditInfo 逐一对齐
- * （靠结构类型天然兼容，不让 shared 反向 import main）。
- */
-export interface RemoteEditEntry {
-  id: EditId
-  sessionId: SessionId
-  /** 用户点开的那条路径（软链就是软链本身）：列表 key 与界面展示都用它 */
-  remotePath: string
-  /** 真正读写的路径：软链解析后的真身，与 remotePath 相同表示不是软链 */
-  resolvedPath: string
-  /**
-   * 本地临时副本的绝对路径。**出得去、进不来** —— 界面可以显示它、可以"在文件夹中显示"，
-   * 但没有任何 channel 接受本地路径回传（理由见 main/ipc/sftp.ipc.ts 顶部那段）。
-   */
-  localPath: string
-  state: RemoteEditState
-  /** main 侧给的中文说明：失败原因 / blocked 原因 / 存上了但权限没恢复的告警 */
-  message?: string
-  eolWarning?: EolWarning
-  /** 最近一次已知的内容长度 */
-  size: number
-  savedAt?: number
-  createdAt: number
-}
-
-/**
- * 内置编辑器**只读**打开一个远端文本文件的结果。
+ * 打开一个远端文本文件的结果：读一次字节、解一次码，就这些。
  *
- * 与 RemoteEditEntry 刻意是两套东西，别合并：那条是"一次有状态的编辑会话"
- * （有 id、有状态机、有本地临时文件、会话结束要清场），这条是**一次无状态的读取**——
- * 没有 id、没有远端副作用、失败就是失败，重试就是再读一遍。
- * 合成一个的代价是：只读查看也要走那个 8 态状态机，而它每一态都是为"写回"存在的。
+ * **没有 id、没有状态机、远端零副作用** —— 失败就是失败，重试就是再读一遍。
+ * 上一版这里对照的是外部编辑器那条路的 RemoteEditEntry（8 个态、本地明文临时副本、
+ * 文件监视），那整条路已经删掉。留这句话是因为它解释了为什么这个类型这么朴素：
+ * 那 8 个态每一个都是为"本地那份文件被别人改了之后怎么写回去"存在的，
+ * 而内容一直在渲染进程手里时，一个都不需要。
  */
 export interface RemoteFileView {
   /** 用户点的那条路径（软链就是软链本身） */
@@ -280,7 +231,7 @@ export interface RemoteFileView {
   charset: RemoteCharset
   eol: 'lf' | 'crlf'
   hasBom: boolean
-  /** 原文件混用 LF 与 CRLF：可编辑之后保存会把行尾统一掉，届时要先告诉用户 */
+  /** 原文件混用 LF 与 CRLF：**保存会把行尾统一掉**，所以界面上要先告诉用户 */
   mixedEol: boolean
   /**
    * 这份字节能不能无损地"解码→编码"回原样。false = 用当前编码解不干净（非法字节序列）。
@@ -289,7 +240,7 @@ export interface RemoteFileView {
   lossless: boolean
   /** 远端文件的字节数（不是 text.length） */
   bytes: number
-  /** 远端权限位。只读查看用来显示"这个文件你未必写得动" */
+  /** 远端权限位。界面上显示它，让用户在改之前就知道"这个文件你未必写得动" */
   mode: number
 }
 
@@ -464,16 +415,16 @@ export interface AppSettings {
     maxConcurrentGlobal: number
     conflictPolicy: ConflictPolicy
     showHiddenFiles: boolean
+    /**
+     * 双击一个文件做什么。`'open'` = 在**内置编辑器**里打开。
+     *
+     * 上一版 `'open'` 指的是"用外部编辑器打开"（下载到本机临时目录、起一个 exe、
+     * 挂文件监视盯存盘）。那条路整条删掉了，语义搬到内置编辑器上 ——
+     * 用户的选择不变，兑现方式换了，而且是更安全的那个：远端零副作用、本机零文件。
+     */
     doubleClickAction: 'download' | 'open'
     /** 会话连上后自动展开下方 SFTP 分屏 */
     autoOpenOnConnect: boolean
-    /**
-     * 编辑远端文件时调起的编辑器 exe 绝对路径；空串 = 交给系统默认打开方式。
-     * 只收一个 exe 路径、**不收参数模板** —— main 侧 spawn 时 shell: false + 参数数组，
-     * 从根上不给命令注入留缝（见 RemoteEditManager.launchEditor）。
-     * 字段名与那边的宽松取值一字不差，改名会让编辑器静默退化成系统默认打开。
-     */
-    externalEditorPath: string
     /**
      * 右键菜单里是否提供「快速删除（rm 命令）」。默认开。
      * 关掉只是隐藏菜单项 —— main 侧的守卫（绝对路径、无 . / ..、非空路径段至少两级）

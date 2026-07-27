@@ -144,54 +144,6 @@ export default {
       dropUnsupported: 'Could not read dropped file paths — use the upload button',
       dropNoSession: 'Session is not ready yet — cannot upload',
       badNameWarning: 'This filename is not valid UTF-8 and cannot be operated on',
-      editOpened: 'Opened in your editor: {{name}} (saving writes it back to the server)',
-      editSaved: 'Written back to the server: {{name}}',
-      editFailed: 'Could not save “{{name}}”: {{reason}}',
-      editConflictTitle: 'The remote file changed while you were editing',
-      editConflictDesc:
-        'Your copy is based on the version from when you opened it — overwriting drops whatever changed on the server since.',
-      editBlockedTitle: 'The server cannot replace the file atomically',
-      editBlockedDesc:
-        'This server has no posix-rename extension, so the only way forward is: rename the original aside as a backup, then rename the new content into place. Between those two renames the remote file briefly does not exist, and anything reading it right then (nginx -s reload, for instance) may read an empty file or fail outright. If the connection drops inside that window, the original content is left next to it under a .ofsbak- name.',
-      editShrinkTitle: 'Your local copy is far smaller than the remote file — hold on',
-      editShrinkDesc:
-        'The remote file was {{remote}}; what just landed locally is a lot shorter. The usual cause is not that you deleted the content — it is an editor that rewrites the file in place in chunks: it truncates the file, writes it back in pieces, and we read it right after the first piece landed. Overwriting now truncates the remote file to that half, so anything reading it right then (nginx -s reload, say) gets a broken config, possibly an empty one.',
-      editShrinkHint:
-        'If you are not sure, press neither: go back to your editor, make sure the content is complete and save again — that save runs the same check afresh. Once it has been written back, “Stop editing” here loses nothing.',
-      editSizeUnknown: 'unknown size',
-      editEditorFailed:
-        '{{reason}} Pick another editor under Settings → Transfers & monitor, or clear it and use the system default instead.',
-      editDecisionHint:
-        '“Overwrite anyway” replaces the remote content with your local copy. “Stop editing” discards your local changes and leaves the server untouched.',
-      editOverwrite: 'Overwrite anyway',
-      editStop: 'Stop editing (discard local changes)',
-      editErrorTitle: 'Could not write back to the server',
-      editErrorDesc:
-        'Usually a reconnecting session, a full disk, or missing permissions — nothing was written to the server, and your changes are still intact in the local temp file.',
-      editErrorHint:
-        '“Retry” checks for remote changes again before writing, so it will not overwrite what someone else changed. “Stop editing” deletes the temp file along with the changes in it — that file is the only copy.',
-      editingCount: 'Editing {{count}} remote file(s)',
-      editingListTitle: 'Remote files being edited',
-      editStateDownloading: 'Downloading',
-      editStateEditing: 'Editing',
-      editStateUploading: 'Writing back',
-      editStateConflict: 'Remote changed — needs a decision',
-      editStateBlocked: 'No atomic replace — needs a decision',
-      editStateShrink: 'Suspiciously short — needs a decision',
-      editStateError: 'Write-back failed',
-      editStateClosed: 'Finished',
-      editSavedAt: 'saved {{time}}',
-      editNeverSaved: 'never saved',
-      editShowInFolder: 'Show the local copy in its folder',
-      editShowInFolderFailed: 'Could not open the folder holding the local copy',
-      editStopShort: 'Stop editing',
-      editStopConfirm: 'Stop editing “{{name}}”?',
-      editStopConfirmDesc:
-        'The local temp copy is deleted along with any changes not yet written back. The remote file is left untouched.',
-      eolLfToCrlf:
-        '{{name}}: line endings across the whole file turned into CRLF (most likely your editor) — written back as-is',
-      eolCrlfToLf:
-        '{{name}}: line endings across the whole file turned into LF (most likely your editor) — written back as-is',
       viewInEditor: 'View in built-in editor'
     },
     editor: {
@@ -476,12 +428,6 @@ export default {
       doubleClickActionHint: 'The context menu’s “Open” always edits; this only covers double-click',
       doubleClickDownload: 'Downloads it',
       doubleClickOpen: 'Opens it in the editor',
-      externalEditorPath: 'Editor for remote files',
-      externalEditorPathHint:
-        'Point this at an editor: .conf and extension-less files usually have no association on Windows, so leaving it empty means the “Open with” dialog every time. Only .exe is accepted, and it has to be chosen here — a hand-typed path will not take effect.',
-      externalEditorNone: 'Open with the system default',
-      externalEditorClear: 'Clear',
-      externalEditorPicked: 'Editor set to {{path}}',
       autoOpenOnConnect: 'Open file manager on connect',
       autoOpenOnConnectHint:
         'Expands the SFTP split pane for new sessions. Whether the monitor opens is set per connection',

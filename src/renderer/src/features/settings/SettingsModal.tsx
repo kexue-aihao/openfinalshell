@@ -99,42 +99,7 @@ export function SettingsModal(): React.JSX.Element {
     if (dir) setSftp({ downloadDir: dir })
   }
 
-  /**
-   * 编辑器路径**不能是自由文本输入**。
-   *
-   * 这个字段最终会被 spawn 成一个可执行文件，所以 main 侧把它列进了 MAIN_ONLY_SETTINGS_PATHS：
-   * settings:set 会把渲染进程递上来的 externalEditorPath 直接剥掉。留着输入框的后果不是
-   * "不安全"而是"骗人"—— 用户填完看着是填上了，实际一个字都没进设置。
-   *
-   * 所以这里只剩三件事：只读回显、开 main 侧的文件对话框、清空。对话框、路径校验
-   * （必须绝对路径、Windows 上必须 .exe、必须是个存在的文件）、写设置全在 main 侧，
-   * 渲染进程从头到尾只拿回一个字符串。
-   */
-  const pickExternalEditor = async (): Promise<void> => {
-    try {
-      const exe = await ofs.invoke('sftp:pickEditor')
-      if (!exe) return // 用户取消了对话框
-      /**
-       * 这里**不**调 patch() 回写。main 选完就自己写进设置并广播了 settings:changed，
-       * store 跟着刷；再乐观合并一次只会在"main 校验不过"时显示一个并不存在的值。
-       */
-      message.success(t('settings.externalEditorPicked', { path: exe }))
-    } catch (err) {
-      // 校验不过时 main 抛的是一句人话（"Windows 上只接受 .exe…"），原样显示
-      message.error(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  /** 清空 = 回到"系统默认打开方式"，不是"禁用编辑" */
-  const clearExternalEditor = async (): Promise<void> => {
-    try {
-      await ofs.invoke('sftp:clearEditor')
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  return (
+    return (
     <Modal
       open={open}
       title={t('activity.settings')}
@@ -362,30 +327,6 @@ export function SettingsModal(): React.JSX.Element {
                     { label: t('settings.doubleClickOpen'), value: 'open' }
                   ]}
                 />
-              </Row>
-              <Row label={t('settings.externalEditorPath')} hint={t('settings.externalEditorPathHint')}>
-                {/* 只读回显 + 浏览 + 清除。为什么不是输入框：见 pickExternalEditor 上方那段 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 380 }}>
-                  <Typography.Text
-                    ellipsis
-                    // 空值时用 secondary 灰掉："系统默认打开"是状态描述，不是一个路径
-                    type={settings.sftp.externalEditorPath ? undefined : 'secondary'}
-                    title={settings.sftp.externalEditorPath || undefined}
-                    style={{ flex: 1, minWidth: 0, fontSize: 12 }}
-                  >
-                    {settings.sftp.externalEditorPath || t('settings.externalEditorNone')}
-                  </Typography.Text>
-                  <Button size="small" onClick={() => void pickExternalEditor()}>
-                    {t('conn.browse')}
-                  </Button>
-                  <Button
-                    size="small"
-                    disabled={!settings.sftp.externalEditorPath}
-                    onClick={() => void clearExternalEditor()}
-                  >
-                    {t('settings.externalEditorClear')}
-                  </Button>
-                </div>
               </Row>
               <Row
                 label={t('settings.autoOpenOnConnect')}
