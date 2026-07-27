@@ -33,6 +33,16 @@ export const MONITOR_DF_EVERY_N_TICKS = 5
 /** 帧超时：写入批次后超过该时长未见 END 即丢帧 */
 export const MONITOR_FRAME_TIMEOUT_MS = 5000
 
+/**
+ * 编辑远端文件的单文件上限。超过这个尺寸的"配置文件"基本都是日志或数据文件，
+ * 编辑器打开也是灾难（而且要经 IPC 把全文搬进渲染进程）。
+ *
+ * 放在 shared 而不是留在 RemoteEditManager 里：内置编辑器之后，渲染进程也要知道这个数
+ * （在打开之前就能给出"这个文件太大"的说明，而不是发一趟 IPC 再被拒），
+ * 而两处各写一个 2MB 迟早会漂。
+ */
+export const MAX_EDIT_BYTES = 2 * 1024 * 1024
+
 /** 一次性远端命令（ExecRunner） */
 export const EXEC_DEFAULT_TIMEOUT_MS = 30_000
 /** stdout 上限，超过即截断（保留头部）。仍能拿到退出码，见 ExecRunner 里的尾窗 */

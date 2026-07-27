@@ -4,6 +4,7 @@ import { promises as fs, mkdtempSync, realpathSync, writeFileSync } from 'node:f
 import { basename, join } from 'node:path'
 import { app, shell } from 'electron'
 import type { SFTPWrapper, Stats } from 'ssh2'
+import { MAX_EDIT_BYTES } from '@shared/constants'
 import type { SessionId } from '@shared/types'
 import { detectEolRegression, looksBinary, tempRelPath } from './editGuards'
 import { typeFromMode } from './entryParse'
@@ -37,9 +38,6 @@ const log = scopedLogger('edit')
  * 全模块的路径纪律：本地路径 100% 在这里从 (sessionId, remotePath) 派生，对外的任何接口
  * 都不接受本地路径。这一条是 shell.openPath / spawn 能安全使用的唯一理由（见 launchEditor）。
  */
-
-/** 单文件上限 2MB：超过这个尺寸的"配置文件"基本都是日志或数据文件，编辑器打开也是灾难 */
-const MAX_EDIT_BYTES = 2 * 1024 * 1024
 
 /** 同时编辑上限：每条编辑常驻一个 fs.watch + 一个 StatWatcher，20 条已经远超正常用法 */
 const MAX_CONCURRENT_EDITS = 20

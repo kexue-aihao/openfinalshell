@@ -20,7 +20,8 @@
     "package": "electron-vite build && electron-builder --win",
     "package:dir": "electron-vite build && electron-builder --win --dir",
     "smoke:packaged": "node test/fixtures/packagedSmoke.mjs",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "check:bundle": "node scripts/checkBundleBudget.mjs"
   },
   "dependencies": {
     "electron-log": "^5.4.4",

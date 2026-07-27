@@ -54,6 +54,7 @@ npm run dev
 | `npm run dev` | 开发模式（主进程改动自动重启） |
 | `npm run build` | 三层生产构建 |
 | `npm run typecheck` | 主进程 + 渲染层类型检查 |
+| `npm run check:bundle` | 渲染进程产物的字节预算（需先 `npm run build`，见下） |
 | `npm test` | 单元测试 + 集成测试（自动起本地测试 SSH 服务器） |
 | `npm run icon` | 重新生成应用图标 |
 | `npm run package` | 打 Windows 安装包（NSIS + portable） |
@@ -73,6 +74,21 @@ node test/fixtures/testSshServer.mjs 2222
 一次性命令（`env … sh -c <脚本>`）这条路上，fixture **只当镜子**：把收到的命令原样回显，
 好让测试断言"那段引号经过 SSH 协议之后一个字节都没变"。它没有真 shell、也没有真文件系统，
 所以 `rm -rf` 的**语义**在它上面无法被验证 —— 那些归真机验收。
+
+### 渲染进程的字节预算
+
+渲染进程的库（react / antd / echarts / @xterm）全是 **devDependency**，由 Vite 打进一个
+bundle —— 这条路不碰"3 个运行时依赖 / 零 native 依赖"那条红线（`app.asar` 里的
+`node_modules` 只有 8 个包：3 个运行时依赖 + ssh2 的 5 个传递依赖），代价是**没人看得见它在长**。
+`npm run check:bundle` 把它变成一个会报红的事实：
+
+- JS ≤ 3.3 MB、gzip ≤ 950 KB、**CSS ≤ 80 KB**
+- 三条反空转断言比阈值本身更重要：产物必须真的找到且 > 1 MB（路径写错时"0 ≤ 阈值"永远成立）；
+  JS 必须真的被 minify 过（按"字节/行"判）；CSS 那条卡得很紧是**故意的**——
+  它同时是"编辑器不引入自带样式表"的护栏（Monaco 光 `editor.main.css` 就 412 KB）
+
+顺带修掉一处：electron-vite 的 renderer 预设把 `minify` 写死成 `false`。
+覆盖它之后实测 4,560,893 → 2,240,967 字节，`app.asar` 从 5,990,521 → 3,663,301。
 
 ### shell 命令的转义（`src/main/ssh/shellQuote.ts`）
 
