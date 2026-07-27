@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { promises as fs, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { app, shell } from 'electron'
@@ -8,17 +8,20 @@ import { MAX_EDIT_BYTES } from '@shared/constants'
 import type { SessionId } from '@shared/types'
 import { detectEolRegression, looksBinary, tempRelPath } from './editGuards'
 import { sha256Hex, watchLocalFile, type WatchHandle } from './localFileWatch'
-import { longPath, remoteBasename, remoteDirname, remoteJoin, toRemotePath } from './remotePath'
+import { longPath, toRemotePath } from './remotePath'
 import { readRemoteTextFile } from './remoteTextFile'
+/**
+ * 原子替换、临时文件排他创建、非原子替换的备份顺序、截断闸门 —— 全在 remoteTextWrite.ts。
+ * 内置编辑器的保存走的是同一份（saveRemoteText）。这些判断每一条都是踩出来的，
+ * 两份实现漂开就会有一边写坏文件，所以这里只 import、不许再有第二份。
+ */
 import {
-  readRemoteFile,
-  sftpChmod,
-  sftpPosixRename,
-  sftpRename,
-  sftpStat,
-  sftpUnlink,
-  writeRemoteFile
-} from './sftpLowLevel'
+  degradedReplace,
+  HASH_COMPARE_MAX_BYTES,
+  looksTruncated,
+  writeRemoteTemp
+} from './remoteTextWrite'
+import { readRemoteFile, sftpChmod, sftpPosixRename, sftpStat, sftpUnlink } from './sftpLowLevel'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('edit')
@@ -40,13 +43,6 @@ const log = scopedLogger('edit')
 /** 同时编辑上限：每条编辑常驻一个 fs.watch + 一个 StatWatcher，20 条已经远超正常用法 */
 const MAX_CONCURRENT_EDITS = 20
 
-/**
- * 冲突检测的分水岭：256KB 以内比内容哈希（顺带能做行尾回归判定），以上只比 size+mtime。
- * 为什么不一律比哈希：每次 Ctrl+S 都把远端整个文件重下一遍只为了算个哈希，
- * 在 2MB 上就是一次几百毫秒的白等；而"编辑期间被第三方改动"这种事，size+mtime 已经能抓住
- * 绝大多数（真要构造出 size 与 mtime 都不变的改动，得刻意回写同长度内容再 touch 回去）。
- */
-const HASH_COMPARE_MAX_BYTES = 256 * 1024
 
 /**
  * 临时根的名字前缀。**必须配 mkdtemp 用，不许换回固定名**。
@@ -72,32 +68,6 @@ const TEMP_ROOT_PREFIX = 'ofs-edit-'
  */
 const TEMP_OWNER_FILE = '.ofs-owner'
 
-/**
- * 截断闸门的两条判据（"新内容 0 字节"与"baseline ≥ 4KB 且缩到 1/4 以下"）。
- *
- * 为什么是这两条、而不是一个笼统的比例：
- * - **0 字节那一档与文件大小无关**，所以它不设尺寸门槛：40 字节的 .env 被截成 0
- *   和 20KB 的 nginx.conf 被截成 0 一样致命 —— 正在 reload 的服务读到的是空配置。
- * - **比例判据必须配一个尺寸门槛**：几百字节的 .env / authorized_keys 里删掉一多半
- *   是日常编辑，在那个尺度上任何比例都是误报；4KB 往上的配置文件（nginx.conf、
- *   sshd_config、docker-compose.yml 这一档起步就是几 KB）一次存盘掉到 1/4 以下，
- *   只剩"编辑器只写了一半"和"手滑全选删"两种可能，两种都该先问一句。
- * - 1/4 而不是 1/2：1/2 会把"把一个长配置精简掉一多半"这种真实操作也拦下来。
- */
-const SHRINK_BASELINE_FLOOR_BYTES = 4 * 1024
-const SHRINK_RATIO_DIVISOR = 4
-
-/** 远端临时名/备份名的后缀长度受此约束：绝大多数文件系统单段上限 255 字节 */
-const MAX_REMOTE_NAME_BYTES = 255
-
-/**
- * 远端临时名的排他创建尝试次数。撞名的来源只有两种：上次进程崩在写临时文件之后留下的残留、
- * 或者有人在猜名字。换一个新的 8hex 后缀重试比"unlink 掉再用 'w' 建"安全得多 ——
- * 后者等于把 EXCL 挡住的那个竞态窗口重新开出来，还可能删掉别人的文件。
- * 3 次之后放弃并报错：SFTP v3 分不出"撞名"和"目录不可写"（一律 SSH_FX_FAILURE），
- * 真是权限问题时多试两次也只是两个 RTT。
- */
-const REMOTE_TEMP_ATTEMPTS = 3
 
 export type EditId = string
 
@@ -802,25 +772,6 @@ async function writeExclusive(file: string, buf: Buffer): Promise<void> {
   }
 }
 
-// ---------------- 截断判据 ----------------
-
-/**
- * 这次存盘像不像"只写了一半"。判据两条与为什么见 SHRINK_BASELINE_FLOOR_BYTES。
- *
- * baseline 为 0 一律放行：新建出来的空文件本来就没有内容可丢，误拦掉的话
- * "新建文件 → 写内容 → 保存"这条最常见的路第一次存盘就要用户点一次确认。
- * 拿 baseline.size（远端当前内容的长度）比，不是拿本地上一次的长度 ——
- * 闸门要挡的是"远端那份东西会不会被一份半截内容替换掉"。
- */
-function looksTruncated(baselineSize: number, nextSize: number): boolean {
-  if (baselineSize === 0) return false
-  if (nextSize === 0) return true
-  // 乘法而不是除法：整数比较，不必操心 0 除与浮点误差
-  return (
-    baselineSize >= SHRINK_BASELINE_FLOOR_BYTES && nextSize * SHRINK_RATIO_DIVISOR < baselineSize
-  )
-}
-
 // ---------------- 临时根的归属 ----------------
 
 /**
@@ -863,85 +814,6 @@ async function ownerAlive(dir: string): Promise<boolean> {
   } catch (err) {
     return (err as NodeJS.ErrnoException).code === 'EPERM'
   }
-}
-
-// ---------------- 远端命名 ----------------
-
-/**
- * 把内容写到目标同目录下的隐藏临时名，**排他创建**，撞名就换一个新随机名重试。
- *
- * 'wx'（CREAT|EXCL）这一条是安全要求，不是洁癖：临时名的格式是公开的、目录常常是别人
- * 也能写的（/tmp、/var/www、共享的配置目录），而写入方常常是 root、内容常常是特权文件。
- * 用 'w' 的话，别人只要先在我们即将使用的名字上摆一个符号链接，这次写入就顺着链接
- * 落到他选的路径上去了（open 跟随符号链接，先 stat 再建挡不住竞态）。
- *
- * 撞名一律换名重试，**绝不 unlink 掉再用 'w' 建** —— 那既可能删掉别人的文件，
- * 也把 EXCL 刚挡住的窗口重新开了一遍。全部尝试都失败时抛一句人话：
- * SFTP v3 没有 EEXIST，服务器对 EXCL 冲突和"目录不可写"一律回 SSH_FX_FAILURE，
- * 底层那句 "Failure" 摆给用户看等于什么都没说。
- */
-async function writeRemoteTemp(
-  sftp: SFTPWrapper,
-  target: string,
-  buf: Buffer,
-  mode: number
-): Promise<string> {
-  let last: unknown
-  for (let i = 0; i < REMOTE_TEMP_ATTEMPTS; i++) {
-    const tmp = siblingTempPath(target, '.ofsedit-')
-    try {
-      await writeRemoteFile(sftp, tmp, buf, mode, 'wx')
-      return tmp
-    } catch (err) {
-      last = err
-    }
-  }
-  throw new Error(
-    `远端临时文件建不起来（在 ${remoteDirname(target)} 下试了 ${REMOTE_TEMP_ATTEMPTS} 个随机名，` +
-      `可能是目录不可写或磁盘满）：${message(last)}`
-  )
-}
-
-/**
- * 与目标同目录的隐藏临时名：`.<name>.ofsedit-<8hex>`。
- * 随机后缀而不是确定性后缀：万一上次进程崩在写临时文件之后，确定性名字会让这次直接
- * 截断（'w'）别人的残留文件，随机名各自独立。
- * 单段名长度按 255 字节收口 —— 远端 basename 本来就可能贴着上限，加了前缀会 ENAMETOOLONG。
- */
-function siblingTempPath(target: string, tag: string): string {
-  const dir = remoteDirname(target)
-  const suffix = `${tag}${randomBytes(4).toString('hex')}`
-  let stem = remoteBasename(target)
-  while (stem.length > 1 && Buffer.byteLength(`.${stem}${suffix}`) > MAX_REMOTE_NAME_BYTES) {
-    stem = stem.slice(0, -1)
-  }
-  return remoteJoin(dir, `.${stem}${suffix}`)
-}
-
-/**
- * 用户显式认可后的非原子替换（只在服务器没有 posix-rename 时走到）。
- *
- * 不用"先 unlink 再 rename"：那样一旦在两步之间断线，远端文件就**没了**。
- * 改成"原文件改名备份 → 新内容改名就位 → 删备份"：窗口还是有（两次 rename 之间目标不存在），
- * 但断在窗口里时原内容仍以 .ofsbak- 的名字躺在同目录下，用户还能捞回来；
- * 第二步失败还能把备份改回去，等于把"文件消失"降级成"文件换了个名字"。
- * SFTP 的普通 rename 不覆盖已存在目标，所以备份这一步是必需的，不是保险。
- */
-async function degradedReplace(
-  sftp: SFTPWrapper,
-  tmp: string,
-  target: string,
-  targetExists: boolean
-): Promise<void> {
-  const backup = siblingTempPath(target, '.ofsbak-')
-  if (targetExists) await sftpRename(sftp, target, backup)
-  try {
-    await sftpRename(sftp, tmp, target)
-  } catch (err) {
-    if (targetExists) await sftpRename(sftp, backup, target).catch(() => {})
-    throw err
-  }
-  if (targetExists) await sftpUnlink(sftp, backup).catch(() => {})
 }
 
 function message(err: unknown): string {
