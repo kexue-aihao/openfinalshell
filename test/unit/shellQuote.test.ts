@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { shQuote, UnsafeArgError, wrapShellScript } from '../../src/main/ssh/shellQuote'
+import { findSh, shFile } from '../posixSh'
 
 /**
  * 这个文件是"往服务器上发 shell 命令"这条链路的地基测试，所以刻意用**三层互相校验**的写法，
@@ -152,26 +152,7 @@ describe('wrapShellScript', () => {
 // ③ 真 shell 往返
 // ---------------------------------------------------------------------------
 
-/**
- * 找一个 POSIX sh。Windows 上 Git for Windows 自带一个（MSYS 的 bash），够用。
- *
- * ⚠️ 脚本必须**写进文件再 `sh <文件>`**，不能 `sh -c <命令串>`：Windows 上
- * execFileSync 要把参数拼成一条命令行、MSYS 那侧再解析一次，反斜杠会在这中间被吃掉 ——
- * 那是宿主的参数传递问题，跟我们的转义无关（真实路径是 ssh2 把命令**原样**当字节发出去）。
- * 写文件绕开了整个宿主参数层，于是这里量到的就是"远端 shell 会怎么解析这段字节"。
- */
-function findSh(): string | null {
-  const candidates =
-    process.platform === 'win32'
-      ? [
-          join(process.env.ProgramW6432 ?? 'C:\\Program Files', 'Git\\usr\\bin\\sh.exe'),
-          'C:\\Program Files\\Git\\usr\\bin\\sh.exe',
-          'C:\\Program Files (x86)\\Git\\usr\\bin\\sh.exe'
-        ]
-      : ['/bin/sh']
-  return candidates.find((p) => existsSync(p)) ?? null
-}
-
+// 找 sh、拼子 shell 的 PATH、"写文件再 sh <文件>"而不是 sh -c 的理由，全在 test/posixSh.ts
 const SH = findSh()
 const dir = SH ? mkdtempSync(join(tmpdir(), 'ofs-shquote-')) : null
 
@@ -184,7 +165,7 @@ describe.skipIf(SH === null)('真 shell 往返（本机没有 POSIX sh 时跳过
   const runThroughShell = (input: string): string => {
     const file = join(dir as string, 'run.sh')
     writeFileSync(file, wrapShellScript(`printf %s ${shQuote(input)}`), 'utf8')
-    return execFileSync(SH as string, [file], { encoding: 'utf8' })
+    return shFile(SH as string, file)
   }
 
   it.each(CASES.filter(([, input]) => !input.includes('\r')))(

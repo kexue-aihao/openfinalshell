@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { findSh, shCommand, shFile, toShellPath } from '../posixSh'
 import { PACK_MIN_FILES } from '../../src/shared/constants'
 import {
   buildPackCommand,
@@ -308,22 +308,6 @@ describe('shouldPack', () => {
  * 仍然**不能**替代真机：MSYS 的 GNU tar 与 Linux 的不是同一个构建，`df` 的输出列也可能有别。
  * 但它能抓住"脚本本身写错了"这一整类问题 —— 而那正是没有服务器时最抓不到的。
  */
-function findSh(): string | null {
-  const candidates =
-    process.platform === 'win32'
-      ? [
-          join(process.env.ProgramW6432 ?? 'C:\\Program Files', 'Git\\usr\\bin\\sh.exe'),
-          'C:\\Program Files\\Git\\usr\\bin\\sh.exe'
-        ]
-      : ['/bin/sh']
-  return candidates.find((p) => existsSync(p)) ?? null
-}
-
-function toShellPath(p: string): string {
-  if (process.platform !== 'win32') return p
-  return `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}`
-}
-
 const SH = findSh()
 const root = SH ? mkdtempSync(join(tmpdir(), 'ofs-pack-')) : null
 
@@ -337,7 +321,7 @@ describe.skipIf(SH === null)('真 shell 跑一遍（本机没有 POSIX sh 时跳
     // 与生产完全同一条包法：wrapShellScript 的产物写进文件再 sh <文件>
     // （不能 sh -c <命令串> —— Windows 的参数传递会吃掉反斜杠，见 shellQuote.test.ts）
     writeFileSync(file, wrapShellScript(script), 'utf8')
-    return execFileSync(SH as string, [file], { encoding: 'utf8', cwd: root as string })
+    return shFile(SH as string, file, root as string)
   }
 
   /** 造一棵有 N 个文件的树，名字里带单引号和中文 */
@@ -385,7 +369,7 @@ describe.skipIf(SH === null)('真 shell 跑一遍（本机没有 POSIX sh 时跳
     expect(tarPath?.startsWith(toShellPath(root as string))).toBe(true)
 
     // 列一下成员：顶层必须只有 pack-tree 一个
-    const listed = execFileSync(SH as string, ['-c', `tar -tf "${tarPath}"`], { encoding: 'utf8' })
+    const listed = shCommand(SH as string, `tar -tf "${tarPath}"`)
     const tops = new Set(
       listed
         .split('\n')
@@ -410,10 +394,9 @@ describe.skipIf(SH === null)('真 shell 跑一遍（本机没有 POSIX sh 时跳
       expect((err as { status?: number }).status).toBe(91)
     }
     expect(failed).toBe(true)
-    const leftovers = execFileSync(
+    const leftovers = shCommand(
       SH as string,
-      ['-c', `ls ${toShellPath(tmpBase)}/ofs-pack.* 2>/dev/null | wc -l`],
-      { encoding: 'utf8' }
+      `ls ${toShellPath(tmpBase)}/ofs-pack.* 2>/dev/null | wc -l`
     )
     expect(leftovers.trim()).toBe('0')
   })

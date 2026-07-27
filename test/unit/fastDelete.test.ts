@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { findSh, shFile, toShellPath } from '../posixSh'
 import {
   assertDeletable,
   buildFastDeleteCommand,
@@ -206,23 +206,6 @@ describe('fastDeletePreview', () => {
  * 这是计划里那条真机验收「快速删除抗注入」在没有服务器时能做到的最接近的形式。
  * 仍然**不能**替代真机：MSYS 的 rm 与 Linux 的 rm 不是同一个实现，权限语义也不同。
  */
-function findSh(): string | null {
-  const candidates =
-    process.platform === 'win32'
-      ? [
-          join(process.env.ProgramW6432 ?? 'C:\\Program Files', 'Git\\usr\\bin\\sh.exe'),
-          'C:\\Program Files\\Git\\usr\\bin\\sh.exe'
-        ]
-      : ['/bin/sh']
-  return candidates.find((p) => existsSync(p)) ?? null
-}
-
-/** Windows 路径 → MSYS 能认的形式（C:\a\b → /c/a/b）。守卫要求前导 `/`，正好对上 */
-function toShellPath(p: string): string {
-  if (process.platform !== 'win32') return p
-  return `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}`
-}
-
 const SH = findSh()
 const root = SH ? mkdtempSync(join(tmpdir(), 'ofs-fastdel-')) : null
 
@@ -234,7 +217,7 @@ describe.skipIf(SH === null)('真 shell 跑一遍（本机没有 POSIX sh 时跳
   const runCommand = (command: string): string => {
     const file = join(root as string, 'run.sh')
     writeFileSync(file, command, 'utf8')
-    return execFileSync(SH as string, [file], { encoding: 'utf8', cwd: root as string })
+    return shFile(SH as string, file, root as string)
   }
 
   it('删掉一棵敌意命名的树，注入没有发生，树外的哨兵没被碰', () => {
