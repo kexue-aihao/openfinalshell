@@ -289,7 +289,10 @@ export class SshConnection extends EventEmitter {
     const channel = await new Promise<ClientChannel>((resolve, reject) => {
       client.shell(
         { term: this.profile.terminal.termType || 'xterm-256color', cols, rows },
-        (err, stream) => (err ? reject(new Error(friendlySshError(err))) : resolve(stream))
+        // channelOpenError 而不是 friendlySshError：开新 shell 失败最常见的原因是
+        // session 通道用满（MaxSessions），而 friendlySshError 的正则一条都不匹配
+        // "(SSH) Channel open failure"，会把 ssh2 的原话直接透给用户
+        (err, stream) => (err ? reject(new Error(channelOpenError(err))) : resolve(stream))
       )
     })
     const shell = new ShellSession(termId, channel, this.profile.terminal.charset || 'utf-8', (reason) => {
@@ -386,7 +389,7 @@ export class SshConnection extends EventEmitter {
     if (!client || this.state !== 'ready') throw new Error('会话未就绪')
     return new Promise<ClientChannel>((resolve, reject) => {
       client.exec('env LANG=C LC_ALL=C sh', (err, stream) => {
-        if (err) reject(new Error(`打开监控通道失败：${friendlySshError(err)}`))
+        if (err) reject(new Error(`打开监控通道失败：${channelOpenError(err)}`))
         else resolve(stream)
       })
     })
@@ -439,7 +442,7 @@ export class SshConnection extends EventEmitter {
       client.sftp((err, sftp) => {
         if (err) {
           this.browseSftpPromise = null
-          reject(new Error(`打开 SFTP 失败：${friendlySshError(err)}`))
+          reject(new Error(`打开 SFTP 失败：${channelOpenError(err)}`))
           return
         }
         sftp.on('close', () => {
@@ -467,7 +470,7 @@ export class SshConnection extends EventEmitter {
       const client = await this.ensureTransferClient()
       this.transferSftp = await new Promise<SFTPWrapper>((resolve, reject) => {
         client.sftp((err, sftp) => {
-          if (err) reject(new Error(`打开传输通道失败：${friendlySshError(err)}`))
+          if (err) reject(new Error(`打开传输通道失败：${channelOpenError(err)}`))
           else resolve(sftp)
         })
       })

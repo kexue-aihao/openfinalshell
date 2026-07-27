@@ -25,6 +25,10 @@
     "src/renderer/**/*",
     "src/preload/index.d.ts",
     "src/shared/**/*",
-    "test/renderer/**/*.ts"
+    "test/renderer/**/*.ts",
+    // 源码文本护栏的公用件。它两边都要用（main 侧也有一条通道错误映射的护栏），
+    // 所以放在 test/ 根下 —— tsconfig.node 的 include 是 test/**/*.ts 加
+    // exclude test/renderer/**，而 exclude 不支持"排除里再挖个洞"
+    "test/sourceGuard.ts"
   ]
 }

@@ -9,7 +9,8 @@
  * 用法：node test/fixtures/packagedSmoke.mjs [exePath] [sshPort] [cdpPort]
  */
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
+import { rmSync, writeFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const exePath = process.argv[2] ?? join(process.cwd(), 'release', 'win-unpacked', 'OpenFinalShell.exe')
@@ -963,6 +964,244 @@ async function main() {
   if (packToggle.起初有勾) fail('默认关，菜单里却已经打了勾')
   if (!packToggle.之后有勾) fail('设置已经翻成 true，菜单里却看不到勾')
   console.log('OK 打包传输勾选项：默认关、点一次写进设置、勾随之出现')
+
+  // 8.77) 拖到文件夹行上：那一行真的亮起来，文件真的落进那一行的目录
+  //    这条原本记在计划里的"人工验证"一栏。它值得自动化，因为唯一真会坏的那件事
+  //    只有真浏览器能回答：`.dropRow > :global(.ant-table-cell)` 这个选择器得在 antd
+  //    **虚拟**表格的 DOM 上命中。虚拟模式下行与单元格是 div 而不是 tr/td，
+  //    中间只要多一层包裹，类名照样加得上、高亮却静默不出现 —— 类型检查看不见，
+  //    源码护栏也看不见（rowClassName 那行写得完全正确）。
+  //
+  //    用 CDP 的 Input.dispatchDragEvent 注入**带真实文件路径**的拖拽，
+  //    而不是 dispatchEvent(new DragEvent(...))：合成 DataTransfer 里的 File 没有磁盘路径，
+  //    webUtils.getPathForFile 返回空串 → localPathsOf 过滤成空 → handleDrop 在
+  //    "不支持的拖拽内容"那一支就返回了，落点那行代码根本不会执行。
+  //    那样测出来的绿是假的：高亮或许验到了，"落进哪个目录"一个字节都没验。
+  //    真注入还顺带走了 Chromium 自己的 dragenter/dragleave 配对，
+  //    于是"从目录行移到文件行"这个切换也是真的在被测。
+  const dndLocal = join(tmpdir(), `ofs-dnd-${process.pid}.txt`)
+  const dndName = basename(dndLocal)
+  writeFileSync(dndLocal, 'openfinalshell drag-and-drop smoke\n')
+
+  const dndPrep = await evaluate(`
+    const sid = '${session.sessionId}'
+    // 前面的步骤可能留着传输抽屉（它带遮罩，会吃掉注入的拖拽）
+    document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
+    await new Promise((s) => setTimeout(s, 400))
+    if (document.querySelector('.ant-drawer-open')) return { error: '开始拖拽前传输抽屉还开着' }
+
+    // 先清场再造：这一步中途失败过一次（就发生过）就会把 /dnd-dir 留在那儿，
+    // 于是后面每一次 mkdir 都撞 EEXIST —— 一次失败污染所有后续运行，
+    // 排查起来还长得像"SFTP 坏了"。顺带扫掉历史遗留的上传件（名字带 pid，每次不同）
+    const rm = async (p, r) => {
+      try {
+        await window.ofs.invoke('sftp:delete', { sessionId: sid, path: p, recursive: r })
+      } catch {
+        /* 不存在就算了 */
+      }
+    }
+    await rm('/dnd-dir', true)
+    await rm('/dnd-file.txt', false)
+    for (const e of await window.ofs.invoke('sftp:readdir', { sessionId: sid, path: '/' })) {
+      if (/^ofs-dnd-.*\\.txt$/.test(e.name)) await rm('/' + e.name, false)
+    }
+
+    await window.ofs.invoke('sftp:mkdir', { sessionId: sid, path: '/dnd-dir' })
+    await window.ofs.invoke('sftp:touch', { sessionId: sid, path: '/dnd-file.txt' })
+
+    // 刷新走空白处右键的「刷新」（这条路径在 8.75 已被证明可用），
+    // 顺带把选中项清空 —— 选中行的底色不同，会污染下面的基线比对
+    const anchor = document.querySelector('.ant-table-body') || document.querySelector('.ant-table')
+    if (!anchor) return { error: '找不到 SFTP 文件表格' }
+    const ar = anchor.getBoundingClientRect()
+    anchor.dispatchEvent(new MouseEvent('contextmenu', {
+      bubbles: true, cancelable: true,
+      clientX: Math.round(ar.left + 20), clientY: Math.round(ar.top + 5)
+    }))
+    await new Promise((s) => setTimeout(s, 400))
+    const refresh = [...document.querySelectorAll('.ant-dropdown-menu-item')]
+      .find((e) => e.textContent.trim() === '刷新')
+    if (!refresh) return { error: '菜单里没有「刷新」' }
+    refresh.click()
+    await new Promise((s) => setTimeout(s, 1200))
+
+    const api = {}
+    api.rowOf = (name) =>
+      [...document.querySelectorAll('.ant-table-row')].find((e) => e.innerText.includes(name)) ?? null
+    // 高亮画在单元格上（选择器是 .dropRow > .ant-table-cell），所以量的是行首单元格
+    api.styleOf = (row) => {
+      const cell = row?.querySelector('.ant-table-cell')
+      if (!cell) return null
+      const cs = getComputedStyle(cell)
+      return { bg: cs.backgroundColor, shadow: cs.boxShadow }
+    }
+    api.marked = () =>
+      [...document.querySelectorAll('.ant-table-row')]
+        .filter((e) => /dropRow/.test(String(e.className)))
+        .map((e) => e.innerText.replace(/\\s+/g, ' ').trim().slice(0, 40))
+    api.mask = () => {
+      const m = [...document.querySelectorAll('div')].find((e) => /dropMask/.test(String(e.className)))
+      return m ? m.textContent.trim() : null
+    }
+    api.probe = () => ({
+      dir: api.styleOf(api.rowOf('dnd-dir')),
+      file: api.styleOf(api.rowOf('dnd-file.txt')),
+      marked: api.marked(),
+      mask: api.mask()
+    })
+    // 虚拟列表里行会被回收：滚进视野之后必须重新取一次元素再量矩形，
+    // 否则拿到的是一个已经被复用给别人的 div 的坐标
+    api.center = async (name) => {
+      const first = api.rowOf(name)
+      if (!first) return null
+      first.scrollIntoView({ block: 'center' })
+      await new Promise((s) => setTimeout(s, 250))
+      const row = api.rowOf(name)
+      if (!row) return null
+      const b = row.getBoundingClientRect()
+      const body = (document.querySelector('.ant-table-body') || anchor).getBoundingClientRect()
+      const pt = { x: Math.round(b.left + Math.min(b.width * 0.5, 160)), y: Math.round(b.top + b.height / 2) }
+      // 落点必须真的在表格可视区里，否则注入的坐标打在别的元素上，
+      // 这一步会以"没有行被标成落点"的形式假红/假绿
+      pt.inBody = pt.y > body.top + 1 && pt.y < body.bottom - 1
+      return pt
+    }
+    window.__ofsDnd = api
+    const dirAt = await api.center('dnd-dir')
+    const fileAt = await api.center('dnd-file.txt')
+    return { dirAt, fileAt, base: api.probe() }
+  `)
+  if (dndPrep.error) fail(dndPrep.error)
+  if (!dndPrep.dirAt) fail('刷新后文件列表里没有 dnd-dir 这一行')
+  if (!dndPrep.fileAt) fail('刷新后文件列表里没有 dnd-file.txt 这一行')
+  if (!dndPrep.dirAt.inBody) fail(`dnd-dir 行滚不进表格可视区（y=${dndPrep.dirAt.y}）—— 注入的坐标会打在别处`)
+  if (!dndPrep.fileAt.inBody) fail(`dnd-file.txt 行滚不进表格可视区（y=${dndPrep.fileAt.y}）`)
+  if (!dndPrep.base.dir || !dndPrep.base.file) fail('量不到行首单元格的样式 —— 表格 DOM 结构与预期不符')
+  if (dndPrep.base.marked.length > 0) {
+    fail(`还没开始拖，就已经有行被标成落点：${dndPrep.base.marked.join(' / ')}`)
+  }
+  if (dndPrep.base.mask) fail(`还没开始拖，上传遮罩就已经在了（内容：${dndPrep.base.mask}）`)
+  // 反空转：两行的基线必须一致。否则"拖过之后与另一行不同"这种比法本来就成立，
+  // 高亮压根没画出来也照样绿
+  if (dndPrep.base.dir.bg !== dndPrep.base.file.bg) {
+    fail(
+      `基线不干净：目录行与文件行的底色本就不同（${dndPrep.base.dir.bg} vs ${dndPrep.base.file.bg}）` +
+        ' —— 可能有行处于选中/hover 态，这一轮的比对没有约束力'
+    )
+  }
+
+  const dragData = { items: [], files: [dndLocal], dragOperationsMask: 1 }
+  const drag = async (type, at) => {
+    await send('Input.dispatchDragEvent', { type, x: at.x, y: at.y, data: dragData })
+    await sleep(180)
+  }
+
+  await drag('dragEnter', dndPrep.dirAt)
+  await drag('dragOver', dndPrep.dirAt)
+  const overDir = await evaluate('return window.__ofsDnd.probe()')
+  if (overDir.marked.length !== 1 || !overDir.marked[0].includes('dnd-dir')) {
+    fail(
+      `拖到目录行上，被标成落点的不是恰好那一行（实际：${overDir.marked.join(' / ') || '一行都没有'}）` +
+        ' —— 行级 onDragOver 没生效，或 CDP 注入的拖拽没走到那一行'
+    )
+  }
+  if (overDir.dir.bg === dndPrep.base.dir.bg && overDir.dir.shadow === dndPrep.base.dir.shadow) {
+    fail(
+      `落点行的类名加上了，行首单元格的底色与阴影却一点没变（底色仍是 ${overDir.dir.bg}）` +
+        ' —— .dropRow > .ant-table-cell 在虚拟表格的 DOM 上没命中，用户看不到任何高亮'
+    )
+  }
+  if (!/inset/.test(overDir.dir.shadow)) {
+    fail(`落点行少了上下两条 inset 边框（box-shadow 实际是 ${overDir.dir.shadow}）`)
+  }
+  if (overDir.file.bg !== dndPrep.base.file.bg) {
+    fail('拖到 dnd-dir 行上，dnd-file.txt 行的底色也跟着变了 —— 高亮没有限定在落点行')
+  }
+  if (!overDir.mask || !overDir.mask.includes('/dnd-dir')) {
+    fail(`上传遮罩没有说落点是 /dnd-dir（实际：${JSON.stringify(overDir.mask)}）`)
+  }
+
+  // 移到一个**文件**行上：它不该成为落点（!isDir(entry) 那道判断），遮罩要退回当前目录
+  await drag('dragOver', dndPrep.fileAt)
+  const overFile = await evaluate('return window.__ofsDnd.probe()')
+  if (overFile.marked.length > 0) {
+    fail(`拖到一个文件行上时它被标成了落点（${overFile.marked.join(' / ')}）—— !isDir(entry) 没挡住`)
+  }
+  if (overFile.mask && overFile.mask.includes('/dnd-dir')) {
+    fail('已经离开目录行，遮罩却还指着 /dnd-dir —— 行的 onDragLeave 没清掉落点')
+  }
+
+  // 放在目录行上 → 必须进 /dnd-dir，且**不能**同时进当前目录
+  await drag('dragOver', dndPrep.dirAt)
+  await drag('drop', dndPrep.dirAt)
+  const landed = await evaluate(`
+    const sid = '${session.sessionId}'
+    const ls = async (p) =>
+      (await window.ofs.invoke('sftp:readdir', { sessionId: sid, path: p })).map((e) => e.name)
+    for (let i = 0; i < 50; i++) {
+      if ((await ls('/dnd-dir')).includes(${JSON.stringify(dndName)})) break
+      await new Promise((s) => setTimeout(s, 300))
+    }
+    return { inside: await ls('/dnd-dir'), root: await ls('/'), mask: window.__ofsDnd.mask() }
+  `)
+  if (!landed.inside.includes(dndName)) {
+    fail(
+      `拖到 /dnd-dir 行上放下，文件没落进那个目录` +
+        `（/dnd-dir 里有 [${landed.inside.join(' ')}]，当前目录里有 [${landed.root.join(' ')}]）`
+    )
+  }
+  if (landed.root.includes(dndName)) {
+    fail('文件同时也落进了当前目录 —— 行与容器的 onDrop 都跑了一遍，行里的 stopPropagation 没生效')
+  }
+  if (landed.mask) fail(`放下之后上传遮罩还留在界面上（内容：${landed.mask}）`)
+
+  // 上一次 enqueue 会把传输抽屉弹出来（useTransferStore.enqueue 里写死的），
+  // 它带遮罩、盖在表格上 —— 不关掉的话下一次注入的坐标打在抽屉上，
+  // 这一步会以"没退回当前目录"的形式假红。关掉之后行的位置也可能变，重新量一次
+  const reMeasured = await evaluate(`
+    document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
+    await new Promise((s) => setTimeout(s, 500))
+    const stillOpen = Boolean(document.querySelector('.ant-drawer-open'))
+    return { stillOpen, fileAt: await window.__ofsDnd.center('dnd-file.txt') }
+  `)
+  if (reMeasured.stillOpen) fail('传输抽屉关不掉，后面的拖拽会打在抽屉上')
+  if (!reMeasured.fileAt?.inBody) fail('关掉抽屉后 dnd-file.txt 行不在表格可视区里')
+
+  // 放在文件行上 → 退回当前目录（而不是往一个文件里面塞东西）
+  await drag('dragEnter', reMeasured.fileAt)
+  await drag('dragOver', reMeasured.fileAt)
+  await drag('drop', reMeasured.fileAt)
+  const fellBack = await evaluate(`
+    const sid = '${session.sessionId}'
+    const ls = async (p) =>
+      (await window.ofs.invoke('sftp:readdir', { sessionId: sid, path: p })).map((e) => e.name)
+    for (let i = 0; i < 50; i++) {
+      if ((await ls('/')).includes(${JSON.stringify(dndName)})) break
+      await new Promise((s) => setTimeout(s, 300))
+    }
+    return { root: await ls('/') }
+  `)
+  if (!fellBack.root.includes(dndName)) {
+    fail(`放在一个文件行上时没有退回当前目录（当前目录里有 [${fellBack.root.join(' ')}]）`)
+  }
+  console.log('OK 拖到文件夹行：那一行真的高亮、文件真的进了那个目录；放在文件行上退回当前目录')
+
+  // 收尾：删掉本步造的远端痕迹，并把上传抽屉关回去（它 enqueue 时会自己弹出来，
+  // 留着会挡住后面几步要点的东西）
+  await evaluate(`
+    const sid = '${session.sessionId}'
+    const rm = async (p, r) => {
+      try { await window.ofs.invoke('sftp:delete', { sessionId: sid, path: p, recursive: r }) } catch {}
+    }
+    await rm('/dnd-dir', true)
+    await rm('/dnd-file.txt', false)
+    await rm('/' + ${JSON.stringify(dndName)}, false)
+    document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
+    await new Promise((s) => setTimeout(s, 400))
+    delete window.__ofsDnd
+    return true
+  `)
+  rmSync(dndLocal, { force: true })
 
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
   //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，

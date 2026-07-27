@@ -5,7 +5,7 @@ import type { RemoteEditEntry } from '@shared/types'
 import en from '@/i18n/en-US'
 import zh from '@/i18n/zh-CN'
 import { createMockOfs } from '@/ipc/mock'
-import { blockAfter, channelsOf, flat, read, stripComments } from './sourceGuard'
+import { blockAfter, channelsOf, flat, read, stripComments } from '../sourceGuard'
 
 /**
  * 远端编辑"接线"这一片的护栏。挑的这几处都有同一个特征：错了不会抛异常，只会静默走偏。

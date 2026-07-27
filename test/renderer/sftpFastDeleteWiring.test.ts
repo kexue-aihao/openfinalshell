@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import en from '@/i18n/en-US'
 import zh from '@/i18n/zh-CN'
-import { blockAfter, channelsOf, flat, read, stripComments } from './sourceGuard'
+import { blockAfter, channelsOf, flat, read, stripComments } from '../sourceGuard'
 
 /**
  * 快速删除这一片的护栏。挑的每一处都有同一个特征：**错了不抛异常、不影响编译，

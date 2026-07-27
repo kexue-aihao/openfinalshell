@@ -2,7 +2,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '@shared/constants'
-import { blockAfter, flat, read, stripComments } from './sourceGuard'
+import { blockAfter, flat, read, stripComments } from '../sourceGuard'
 
 /**
  * 打包下载这一片的护栏。挑的每一处都是"错了不抛异常、不影响编译，只是静默走偏"：

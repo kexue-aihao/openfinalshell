@@ -75,6 +75,12 @@ node test/fixtures/testSshServer.mjs 2222
 好让测试断言"那段引号经过 SSH 协议之后一个字节都没变"。它没有真 shell、也没有真文件系统，
 所以 `rm -rf` 的**语义**在它上面无法被验证 —— 那些归真机验收。
 
+`OFS_FIXTURE_MAX_SESSIONS=2` 可以让它模拟一台把 sshd `MaxSessions` 调小的低配服务器
+（超过上限的 session 通道一律拒掉）。这条以前只能"找一台那样的机器手工验"，于是一直没人验；
+封顶放进 fixture 之后 `test/integration/maxSessions.test.ts` 就是普通用例了 ——
+它第一次跑就抓到 `channelOpenError()` 全项目五个开通道的地方只有一个在用，
+另外四个都把 ssh2 的 `(SSH) Channel open failure: open failed` 原话透给了用户。
+
 ### 渲染进程的字节预算
 
 渲染进程的库（react / antd / echarts / @xterm）全是 **devDependency**，由 Vite 打进一个
@@ -168,6 +174,14 @@ npm run smoke:packaged
   `components/TitlebarSafeTooltip.tsx`）。
 
 这类问题只在真实窗口里可见 —— 单元测试和浏览器 mock 模式都抓不到。
+
+还有一步盯**拖到文件夹行上传**：用 CDP 的 `Input.dispatchDragEvent` 注入一个带真实文件路径的
+拖拽，断言那一行的底色与阴影**真的变了**（比对自己拖拽前的基线，不是比对隔壁行）、
+文件真的落进那个目录、并且**没有**同时落进当前目录。不用合成 `new DragEvent`：
+合成 `DataTransfer` 里的 `File` 没有磁盘路径，`webUtils.getPathForFile` 返回空串，
+`handleDrop` 在"不支持的拖拽内容"那一支就返回了 —— 落点那行代码根本不会执行，测出来的绿是假的。
+这一步能抓的核心问题只有真浏览器能回答：`.dropRow > .ant-table-cell` 得在 antd **虚拟**表格的
+DOM 上命中（虚拟模式下行与单元格是 div 而不是 tr/td，中间多一层包裹就静默不亮）。
 
 > 注意：应用有单实例锁，跑之前先关掉开发模式的实例。
 

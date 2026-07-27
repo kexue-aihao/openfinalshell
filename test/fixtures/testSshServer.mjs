@@ -22,6 +22,19 @@ const { STATUS_CODE: SFTP_STATUS_CODE, OPEN_MODE: SFTP_OPEN_MODE } = utils.sftp
 const port = Number(process.argv[2] ?? 2222)
 const sftpRoot = process.argv[3] ?? mkdtempSync(path.join(tmpdir(), 'ofs-sftp-root-'))
 
+/**
+ * 每条连接允许同时存在的 session 通道数上限，0 = 不限。对应 sshd 的 `MaxSessions`。
+ *
+ * 为什么要有它：本项目一条会话常驻 N 个 shell + 1 个浏览 SFTP + 1 个监控 exec，
+ * 而把 MaxSessions 调成 2 的低配服务器不少见。"通道开不出来时给的是人能懂的话
+ * 还是 ssh2 的原话"这件事以前只能靠找一台那样的服务器手工验 ——
+ * 于是它就一直躺在待办里没人验。封顶放在 fixture 里，这条就能自动跑。
+ *
+ * 用环境变量而不是第 4 个位置参数：位置参数会逼着调用方先给出 sftpRoot，
+ * 而绝大多数调用方并不关心它。
+ */
+const maxSessions = Number(process.env.OFS_FIXTURE_MAX_SESSIONS ?? '0') || 0
+
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
   privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
@@ -105,8 +118,19 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
         remoteListeners.clear()
       })
 
-      client.on('session', (accept) => {
+      // 只数**同时存活**的通道，关掉一个就腾出一格 —— sshd 的 MaxSessions 就是这个语义
+      let liveSessions = 0
+      client.on('session', (accept, reject) => {
+        if (maxSessions > 0 && liveSessions >= maxSessions) {
+          console.log(`[srv] 拒绝 session 通道：已有 ${liveSessions} 个，上限 ${maxSessions}`)
+          reject?.()
+          return
+        }
+        liveSessions += 1
         const session = accept()
+        session.once('close', () => {
+          liveSessions = Math.max(0, liveSessions - 1)
+        })
         let ptyInfo = { cols: 80, rows: 24 }
 
         session.on('pty', (acceptPty, _reject, info) => {
