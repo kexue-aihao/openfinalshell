@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { SFTPWrapper, Stats } from 'ssh2'
+import type { RemoteSaveGates } from '@shared/types'
 import { sha256Hex } from './editGuards'
 import { remoteBasename, remoteDirname, remoteJoin, type RemotePath } from './remotePath'
 import {
@@ -85,24 +86,19 @@ export type SaveOutcome =
   /** 内容缩得太多，像手滑。remoteBytes/localBytes 供文案用 */
   | { kind: 'shrink'; remoteBytes: number; localBytes: number }
 
-/** 三个"要不要越过这道闸门"的开关。**全部必填** —— 见 saveRemoteText 的说明 */
-export interface SaveGates {
-  /** 跳过冲突检测（用户看过"远端变过了"之后点了"仍然覆盖"） */
-  overwriteRemoteChanges: boolean
-  /** 允许非原子替换（用户看过"这台服务器不支持原子替换"之后同意） */
-  allowNonAtomic: boolean
-  /** 允许内容大幅缩短 */
-  allowShrink: boolean
-}
+/**
+ * 三个"要不要越过这道闸门"的开关。
+ *
+ * 定义在 `@shared/types` 而不是这里，因为它们是**渲染进程的决定** —— 三个开关各对应
+ * 一次"用户看过风险并点了确认"，所以类型该和 IPC 契约摆在一起让评审一眼看见。
+ * 「为什么必填、为什么不是一个 force」那段说明在那边。
+ */
+export type SaveGates = RemoteSaveGates
 
 /**
  * 写回。
  *
- * `gates` 三个字段刻意**全部必填、且没有默认值**：它们每一个都对应一次"用户看过风险
- * 并且点了确认"，而 TypeScript 的可选字段配 `?? false` 是最容易被顺手写成 `?? true`
- * 的地方。调用方必须逐个写出来，评审时也就逐个看得见。
- * （原来那条路把这三件事挤成一个 `force: boolean`，于是"仍然覆盖"顺带把非原子替换
- *  也放行了 —— 用户同意的是前者，承担的是后者。）
+ * `gates` 三个字段刻意全部必填、且没有默认值 —— 理由见 RemoteSaveGates。
  */
 export async function saveRemoteText(
   sftp: SFTPWrapper,

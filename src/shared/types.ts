@@ -293,6 +293,51 @@ export interface RemoteFileView {
   mode: number
 }
 
+/**
+ * 保存时那三道"用户确认后可以越过"的闸门。**三个字段全部必填、没有默认值。**
+ *
+ * 每一个都对应一次"用户看过风险并且点了确认"，而可选字段配 `?? false` 是最容易被
+ * 顺手写成 `?? true` 的地方 —— 所以调用方必须逐个写出来，评审时也就逐个看得见。
+ * IPC 那侧的 zod 同样把三个都标成必填 boolean：一个 `.optional()` 就能让默认值
+ * 悄悄替用户做决定，而默认值的方向恰好是"放行"。
+ *
+ * 为什么是三个开关而不是一个 `force`：老路（外部编辑器）把三件事挤成一个
+ * `force: boolean`，于是用户点"仍然覆盖"（我接受远端改动被盖掉）顺带把
+ * 非原子替换也放行了 —— 他同意的是前者，承担的是后者。
+ */
+export interface RemoteSaveGates {
+  /** 跳过冲突检测：用户看过"远端在你编辑期间被改过"之后点了"仍然覆盖" */
+  overwriteRemoteChanges: boolean
+  /** 允许非原子替换：用户看过"这台服务器不支持原子替换"之后同意承担那个窗口 */
+  allowNonAtomic: boolean
+  /** 允许内容大幅缩短：用户看过"内容缩水了这么多"之后确认这就是他要的 */
+  allowShrink: boolean
+}
+
+/**
+ * 内置编辑器保存的结果。
+ *
+ * 三个非 `saved` 的分支各对应 RemoteSaveGates 的一个开关 —— 它们**不是错误**，
+ * 是"这一次一个字节都没写，等你决定"。真正的错误（编码不可逆、超过字节上限、
+ * 打开状态已失效）走 invoke 的异常，因为那些没有任何确认能让它变安全。
+ *
+ * ⚠️ **刻意不含 baseline**。冲突检测的基线（sha / size / mtime）只存在 main 侧的
+ * 注册表里，一个字节都不下发给渲染进程：一旦它能被回传，渲染进程的任何 bug 都能构造出
+ * "基线正好等于远端现状"，于是冲突检测永远说"没变过"、永远静默盖掉别人的改动。
+ */
+export type RemoteFileSaveResult =
+  | {
+      kind: 'saved'
+      /** 真正写上去的字节数（编码后的，不是 text.length） */
+      bytes: number
+      mode: number
+      /** 内容已就位但有次要问题（目前只有一种：权限位没能恢复） */
+      warning?: string
+    }
+  | { kind: 'conflict'; reason: string }
+  | { kind: 'nonAtomic' }
+  | { kind: 'shrink'; remoteBytes: number; localBytes: number }
+
 // ---------- 监控 ----------
 export interface MonitorStaticInfo {
   hostname: string

@@ -3,6 +3,7 @@ import iconv from 'iconv-lite'
 import {
   decodeRemoteText,
   detectEol,
+  encodeFidelity,
   encodeRemoteText,
   expandEol,
   normalizeCharset,
@@ -158,6 +159,89 @@ describe('lossless：编码对不上时必须报出来', () => {
     for (const cs of ['utf8', 'gbk', 'big5', 'latin1'] as RemoteCharset[]) {
       expect(decodeRemoteText(utf8('listen 80;\n'), cs).lossless, cs).toBe(true)
     }
+  })
+})
+
+/**
+ * `encodeFidelity` 与上面的 `lossless` 是**两个不同的问题**，都会静默丢数据：
+ *  - `lossless` 的输入是**文件**：我读进来的字节能不能原样写回去（用户从未看见的字节）；
+ *  - `encodeFidelity` 的输入是**键盘**：用户现在打的字能不能存下去。
+ * iconv 对表示不了的字符不报错，悄悄换成 `?` —— 于是"在 GBK 配置里粘一个 emoji"
+ * 这条路上，用户看到的是保存成功，文件里躺着的是一个问号，而且再也回不去。
+ */
+describe('encodeFidelity：用户打的字存不下去时必须拦住', () => {
+  it('纯 ASCII 在任何编码下都存得下', () => {
+    for (const cs of ['utf8', 'gbk', 'big5', 'latin1'] as RemoteCharset[]) {
+      expect(encodeFidelity('listen 80;\n', cs), cs).toEqual({ ok: true })
+    }
+  })
+
+  it('中文存进 GBK 没问题', () => {
+    expect(encodeFidelity('监听端口 = 443\n', 'gbk')).toEqual({ ok: true })
+  })
+
+  it('emoji 存进 GBK → 拦住，并点名那个字符', () => {
+    const r = encodeFidelity('端口 443 🎉\n', 'gbk')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.chars).toEqual(['🎉'])
+    expect(r.distinct).toBe(1)
+  })
+
+  /**
+   * 一个 emoji 是 1 个码位、2 个 UTF-16 码元，被替换后两个字符串的长度会错开。
+   * 按下标比对两个字符串的实现在这条上会把 emoji 之后的**全部内容**报成"不同"——
+   * 2MB 的文件里报出"三千个字符无法表示"，而其实只有一个。所以逐个码位试。
+   */
+  it('emoji 后面还有很多字时，只报那一个（不是从错位处开始全报）', () => {
+    const r = encodeFidelity(`🎉${'中'.repeat(500)}`, 'gbk')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.distinct).toBe(1)
+    expect(r.chars).toEqual(['🎉'])
+  })
+
+  it('多种存不下的字符去重后按首次出现顺序列出', () => {
+    const r = encodeFidelity('a🎉b✂c🎉d😀\n', 'gbk')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.distinct).toBe(3)
+    expect(r.chars).toEqual(['🎉', '✂', '😀'])
+  })
+
+  it('清单有上限，总数照实报（文案里列全部没意义）', () => {
+    // 12 个各不相同的 emoji
+    const text = Array.from({ length: 12 }, (_, i) => String.fromCodePoint(0x1f600 + i)).join('')
+    const r = encodeFidelity(text, 'gbk')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.distinct).toBe(12)
+    expect(r.chars).toHaveLength(8)
+  })
+
+  it('文件里真的含问号时不误报（判据不是"有没有 ?"）', () => {
+    expect(encodeFidelity('what? 真的吗？\n', 'gbk')).toEqual({ ok: true })
+  })
+
+  it('latin1 存不下中文', () => {
+    const r = encodeFidelity('监听\n', 'latin1')
+    expect(r.ok).toBe(false)
+    if (r.ok) return
+    expect(r.chars).toEqual(['监', '听'])
+  })
+
+  /** utf8 能表示任何合法字符，但**孤立代理**不是合法字符（坏粘贴会带进来） */
+  it('utf8 也不是万能的：孤立代理要被拦住', () => {
+    expect(encodeFidelity('a\uD800b', 'utf8').ok).toBe(false)
+    expect(encodeFidelity('a😀b', 'utf8')).toEqual({ ok: true })
+  })
+
+  it('空文本没问题（新建文件的第一次保存）', () => {
+    expect(encodeFidelity('', 'gbk')).toEqual({ ok: true })
+  })
+
+  it('行尾不参与判定（\\r 与 \\n 在白名单里每种编码都是 ASCII）', () => {
+    expect(encodeFidelity('a\r\nb\n', 'big5')).toEqual({ ok: true })
   })
 })
 

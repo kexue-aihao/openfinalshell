@@ -472,6 +472,26 @@ export function createMockOfs(): OfsApi {
       }
     },
 
+    /**
+     * 保存。mock 里没有远端可写，所以只回一个 saved 让界面能走完一遍流程。
+     *
+     * **刻意不模拟三个闸门**（conflict / nonAtomic / shrink）：那三条分支的价值全在
+     * "远端真的变过了""这台服务器真的没有 posix-rename"，在 mock 里全靠编，
+     * 编出来的绿只会让人以为验过了。它们由 test/unit/fileSave.test.ts 对着内存假服务器覆盖。
+     */
+    'sftp:fileSave': (arg: never) => {
+      const { text, charset, eol, hasBom } = arg as unknown as {
+        text: string
+        charset: string
+        eol: 'lf' | 'crlf'
+        hasBom: boolean
+      }
+      const body = eol === 'crlf' ? text.replace(/\n/g, '\r\n') : text
+      // 字节数按 UTF-8 估（mock 里没有 iconv）；charset 只是拿来确认参数真的传到了
+      const bytes = new TextEncoder().encode(body).length + (hasBom && charset === 'utf8' ? 3 : 0)
+      return { kind: 'saved' as const, bytes, mode: 0o644 }
+    },
+
     'sftp:editOpen': (arg: never) => {
       const { sessionId, path } = arg as unknown as { sessionId: string; path: string }
       // 与 main 侧一致：同一会话同一路径重复打开复用同一条编辑

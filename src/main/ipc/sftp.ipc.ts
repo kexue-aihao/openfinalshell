@@ -1,9 +1,10 @@
 import { app, dialog } from 'electron'
 import { z } from 'zod'
-import { REMOTE_CHARSETS } from '@shared/constants'
+import { MAX_EDIT_BYTES, REMOTE_CHARSETS } from '@shared/constants'
 import { emit, handle } from './registry'
 import { remoteEditManager, type EditId, type RemoteEditInfo } from '../sftp/RemoteEditManager'
 import { fastDelete, fastDeletePreview } from '../sftp/fastDelete'
+import { saveRemoteTextFile } from '../sftp/fileSave'
 import { viewRemoteFile } from '../sftp/fileView'
 import { chmod, mkdir, readdir, realpath, remove, rename } from '../sftp/SftpManager'
 import { sftpClose, sftpOpen, sftpStat } from '../sftp/sftpLowLevel'
@@ -153,6 +154,41 @@ export function registerSftpIpc(): void {
     'sftp:fileView',
     ({ sessionId, path, charset }) => viewRemoteFile(sessionId, path, charset),
     z.tuple([sessionPath.extend({ charset: z.enum(REMOTE_CHARSETS).optional() })])
+  )
+
+  /**
+   * 内置编辑器的保存。这条 schema 的每一条都是在挡一种**静默改写文件**的路，
+   * 逐条说明为什么不能松：
+   *
+   * - `charset` **必填**（fileView 那条可以缺省成 utf8，这条不行）：缺省值会把一个
+   *   GBK 的配置按 UTF-8 存回去，整个文件变乱码而且没有任何报错。而且它就是
+   *   fileView 那段注释里说的那个安全边界 —— 现在这条通道真的能写了，
+   *   一个 `hex` 就意味着渲染进程能用 "0a1b2c…" 精确构造任意字节写到远端文件里。
+   * - `eol` / `hasBom` **必填**：默认值会把 CRLF 文件整个翻面、会替用户删掉
+   *   .bat / .ps1 的 BOM。两者都不报错、都在几天后才被发现。
+   * - `gates` 三个开关**必填 boolean**，不许 `.optional()` 也不许 `.default()`：
+   *   每一个都对应一次"用户看过风险并点了确认"，而缺省值的方向恰好是"放行"。
+   *   `z.object` 默认会剥掉未声明的键，所以渲染进程塞第四个开关进来也穿不过去。
+   * - `text` 的长度上限是**粗筛**（挡住荒唐的载荷跨过 IPC），真正的字节闸门在
+   *   fileSave 里按**编码后**的长度判 —— 700K 个中文字符按 UTF-8 是 2.1MB、
+   *   按 GBK 是 1.4MB，只有编码后的长度才是要写上去的那个数。
+   */
+  handle(
+    'sftp:fileSave',
+    (args) => saveRemoteTextFile(args),
+    z.tuple([
+      sessionPath.extend({
+        text: z.string().max(MAX_EDIT_BYTES),
+        charset: z.enum(REMOTE_CHARSETS),
+        eol: z.enum(['lf', 'crlf']),
+        hasBom: z.boolean(),
+        gates: z.object({
+          overwriteRemoteChanges: z.boolean(),
+          allowNonAtomic: z.boolean(),
+          allowShrink: z.boolean()
+        })
+      })
+    ])
   )
 
   // ---- 远端文件编辑（本地路径只出不进，见文件顶部） ----

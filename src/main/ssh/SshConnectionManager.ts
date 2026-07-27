@@ -4,6 +4,7 @@ import type { ShellSession } from './ShellSession'
 import { getProfile, touchProfile } from '../store/connections'
 import { emit } from '../ipc/registry'
 import { transferQueue } from '../sftp/TransferQueue'
+import { forgetSessionBaselines } from '../sftp/editBaselines'
 import { clearProbeCache } from '../sftp/packTransfer'
 /**
  * 静态 import 不成环：反向那条依赖（RemoteEditManager 要用 sshManager 取 SFTP 通道）
@@ -130,6 +131,13 @@ class SshConnectionManager {
     // 打包探测缓存里存着这台机器的 tar 风味与 TMPDIR —— 换一台机器（同一个 sessionId 复用不会
     // 发生，但重连会）就该重探一次，留着只会在换机后按旧结论决策
     clearProbeCache(sessionId)
+    /**
+     * 内置编辑器的基线也作废：它记的是"打开那一刻远端什么样"，而会话没了之后
+     * 那份记忆既没人会用（渲染进程的编辑器 store 在 closeSession 里同步清了），
+     * 留着也只是白占。清掉之后万一还有人拿旧路径调保存，走的是
+     * fileSave 里"基线不在 → 硬拒并让用户重新打开"那条 —— 不会退化成跳过冲突检测。
+     */
+    forgetSessionBaselines(sessionId)
     monitorManager.stop(sessionId)
     forwardManager.stopForSession(sessionId)
     this.pendingForwards.delete(sessionId)

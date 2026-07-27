@@ -22,29 +22,37 @@ export interface RemoteTextRead {
   stat: Stats
 }
 
+/**
+ * 软链 → 真身。**读和写必须用同一条规则**，所以它是个导出的函数而不是内联几行。
+ *
+ * 不解析的后果是致命的：写回用的 rename 会把**软链本身**替换成一个普通文件，
+ * 而 /etc/nginx/sites-enabled/* 全是软链 —— 用户改一次配置，软链就断了，
+ * reload 之后站点直接消失。所以 lstat 判类型、realpath 拿真身，
+ * 之后 stat/read/write/rename/chmod 一律对真身做；调用方的 key 仍用原始路径
+ * （用户点的是那条）。
+ *
+ * 只读查看其实不会 rename，但仍然解析：一是 stat 的尺寸/权限要报真身的，
+ * 二是这条不变量不该有"某条路可以不遵守"的例外 —— 那种例外迟早会被复制到写的那条路上。
+ *
+ * lstat 给 null 是"不存在或无权限"（两者不可区分），这里**不下结论**也不报错 ——
+ * 原样返回请求路径，让调用方紧接着的 stat 给出统一的报错文案。
+ */
+export async function resolveRemoteTarget(
+  sftp: SFTPWrapper,
+  remotePath: RemotePath | string
+): Promise<RemotePath> {
+  const requested = toRemotePath(remotePath)
+  const link = await sftpLstat(sftp, requested)
+  return link && typeFromMode(link.mode) === 'symlink'
+    ? toRemotePath(await sftpRealpath(sftp, requested))
+    : requested
+}
+
 export async function readRemoteTextFile(
   sftp: SFTPWrapper,
   remotePath: RemotePath | string
 ): Promise<RemoteTextRead> {
-  const requested = toRemotePath(remotePath)
-
-  /**
-   * 软链必须先解析成真身，这一条不做后果是致命的：写回用的 rename 会把**软链本身**
-   * 替换成一个普通文件，而 /etc/nginx/sites-enabled/* 全是软链 —— 用户改一次配置，
-   * 软链就断了，reload 之后站点直接消失。所以 lstat 判类型、realpath 拿真身，
-   * 之后 stat/read/write/rename/chmod 一律对真身做；调用方的 key 仍用原始路径
-   * （用户点的是那条）。
-   *
-   * 只读查看其实不会 rename，但仍然解析：一是 stat 的尺寸/权限要报真身的，
-   * 二是这条不变量不该有"某条路可以不遵守"的例外 —— 那种例外迟早会被复制到写的那条路上。
-   */
-  const link = await sftpLstat(sftp, requested)
-  // lstat 给 null 是"不存在或无权限"（两者不可区分），不在这里下结论 ——
-  // 紧接着的 stat 失败会给出统一的报错文案
-  const resolvedPath =
-    link && typeFromMode(link.mode) === 'symlink'
-      ? toRemotePath(await sftpRealpath(sftp, requested))
-      : requested
+  const resolvedPath = await resolveRemoteTarget(sftp, remotePath)
 
   const stat = await sftpStat(sftp, resolvedPath)
   if (!stat) throw new Error(`远端文件不可读（不存在、无权限或断链）：${resolvedPath}`)

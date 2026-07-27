@@ -28,7 +28,9 @@ import type {
   ProfileId,
   RemoteEditEntry,
   RemoteEditState,
+  RemoteFileSaveResult,
   RemoteFileView,
+  RemoteSaveGates,
   SessionId,
   SessionPrompt,
   SessionPromptReply,
@@ -127,7 +129,7 @@ export interface InvokeMap {
     result: { exitCode: number | null; leftover: string[]; stderr: string }
   }
 
-  // --- 内置编辑器：只读查看 ---
+  // --- 内置编辑器：查看与保存 ---
   /**
    * 读一个远端文本文件给内置编辑器看。**无副作用、不在远端留任何东西、没有状态。**
    *
@@ -142,6 +144,36 @@ export interface InvokeMap {
   'sftp:fileView': {
     args: [{ sessionId: SessionId; path: string; charset?: RemoteCharset }]
     result: RemoteFileView
+  }
+  /**
+   * 把编辑器缓冲区里的正文写回远端。与 `sftp:fileView` 成对，`path` 用**同一条**
+   * 用户点开的路径（软链就是软链本身）—— 软链解析在 main 侧重做一遍，
+   * 渲染进程从来不知道真身在哪，也不该知道。
+   *
+   * `charset` / `eol` / `hasBom` 三个都**必填、不给默认值**，因为每一个的默认值都会
+   * 静默改写文件：漏了 charset 就把 GBK 的配置按 UTF-8 存回去（整个文件变乱码）、
+   * 漏了 eol 就把 CRLF 文件整个翻面、漏了 hasBom 就替用户删掉 .bat / .ps1 的 BOM。
+   * 三者原样来自那次 fileView 的返回，除非用户在状态栏上显式改过 —— 那是他的选择。
+   *
+   * `gates` 见 RemoteSaveGates。三个开关全部必填，理由写在那儿。
+   *
+   * **不做的事**：这条 channel 不接受本地路径、不接受 baseline、也没有"保存全部"。
+   * 基线只在 main 侧（见 main/sftp/editBaselines.ts），批量保存留给渲染进程逐个调 ——
+   * 一次 invoke 一个文件，失败与确认才能一对一地对应上。
+   */
+  'sftp:fileSave': {
+    args: [
+      {
+        sessionId: SessionId
+        path: string
+        text: string
+        charset: RemoteCharset
+        eol: 'lf' | 'crlf'
+        hasBom: boolean
+        gates: RemoteSaveGates
+      }
+    ]
+    result: RemoteFileSaveResult
   }
 
   // --- 远端文件编辑 ---

@@ -127,6 +127,54 @@ export function encodeRemoteText(
 }
 
 /**
+ * 这段文本能不能用这个编码**完整**表示出来。
+ *
+ * 保存前必须问一次，因为 iconv 对表示不了的字符**不报错**：它悄悄换成 `?`（0x3f）。
+ * 于是"在 GBK 的配置文件里粘一个 emoji 然后保存"这条路上，用户看到的是保存成功，
+ * 文件里躺着的是一个问号 —— 而这件事再也回不去了。
+ *
+ * 与 DecodeResult.lossless 是**两个不同的问题**，都得问：
+ *  - `lossless` 问的是"我读进来的字节能不能原样写回去"（用户从未看见的字节会不会被毁）；
+ *  - 这个函数问的是"用户现在打的字能不能存下去"。
+ * 前者的输入是文件，后者的输入是键盘，两边都会静默丢数据。
+ *
+ * 判据用"编码再解码回来比字符串"而不是查有没有 `?`：文件里本来就可能有真的问号。
+ * 行尾不参与（\r 与 \n 在白名单里每种编码都是 ASCII），所以直接对原文判。
+ *
+ * 找出**哪些**字符不行时按码位逐个试，不按下标比对两个字符串：一个字符可能被换成
+ * 多个 `?`，那时两边长度就错开了，按下标比会从错位处开始把后面全报成"不同"
+ * （2MB 的文件里报出"三千个字符无法表示"，而其实只有一个 emoji）。逐个试是精确的，
+ * 而且只对**去重后**的字符做，代价与文件长度无关。
+ * （白名单里这几种编码都是无状态、面向字节的，逐字符与整串编码等价；
+ *   哪天加进 ISO-2022 这类带切换状态的编码，这个前提就不成立了。）
+ *
+ * 遍历用 `for...of`（按码位）而不是下标，否则 emoji 会被切成半个代理对、
+ * 报错文案里显示成一个乱码方块 —— 那正好是最需要说清楚的那种字符。
+ */
+export function encodeFidelity(
+  text: string,
+  charset: RemoteCharset
+): { ok: true } | { ok: false; chars: string[]; distinct: number } {
+  // 快路：绝大多数保存都在这里返回，整串一次往返
+  if (iconv.decode(iconv.encode(text, charset), charset) === text) return { ok: true }
+
+  const bad: string[] = []
+  const seen = new Set<string>()
+  for (const ch of text) {
+    if (seen.has(ch)) continue
+    seen.add(ch)
+    if (iconv.decode(iconv.encode(ch, charset), charset) !== ch) bad.push(ch)
+  }
+  /**
+   * 兜底：整串往返对不上、逐字符却一个都挑不出来。目前想不出这种情形，
+   * 但"存不下去"这个结论已经是确定的了 —— 宁可给不出字符清单，也绝不报成 ok。
+   */
+  if (bad.length === 0) return { ok: false, chars: [], distinct: 0 }
+  // 文案里列全部没有意义，前几个就够定位了；总数另给
+  return { ok: false, chars: bad.slice(0, 8), distinct: bad.length }
+}
+
+/**
  * 判定文件用的是哪种行尾。
  *
  * 判据是"CRLF 占全部 LF 的比例过半"，不是"有没有出现过 CRLF"：真实文件常常混行尾
