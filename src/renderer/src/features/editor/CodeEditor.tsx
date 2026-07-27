@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import { EditorState } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
+import { EditorView, keymap } from '@codemirror/view'
 import {
   baseExtensions,
   languageConf,
@@ -8,15 +8,25 @@ import {
   readOnlyConf,
   readOnlyExtension
 } from './cmSetup'
+import { planDraftSwap } from './draftSwap'
 import type { LanguageId } from './editorPolicy'
 import styles from './EditorHost.module.css'
 
 interface Props {
-  /** 换 key = 换文件（或换编码重读）→ 整份 state 换掉 */
+  /** 换 key = 换文件（或换编码重读） */
   fileKey: string
+  /** 上一次读到 / 存成的那份正文。**不是**编辑器里的当前内容，见下面 states 那段 */
   text: string
   language: LanguageId
   readOnly: boolean
+  /** 当前还开着的全部 fileKey。用来清理草稿暂存，见 pruneStates */
+  openKeys: string[]
+  /** 内容与 `text` 是否不一致。每次文档变化、以及换文件之后各报一次 */
+  onDirty: (fileKey: string, dirty: boolean) => void
+  /** Ctrl+S。真正的保存流程在 EditorHost（要弹确认框），这里只负责把按键接出去 */
+  onSave: (fileKey: string) => void
+  /** 保存时从这里取当前正文。填的是一个 getter，不把正文推上去 —— 见下面那段 */
+  docRef: MutableRefObject<(() => string) | null>
 }
 
 /**
@@ -26,45 +36,156 @@ interface Props {
  * 每次换文件都重建的话，会话标签之间来回切一次就要重建一遍 —— 而 CM 的初始化要量字符宽度、
  * 建 gutter、跑第一遍语法解析，几十毫秒的抖动，在一个"实时响应"为卖点的面板上尤其难看。
  *
- * 换文件用 view.setState 而不是 dispatch 一个替换全文的事务：那样撤销历史会横跨两个文件，
- * 用户在 B 文件里按一次 Ctrl+Z 就能把 A 文件的内容"撤销"回来（片 3 可写之后是真事故）。
+ * **正文不进 React 状态，也不进 store。** 受控组件那条路在这里是错的：doc 最大 2MB，
+ * 每敲一个键复制一份字符串再重渲染整棵子树，是可感知的卡。所以 store 里存的是
+ * "上一次读到/存成的那份"，当前内容只在 CM 自己的 state 里，需要时通过 `docRef` 取。
  */
-export function CodeEditor({ fileKey, text, language, readOnly }: Props): React.JSX.Element {
+export function CodeEditor({
+  fileKey,
+  text,
+  language,
+  readOnly,
+  openKeys,
+  onDirty,
+  onSave,
+  docRef
+}: Props): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  /** 当前 view 里装的是哪个文件。换文件时要先把旧的那份收好 */
+  const mountedKey = useRef<string | null>(null)
 
-  const build = (doc: string): EditorState =>
+  /**
+   * 每个文件各自的 EditorState 暂存。
+   *
+   * 这一份暂存是**正确性要求**，不是优化：只有一个 view，换标签时如果直接
+   * `setState(build(text))`，那么"改了 A → 切到 B → 切回 A"就会把 A 的未保存改动
+   * 静默扔掉。顺带买到的是撤销历史与选区、折叠状态都跟着文件走 ——
+   * 在 B 里按 Ctrl+Z 不会把 A 的内容撤销回来。
+   *
+   * `docBase` 记的是那份 state 当初是按哪个 `text` 建的：`text` 变了（重新加载、
+   * 或者刚存成）就说明暂存过期，必须重建而不是恢复。
+   */
+  const states = useRef(new Map<string, EditorState>())
+  const docBase = useRef(new Map<string, string>())
+
+  /** 用 ref 拿回调：keymap 在建 state 时就闭包进去了，直接用 props 会一直是第一次那份 */
+  const onSaveRef = useRef(onSave)
+  const onDirtyRef = useRef(onDirty)
+  onSaveRef.current = onSave
+  onDirtyRef.current = onDirty
+
+  const build = (doc: string, key: string): EditorState =>
     EditorState.create({
       doc,
       extensions: [
+        /**
+         * Ctrl+S 放在最前面，**并且 preventDefault** —— Chromium 的"保存网页"就绑在
+         * 这个键上，不拦住的话按一次会弹出系统的另存为对话框。
+         *
+         * 保存的键位只在编辑器有焦点时生效（keymap 挂在 CM 的 content 上），
+         * 刻意**不做成全局快捷键**：Ctrl+S 在终端里是流控（XOFF），
+         * 抢掉它会让 less / vim 用户莫名其妙。
+         */
+        keymap.of([
+          {
+            key: 'Mod-s',
+            preventDefault: true,
+            run: () => {
+              onSaveRef.current(key)
+              return true
+            }
+          }
+        ]),
         ...baseExtensions(),
         languageConf.of(languageExtension(language)),
-        readOnlyConf.of(readOnlyExtension(readOnly))
+        readOnlyConf.of(readOnlyExtension(readOnly)),
+        /**
+         * 脏标记。比的是"当前 doc 与建这份 state 时那个 text"，而不是"有没有编辑过"——
+         * 用户改一个字再改回来，应该不算脏（否则关标签时白问一次）。
+         *
+         * `docChanged` 时才比，所以移动光标、改选区、折叠都不会触发。
+         * 2MB 文档的字符串比较是几百微秒级的，而它只在真的改了文档时发生。
+         */
+        EditorView.updateListener.of((u) => {
+          if (!u.docChanged) return
+          onDirtyRef.current(key, u.state.doc.toString() !== (docBase.current.get(key) ?? ''))
+        })
       ]
     })
 
   // 只建一次。依赖数组刻意为空 —— 下面几个 effect 负责把变化喂进去
   useEffect(() => {
     if (!host.current) return
-    const view = new EditorView({ parent: host.current, state: build(text) })
+    docBase.current.set(fileKey, text)
+    const view = new EditorView({ parent: host.current, state: build(text, fileKey) })
     viewRef.current = view
+    mountedKey.current = fileKey
+    docRef.current = () => view.state.doc.toString()
     return () => {
       view.destroy()
       viewRef.current = null
+      docRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 换文件 / 换编码重读 → 换整份 state
+  /**
+   * 换文件 / 换编码重读 / 刚存成 → 按 planDraftSwap 的结论办。
+   *
+   * 三种结论各自的理由在 draftSwap.ts 里（那是纯函数，有一张用例表）——
+   * 这里只负责照着做，并且**换文件之前先把旧的那份 state 收进暂存**。
+   */
   useEffect(() => {
     const view = viewRef.current
     if (!view) return
-    // 内容一致就不动：切回同一个文件、或 store 因为别的字段变化而重渲染时，
-    // 白换一次 state 会把选区和折叠状态清掉
-    if (view.state.doc.toString() === text) return
-    view.setState(build(text))
+    const prev = mountedKey.current
+    const sameFile = prev === fileKey
+
+    // 换文件：旧的那份必须先收好，否则它的草稿就没了
+    if (!sameFile && prev) states.current.set(prev, view.state)
+
+    const plan = planDraftSwap({
+      prevKey: prev,
+      fileKey,
+      text,
+      currentDoc: view.state.doc.toString(),
+      hasStash: states.current.has(fileKey),
+      stashBase: docBase.current.get(fileKey)
+    })
+
+    if (plan.kind === 'restore') {
+      const stashed = states.current.get(fileKey)
+      // planDraftSwap 说 restore 就一定有暂存；这个兜底只是不让类型收窄靠断言
+      if (stashed) view.setState(stashed)
+    } else if (plan.kind === 'rebuild') {
+      docBase.current.set(fileKey, text)
+      view.setState(build(text, fileKey))
+    } else {
+      // keep：内容已经等于 text（刚存成的那一下），只把基准对齐
+      docBase.current.set(fileKey, text)
+    }
+
+    mountedKey.current = fileKey
+    onDirtyRef.current(fileKey, view.state.doc.toString() !== text)
+    // 恢复暂存之后 CM 需要重新量一次几何：这一格在切换期间尺寸可能变过
+    if (!sameFile) view.requestMeasure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileKey, text])
+
+  /**
+   * 清掉已经关掉的文件的暂存。这一条也是**正确性要求**：
+   * fileKey 是 `sessionId::path::charset`，关掉再重新打开同一个文件会得到同一个 key ——
+   * 不清的话，用户"关掉标签放弃改动"之后再打开，草稿会诡异地复活。
+   */
+  useEffect(() => {
+    const live = new Set(openKeys)
+    for (const key of [...states.current.keys()]) {
+      if (live.has(key)) continue
+      states.current.delete(key)
+      docBase.current.delete(key)
+    }
+  }, [openKeys])
 
   useEffect(() => {
     viewRef.current?.dispatch({

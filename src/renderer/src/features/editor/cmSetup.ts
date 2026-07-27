@@ -1,4 +1,4 @@
-import { defaultKeymap } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { json } from '@codemirror/lang-json'
 import { yaml } from '@codemirror/lang-yaml'
 import {
@@ -406,14 +406,32 @@ export function baseExtensions(): Extension[] {
     scrollPastEnd(),
     foldGutter(),
     bracketMatching(),
-    // 只影响输入时的缩进单位；这一片只读，留着是因为它同时被折叠与"选中整块"用到
     indentUnit.of('  '),
     syntaxHighlighting(ofsHighlight),
     // top: true —— 查找条出现在顶部。放底部会和状态条挤在一起
     search({ top: true }),
     highlightSelectionMatches(),
-    // 顺序有讲究：searchKeymap 在前，否则 defaultKeymap 里的 Mod-d 之类会先吃掉按键
-    keymap.of([...searchKeymap, ...foldKeymap, ...defaultKeymap]),
+    /**
+     * 撤销历史。**只读那一片漏了这一条**（`history()` 不装的话 `historyKeymap` 是空转，
+     * 而 `defaultKeymap` 里并不含撤销）—— 只读时没人按 Ctrl+Z 所以没暴露，
+     * 一旦可写就是不可接受的：改错一行没法退回去。
+     *
+     * 装在 baseExtensions 里而不是只在可写时装：历史是**每份 state 各自一份**的，
+     * 而只读与可写之间靠 readOnlyConf 切（不换 state）—— 装在隔间里的话，
+     * 切一次只读就把历史清空了。只读时 EditorState.readOnly 已经挡住一切改文档的事务，
+     * 历史自然是空的，白装一个不花钱。
+     */
+    history(),
+    /**
+     * 顺序有讲究：
+     *  - searchKeymap 在最前，否则 defaultKeymap 里的 Mod-d 之类会先吃掉按键；
+     *  - indentWithTab 放在 defaultKeymap **之后**，因为它要覆盖 Tab 的默认行为。
+     *
+     * indentWithTab 的代价要说清：Tab 从此不再把焦点移出编辑器。加它是因为
+     * "在代码编辑器里按 Tab 却跳走"更糟（YAML 缩进就是靠它），而这一格有别的出口
+     * （鼠标、Ctrl+Tab 切会话标签）。**这是个已知的键盘可达性折衷**，不是没想到。
+     */
+    keymap.of([...searchKeymap, ...foldKeymap, ...historyKeymap, ...defaultKeymap, indentWithTab]),
     ofsEditorTheme
   ]
 }

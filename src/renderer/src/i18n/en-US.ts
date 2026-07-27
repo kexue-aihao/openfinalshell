@@ -198,10 +198,38 @@ export default {
       emptyHint: 'Right-click a file in the list below and choose “View in built-in editor”',
       reload: 'Re-read from the server',
       readOnly: 'Read-only',
-      readOnlyHint:
-        'This version can only view. Scrolling, selecting/copying and Ctrl+F all work, but the content cannot be changed',
+      readOnlyHint: 'This file cannot be edited right now: still loading, or the read failed',
+      readOnlyLossless:
+        'Editing is disabled because the bytes do not decode cleanly with the current charset: they contain sequences that are invalid in it, so some characters shown here have already been replaced — saving would destroy those bytes for good. Pick another charset on the right, confirm the content looks right, then edit.',
       charsetHint:
         'Re-decode with this charset. If it looks like mojibake, pick another — switching only re-reads, the remote file is never written',
+      dirty: 'Unsaved',
+      dirtyHint: 'Changes have not been written back yet. Ctrl+S to save',
+      saveHint: 'Save to the server (Ctrl+S)',
+      saved: 'Saved',
+      savedWithWarning: 'Saved, but one thing did not work out: {{warning}}',
+      saveFailed: 'Nothing was saved',
+      gateStuck:
+        'Save is stuck: a gate you already confirmed blocked the write again. Please reopen this file and try again',
+      conflictTitle: 'The remote file changed while you were editing',
+      conflictDesc:
+        'Saving now would overwrite someone else’s changes for good. Consider cancelling, hitting “Re-read from the server” to see what changed, then deciding.',
+      conflictOk: 'Overwrite anyway',
+      nonAtomicTitle: 'This server does not support atomic replacement',
+      nonAtomicDesc:
+        'A normal save writes a temp file and swaps it in with one step, so the remote file is complete the whole time. This server lacks the posix-rename extension, so the only option is “rename to backup → rename into place” — and between those two steps there is a very short window where the target does not exist. If a service is reading this file (nginx could reload at any moment), it may see an empty file during that window.',
+      nonAtomicOk: 'I understand the risk, save',
+      shrinkTitle: 'The content is far shorter than what is on the server',
+      shrinkDesc:
+        'This looks like a mistake (select-all followed by an accidental keystroke, say). If you really do want the file cut down this far, go ahead.',
+      shrinkNumbers: 'The server has {{remote}} bytes; {{local}} bytes would be written',
+      shrinkOk: 'Yes, it should be this short',
+      discardTitle: 'Discard unsaved changes?',
+      discardDesc:
+        'This file has changes that have not been written back. Continuing throws them away for good.',
+      discardOk: 'Discard changes',
+      closeSessionDirty:
+        'This session still has unsaved files. Closing it will throw those changes away. Close anyway?',
       bomHint: 'The file starts with a UTF-8 BOM (EF BB BF)',
       modeHint: 'Remote permission bits (octal)',
       lossless: 'Charset may be wrong',
@@ -209,7 +237,7 @@ export default {
         'The bytes do not decode cleanly with the current charset: they contain sequences that are invalid in it, so some characters shown here have already been replaced. Try another charset.',
       mixedEol: 'Mixed line endings',
       mixedEolHint:
-        'This file mixes LF and CRLF. The editor shows everything as LF, so line numbers and content are correct; but once saving is supported, saving will normalise line endings across the whole file.'
+        'This file mixes LF and CRLF. The editor shows everything as LF, so line numbers and content are correct; but **saving normalises line endings across the whole file** (to whichever one the status bar shows), so a save can never be byte-identical to the original.'
     },
     forward: {
       new: 'New forwarding rule',

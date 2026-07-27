@@ -9,6 +9,8 @@ import styles from './EditorHost.module.css'
 interface Props {
   file: OpenFile
   language: LanguageId
+  /** 由 EditorHost 判定（读没读完 + lossless），这里只负责把**为什么**说清楚 */
+  readOnly: boolean
   onCharset: (charset: RemoteCharset) => void
 }
 
@@ -20,7 +22,12 @@ interface Props {
  * （UTF-8 的中文按 GBK 解也是合法 GBK，见 main/sftp/textCodec.ts），所以最终只能靠
  * 用户看一眼是不是乱码、然后换一个。换编码 = 用新编码重读一次，远端零副作用。
  */
-export function EditorStatusStrip({ file, language, onCharset }: Props): React.JSX.Element {
+export function EditorStatusStrip({
+  file,
+  language,
+  readOnly,
+  onCharset
+}: Props): React.JSX.Element {
   const { t } = useTranslation()
   const view = file.view
 
@@ -54,9 +61,20 @@ export function EditorStatusStrip({ file, language, onCharset }: Props): React.J
               </Tag>
             </Tooltip>
           )}
-          <Tooltip title={t('editor.readOnlyHint')}>
-            <Tag className={styles.statusTag}>{t('editor.readOnly')}</Tag>
-          </Tooltip>
+          {file.dirty && (
+            <Tooltip title={t('editor.dirtyHint')}>
+              <Tag color="processing" className={styles.statusTag}>
+                {t('editor.dirty')}
+              </Tag>
+            </Tooltip>
+          )}
+          {/* 只读时必须说清**为什么**：这一版里唯一的成因是"当前编码解不干净"，
+              而那个 Tag 已经在左边亮着了 —— 两个连起来读才是一句完整的话 */}
+          {readOnly && (
+            <Tooltip title={view.lossless ? t('editor.readOnlyHint') : t('editor.readOnlyLossless')}>
+              <Tag className={styles.statusTag}>{t('editor.readOnly')}</Tag>
+            </Tooltip>
+          )}
 
           <span className={styles.statusItem}>{languageLabel(language)}</span>
 

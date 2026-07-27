@@ -67,6 +67,18 @@
   flex: none;
 }
 
+/*
+ * 未保存的点。用强调色而不是警告色：有改动是**正常状态**，不是出了问题 ——
+ * 一片橙色的标签条会让人以为哪里坏了。
+ */
+.tabDirty {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ofs-accent);
+}
+
 .tabClose {
   flex: none;
   opacity: 0.45;
@@ -155,4 +167,14 @@
   flex: none;
   min-width: 84px;
   font-size: 11px;
+}
+
+/* ---- 确认框里的那几行 ---- */
+
+.decision {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 路径可能很长，而它是用户裁决时最先看的东西 —— 断行而不是截断 */
+  word-break: break-all;
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { ConnectionProfile, SessionId, SessionState, TermId } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
+import i18n from '@/i18n'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from './useSettingsStore'
 import { useMonitorStore } from './useMonitorStore'
@@ -139,6 +140,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   closeTab: async (id) => {
     const tab = get().tabs.find((t) => t.id === id)
+    /**
+     * 这个会话下有未保存的编辑就先问一句，而且**不看 confirmOnCloseTab 那个设置**：
+     * 那个开关管的是"关一条连接要不要确认"，而这里要拦的是丢掉用户亲手打的字。
+     * 一个把确认关掉的人想要的是"别拿连接烦我"，不是"删我改的东西也别问"。
+     *
+     * 用 window.confirm 而不是 antd 的 modal：这是个 store，没有 App 的上下文，
+     * 而调进来的地方有四个（标签的 X、关闭其他、关闭右侧、Ctrl+W）——
+     * 把确认放在每个调用点上迟早会漏掉一个。同一个理由下 useGlobalShortcuts
+     * 里那句 confirmOnCloseTab 也是 window.confirm，形状一致。
+     */
+    if (tab?.sessionId && useEditorStore.getState().hasDirty(tab.sessionId)) {
+      if (!window.confirm(i18n.t('editor.closeSessionDirty'))) return
+    }
     set((s) => {
       const tabs = s.tabs.filter((t) => t.id !== id)
       const activeTabId =

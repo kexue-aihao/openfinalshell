@@ -1484,6 +1484,325 @@ async function main() {
   }
   await evaluate(`await window.ofs.invoke('settings:set', { uiZoom: 100 }); return true`)
 
+  /*
+   * 8.9) 可编辑 + 输入法 + 保存往返 + 闸门循环。
+   *
+   * 这一步补的是片 2 明确记着"没验到"的那条：**输入法**。只读查看不接受输入，
+   * 就没有组词过程，所以那时候写下的"IME 未验证"是实话。现在能写了，用 CDP 的
+   * Input.imeSetComposition 造出真实的 composition 事件序列 ——
+   * CodeMirror 对组词是特殊处理的（组词期间要暂停自己的 DOM 读回），
+   * 接错的症状是拼音残留在文档里（"nihao你好"）或者内容被插两遍。
+   *
+   * 顺带这一步把整条闸门循环在**真产物**里跑一遍，而这是 fixture 服务器白送的：
+   * 它不通告 posix-rename 扩展，所以每一次保存都必然先撞上 nonAtomic 那道闸门 ——
+   * 于是"闸门 → 确认框 → 只打开那一个开关 → 再来一次"这条路每次都被走到。
+   * 后面那段还故意从背后改一次远端，逼出 conflict + nonAtomic **两个连着弹**：
+   * 老那种一个 force 管三件事的设计在这里只会弹一次，两个连弹正是三个开关拆开的证据。
+   */
+  /**
+   * 按一个**功能键或组合键**（Ctrl+S、Backspace、End…）。
+   * 用 rawKeyDown 是因为它只走按键处理、不产生文本输入 —— 快捷键要的正是这个。
+   */
+  const press = async (key, code, vk, modifiers = 0) => {
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await send('Input.dispatchKeyEvent', {
+        type,
+        modifiers,
+        key,
+        code,
+        windowsVirtualKeyCode: vk,
+        nativeVirtualKeyCode: vk
+      })
+    }
+  }
+  /**
+   * 敲一个**字符**。这里必须用 `keyDown` 并带上 `text`，不能用 `rawKeyDown` ——
+   * 后者不产生文本输入，字符压根不会进文档。（第一版就是拿 press 去敲 'x'，
+   * 报的是"编辑器卡在组词态"，而真实产物一切正常。这类"测法造出来的红"
+   * 和真 bug 长得一模一样，与 Ctrl+F 那次合成 KeyboardEvent 是同一个坑的另一面：
+   * **快捷键要 rawKeyDown，打字要 keyDown+text**。）
+   */
+  const typeChar = async (ch, code, vk) => {
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: ch,
+      code,
+      text: ch,
+      unmodifiedText: ch,
+      windowsVirtualKeyCode: vk,
+      nativeVirtualKeyCode: vk
+    })
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: ch,
+      code,
+      windowsVirtualKeyCode: vk,
+      nativeVirtualKeyCode: vk
+    })
+  }
+  /** 找当前那个确认框：回标题、正文与按钮文字，供断言与诊断 */
+  const readModal = () => `
+    const dlg = [...document.querySelectorAll('.ant-modal-confirm')].at(-1)
+    if (!dlg) return { 有框: false, 页面上的框: document.querySelectorAll('.ant-modal').length }
+    return {
+      有框: true,
+      标题: dlg.querySelector('.ant-modal-confirm-title')?.textContent ?? '',
+      正文: dlg.querySelector('.ant-modal-confirm-content')?.textContent ?? '',
+      按钮: [...dlg.querySelectorAll('.ant-btn')].map((b) => b.textContent.trim())
+    }
+  `
+  /**
+   * 点确认框上写着某段文字的那个按钮。
+   *
+   * 比较前要**去掉所有空白**：antd 会给两个汉字的按钮自动插一个空格
+   * （autoInsertSpaceInButton），于是「取消」在 DOM 里是「取 消」——
+   * 按原文比对找不到它，而报出来的错长得像"按钮没渲染"。
+   */
+  const clickModalBtn = (label) => `
+    const norm = (s) => s.replace(/\\s+/g, '')
+    const dlg = [...document.querySelectorAll('.ant-modal-confirm')].at(-1)
+    const btn = dlg && [...dlg.querySelectorAll('.ant-btn')].find((b) => norm(b.textContent) === norm(${JSON.stringify(label)}))
+    if (!btn) return { ok: false, 有的按钮: dlg ? [...dlg.querySelectorAll('.ant-btn')].map((b) => b.textContent.trim()) : null }
+    btn.click()
+    await new Promise((s) => setTimeout(s, 700))
+    return { ok: true }
+  `
+  /**
+   * 读回远端那份内容。带重试是因为写回的两条路都有"目标短暂不存在"的窗口：
+   * 传输队列覆盖同名文件是先删后写，而非原子替换是"改名备份 → 改名就位"。
+   * 这里要断言的是**最终内容**，不是"任一瞬间都读得到"，所以重试不掩盖任何东西。
+   */
+  const remoteText = async () => {
+    for (let i = 0; i < 10; i++) {
+      const r = await evaluate(`
+        try {
+          const v = await window.ofs.invoke('sftp:fileView', {
+            sessionId: '${session.sessionId}', path: '/ed-smoke.conf'
+          })
+          return { text: v.text, bytes: v.bytes }
+        } catch (e) { return { soft: String(e && e.message || e) } }
+      `)
+      if (r.error) fail(`读回远端文件失败：${r.error}`)
+      if (!r.soft) return r
+      await sleep(300)
+    }
+    fail('十次都没读到 /ed-smoke.conf —— 它是真的没了，不是撞上替换窗口')
+  }
+
+  // 光标放到 'port = 3306' 那一行的行尾
+  const caret = await clickAtLine(100, 'port = 3306')
+  if (!caret.命中行 || !caret.命中行.includes('port = 3306')) {
+    fail('没能把光标放到指定行，输入法与保存都无从验证')
+  }
+  await press('End', 'End', 35)
+
+  // 组词：ni → nihao → 提交「你好」
+  await send('Input.imeSetComposition', { text: 'ni', selectionStart: 2, selectionEnd: 2 })
+  await sleep(120)
+  await send('Input.imeSetComposition', { text: 'nihao', selectionStart: 5, selectionEnd: 5 })
+  await sleep(120)
+  await send('Input.insertText', { text: '你好' })
+  await sleep(500)
+
+  const ime = await evaluate(`
+    const doc = [...document.querySelectorAll('.cm-editor .cm-line')].map((e) => e.textContent).join('\\n')
+    const 那一行 = [...document.querySelectorAll('.cm-editor .cm-line')]
+      .map((e) => e.textContent).find((s) => s.includes('port = 3306')) ?? ''
+    return { doc, 那一行, 有脏点: Boolean(document.querySelector('[data-ofs-dirty="1"]')) }
+  `)
+  if (ime.error) fail(ime.error)
+  if (!ime.那一行.includes('你好')) {
+    fail(`输入法提交的内容没有进文档：那一行是「${ime.那一行}」`)
+  }
+  if (/nihao/.test(ime.doc)) {
+    fail(`拼音残留在文档里 —— CodeMirror 的组词处理没接对：「${ime.那一行}」`)
+  }
+  if ((ime.doc.match(/你好/g) ?? []).length !== 1) {
+    fail(`「你好」出现了 ${(ime.doc.match(/你好/g) ?? []).length} 次 —— 组词提交被插了多遍`)
+  }
+  if (!ime.有脏点) fail('改了内容但标签上没有未保存标记')
+
+  /*
+   * 组词结束之后普通按键还得正常落下去。
+   *
+   * 这一条替掉了原来那句"检查有没有 .cm-composing 类" —— CM6 里**没有**这个类
+   * （查过 @codemirror/view 的产物，一次都没有），所以那个断言永远为真、
+   * 永远不会红。一个测不出任何东西的检查比没有检查更糟：它会让人以为验过了。
+   * 换成"再按一个键看落没落对"，这才真的能抓住"编辑器卡在组词态"。
+   */
+  await typeChar('x', 'KeyX', 88)
+  await sleep(250)
+  const afterIme = await evaluate(`
+    const 那一行 = [...document.querySelectorAll('.cm-editor .cm-line')]
+      .map((e) => e.textContent).find((s) => s.includes('port = 3306')) ?? ''
+    return { 那一行 }
+  `)
+  if (!afterIme.那一行.includes('你好x')) {
+    fail(`组词提交之后普通按键没落在光标后面：那一行是「${afterIme.那一行}」—— 卡在组词态了？`)
+  }
+  await press('Backspace', 'Backspace', 8)
+  await sleep(250)
+  console.log(`OK 输入法：组词提交进了文档且无拼音残留（「${ime.那一行.trim()}」），之后普通按键正常，脏标记亮了`)
+
+  // Ctrl+S 第一次：fixture 不通告 posix-rename，所以必然先撞 nonAtomic 那道闸门
+  const beforeSave = await remoteText()
+  await evaluate(`document.querySelector('.cm-editor .cm-content')?.focus(); return true`)
+  await press('s', 'KeyS', 83, 2)
+  await sleep(900)
+  const gate1 = await evaluate(readModal())
+  if (!gate1.有框) {
+    fail(
+      `Ctrl+S 之后没有出现确认框。fixture 服务器不支持 posix-rename，` +
+        `所以这一次保存必须被 nonAtomic 拦住（页面上的 modal 数：${gate1.页面上的框}）`
+    )
+  }
+  if (!/原子替换/.test(gate1.标题)) {
+    fail(`第一次保存弹的不是"不支持原子替换"那个框，而是「${gate1.标题}」`)
+  }
+  console.log(`OK Ctrl+S 触发保存，并被 nonAtomic 闸门拦下（「${gate1.标题}」）`)
+
+  // 先取消：一个字节都不许写
+  const cancelled = await evaluate(clickModalBtn('取消'))
+  if (!cancelled.ok) fail(`确认框上找不到「取消」（有的按钮：${JSON.stringify(cancelled.有的按钮)}）`)
+  const afterCancel = await remoteText()
+  if (afterCancel.text !== beforeSave.text) {
+    fail('取消了确认框，远端文件却被改了 —— 闸门没拦住写入')
+  }
+  const stillDirty = await evaluate(`return { 有脏点: Boolean(document.querySelector('[data-ofs-dirty="1"]')) }`)
+  if (!stillDirty.有脏点) fail('取消保存之后脏标记被清掉了 —— 用户会以为内容已经存上去了')
+  console.log('OK 取消确认框：远端一个字节没变，脏标记还在')
+
+  // 再来一次并确认
+  await evaluate(`document.querySelector('.cm-editor .cm-content')?.focus(); return true`)
+  await press('s', 'KeyS', 83, 2)
+  await sleep(900)
+  const okBtn = await evaluate(clickModalBtn('知道风险，继续保存'))
+  if (!okBtn.ok) fail(`nonAtomic 框上找不到确认按钮（有的按钮：${JSON.stringify(okBtn.有的按钮)}）`)
+  await sleep(1200)
+
+  const saved = await evaluate(`
+    return {
+      有脏点: Boolean(document.querySelector('[data-ofs-dirty="1"]')),
+      提示: [...document.querySelectorAll('.ant-message-notice-content')].map((e) => e.textContent).join(' | '),
+      还有框: document.querySelectorAll('.ant-modal-confirm').length
+    }
+  `)
+  const roundTrip = await remoteText()
+  if (!roundTrip.text.includes('你好')) {
+    fail(`保存往返失败：远端读回来的内容里没有「你好」（${roundTrip.bytes} 字节）`)
+  }
+  if (saved.有脏点) fail('保存成功了但脏标记没清掉')
+  console.log(
+    `OK 保存往返：远端读回来含「你好」（${roundTrip.bytes} 字节），脏标记已清，提示「${saved.提示.trim()}」`
+  )
+
+  /*
+   * 撤销。片 2 的只读查看里 history() 压根没装（historyKeymap 空转、defaultKeymap 不含撤销），
+   * 只读时没人按 Ctrl+Z 所以一直没暴露。这一条在真产物里钉住它。
+   *
+   * 判据刻意用**一次刚打下去的、独一无二的字符**，而不是"撤销之后『你好』还在不在"——
+   * 第一版就是后者，结果它红了，而产物一切正常：那时撤销栈顶是保存前删掉 'x' 的那次退格，
+   * 一次 Ctrl+Z 撤销的是**它**，「你好」当然还在。断言必须对准"我刚做的那一步"。
+   *
+   * 顺带验一件事：撤回到与远端一致之后脏标记要**灭掉** —— 脏的判据是"内容和远端一不一样"，
+   * 不是"有没有编辑过"。改一个字再改回来不该让用户在关标签时白答一次确认框。
+   */
+  await evaluate(`document.querySelector('.cm-editor .cm-content')?.focus(); return true`)
+  await typeChar('Q', 'KeyQ', 81)
+  await sleep(300)
+  const typedQ = await evaluate(`
+    const 那一行 = [...document.querySelectorAll('.cm-editor .cm-line')]
+      .map((e) => e.textContent).find((s) => s.includes('port = 3306')) ?? ''
+    return { 那一行, 有脏点: Boolean(document.querySelector('[data-ofs-dirty="1"]')) }
+  `)
+  if (!typedQ.那一行.includes('Q')) fail(`保存之后又打了一个字符却没进文档：「${typedQ.那一行}」`)
+  if (!typedQ.有脏点) fail('保存之后再改一次，脏标记没有重新亮起')
+
+  await press('z', 'KeyZ', 90, 2)
+  await sleep(500)
+  const undone = await evaluate(`
+    const 那一行 = [...document.querySelectorAll('.cm-editor .cm-line')]
+      .map((e) => e.textContent).find((s) => s.includes('port = 3306')) ?? ''
+    return { 那一行, 有脏点: Boolean(document.querySelector('[data-ofs-dirty="1"]')) }
+  `)
+  if (undone.那一行.includes('Q')) {
+    fail(`Ctrl+Z 没有撤销掉刚打的那个字符：那一行还是「${undone.那一行}」—— history() 没装？`)
+  }
+  if (!undone.那一行.includes('你好')) {
+    fail(`Ctrl+Z 撤销过头了，把上一次保存的内容也退掉了：「${undone.那一行}」`)
+  }
+  if (undone.有脏点) {
+    fail('撤回到与远端一致之后脏标记还亮着 —— 脏的判据变成了"有没有编辑过"而不是"内容一不一样"')
+  }
+  console.log('OK Ctrl+Z 撤销生效（且没撤销过头），撤回到与远端一致后脏标记自动灭掉')
+
+  /*
+   * 从背后改一次远端 → 下一次保存必须**两个框连着弹**：先 conflict（远端变过了），
+   * 确认之后再 nonAtomic（这台服务器不支持原子替换）。
+   *
+   * 这一条是三个开关拆开的**真产物红证**：老那种一个 force 管三件事的设计在这里只会弹
+   * 一次框 —— 用户确认的是"覆盖别人的改动"，却顺带承担了"文件会短暂不存在"。
+   */
+  writeFileSync(edLocal, '# 别人改的\nport = 9999\n', 'utf8')
+  const pushed = await evaluate(`
+    const sid = '${session.sessionId}'
+    await window.ofs.invoke('transfer:enqueue', [{
+      sessionId: sid, kind: 'upload',
+      localPath: ${JSON.stringify(edLocal)}, remotePath: '/ed-smoke.conf'
+    }])
+    // 读要吞掉异常：传输队列覆盖同名文件是"先删后写"，中间有一个窗口文件不存在，
+    // 而这一轮轮询很容易正好落在那里 —— 让它抛出去会变成一个看不懂的渲染进程异常
+    for (let i = 0; i < 60; i++) {
+      try {
+        const v = await window.ofs.invoke('sftp:fileView', { sessionId: sid, path: '/ed-smoke.conf' })
+        if (v.text.includes('别人改的')) return { ok: true }
+      } catch {}
+      await new Promise((s) => setTimeout(s, 300))
+    }
+    return { ok: false }
+  `)
+  if (!pushed.ok) fail('没能从背后改掉远端文件，冲突那条路无从验证')
+
+  // 再改一笔，然后存 —— 编辑器手里那份与远端此刻那份完全无关，正是冲突的定义
+  await evaluate(`document.querySelector('.cm-editor .cm-content')?.focus(); return true`)
+  await typeChar('W', 'KeyW', 87)
+  await sleep(300)
+  await press('s', 'KeyS', 83, 2)
+  await sleep(900)
+  const gConflict = await evaluate(readModal())
+  if (!gConflict.有框 || !/被改过/.test(gConflict.标题)) {
+    fail(`远端被第三方改过之后保存，没有弹冲突确认框（弹的是「${gConflict.标题 ?? '无'}」）`)
+  }
+  // main 给的原话必须出现在框里 —— "远端没了"和"被改过"是两种不同的冲突
+  if (!/改动过|不存在/.test(gConflict.正文)) {
+    fail(`冲突框里没带上 main 给的具体原因：「${gConflict.正文}」`)
+  }
+  // 打印尾巴而不是开头：正文是「路径 + 我们的说明 + main 给的原因」，
+  // 而这里唯一值得人眼确认的是最后那段 —— main 的原话真的接上来了
+  console.log(
+    `OK 远端被改过 → 弹冲突框（「${gConflict.标题}」，main 的原话「…${gConflict.正文.slice(-24)}」）`
+  )
+
+  const confirmOverwrite = await evaluate(clickModalBtn('仍然覆盖'))
+  if (!confirmOverwrite.ok) {
+    fail(`冲突框上找不到「仍然覆盖」（有的按钮：${JSON.stringify(confirmOverwrite.有的按钮)}）`)
+  }
+  const gate2 = await evaluate(readModal())
+  if (!gate2.有框 || !/原子替换/.test(gate2.标题)) {
+    fail(
+      '点了"仍然覆盖"之后应当**再**弹一次"不支持原子替换"（两道闸门各要一次确认）。' +
+        `实际弹的是「${gate2.标题 ?? '没有框'}」—— 一次确认放行了两道闸门？`
+    )
+  }
+  console.log('OK 两道闸门各弹一次：确认"仍然覆盖"没有顺带放行非原子替换')
+  await evaluate(clickModalBtn('知道风险，继续保存'))
+  await sleep(1200)
+  const finalText = await remoteText()
+  if (finalText.text.includes('别人改的')) {
+    fail('两个框都确认了，远端却还是第三方那份 —— 覆盖没有真正发生')
+  }
+  console.log('OK 两次确认之后内容真的写上去了')
+
   // 关掉标签 → 那一格应该整个消失（它没有开关，全关掉就是关闭）
   const edClose = await evaluate(`
     const close = document.querySelector('[class*=tabClose]')
