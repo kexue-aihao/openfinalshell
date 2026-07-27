@@ -43,6 +43,21 @@ export const MONITOR_FRAME_TIMEOUT_MS = 5000
  */
 export const MAX_EDIT_BYTES = 2 * 1024 * 1024
 
+/**
+ * 远端文本文件允许的编码。**这是安全边界，不是"方便用户"的清单。**
+ *
+ * iconv-lite 除了真编码之外还接受 `hex` / `base64` / `binary` 这类**字节变换**——
+ * 而编码名在内置编辑器里是渲染进程可控输入（状态栏上能切）。传 `hex` 就意味着
+ * 渲染进程能用一串 "0a1b2c…" 精确构造任意字节写到远端文件里，
+ * "我们只传字符串所以构造不出任意字节"这个论证会当场失效。
+ *
+ * 所以它放在 shared：**IPC 边界的 zod 校验、main 的解码、渲染进程的下拉框，
+ * 三处认的必须是同一张表**。判定一律用"在这张表里"而不是 iconv.encodingExists。
+ * 收得这么紧的另一半理由是 UTF-16 类根本进不来 —— 它们含 NUL，looksBinary 会先拒掉。
+ */
+export const REMOTE_CHARSETS = ['utf8', 'gb18030', 'gbk', 'big5', 'latin1'] as const
+export type RemoteCharset = (typeof REMOTE_CHARSETS)[number]
+
 /** 一次性远端命令（ExecRunner） */
 export const EXEC_DEFAULT_TIMEOUT_MS = 30_000
 /** stdout 上限，超过即截断（保留头部）。仍能拿到退出码，见 ExecRunner 里的尾窗 */
@@ -132,7 +147,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     monitorPanelSizePct: 22,
     monitorPanelCollapsed: false,
     sftpPaneOpen: false,
-    sftpPaneHeightPct: 40
+    sftpPaneHeightPct: 40,
+    editorPaneHeightPct: 40
   },
   window: {
     width: 1280,

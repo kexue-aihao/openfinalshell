@@ -441,6 +441,37 @@ export function createMockOfs(): OfsApi {
       mockFiles.add(path)
     },
 
+    /**
+     * 内置编辑器的只读打开。mock 里回一段**够把语法着色与状态条都验到**的假内容：
+     * 有注释、有键值、有中文、有全角空格（那个要被 highlightSpecialChars 标出来）。
+     * 编码/行尾/BOM 一律报最常见的组合 —— 这里的目的只是让界面能走完一遍，
+     * 真正的解码语义由 test/unit/textCodec.test.ts 覆盖（那才是它该被验的地方）。
+     */
+    'sftp:fileView': (arg: never) => {
+      const { path, charset } = arg as unknown as { path: string; charset?: string }
+      const text = [
+        '# mock 内容 —— 浏览器 mock 模式下没有真远端',
+        `path = ${path}`,
+        'listen 443 ssl;',
+        'server_name 例子.测试;',
+        '# 下一行第二个词前面是一个全角空格，应该被标出来：',
+        'key =　value',
+        ''
+      ].join('\n')
+      return {
+        requestedPath: path,
+        resolvedPath: path,
+        text,
+        charset: (charset ?? 'utf8') as never,
+        eol: 'lf' as const,
+        hasBom: false,
+        mixedEol: false,
+        lossless: true,
+        bytes: new TextEncoder().encode(text).length,
+        mode: 0o644
+      }
+    },
+
     'sftp:editOpen': (arg: never) => {
       const { sessionId, path } = arg as unknown as { sessionId: string; path: string }
       // 与 main 侧一致：同一会话同一路径重复打开复用同一条编辑

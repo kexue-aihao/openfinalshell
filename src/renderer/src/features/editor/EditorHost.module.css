@@ -1,0 +1,158 @@
+.host {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ofs-bg-panel);
+  border-top: 1px solid var(--ofs-border);
+}
+
+/* ---- 文件标签条 ---- */
+
+.tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 3px 6px 0;
+  border-bottom: 1px solid var(--ofs-border);
+  /* 打开十个文件时横向滚动，而不是把每个标签挤成两个字 */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.tabsGap {
+  flex: 1;
+  min-width: 8px;
+}
+
+.tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--ofs-radius-m) var(--ofs-radius-m) 0 0;
+  font-size: 12px;
+  color: var(--ofs-text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.tab:hover {
+  background: var(--ofs-bg-hover);
+  color: var(--ofs-text-1);
+}
+
+.tabActive {
+  background: var(--ofs-ed-bg);
+  border-color: var(--ofs-border);
+  color: var(--ofs-text-1);
+  /* 与代码区连成一体：盖住下面那条分隔线 */
+  margin-bottom: -1px;
+  padding-bottom: 5px;
+}
+
+.tabName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabSpin {
+  flex: none;
+}
+
+.tabClose {
+  flex: none;
+  opacity: 0.45;
+  border-radius: var(--ofs-radius-s);
+}
+.tabClose:hover {
+  opacity: 1;
+  color: var(--ofs-error);
+}
+
+/* ---- 代码区 ---- */
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--ofs-ed-bg);
+}
+
+.cm {
+  height: 100%;
+  /*
+   * CodeMirror 自己撑满：它的 .cm-editor 已经是 height:100%（见 cmSetup 的主题），
+   * 但外层这一层必须也是确定高度，否则 flex 容器里 CM 会按内容高度无限长。
+   */
+  min-height: 0;
+  overflow: hidden;
+}
+
+.empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- 状态条 ---- */
+
+.status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 8px;
+  border-top: 1px solid var(--ofs-border);
+  background: var(--ofs-bg-panel);
+  font-size: 11px;
+  color: var(--ofs-text-2);
+  /* 信息多、地方小：一律不换行，路径那一段自己截断 */
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.statusPath {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 路径要能被选中复制 —— 排查问题时第一件事就是把它贴给别人 */
+  user-select: text;
+  cursor: text;
+}
+
+.statusLink {
+  color: var(--ofs-text-3);
+}
+
+.statusGap {
+  flex: 1;
+  min-width: 4px;
+}
+
+.statusItem {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.statusTag {
+  flex: none;
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 5px;
+}
+
+.charset {
+  flex: none;
+  min-width: 84px;
+  font-size: 11px;
+}

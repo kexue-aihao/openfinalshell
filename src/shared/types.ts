@@ -3,6 +3,12 @@
  * 本文件禁止任何运行时依赖 —— 只允许 type/interface/const 字面量。
  */
 
+// 与 constants.ts 之间是一个**纯类型**的双向引用（那边 import type AppSettings）。
+// verbatimModuleSyntax 下 `import type` 整句擦除，所以运行时没有环。
+// 编码那张表必须住在 constants.ts：它是个值（zod 校验与下拉框都要遍历它），
+// 而这里要的只是从它派生出来的联合类型 —— 两处各写一遍才是真的会漂。
+import type { RemoteCharset } from './constants'
+
 // ---------- ID 体系 ----------
 export type ProfileId = string // 连接配置（持久化）
 export type GroupId = string
@@ -256,6 +262,37 @@ export interface RemoteEditEntry {
   createdAt: number
 }
 
+/**
+ * 内置编辑器**只读**打开一个远端文本文件的结果。
+ *
+ * 与 RemoteEditEntry 刻意是两套东西，别合并：那条是"一次有状态的编辑会话"
+ * （有 id、有状态机、有本地临时文件、会话结束要清场），这条是**一次无状态的读取**——
+ * 没有 id、没有远端副作用、失败就是失败，重试就是再读一遍。
+ * 合成一个的代价是：只读查看也要走那个 8 态状态机，而它每一态都是为"写回"存在的。
+ */
+export interface RemoteFileView {
+  /** 用户点的那条路径（软链就是软链本身） */
+  requestedPath: string
+  /** 真正读的路径：软链解析后的真身。与 requestedPath 不同时界面要显示"→ 真身" */
+  resolvedPath: string
+  /** 行尾已归一成 LF 的正文（编辑器内部只见 LF，见 main/sftp/textCodec.ts） */
+  text: string
+  charset: RemoteCharset
+  eol: 'lf' | 'crlf'
+  hasBom: boolean
+  /** 原文件混用 LF 与 CRLF：可编辑之后保存会把行尾统一掉，届时要先告诉用户 */
+  mixedEol: boolean
+  /**
+   * 这份字节能不能无损地"解码→编码"回原样。false = 用当前编码解不干净（非法字节序列）。
+   * ⚠️ 它**不**回答"编码猜对了没有"，见 textCodec 里 DecodeResult.lossless 的说明。
+   */
+  lossless: boolean
+  /** 远端文件的字节数（不是 text.length） */
+  bytes: number
+  /** 远端权限位。只读查看用来显示"这个文件你未必写得动" */
+  mode: number
+}
+
 // ---------- 监控 ----------
 export interface MonitorStaticInfo {
   hostname: string
@@ -419,6 +456,8 @@ export interface AppSettings {
     monitorPanelCollapsed: boolean
     sftpPaneOpen: boolean
     sftpPaneHeightPct: number
+    /** 内置编辑器那一格的高度。它没有对应的"开关"—— 有文件打开就在，全关掉就没了 */
+    editorPaneHeightPct: number
   }
   window: {
     width: number

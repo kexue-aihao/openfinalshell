@@ -96,6 +96,55 @@ bundle —— 这条路不碰"3 个运行时依赖 / 零 native 依赖"那条红
 顺带修掉一处：electron-vite 的 renderer 预设把 `minify` 写死成 `false`。
 覆盖它之后实测 4,560,893 → 2,240,967 字节，`app.asar` 从 5,990,521 → 3,663,301。
 
+内置编辑器（CodeMirror 6）进包之后的实测：JS **2,240,967 → 2,757,891**、
+gzip **693,656 → 862,493**、CSS 23,468 → 25,657。**gzip 那条只剩 87 KB 余量**，
+所以下一个要进包的东西得先量再说 —— 别在没量的情况下加解析器。
+
+### 内置编辑器
+
+右键一个文件 →「内置编辑器查看」，在会话内开出第三格（终端 / 编辑器 / 文件管理）。
+**目前只读**：能翻、能选中复制、`Ctrl+F` 查找、按编码重解，但改不动内容。
+
+选 **CodeMirror 6 而不是 Monaco**，决定性因素是 CSP：`src/renderer/index.html` 里那条
+`script-src 'self'`（无 `unsafe-eval`、无 `blob:`），而生产是 `win.loadFile` → `file://` 源。
+Monaco 的 worker 走 `blob:`、并需要 `unsafe-eval`。CM6 两样都不需要。
+
+语言支持是一次**按字节做的取舍**，量过三种组合才定的（minified / gzip）：
+
+| 组合 | minified | gzip |
+|---|---|---|
+| 只有核心 | 333,118 | 107,910 |
+| **核心 + json/yaml 真解析器 + 13 个 legacy 模式** | **497,851** | **161,774** |
+| 核心 + 7 个真解析器 + 6 个 legacy 模式 | 683,653 | 242,806 |
+
+第三行那 5 个重量级 Lezer 解析器（js/python/xml/sql/markdown）要多花 81 KB gzip，
+换来的语言却**更少**，所以选中间那行：json / yaml 用真解析器（有语法树 → 结构折叠、
+括号匹配、键名精确着色，而它们正是配置文件里结构最重的两种），其余 13 种走
+`StreamLanguage`。代价说清楚：legacy 模式**没有语法树**，那些语言里结构折叠与括号匹配不生效。
+
+`legacyTokens.ts` 那张 tokenTable 不是可选项。CM6 把 CM5 模式吐的 token 名当作
+`@lezer/highlight` 的**标签名**直接查表，而 legacy 模式里有一批名字压根不是合法标签。
+把 14 个模式对着样本各跑一遍 tokenizer、与标签表求差，得到 8 个：
+`def`(6 个模式)、`variable`(6)、`attribute`(3)、`error`(3)、`tag`(3)、`header`(1)、
+`property`(1)、`qualifier`(1)。不映射的后果不是"少几种颜色"——
+xml/html 的标签与属性、properties 的键与 `[section]`、nginx 里除已知指令之外的一切
+全都不着色，于是 sshd_config / my.cnf 只剩注释有颜色，看起来就像功能没做。
+`test/renderer/legacyTokens.test.ts` 把 tokenizer 真跑一遍来守这件事，
+打包冒烟另有一条查 console 里有没有 `Unknown highlighting tag`。
+
+打包冒烟 step 8.8 回答的是几个**只有真实窗口能回答**的问题，实测结论：
+
+- 严格 CSP + `file://` 下 CM6 起得来，console 零 CSP 拒绝
+- 语法着色产出 13 个 span / **5 种不同颜色**（只数 span 不够：tokenTable 缺失时
+  span 照样生成，只是全部落回默认前景色）
+- `body` 上的 `user-select: none` 会继承进代码区 → 已在 `global.css` 显式给回 `text`，
+  冒烟直接量 `getComputedStyle(.cm-content).userSelect`
+- 根元素 CSS `zoom`：**100% 与 150% 两档下点击落点都正确**（行高 20px → 30px，
+  证明 zoom 真的生效）。这是选型时最大的未知 —— CM6 完全靠 DOM 量字符宽度换算坐标
+
+⚠️ **输入法没有被验到**，别以为验了：只读查看不接受输入，就没有组词过程。
+微软拼音/搜狗在 `uiZoom` 100/125/150 三档下的表现，要等编辑器可写之后才能验。
+
 ### shell 命令的转义（`src/main/ssh/shellQuote.ts`）
 
 发到远端的每一条命令都包成 `env LC_ALL=C LANG=C sh -c '<整段脚本>'`，变量部分逐个过 `shQuote`

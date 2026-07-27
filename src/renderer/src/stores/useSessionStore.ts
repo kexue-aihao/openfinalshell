@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '@shared/constants'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from './useSettingsStore'
 import { useMonitorStore } from './useMonitorStore'
+import { useEditorStore } from './useEditorStore'
 
 export interface SessionTab {
   id: string
@@ -147,6 +148,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     if (tab?.sessionId) {
       // 不 clear 的话，关掉的会话在 useMonitorStore 里的快照与 60 点历史永不释放
       useMonitorStore.getState().clear(tab.sessionId)
+      // 内置编辑器同理，而且更贵：每份正文最多 2MB（UTF-16 字符串就是 4MB），
+      // 会话都关了还留着十份是纯粹的泄漏
+      useEditorStore.getState().closeSession(tab.sessionId)
       await ofs.invoke('session:close', tab.sessionId).catch(() => {})
     }
   },

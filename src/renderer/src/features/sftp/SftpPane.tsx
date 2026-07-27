@@ -39,6 +39,7 @@ import type {
 } from '@shared/types'
 import { ofs } from '@/ipc/api'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
+import { useEditorStore } from '@/stores/useEditorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useTransferStore } from '@/stores/useTransferStore'
 import type { SessionTab } from '@/stores/useSessionStore'
@@ -255,6 +256,32 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     if (isDir(entry)) void load(entry.path)
     else if (fileAction === 'edit') void startEdit(entry)
     else void download([entry])
+  }
+
+  /**
+   * 在内置编辑器里打开（只读查看）。
+   *
+   * 与 startEdit 的区别不只是"用哪个编辑器"：这条路远端**零副作用、本地零文件**，
+   * 失败就是失败、重试就是再读一次；那条路会下载到本机临时目录、起一个外部进程、
+   * 挂文件监视，并在整个编辑期间持有一个 8 态的状态机。
+   *
+   * 到上限（同时 10 个）时 open 会抛，这里把那句人话显示出来 —— 静默不响应
+   * 会让用户以为是这个文件打不开。
+   */
+  const openInEditor = async (entry: SftpEntry): Promise<void> => {
+    if (!tab.sessionId) {
+      message.warning(t('sftp.dropNoSession'))
+      return
+    }
+    if (entry.badName) {
+      message.warning(t('sftp.badNameWarning'))
+      return
+    }
+    try {
+      await useEditorStore.getState().open(tab.sessionId, entry.path)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const download = async (items: SftpEntry[]): Promise<void> => {
@@ -1054,10 +1081,19 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
      */
     const dirTargets = targetsFor(target)
     const allDirs = usable && dirTargets.length > 0 && dirTargets.every((e) => isDir(e) && !e.badName)
+    // 内置编辑器只吃文件。目录点进去、软链按它指向的东西算（isDir 已经处理了这一层）
+    const viewable = usable && target !== null && !isDir(target)
     return [
       { key: 'refresh', label: t('sftp.refresh') },
       { type: 'divider' },
       { key: 'open', label: t('sftp.open'), disabled: !usable },
+      /*
+       * 内置编辑器（只读查看）。与上面那条「打开」并列而不是替掉它：
+       * 「打开」目前仍是"下载到本地临时目录 + 起外部编辑器 + 盯存盘"那条老路，
+       * 而这条是新的内置查看器。两条并存是**过渡态** —— 内置编辑器可写之后
+       * 外部编辑器那条整体删掉（连临时文件与文件监视一起），届时这里合成一条。
+       */
+      { key: 'view', label: t('sftp.viewInEditor'), disabled: !viewable },
       { type: 'divider' },
       { key: 'copyPath', label: t('sftp.copyPath'), disabled: !usable },
       { type: 'divider' },
@@ -1116,6 +1152,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     if (!target) return
     const targets = targetsFor(target)
     if (key === 'open') openEntry(target, 'edit')
+    else if (key === 'view') void openInEditor(target)
     else if (key === 'download') void download(targets)
     else if (key === 'rename') setRenamingPath(target.path)
     else if (key === 'perm') setPermTarget(target)

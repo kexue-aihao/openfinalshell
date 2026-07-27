@@ -191,7 +191,25 @@ export default {
       eolLfToCrlf:
         '{{name}}: line endings across the whole file turned into CRLF (most likely your editor) — written back as-is',
       eolCrlfToLf:
-        '{{name}}: line endings across the whole file turned into LF (most likely your editor) — written back as-is'
+        '{{name}}: line endings across the whole file turned into LF (most likely your editor) — written back as-is',
+      viewInEditor: 'View in built-in editor'
+    },
+    editor: {
+      emptyHint: 'Right-click a file in the list below and choose “View in built-in editor”',
+      reload: 'Re-read from the server',
+      readOnly: 'Read-only',
+      readOnlyHint:
+        'This version can only view. Scrolling, selecting/copying and Ctrl+F all work, but the content cannot be changed',
+      charsetHint:
+        'Re-decode with this charset. If it looks like mojibake, pick another — switching only re-reads, the remote file is never written',
+      bomHint: 'The file starts with a UTF-8 BOM (EF BB BF)',
+      modeHint: 'Remote permission bits (octal)',
+      lossless: 'Charset may be wrong',
+      losslessHint:
+        'The bytes do not decode cleanly with the current charset: they contain sequences that are invalid in it, so some characters shown here have already been replaced. Try another charset.',
+      mixedEol: 'Mixed line endings',
+      mixedEolHint:
+        'This file mixes LF and CRLF. The editor shows everything as LF, so line numbers and content are correct; but once saving is supported, saving will normalise line endings across the whole file.'
     },
     forward: {
       new: 'New forwarding rule',

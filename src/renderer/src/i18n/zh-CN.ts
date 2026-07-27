@@ -185,7 +185,23 @@ export default {
       editStopConfirm: '停止编辑「{{name}}」？',
       editStopConfirmDesc: '本地临时副本会被删掉，里面尚未写回的改动一并丢失；远端文件不动。',
       eolLfToCrlf: '{{name}}：整个文件的行尾被改成了 CRLF（多半是编辑器干的），已按本地这份写回',
-      eolCrlfToLf: '{{name}}：整个文件的行尾被改成了 LF（多半是编辑器干的），已按本地这份写回'
+      eolCrlfToLf: '{{name}}：整个文件的行尾被改成了 LF（多半是编辑器干的），已按本地这份写回',
+      viewInEditor: '内置编辑器查看'
+    },
+    editor: {
+      emptyHint: '在下方文件列表里右键一个文件，选「内置编辑器查看」',
+      reload: '重新从远端读一次',
+      readOnly: '只读',
+      readOnlyHint: '这一版只能查看。可以翻页、选中复制、Ctrl+F 查找，但改不动内容',
+      charsetHint: '按这个编码重新解一遍。乱码就换一个 —— 换编码只是重读，远端不会被写',
+      bomHint: '文件开头有 UTF-8 BOM（EF BB BF）',
+      modeHint: '远端权限位（八进制）',
+      lossless: '编码可能不对',
+      losslessHint:
+        '用当前编码解不干净：里面有这个编码里不合法的字节序列，显示出来的内容已经有字符被替换掉了。换一个编码看看。',
+      mixedEol: '行尾混用',
+      mixedEolHint:
+        '这个文件里 LF 与 CRLF 混着用。编辑器内部统一按 LF 显示，所以行号与内容都是对的；但将来支持保存时，保存会把整个文件的行尾统一掉。'
     },
     forward: {
       new: '新建转发规则',

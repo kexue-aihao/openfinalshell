@@ -43,6 +43,8 @@ function cleanup() {
 // ---------------- CDP 最小客户端 ----------------
 let nextId = 1
 const pending = new Map()
+/** 渲染进程 console 的全部输出（Runtime.consoleAPICalled），供各步骤事后核查 */
+const consoleLog = []
 
 function send(method, params = {}) {
   const id = nextId++
@@ -110,6 +112,21 @@ async function main() {
       pending.delete(msg.id)
       if (msg.error) reject(new Error(msg.error.message))
       else resolve(msg.result)
+      return
+    }
+    /*
+     * 收集渲染进程的 console。
+     *
+     * 有一整类问题只在这里现形：CodeMirror 对认不出来的高亮标签打 console.warn，
+     * 而那意味着"这一类词在编辑器里永远没有颜色"—— 界面看着能用、构建全绿、
+     * 类型检查也过。不收集的话，这个信号在打包产物里就彻底看不见了。
+     */
+    if (msg.method === 'Runtime.consoleAPICalled') {
+      const text = (msg.params.args ?? [])
+        .map((a) => a.value ?? a.description ?? '')
+        .join(' ')
+        .slice(0, 300)
+      consoleLog.push({ level: msg.params.type, text })
     }
   })
   await send('Runtime.enable')
@@ -1202,6 +1219,285 @@ async function main() {
     return true
   `)
   rmSync(dndLocal, { force: true })
+
+  // 8.8) 内置编辑器：CM6 在 file:// + 严格 CSP + 根元素 CSS zoom 里到底能不能用
+  //    这一步存在的理由是"只有真实打包窗口能回答"的那几个问题：
+  //      ① 严格 CSP（无 unsafe-eval、无 blob:）下 CodeMirror 能不能起来、样式注得进去；
+  //      ② legacy 模式的 tokenTable 在真实产物里完不完整（认不出的标签会 console.warn，
+  //         后果是那一类词永远没颜色 —— 界面看着能用、构建全绿）；
+  //      ③ body 上的 user-select:none 有没有把代码区变成"看得见选不中"；
+  //      ④ 根元素的 CSS zoom 会不会让点击坐标与光标落点错位（125%/150% 是常用档）。
+  //    ⚠️ 只读查看**验不到输入法**：不接受输入就没有组词过程。那条移到片 3（可编辑）。
+  const edLocal = join(tmpdir(), `ofs-ed-${process.pid}.conf`)
+  const ED_LINES = [
+    '# openfinalshell 内置编辑器冒烟样本',
+    '[mysqld]',
+    'port = 3306',
+    'max_connections = 500',
+    'datadir = /var/lib/mysql',
+    '; 下一行 key 后面是一个全角空格，应该被标成不可见字符',
+    'charset =　utf8mb4',
+    '# 中文注释：这一行用来确认 CJK 不会把行高撑歪',
+    ''
+  ]
+  writeFileSync(edLocal, ED_LINES.join('\n'), 'utf8')
+
+  // 先把样本传上去（走真实传输队列，顺带再验一次上传通路）
+  const edUpload = await evaluate(`
+    const sid = '${session.sessionId}'
+    try { await window.ofs.invoke('sftp:delete', { sessionId: sid, path: '/ed-smoke.conf', recursive: false }) } catch {}
+    await window.ofs.invoke('transfer:enqueue', [{
+      sessionId: sid, kind: 'upload',
+      localPath: ${JSON.stringify(edLocal)}, remotePath: '/ed-smoke.conf'
+    }])
+    for (let i = 0; i < 60; i++) {
+      const list = await window.ofs.invoke('sftp:readdir', { sessionId: sid, path: '/' })
+      if (list.some((e) => e.name === 'ed-smoke.conf' && e.size > 0)) return { ok: true, size: list.find((e) => e.name === 'ed-smoke.conf').size }
+      await new Promise((s) => setTimeout(s, 300))
+    }
+    return { ok: false }
+  `)
+  if (!edUpload.ok) fail('编辑器样本文件没能传上去，后面几步无从验证')
+
+  // 右键那一行 → 「内置编辑器查看」
+  const edOpen = await evaluate(`
+    const sid = '${session.sessionId}'
+    document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
+    await new Promise((s) => setTimeout(s, 400))
+
+    const body = document.querySelector('.ant-table-body') || document.querySelector('.ant-table')
+    if (!body) return { error: '找不到 SFTP 文件表格' }
+    const openMenu = async (el) => {
+      const r = el.getBoundingClientRect()
+      el.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true,
+        clientX: Math.round(r.left + 20), clientY: Math.round(r.top + 5)
+      }))
+      await new Promise((s) => setTimeout(s, 400))
+      return [...document.querySelectorAll('.ant-dropdown-menu-item')]
+    }
+    // 用菜单里的「刷新」把刚传上去的文件刷出来
+    const refresh = (await openMenu(body)).find((e) => e.textContent.trim() === '刷新')
+    if (!refresh) return { error: '菜单里没有「刷新」' }
+    refresh.click()
+    await new Promise((s) => setTimeout(s, 1200))
+
+    const row = [...document.querySelectorAll('.ant-table-row')].find((e) => e.innerText.includes('ed-smoke.conf'))
+    if (!row) return { error: '刷新后列表里没有 ed-smoke.conf' }
+    const items = await openMenu(row)
+    const view = items.find((e) => e.textContent.trim() === '内置编辑器查看')
+    if (!view) return { error: '右键菜单里没有「内置编辑器查看」', 菜单: items.map((e) => e.textContent.trim()) }
+    if (view.className.includes('-disabled')) return { error: '「内置编辑器查看」对一个普通文件是灰的' }
+    view.click()
+
+    // 等 CM 起来并渲染出行
+    for (let i = 0; i < 60; i++) {
+      if (document.querySelectorAll('.cm-editor .cm-line').length >= 5) break
+      await new Promise((s) => setTimeout(s, 200))
+    }
+    const editor = document.querySelector('.cm-editor')
+    if (!editor) return { error: 'CodeMirror 没有挂出来（CSP 拦住了？看 console）' }
+
+    const lines = [...document.querySelectorAll('.cm-editor .cm-line')]
+    const spans = [...document.querySelectorAll('.cm-editor .cm-line span')]
+    const colors = new Set(spans.map((s) => getComputedStyle(s).color).filter(Boolean))
+    const content = document.querySelector('.cm-editor .cm-content')
+    return {
+      行数: lines.length,
+      首行: lines[0]?.textContent ?? '',
+      span数: spans.length,
+      颜色数: colors.size,
+      颜色: [...colors].slice(0, 8),
+      特殊字符标记: document.querySelectorAll('.cm-editor .cm-specialChar').length,
+      行号槽: Boolean(document.querySelector('.cm-editor .cm-gutters')),
+      内容可选中: content ? getComputedStyle(content).userSelect : null,
+      背景: getComputedStyle(editor).backgroundColor,
+      状态条文本: [...document.querySelectorAll('[class*=status]')].map((e) => e.textContent.trim()).join(' | ').slice(0, 300)
+    }
+  `)
+  if (edOpen.error) fail(`${edOpen.error}${edOpen.菜单 ? `（菜单：${JSON.stringify(edOpen.菜单)}）` : ''}`)
+  if (edOpen.行数 < 8) fail(`编辑器只渲染出 ${edOpen.行数} 行，样本有 ${ED_LINES.length - 1} 行`)
+  if (!edOpen.首行.includes('内置编辑器冒烟样本')) fail(`编辑器首行不是样本内容：${JSON.stringify(edOpen.首行)}`)
+  if (!edOpen.行号槽) fail('没有行号槽 —— lineNumbers 扩展没生效')
+  // 语法着色：span 数与**不同颜色数**都要够。只看 span 数不够 ——
+  // tokenTable 缺失时 CM 仍会给每个 token 生成 span，只是全部落回默认前景色
+  if (edOpen.span数 < 5) fail(`语法着色只产出 ${edOpen.span数} 个 span，几乎等于没着色`)
+  if (edOpen.颜色数 < 3) {
+    fail(
+      `语法着色只有 ${edOpen.颜色数} 种颜色（${edOpen.颜色.join(' / ')}）—— ` +
+        'legacy 模式的 tokenTable 很可能不完整，注释之外的词全落回默认色'
+    )
+  }
+  if (edOpen.特殊字符标记 < 1) fail('样本里那个全角空格没有被标出来（highlightSpecialChars 的字符集漏了 U+3000）')
+  if (edOpen.内容可选中 !== 'text') {
+    fail(`代码区 user-select = ${edOpen.内容可选中}，应为 text —— body 上那条 user-select:none 继承进来了，代码看得见选不中`)
+  }
+  console.log(
+    `OK 内置编辑器：${edOpen.行数} 行、${edOpen.span数} 个着色 span / ${edOpen.颜色数} 种颜色、` +
+      `全角空格标记 ${edOpen.特殊字符标记} 处、可选中`
+  )
+
+  // CSP 与高亮标签：这两类问题只会在 console 里留痕
+  const cspNoise = consoleLog.filter((m) => /Content Security Policy|Refused to/i.test(m.text))
+  if (cspNoise.length > 0) {
+    fail(`CSP 拦下了东西：\n  ${cspNoise.map((m) => m.text).join('\n  ')}`)
+  }
+  const tagNoise = consoleLog.filter((m) => /Unknown highlighting tag/i.test(m.text))
+  if (tagNoise.length > 0) {
+    fail(
+      `CodeMirror 报了认不出的高亮标签（这些词在编辑器里没有颜色）：\n  ` +
+        `${[...new Set(tagNoise.map((m) => m.text))].join('\n  ')}\n  ` +
+        '把它们加进 src/renderer/src/features/editor/legacyTokens.ts'
+    )
+  }
+  console.log(`OK 渲染进程 console 干净：无 CSP 拒绝、无未知高亮标签（共 ${consoleLog.length} 条输出）`)
+
+  /*
+   * Ctrl+F 查找条。
+   *
+   * 必须用 CDP 注入**真按键**，不能 dispatchEvent(new KeyboardEvent(...))：
+   * CodeMirror 靠 w3c-keyname 从事件里认按键名，而合成事件的 keyCode 是 0 ——
+   * 认不出按键，绑定一条都不会触发。第一版就是这么写的，报的是"searchKeymap 没接上"，
+   * 而真实产物里它接得好好的。这类"测法造出来的红"和真 bug 长得一模一样。
+   */
+  const focused = await evaluate(`
+    const content = document.querySelector('.cm-editor .cm-content')
+    if (!content) return { error: '找不到代码区' }
+    content.focus()
+    await new Promise((s) => setTimeout(s, 200))
+    return { 拿到焦点: document.activeElement?.classList.contains('cm-content') === true }
+  `)
+  if (focused.error) fail(focused.error)
+  if (!focused.拿到焦点) fail('代码区拿不到焦点 —— 键盘相关的功能都无从验证')
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await send('Input.dispatchKeyEvent', {
+      type,
+      modifiers: 2, // Ctrl
+      key: 'f',
+      code: 'KeyF',
+      windowsVirtualKeyCode: 70,
+      nativeVirtualKeyCode: 70
+    })
+  }
+  await sleep(400)
+  const edSearch = await evaluate(`
+    const panel =
+      document.querySelector('.cm-editor .cm-panel.cm-search') ||
+      document.querySelector('.cm-editor [class*=cm-search]')
+    // 失败时把编辑器里出现过的容器类名都带回去 —— 否则只知道"没找到"，不知道找错了还是真没有
+    const 诊断 =
+      [...document.querySelectorAll('.cm-editor > *')].map((e) => e.className).join(' | ') +
+      ' ||| panels 内: ' +
+      (document.querySelector('.cm-editor .cm-panels')?.innerHTML ?? '（没有 .cm-panels）').slice(0, 400)
+    // CM 的查找框是 <input class="cm-textfield" name="search">，**没有 type 属性** ——
+    // 按 input[type=text] 找是空的（第一版就是这么写的，而且主题里也这么写，
+    // 于是整个面板留着原生外观没人发现）
+    const input = panel?.querySelector('input.cm-textfield')
+    const bg = panel ? getComputedStyle(panel.closest('.cm-panels') ?? panel).backgroundColor : null
+    const 输入框底色 = input ? getComputedStyle(input).backgroundColor : null
+    if (panel) {
+      document.querySelector('.cm-editor .cm-panel.cm-search [name=close]')?.click()
+      await new Promise((s) => setTimeout(s, 250))
+    }
+    return {
+      出现查找条: Boolean(panel),
+      有输入框: Boolean(input),
+      面板背景: bg,
+      输入框底色: 输入框底色,
+      诊断,
+      关掉了: !document.querySelector('.cm-editor [class*=cm-search]')
+    }
+  `)
+  if (edSearch.error) fail(edSearch.error)
+  if (!edSearch.出现查找条 || !edSearch.有输入框) {
+    fail(`Ctrl+F 没有唤出查找条（编辑器里的直接子元素：${edSearch.诊断}）`)
+  }
+  /*
+   * 面板与输入框都必须被我们的主题接管。查输入框那一条是**这一步真正抓到过 bug 的地方**：
+   * 主题里写的是 input[type=text]，而 CM 的查找框没有 type 属性 ——
+   * 面板容器（.cm-panels）由另一条规则命中所以看着"有主题"，里面那个输入框却是原生白。
+   * 判据用"不是白、也不是透明"：深浅两个主题下我们给的都是 --ofs-bg-panel，
+   * 深色是 #1d2026、浅色是 #ffffff —— 所以只在深色主题下这条才有约束力，
+   * 而冒烟跑的就是默认深色。
+   */
+  for (const [what, color] of [
+    ['查找面板', edSearch.面板背景],
+    ['查找输入框', edSearch.输入框底色]
+  ]) {
+    if (color === 'rgba(0, 0, 0, 0)' || /255,\s*255,\s*255/.test(String(color))) {
+      fail(`${what}的背景是 ${color} —— 主题没接管它（选择器没命中？），深色下会白得刺眼`)
+    }
+  }
+  console.log(
+    `OK Ctrl+F 查找条：出得来、面板 ${edSearch.面板背景} / 输入框 ${edSearch.输入框底色} 都跟主题、关得掉`
+  )
+
+  /*
+   * 点击落点 vs 根元素 CSS zoom。
+   *
+   * 这是这一片最大的未知：界面缩放走的是 document.documentElement.style.zoom，
+   * 而 CodeMirror 完全靠 DOM 量字符宽度来把像素坐标换算成文档位置。
+   * 两边对"1 个 CSS 像素"的理解一旦不一致，点第 5 行会落到第 7 行 ——
+   * 而这种错位在 100% 下永远看不见。判据用 .cm-activeLine 的文本（那是光标真正落在哪一行）。
+   */
+  const clickAtLine = async (zoom, lineText) => {
+    await evaluate(`
+      await window.ofs.invoke('settings:set', { uiZoom: ${zoom} })
+      await new Promise((s) => setTimeout(s, 700))
+      return true
+    `)
+    const pt = await evaluate(`
+      const line = [...document.querySelectorAll('.cm-editor .cm-line')]
+        .find((e) => e.textContent.includes(${JSON.stringify(lineText)}))
+      if (!line) return null
+      line.scrollIntoView({ block: 'center' })
+      await new Promise((s) => setTimeout(s, 200))
+      const again = [...document.querySelectorAll('.cm-editor .cm-line')]
+        .find((e) => e.textContent.includes(${JSON.stringify(lineText)}))
+      const r = again.getBoundingClientRect()
+      return { x: Math.round(r.left + 4), y: Math.round(r.top + r.height / 2), h: Math.round(r.height) }
+    `)
+    if (!pt) fail(`uiZoom=${zoom}：找不到包含「${lineText}」的那一行`)
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pt.x, y: pt.y, button: 'left', clickCount: 1 })
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pt.x, y: pt.y, button: 'left', clickCount: 1 })
+    await sleep(350)
+    const hit = await evaluate(`
+      const el = document.querySelector('.cm-editor .cm-activeLine')
+      return { 命中行: el ? el.textContent : null }
+    `)
+    return { ...hit, 行高: pt.h }
+  }
+
+  for (const zoom of [100, 150]) {
+    const target = 'datadir = /var/lib/mysql'
+    const r = await clickAtLine(zoom, target)
+    if (r.命中行 === null) {
+      fail(`uiZoom=${zoom}：点下去之后没有活动行 —— 点击没落进代码区（坐标换算错位？）`)
+    }
+    if (!r.命中行.includes(target)) {
+      fail(
+        `uiZoom=${zoom}：点第「${target}」行，光标落到了「${r.命中行}」—— ` +
+          '根元素 CSS zoom 与 CodeMirror 的坐标换算不一致'
+      )
+    }
+    console.log(`OK uiZoom=${zoom}%：点击落点正确（行高 ${r.行高}px）`)
+  }
+  await evaluate(`await window.ofs.invoke('settings:set', { uiZoom: 100 }); return true`)
+
+  // 关掉标签 → 那一格应该整个消失（它没有开关，全关掉就是关闭）
+  const edClose = await evaluate(`
+    const close = document.querySelector('[class*=tabClose]')
+    if (!close) return { error: '找不到文件标签上的关闭按钮' }
+    close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    await new Promise((s) => setTimeout(s, 600))
+    const sid = '${session.sessionId}'
+    try { await window.ofs.invoke('sftp:delete', { sessionId: sid, path: '/ed-smoke.conf', recursive: false }) } catch {}
+    return { 还在: Boolean(document.querySelector('.cm-editor')) }
+  `)
+  if (edClose.error) fail(edClose.error)
+  if (edClose.还在) fail('关掉唯一的文件标签之后，编辑器那一格还占着版面')
+  console.log('OK 关掉最后一个文件标签，编辑器那一格随之消失')
+  rmSync(edLocal, { force: true })
 
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
   //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，

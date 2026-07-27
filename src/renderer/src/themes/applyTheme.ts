@@ -29,9 +29,16 @@ export function applyCssVars(mode: 'dark' | 'light', accent: string): OfsTheme {
     '--ofs-shadow-panel': t.ui.shadowPanel,
     '--ofs-shadow-modal': t.ui.shadowModal
   }
+  // 语法色与编辑器容器色：走同一条 CSS 变量出口，于是 CodeMirror 的主题里
+  // 写的全是 var(--ofs-syn-*) / var(--ofs-ed-*)，切主题时不用重建任何 EditorView。
+  // 键名由 TS 的字段名机械派生（camelCase → kebab-case），加一个色位不用同步改两处
+  for (const [k, v] of Object.entries(t.syntax)) vars[`--ofs-syn-${kebab(k)}`] = v
+  for (const [k, v] of Object.entries(t.editor)) vars[`--ofs-ed-${kebab(k)}`] = v
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v)
   return t
 }
+
+const kebab = (s: string): string => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 
 export function buildAntdTheme(mode: 'dark' | 'light', accent: string): ThemeConfig {
   const t = themes[mode]

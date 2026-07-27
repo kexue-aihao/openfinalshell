@@ -28,6 +28,7 @@ import type {
   ProfileId,
   RemoteEditEntry,
   RemoteEditState,
+  RemoteFileView,
   SessionId,
   SessionPrompt,
   SessionPromptReply,
@@ -40,6 +41,7 @@ import type {
   TransferEnqueueItem,
   TransferTask
 } from './types'
+import type { RemoteCharset } from './constants'
 
 // ---------------------------------------------------------------------------
 // ① renderer → main，请求/响应
@@ -123,6 +125,23 @@ export interface InvokeMap {
   'sftp:fastDelete': {
     args: [{ sessionId: SessionId; paths: string[] }]
     result: { exitCode: number | null; leftover: string[]; stderr: string }
+  }
+
+  // --- 内置编辑器：只读查看 ---
+  /**
+   * 读一个远端文本文件给内置编辑器看。**无副作用、不在远端留任何东西、没有状态。**
+   *
+   * 与 `sftp:editOpen` 是两条完全不同的路，别把它当"editOpen 的轻量版"：
+   * 那条会下载到本机临时目录、起一个外部进程、挂文件监视、并在整个编辑期间持有状态；
+   * 这条只是把字节读出来解码成字符串返回，失败就失败，重试就是再调一次。
+   *
+   * `charset` 由渲染进程可控（状态栏能切），所以在 zod 那一层就按 REMOTE_CHARSETS
+   * 白名单卡死 —— 理由见 shared/constants.ts 里那段（iconv 的 'hex' 能构造任意字节）。
+   * 不传则按 utf8 读；解不干净时 `lossless: false`，界面据此提示用户换编码。
+   */
+  'sftp:fileView': {
+    args: [{ sessionId: SessionId; path: string; charset?: RemoteCharset }]
+    result: RemoteFileView
   }
 
   // --- 远端文件编辑 ---

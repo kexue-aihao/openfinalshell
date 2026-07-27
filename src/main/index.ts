@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu } from 'electron'
 import { initLogger, logger } from './utils/logger'
 import { getSettings, settingsStore } from './services/settings'
 import { bindMainWindow } from './ipc/registry'
@@ -51,7 +51,20 @@ if (!app.requestSingleInstanceLock()) {
     app.disableHardwareAcceleration()
   }
 
+  /**
+   * 明确取消应用菜单。
+   *
+   * 从来没调过 setApplicationMenu，于是 Electron 自动装了一份默认菜单 —— 窗口用
+   * titleBarStyle:'hidden' 所以那份菜单**看不见**，但它的加速键是真的在生效：
+   * `Ctrl+R` / `Ctrl+Shift+R` 重载整个渲染进程（所有终端连接与传输队列当场没了）、
+   * `Ctrl+Shift+I` 弹出开发者工具、`Ctrl+Shift+C` 进元素选取模式。
+   * 一个看不见的菜单能一键把用户的会话全清掉，这是纯粹的失误面。
+   *
+   * 排在建窗之前：默认菜单是在窗口创建时挂上去的。
+   */
   void app.whenReady().then(() => {
+    Menu.setApplicationMenu(null)
+
     registerAppIpc()
     registerSettingsIpc()
     registerConnIpc()

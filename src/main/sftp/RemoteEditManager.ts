@@ -7,15 +7,13 @@ import type { SFTPWrapper, Stats } from 'ssh2'
 import { MAX_EDIT_BYTES } from '@shared/constants'
 import type { SessionId } from '@shared/types'
 import { detectEolRegression, looksBinary, tempRelPath } from './editGuards'
-import { typeFromMode } from './entryParse'
 import { sha256Hex, watchLocalFile, type WatchHandle } from './localFileWatch'
 import { longPath, remoteBasename, remoteDirname, remoteJoin, toRemotePath } from './remotePath'
+import { readRemoteTextFile } from './remoteTextFile'
 import {
   readRemoteFile,
   sftpChmod,
-  sftpLstat,
   sftpPosixRename,
-  sftpRealpath,
   sftpRename,
   sftpStat,
   sftpUnlink,
@@ -405,35 +403,12 @@ export class RemoteEditManager {
     const sftp = await this.deps.getSftp(sessionId)
 
     /**
-     * 软链必须先解析成真身，这一条不做后果是致命的：写回用的 rename 会把**软链本身**
-     * 替换成一个普通文件，而 /etc/nginx/sites-enabled/* 全是软链 —— 用户改一次配置，
-     * 软链就断了，reload 之后站点直接消失。所以 lstat 判类型、realpath 拿真身，
-     * 之后 stat/read/write/rename/chmod 一律对真身做；注册表 key 仍用原始路径（用户点的是那条）。
+     * 软链解析与三道门（类型 / 尺寸 / 二进制）在 remoteTextFile.ts —— 内置编辑器的只读查看
+     * 走的是同一份。别把它抄回来：那三条每一条都是踩出来的（尤其软链那条，
+     * 不解析的话 rename 会把软链本身换成普通文件），两份实现漂开就会有一边写坏文件。
      */
-    const link = await sftpLstat(sftp, remotePath)
-    // lstat 给 null 是"不存在或无权限"（两者不可区分），不在这里下结论 ——
-    // 紧接着的 stat 失败会给出统一的报错文案
-    const resolved =
-      link && typeFromMode(link.mode) === 'symlink'
-        ? toRemotePath(await sftpRealpath(sftp, remotePath))
-        : remotePath
+    const { resolvedPath: resolved, buf, stat } = await readRemoteTextFile(sftp, remotePath)
     entry.info.resolvedPath = resolved
-
-    const stat = await sftpStat(sftp, resolved)
-    if (!stat) throw new Error(`远端文件不可读（不存在、无权限或断链）：${resolved}`)
-    const type = typeFromMode(stat.mode)
-    if (type === 'dir') throw new Error(`这是目录，不能编辑：${resolved}`)
-    // 设备/管道/socket 读起来会挂住整条 SFTP 通道，宁可在门口拒掉
-    if (type !== 'file') throw new Error(`不是普通文件，不能编辑：${resolved}`)
-    if (stat.size > MAX_EDIT_BYTES) {
-      throw new Error(
-        `文件太大，请下载后再编辑：${resolved}（${stat.size} 字节，上限 ${MAX_EDIT_BYTES} 字节）`
-      )
-    }
-
-    const buf = await readRemoteFile(sftp, resolved, MAX_EDIT_BYTES)
-    // NUL 字节即拒：这类内容进文本编辑器再存回来，往返一次文件就毁了（UTF-16 也在其中）
-    if (looksBinary(buf)) throw new Error(`二进制文件不能用文本编辑器编辑：${resolved}`)
 
     const local = await this.land(entry, buf)
     entry.info.localPath = local

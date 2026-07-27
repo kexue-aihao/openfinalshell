@@ -67,3 +67,35 @@ body {
 .ofs-resize-handle[data-panel-group-direction='vertical'] {
   height: 3px;
 }
+
+/*
+ * 内置编辑器的代码区必须能选中复制。
+ *
+ * body 上有 `user-select: none`（桌面应用该有的手感：拖动界面不会误选文字），
+ * 而它会**继承进** CodeMirror 的内容区 —— 于是"看得见但选不中"，
+ * 而排查配置问题时第一件事往往就是把某几行贴给别人。
+ * CM 自己的 baseTheme 并不设置 user-select，所以这一条必须由我们显式给回来。
+ * 打包冒烟里有一步直接量 getComputedStyle(.cm-content).userSelect。
+ */
+.cm-editor,
+.cm-editor .cm-content,
+.cm-editor .cm-line,
+.cm-editor .cm-gutters {
+  user-select: text;
+}
+
+/*
+ * 尊重"减少动态效果"。
+ *
+ * 这不只是无障碍上的礼节：这个应用会在远程桌面/虚拟机里被用（运维的常态），
+ * 那种环境下每一个持续动画都是实打实的带宽与 CPU。CodeMirror 的插入符默认是
+ * 一个 CSS 动画（cm-blink），分隔条与折叠标记也各有过渡。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .ofs-resize-handle {
+    transition: none;
+  }
+  .cm-editor .cm-cursor {
+    animation: none !important;
+  }
+}

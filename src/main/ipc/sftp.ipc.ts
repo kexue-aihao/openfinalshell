@@ -1,8 +1,10 @@
 import { app, dialog } from 'electron'
 import { z } from 'zod'
+import { REMOTE_CHARSETS } from '@shared/constants'
 import { emit, handle } from './registry'
 import { remoteEditManager, type EditId, type RemoteEditInfo } from '../sftp/RemoteEditManager'
 import { fastDelete, fastDeletePreview } from '../sftp/fastDelete'
+import { viewRemoteFile } from '../sftp/fileView'
 import { chmod, mkdir, readdir, realpath, remove, rename } from '../sftp/SftpManager'
 import { sftpClose, sftpOpen, sftpStat } from '../sftp/sftpLowLevel'
 import { toRemotePath } from '../sftp/remotePath'
@@ -136,6 +138,21 @@ export function registerSftpIpc(): void {
     'sftp:fastDelete',
     ({ sessionId, paths }) => fastDelete(sessionId, paths),
     z.tuple([z.object({ sessionId: z.string(), paths: fastDeletePaths })])
+  )
+
+  /**
+   * 内置编辑器的只读打开。
+   *
+   * `charset` 用 z.enum(REMOTE_CHARSETS) 卡死，**不是**为了给用户友好提示 ——
+   * 它是安全边界：iconv-lite 还接受 'hex' / 'base64' 这类字节变换，
+   * 而这个参数是渲染进程可控的（状态栏上能切编码）。可编辑之后，
+   * 一个 'hex' 就意味着渲染进程能用 "0a1b2c…" 精确构造任意字节写到远端文件里。
+   * 现在这条通道还只读，但白名单要从第一天就在 —— 补在"能写了之后"的那天是补不上的。
+   */
+  handle(
+    'sftp:fileView',
+    ({ sessionId, path, charset }) => viewRemoteFile(sessionId, path, charset),
+    z.tuple([sessionPath.extend({ charset: z.enum(REMOTE_CHARSETS).optional() })])
   )
 
   // ---- 远端文件编辑（本地路径只出不进，见文件顶部） ----

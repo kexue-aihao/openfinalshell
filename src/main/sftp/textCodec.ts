@@ -1,4 +1,5 @@
 import iconv from 'iconv-lite'
+import { REMOTE_CHARSETS, type RemoteCharset } from '@shared/constants'
 
 /**
  * 远端文本文件的编解码与行尾归一。**纯函数，不碰 SSH 也不碰文件系统。**
@@ -10,32 +11,26 @@ import iconv from 'iconv-lite'
  */
 
 /**
- * 允许的编码白名单。
- *
- * ⚠️ 这不是"方便用户"的清单，是**安全边界**。iconv-lite 除了真编码之外还接受
- * `hex` / `base64` / `binary` 这类**字节变换**——一旦编码名成为渲染进程可控输入
- * （内置编辑器里它就是：状态栏上可以切编码），传 `hex` 就意味着渲染进程能用一串
- * "0a1b2c…" 精确构造任意字节写到远端文件里，"我们只传字符串所以构造不出任意字节"
- * 这个论证会当场失效。
- *
- * 所以：**只认这张表，且判定用相等而不是 iconv.encodingExists**。
- * 收得这么紧的另一半理由是 UTF-16 类根本进不来 —— 它们含 NUL，`looksBinary` 会先拒掉。
+ * 编码白名单本身在 `@shared/constants` 的 `REMOTE_CHARSETS`（连"为什么是安全边界"
+ * 那段说明一起）—— IPC 边界的 zod 校验与渲染进程的下拉框也得认同一张表，
+ * 三处各写一份迟早会漂出一个只有某一处认的编码名。
  */
-const ALLOWED_CHARSETS = ['utf8', 'gb18030', 'gbk', 'big5', 'latin1'] as const
-export type RemoteCharset = (typeof ALLOWED_CHARSETS)[number]
+export type { RemoteCharset }
 
-/** 别名归一：用户/界面可能传 'utf-8'、'GB2312' 这类写法 */
+/**
+ * 别名归一：用户/界面可能传 'utf-8'、'GB2312' 这类写法。
+ *
+ * 白名单里每个名字自己映到自己那一批由 REMOTE_CHARSETS 机械生成，不手写 ——
+ * 手写的话，往 shared 那张表里加一个编码却忘了在这儿加 identity 项，
+ * 结果是"白名单允许、normalizeCharset 却返回 null"，报错还长得像用户输错了。
+ */
 const CHARSET_ALIASES: Record<string, RemoteCharset> = {
+  ...(Object.fromEntries(REMOTE_CHARSETS.map((c) => [c, c])) as Record<string, RemoteCharset>),
   'utf-8': 'utf8',
-  utf8: 'utf8',
   'gb-18030': 'gb18030',
-  gb18030: 'gb18030',
   gb2312: 'gbk', // GB2312 是 GBK 的子集，用 GBK 解不会丢字
-  gbk: 'gbk',
   cp936: 'gbk',
-  big5: 'big5',
   cp950: 'big5',
-  latin1: 'latin1',
   'iso-8859-1': 'latin1'
 }
 
