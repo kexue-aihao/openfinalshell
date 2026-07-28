@@ -49,6 +49,7 @@ import type {
   SnippetGroup,
   TaskId,
   TermId,
+  ConflictProbeResult,
   TransferEnqueueItem,
   TransferTask
 } from './types'
@@ -63,6 +64,21 @@ export interface InvokeMap {
   'app:pickPath': {
     args: [{ mode: 'openFile' | 'saveFile' | 'openDirectory'; defaultPath?: string; title?: string }]
     result: string | null
+  }
+  /**
+   * 多选路径。**取消返回 `[]` 而不是 null** —— 「取消」与「一个都没选」对调用方是同一个
+   * 后果（什么都不做），少一个 null 分支就少一处写错的地方。
+   *
+   * `mode` 没有 'saveFile'（多选保存无意义），也**不允许同时给 openFile + openDirectory**：
+   * Windows/Linux 上那样会静默退化成"只能选目录"（见 app.ipc.ts 里的说明），
+   * 所以"选文件"与"选文件夹"必须是两个入口。
+   *
+   * 与 `app:pickPath` 并存而不是改它的返回类型：`invoke` 只按 channel 收窄、不按入参值
+   * 收窄，一旦 result 变成联合类型，那三个只要单值的调用点就都得各加一次类型守卫。
+   */
+  'app:pickPaths': {
+    args: [{ mode: 'openFile' | 'openDirectory'; defaultPath?: string; title?: string }]
+    result: string[]
   }
   'app:openExternal': { args: [string]; result: void }
   'app:openPath': { args: [string]; result: void }
@@ -191,10 +207,32 @@ export interface InvokeMap {
   }
 
   // --- 传输队列 ---
+  /**
+   * 入队前探一批基名在远端是否已存在。**只探顶层，不递归**（理由见 conflictProbe.ts）。
+   *
+   * `names` 只收基名（不含 `/`），目标路径由 main 用 remoteJoin 拼 ——
+   * 渲染进程递不进 `../`。返回**全量**冲突，不在 main 侧截断："只列前 10 条"
+   * 是展示决定，归界面。
+   */
+  'transfer:probeConflicts': {
+    args: [{ sessionId: SessionId; targetDir: string; names: string[] }]
+    result: ConflictProbeResult
+  }
   'transfer:enqueue': { args: [TransferEnqueueItem[]]; result: TaskId[] }
   'transfer:control': {
     args: [{ taskId: TaskId; op: 'pause' | 'resume' | 'cancel' | 'retry' }]
     result: void
+  }
+  /**
+   * 整个队列一次（全部暂停/继续/取消）。
+   *
+   * 存在的理由是**性能**：队列界面上有几千条任务时，循环调 `transfer:control`
+   * 会打出几千次 invoke（每次一遍 zod + 结构化克隆），界面直接卡住。
+   * 分组级的级联不用这条 —— `transfer:control` 传父任务 id 就会级联到子孙。
+   */
+  'transfer:controlAll': {
+    args: [{ op: 'pause' | 'resume' | 'cancel' }]
+    result: { affected: number }
   }
   'transfer:clearFinished': { args: []; result: void }
   'transfer:list': { args: []; result: TransferTask[] }
@@ -280,7 +318,14 @@ export interface EventMap {
   'term:exit': { termId: TermId; reason: 'closed' | 'reconnected' | 'error' }
   /** 200ms 节流 */
   'transfer:progress': { taskId: TaskId; transferred: number; total: number; speedBps: number }
-  'transfer:state': { task: TransferTask }
+  /**
+   * 任务状态**批**（合批窗口见 TRANSFER_STATE_FLUSH_MS/MAX）。
+   *
+   * 取代了原来的单条 `transfer:state`，而不是与它并存：两条 channel 携带同一个事实，
+   * 迟早有人只往其中一条里加字段。同一个任务在一个窗口内变 N 次只发最后那一次
+   * （缓的是 id、flush 时才取快照）。
+   */
+  'transfer:states': { tasks: TransferTask[] }
   'monitor:data': { sessionId: SessionId; snapshot: MonitorSnapshot }
   'monitor:state': { sessionId: SessionId; state: MonitorState; error?: string }
   'forward:state': { runtime: ForwardRuntime }

@@ -234,11 +234,16 @@ describe('界面：阶段与说明要看得见', () => {
     }
   })
 
+  /*
+   * notice 与 error 现在共用一行（行高是定值，撑不出第二行来），靠 `aside` 二选一：
+   * error 优先、样式按来源分。要守住的还是同一件事 —— notice 必须有出口，
+   * 而且**不能被涂成红色报错**（"已改用逐文件传输"是说明，不是错误）。
+   */
   it('notice 有出口，且不当成错误标红', () => {
-    expect(flat(list)).toContain('task.notice &&')
-    expect(flat(list)).toContain('styles.itemNotice')
-    // 复用 itemError 就等于把"已改用逐文件传输"这句话涂成红色报错
-    expect(flat(list)).not.toContain('task.notice && <div className={styles.itemError}')
+    const body = flat(list)
+    expect(body).toContain('const aside = task.error ?? task.notice')
+    expect(body).toContain('{aside && (')
+    expect(body).toContain('task.error ? styles.itemError : styles.itemNotice')
   })
 
   /** 打包/解包期间进度真的未知 —— 停在上次百分比，由阶段名承载含义，不许编 */

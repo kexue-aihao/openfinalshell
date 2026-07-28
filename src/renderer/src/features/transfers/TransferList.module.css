@@ -1,8 +1,17 @@
+/*
+ * ⚠️ 行高：这里每条带子的高度（itemTop / ant-progress / itemBottom / itemPath）
+ * 与 TransferList.tsx 里的 ROW_H 是**同一笔账**，改一边必须改另一边。
+ * 窗口化按 JS 那份算偏移、实际渲染按这里的高度 —— 对不上就会把行裁掉一截，
+ * 或者行之间出现缝隙。（CSS Modules 读不到 JS 常量，JS 也读不到 CSS 变量，
+ * 只能两处交叉引用；打包冒烟里会量一次真实行高兜底。）
+ */
 .wrap {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* 滚动权归内层（listHost 里那一层），这里滚起来就是双滚动条 */
+  overflow: hidden;
 }
 
 .header {
@@ -10,19 +19,41 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 4px 6px;
+  gap: 8px;
+  padding: 2px 4px 4px;
   font-size: 11px;
   color: var(--ofs-text-3);
 }
 
+/** 总计那一行：条目多时允许换行，不许把按钮挤出去 */
+.headerTotals {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
 .headerActions {
+  flex: none;
   display: flex;
   gap: 4px;
 }
 
-.list {
+.totalBar {
+  flex: none;
+  margin: 0 4px 6px;
+}
+
+.listHost {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+}
+
+/* 非虚拟化形态（行数少于阈值时）：这一层自己滚 */
+.list {
+  height: 100%;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -30,17 +61,85 @@
 }
 
 .item {
+  /*
+   * flex: none 是**必须**的，不是样式偏好：.list 是个定高的 flex column，
+   * 而 flex 子项默认 flex-shrink: 1 —— 于是任务一多，每一行会被压扁去凑容器高度
+   * （实测 40 条时行高从 85px 被压到 18px），列表根本不滚。
+   * 这是一条既有 bug，只是以前没人攒够 40 条任务。
+   */
+  flex: none;
   padding: 8px;
   border: 1px solid var(--ofs-border);
   border-radius: var(--ofs-radius-m);
   background: var(--ofs-bg-elevated);
+  /* 虚拟化时行是绝对定位 + 定高的，padding 必须算在高度里 */
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
+/*
+ * antd 的 Progress 自带外边距，且随版本变动 —— 行高是定值，必须把它钉死，
+ * 否则升级一次 antd 就会让虚拟化的偏移与真实行高错开（表现是行被裁掉一截）。
+ */
+/*
+ * display:block 是必须的：antd 的 Progress 是 inline-block，作为行内盒会带上
+ * 一段基线下沉空间（实测让行高多出 11px 且随字体变动），行高就又不定了。
+ */
+.item :global(.ant-progress) {
+  display: block;
+  margin: 0;
+  height: 10px;
+  line-height: 1;
+}
+
+.item :global(.ant-progress-line) {
+  margin: 0;
+}
+
+.groupRow {
+  background: var(--ofs-bg-subtle, var(--ofs-bg-elevated));
+  border-color: var(--ofs-accent);
+}
+
+/** 子行：缩进 + 去掉边框，视觉上归到上面那个分组下 */
+.childRow {
+  margin-left: 14px;
+  border-color: transparent;
+  background: transparent;
+  padding: 4px 8px;
+}
+
+.chevron {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ofs-text-2);
+  cursor: pointer;
+}
+
+.chevron:hover {
+  color: var(--ofs-text-1);
+}
+
+/*
+ * 三条带子（标题 / 进度 / 底栏）**都是定高**。
+ *
+ * 这不是样式偏好，是虚拟化的前提：行高在 JS 里是常量，内容却会随状态变高
+ * ——「传输中」那一行多出速度、剩余时间与两个按钮，实测底栏从 18px 涨到 36px，
+ * 于是同一种行会出现 76 / 82 / 94 三种真实高度，跟常量对不上就会裁掉一截。
+ * 钉死每条带子，行高就只由"哪一种行"决定。
+ */
 .itemTop {
   display: flex;
   align-items: center;
   gap: 6px;
+  height: 20px;
   margin-bottom: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .itemName {
@@ -58,26 +157,49 @@
   color: var(--ofs-text-3);
 }
 
+/* 只有非 compact 的顶层行有这一条。定高，计入 ROW_H.wide.single */
 .itemPath {
+  height: 16px;
+  margin-bottom: 4px;
   font-size: 11px;
   color: var(--ofs-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: 4px;
 }
 
 .itemBottom {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* 24px = antd small 按钮的高度。有没有按钮都占这么高，行高才不随状态跳 */
+  height: 24px;
   margin-top: 2px;
   font-size: 11px;
   color: var(--ofs-text-2);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
+
+/*
+ * 错误与说明**共用一行**且互斥（见 TaskRow 里的 aside）：行高是定值，
+ * 撑不出第二行来。所以都截断 + Tooltip 给全文，而不是让它换行。
+ */
 .itemError {
+  flex: none;
   color: var(--ofs-error);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+  font-size: 11px;
+}
+
+.itemNotice {
+  flex: none;
+  font-size: 11px;
+  color: var(--ofs-text-3);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -86,15 +208,4 @@
 
 .spacer {
   flex: 1;
-}
-
-/*
- * 打包传输的一行说明（降级原因、tar 的警告）。是"说明"不是"错误"：
- * 用 text-3 而不是 error 色，也不截断 —— 它常常是一整句话，截掉就等于没说。
- */
-.itemNotice {
-  font-size: 11px;
-  color: var(--ofs-text-3);
-  line-height: 1.5;
-  margin-bottom: 4px;
 }

@@ -27,7 +27,7 @@ import type {
   RemoteSaveGates,
   TransferTask
 } from '@shared/types'
-import { DEFAULT_SETTINGS } from '@shared/constants'
+import { DEFAULT_SETTINGS, TRANSFER_FINAL_STATES } from '@shared/constants'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { patchSettings } from '../../src/main/services/settings'
@@ -280,7 +280,7 @@ async function waitTask(taskId: string, label: string): Promise<TransferTask> {
   await waitFor(
     () => {
       const t = transferQueue.list().find((x) => x.id === taskId)
-      return Boolean(t && ['done', 'error', 'canceled'].includes(t.state))
+      return Boolean(t && TRANSFER_FINAL_STATES.has(t.state))
     },
     180_000,
     label
@@ -418,7 +418,7 @@ suite('打包下载', () => {
     await waitTask(taskId, '逐文件下载展开')
     // 目录任务展开成子任务，等队列彻底空下来
     await waitFor(
-      () => transferQueue.list().every((t) => ['done', 'error', 'canceled'].includes(t.state)),
+      () => transferQueue.list().every((t) => TRANSFER_FINAL_STATES.has(t.state)),
       300_000,
       '逐文件下载完成'
     )

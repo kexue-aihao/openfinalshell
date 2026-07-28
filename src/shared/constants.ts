@@ -1,5 +1,5 @@
 /** 三层共享常量。禁止运行时依赖。 */
-import type { AppSettings } from './types'
+import type { AppSettings, TransferState } from './types'
 
 export const APP_NAME = 'OpenFinalShell'
 
@@ -23,6 +23,41 @@ export const TERM_FLOW_RESUME_BYTES = 512 * 1024
 
 /** 传输进度节流 */
 export const TRANSFER_PROGRESS_INTERVAL_MS = 200
+
+/**
+ * 任务状态事件的合批窗口（两触发器与终端下行同款：到时间或积压够多）。
+ *
+ * 没有它，一次批量入队 5000 条就是 5000 条同步 IPC 穿过去，展开一棵大目录树同样
+ * 每个子任务一条。100ms 而不是 16ms：这是个上千行的虚拟化列表，状态刷新到 60fps
+ * 用户一点也感知不到，而 100ms 把事件量再降一个数量级；它远在点击回馈的感知阈之下。
+ */
+export const TRANSFER_STATE_FLUSH_MS = 100
+export const TRANSFER_STATE_FLUSH_MAX = 500
+
+/**
+ * 传输任务的终态。**只许有这一份。**
+ *
+ * 以前这个集合在 main、store、列表、SFTP 面板、聚合、mock、测试里各写一遍
+ * （12 处字面量数组）。加一个终态（这次加的是 `'skipped'`）就得挨个找，
+ * 而 TS 只兜得住写成 `Record<TransferState, …>` 的那一处 —— 其余漏了都不报错，
+ * 表现是"传完了界面不刷新"或者"清除已完成清不掉"，全是静默走偏。
+ */
+export const TRANSFER_FINAL_STATES: ReadonlySet<TransferState> = new Set<TransferState>([
+  'done',
+  'error',
+  'canceled',
+  'skipped'
+])
+
+/**
+ * 上传目录展开的两道兜底。
+ *
+ * 深度上限是**真正的**防环手段：软链接过滤靠 `Dirent.isSymbolicLink()`，而它对
+ * Windows 的 junction 返回什么我没有验证过 —— 深度上限不依赖那个答案。
+ * 任务数上限是因为队列纯内存：一次误拖不该把 main 的堆和 IPC 一起打爆。
+ */
+export const EXPAND_MAX_DEPTH = 64
+export const EXPAND_MAX_TASKS = 100_000
 
 /** 监控采集 */
 export const MONITOR_DEFAULT_INTERVAL_MS = 2000

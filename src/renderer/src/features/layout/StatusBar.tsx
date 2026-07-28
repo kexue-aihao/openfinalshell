@@ -9,6 +9,7 @@ import { useTransferStore } from '@/stores/useTransferStore'
 import { useUpdateStore } from '@/stores/useUpdateStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { formatSpeed } from '@/utils/format'
+import { snapOf } from '@/features/transfers/aggregate'
 import styles from './StatusBar.module.css'
 
 export function StatusBar(): React.JSX.Element {
@@ -18,6 +19,7 @@ export function StatusBar(): React.JSX.Element {
   const active = tabs.find((tab) => tab.id === activeTabId)
   const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === active?.profileId))
   const tasks = useTransferStore((s) => s.tasks)
+  const progress = useTransferStore((s) => s.progress)
   const setDrawerOpen = useTransferStore((s) => s.setDrawerOpen)
   const [versions, setVersions] = useState<AppVersions | null>(null)
   const update = useUpdateStore((s) => s.state)
@@ -29,13 +31,14 @@ export function StatusBar(): React.JSX.Element {
   }, [])
 
   const connected = active?.state === 'ready'
+  // 速度从 overlay 读：进度事件不再写进 tasks（见 useTransferStore 的说明）
   const running = tasks.filter((task) => task.state === 'running')
   const upSpeed = running
     .filter((task) => task.kind === 'upload')
-    .reduce((sum, task) => sum + task.speedBps, 0)
+    .reduce((sum, task) => sum + snapOf(task, progress).speedBps, 0)
   const downSpeed = running
     .filter((task) => task.kind === 'download')
-    .reduce((sum, task) => sum + task.speedBps, 0)
+    .reduce((sum, task) => sum + snapOf(task, progress).speedBps, 0)
 
   return (
     <footer className={styles.statusBar}>

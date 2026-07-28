@@ -3,8 +3,10 @@ import { dirname } from 'node:path'
 import type { SFTPWrapper } from 'ssh2'
 import type { TransferTask } from '@shared/types'
 import { mkdirp, statSize } from './SftpManager'
-import { longPath, remoteDirname, toRemotePath } from './remotePath'
+import { dedupeName, longPath, remoteDirname, toRemotePath, type RemotePath } from './remotePath'
 import { sftpClose, sftpOpen, sftpRead, sftpWrite } from './sftpLowLevel'
+import { effectiveAction } from './conflictPlan'
+import { getSettings } from '../services/settings'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('transfer')
@@ -32,13 +34,18 @@ interface RunOptions {
   sftp: SFTPWrapper
   task: TransferTask
   onProgress: (transferred: number) => void
+  /**
+   * 落地名与入队时算的不一样（撞上竞态、现场改名了）。
+   * 与 onProgress 对称：worker 只报事实，改 task 与发布事件仍然归队列。
+   */
+  onLanded?: (remotePath: RemotePath) => void
   /** 冲突已在入队阶段裁决；resume=true 时从现有 .part 续传 */
   resume: boolean
 }
 
 /** 用于区分"被用户中止"与"真错误" */
 export class TransferAborted extends Error {
-  constructor(readonly kind: 'paused' | 'canceled') {
+  constructor(readonly kind: 'paused' | 'canceled' | 'skipped') {
     super(kind)
     this.name = 'TransferAborted'
   }
@@ -50,7 +57,7 @@ export class TransferAborted extends Error {
  * 原子性：写 .part / .ofspart，完成后 rename 到最终名；中断绝不留半截的最终文件。
  */
 export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle: WorkerHandle } {
-  const { sftp, task, onProgress, resume } = opts
+  const { sftp, task, onProgress, onLanded, resume } = opts
   const state = { paused: false, canceled: false }
 
   const handle: WorkerHandle = {
@@ -93,6 +100,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
 
     const localFh = await fs.open(localPath, 'r')
     let remoteHandle: Buffer | null = null
+    let aborted: TransferAborted | null = null
     try {
       remoteHandle = await sftpOpen(sftp, remotePart, offset > 0 ? 'r+' : 'w', remoteMode)
       const rh = remoteHandle
@@ -109,19 +117,79 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
         },
         abortIfRequested
       })
+    } catch (err) {
+      // 中止交给下面统一处置（残留必须等句柄关了才能删）；真错误原样抛
+      if (!(err instanceof TransferAborted)) throw err
+      aborted = err
     } finally {
       await localFh.close()
       if (remoteHandle) await sftpClose(sftp, remoteHandle)
     }
 
-    abortIfRequested()
+    /*
+     * 与 download 那边**对称**：取消要把远端的 .ofspart 收走，暂停要留着它续传 ——
+     * WorkerHandle 上那两行注释一直是这么承诺的，而上传这条路以前只有一句裸的
+     * abortIfRequested()，取消一次就在服务器上留一个 xxx.ofspart，且只有"下次重传
+     * 且不续传"时才会被清掉，而任务被取消之后通常没有下一次。
+     *
+     * ⚠️ 上面那个 catch 不是可有可无的：中止是在 runWindow **内部**被发现的
+     * （abortIfRequested 在循环顶上抛），于是异常会直接穿过这一段。以前这里的
+     * `if (state.canceled)` 检查只在 runWindow 正常返回时才跑到 —— 也就是几乎跑不到，
+     * 所以两个方向的 .part/.ofspart 清理实际上都是死代码。集成测试当时用
+     * `if (task.state === 'canceled')` 包着断言，一直走的是 else 分支，看不出来。
+     *
+     * 删除必须在 finally 的 sftpClose **之后**：unlink 一个还开着的句柄在 POSIX 上
+     * 能过，但写入未必已落盘，有的服务器直接拒。
+     */
+    if (state.canceled) {
+      await removeRemoteQuietly(sftp, remotePart)
+      throw new TransferAborted('canceled')
+    }
+    if (state.paused) throw new TransferAborted('paused')
+    if (aborted) throw aborted
 
-    // SFTP rename 不覆盖，先删已存在的目标
+    /*
+     * 落地。这里是 `TransferAborted` 上面那句"冲突已在入队阶段裁决"第一次成真的地方。
+     *
+     * 这一次 statSize 不是新增的往返 —— 它本来就在（SFTP rename 不覆盖，得先看目标在不在），
+     * 现在顺便充当**竞态探测器**：入队时探过一遍，但那之后到落地之前，别人完全可能
+     * 建出同名文件。三个分支都在这一次探测的结果上分岔，一个往返都没多花。
+     */
+    const action = effectiveAction(task.onConflict, getSettings().sftp.conflictPolicy)
+    let landed = remoteFinal
     const existingFinal = await statSize(sftp, remoteFinal)
-    if (existingFinal.exists) await removeRemoteQuietly(sftp, remoteFinal)
+    if (existingFinal.exists) {
+      if (action === 'skip') {
+        // 整份都传完了才发现要跳过，那坨 .ofspart 是最大的一份残留，必须收走
+        await removeRemoteQuietly(sftp, remotePart)
+        throw new TransferAborted('skipped')
+      }
+      if (action === 'rename') landed = await freeRemoteName(sftp, remoteFinal)
+      else await removeRemoteQuietly(sftp, remoteFinal)
+    }
     await new Promise<void>((resolve, reject) => {
-      sftp.rename(remotePart, remoteFinal, (err) => (err ? reject(err) : resolve()))
+      sftp.rename(remotePart, landed, (err) => (err ? reject(err) : resolve()))
     })
+    if (landed !== remoteFinal) onLanded?.(landed)
+  }
+
+  /**
+   * 竞态兜底：目标被别人占了，按 dedupeName 的候选序找第一个空位。
+   *
+   * **只在真撞上的时候才付往返**（常规路径 0 次）。入队时算好的名字覆盖了绝大多数情况，
+   * 这里处理的是"我们探测之后、落地之前，别人建了同名"这一小段窗口。
+   */
+  async function freeRemoteName(s: SFTPWrapper, target: RemotePath): Promise<RemotePath> {
+    const dir = remoteDirname(target)
+    const base = target.slice(target.lastIndexOf('/') + 1)
+    const taken = new Set<string>([base])
+    for (let i = 0; i < 20; i++) {
+      const candidate = dedupeName(base, (c) => taken.has(c))
+      const full = toRemotePath(dir === '/' ? `/${candidate}` : `${dir}/${candidate}`)
+      if (!(await statSize(s, full)).exists) return full
+      taken.add(candidate)
+    }
+    throw new Error(`远端已有太多同名文件，放弃重命名：${target}`)
   }
 
   async function download(): Promise<void> {
@@ -144,6 +212,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
 
     const localFh = await fs.open(partLocal, offset > 0 ? 'r+' : 'w')
     let remoteHandle: Buffer | null = null
+    let aborted: TransferAborted | null = null
     try {
       remoteHandle = await sftpOpen(sftp, remote, 'r')
       const rh = remoteHandle
@@ -160,6 +229,10 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
         },
         abortIfRequested
       })
+    } catch (err) {
+      // 见 upload() 里那段说明：中止是在 runWindow 内部抛的，不接住就穿过下面的清理
+      if (!(err instanceof TransferAborted)) throw err
+      aborted = err
     } finally {
       await localFh.close()
       if (remoteHandle) await sftpClose(sftp, remoteHandle)
@@ -170,6 +243,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
       throw new TransferAborted('canceled')
     }
     if (state.paused) throw new TransferAborted('paused')
+    if (aborted) throw aborted
 
     await fs.rm(finalLocal, { force: true })
     await fs.rename(partLocal, finalLocal)

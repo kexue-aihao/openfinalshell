@@ -50,7 +50,7 @@ const IO_CONCURRENCY = 16
  * 按并发上限跑完一批任务。任一失败即记下**第一个**错误、停止发放新请求，
  * 但仍然等在途请求收尾 —— 否则 finally 里的 sftpClose 会和在飞的 read/write 抢同一个句柄。
  */
-async function runConcurrently<T>(
+export async function runConcurrently<T>(
   items: T[],
   limit: number,
   worker: (item: T) => Promise<void>

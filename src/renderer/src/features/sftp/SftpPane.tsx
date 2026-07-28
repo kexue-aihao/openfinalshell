@@ -20,19 +20,23 @@ import {
   Eye,
   EyeOff,
   FolderPlus,
+  FolderUp,
   RefreshCw,
   Upload
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { SessionId, SftpEntry } from '@shared/types'
+import type { SessionId, SftpEntry, TransferConflictAction } from '@shared/types'
+import { TRANSFER_FINAL_STATES } from '@shared/constants'
 import { ofs } from '@/ipc/api'
 import { useEditorStore } from '@/stores/useEditorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useTransferStore } from '@/stores/useTransferStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import { formatBytes, formatTimestamp } from '@/utils/format'
+import { snapOf } from '@/features/transfers/aggregate'
 import { FileIcon } from './FileIcon'
 import { PermissionModal } from './PermissionModal'
+import { UploadConflictModal, type UploadRequest } from './UploadConflictModal'
 import styles from './SftpPane.module.css'
 
 interface Props {
@@ -40,15 +44,27 @@ interface Props {
   active: boolean
 }
 
-const TRANSFER_FINISHED = new Set(['done', 'error', 'canceled'])
+/** 终态集合只有 @shared/constants 那一份。漏了新终态，watchTransfers 就永远等不完 */
+const TRANSFER_FINISHED = TRANSFER_FINAL_STATES
 
 /** 远端命令的 stderr 只给人看前几行：一次 rm -rf 失败可能刷出上千行 Permission denied */
 function firstLines(text: string, n: number): string {
   const lines = text.split('\n').filter((l) => l.trim() !== '')
   return lines.length <= n ? lines.join('\n') : `${lines.slice(0, n).join('\n')}\n…`
 }
-/** 兜底：任务卡住时别把订阅永远挂着，到点无条件刷一次 */
-const SETTLE_WATCH_TIMEOUT_MS = 120_000
+/**
+ * 兜底：队列**空转**这么久就认为卡住了，刷一次并退订。队列在动就不断刷新这个时钟，
+ * 所以传一千个文件也不会中途退订（见 watchTransfers 里的说明）。
+ */
+const SETTLE_IDLE_TIMEOUT_MS = 60_000
+const SETTLE_IDLE_CHECK_MS = 5_000
+/** 绝对上限：再活跃也不无限期挂着订阅 */
+const SETTLE_MAX_WATCH_MS = 6 * 3600_000
+
+/** 本地路径的最后一段（Windows 与 POSIX 分隔符都吃）。上传的落地名就是它 */
+function baseNameOf(localPath: string): string {
+  return localPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? 'file'
+}
 
 /** 远端路径工具（renderer 侧只做展示用拼接，真正的规范化在 main） */
 function joinRemote(dir: string, name: string): string {
@@ -77,6 +93,8 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const [editingPath, setEditingPath] = useState<string | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [permTarget, setPermTarget] = useState<SftpEntry | null>(null)
+  /** 非 null = 有一批上传正在等冲突裁决（探测中或已在问） */
+  const [uploadRequest, setUploadRequest] = useState<UploadRequest | null>(null)
   const [dragOver, setDragOver] = useState(false)
   /** 拖到某个目录行上时的落点（null = 落到当前目录） */
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -238,7 +256,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
    *
    * 判定分两半，缺一半都会错：
    * - **本次入队的 taskId 全部在 store 里露过面**。只看"有没有在跑的任务"会误判成立 ——
-   *   enqueue 的回包比 transfer:state 事件先到，那一瞬间一个任务都还没进 store。
+   *   enqueue 的回包比 transfer:states 事件先到，那一瞬间一个任务都还没进 store。
    * - **且这条会话没有排队/在跑的任务**。只看本次的 id 也不够 —— 目录任务在 main 侧
    *   展开成子任务后自己立刻变 done，只等它等于什么都没等。
    *   这一半成立靠一条时序：`expandIfDirectory` 先 enqueue 子任务（各发一条 queued），
@@ -248,34 +266,71 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
    * 只能等超时兜底。
    */
   const watchTransfers = (sessionId: SessionId): ((taskIds: string[]) => void) => {
-    const activeCount = (): number =>
-      useTransferStore
-        .getState()
-        .tasks.filter((task) => task.sessionId === sessionId && !TRANSFER_FINISHED.has(task.state))
-        .length
+    /**
+     * 会话里还没进终态的任务数 + 已传字节和：当"它还在动吗"的廉价指纹。
+     *
+     * ⚠️ 字节必须走 `snapOf` 从**进度 overlay** 里读。进度事件不写 tasks
+     * （见 useTransferStore 的热/冷分离），直接读 `task.transferred` 拿到的是陈旧值 ——
+     * 那会让一个跑十分钟的大文件在 60 秒后被判成"空转"，于是提前退订、
+     * 真正传完那一刻反而不刷新，正是这次要修掉的毛病。
+     */
+    const fingerprint = (): { active: number; bytes: number } => {
+      const { tasks, progress } = useTransferStore.getState()
+      let active = 0
+      let bytes = 0
+      for (const task of tasks) {
+        if (task.sessionId !== sessionId) continue
+        if (!TRANSFER_FINISHED.has(task.state)) active += 1
+        bytes += snapOf(task, progress).transferred
+      }
+      return { active, bytes }
+    }
 
     let watched: string[] | null = null
     const seen = new Set<string>()
     let off = (): void => {}
+    const startedAt = Date.now()
+    let lastActivityAt = Date.now()
+    let lastBytes = -1
 
     const cleanup = (): void => {
       off()
-      clearTimeout(timer)
+      clearInterval(timer)
       settleWatchersRef.current.delete(cleanup)
+    }
+    const settleNow = (): void => {
+      cleanup()
+      void load(cwdRef.current, false)
     }
     const check = (): void => {
       if (!watched) return
       for (const task of useTransferStore.getState().tasks) {
         if (watched.includes(task.id)) seen.add(task.id)
       }
-      if (seen.size < watched.length || activeCount() > 0) return
-      cleanup()
-      void load(cwdRef.current, false)
+      const fp = fingerprint()
+      if (fp.bytes !== lastBytes) {
+        lastBytes = fp.bytes
+        lastActivityAt = Date.now()
+      }
+      if (seen.size < watched.length || fp.active > 0) return
+      settleNow()
     }
-    const timer = setTimeout(() => {
-      cleanup()
-      void load(cwdRef.current, false)
-    }, SETTLE_WATCH_TIMEOUT_MS)
+    /*
+     * 兜底从"一刀切 120 秒"换成**空转判定**。
+     *
+     * 固定 120 秒在批量上传下必然先到点：传 1000 个文件时它会刷一次、然后退订，
+     * 于是真正传完那一刻不再刷新 —— 用户看到的是一份中途列表。
+     *
+     * 也**不按任务数放大**：决定耗时的是吞吐不是条数（1000 个 1KB 文件可能 20 秒，
+     * 3 个 20GB 要几小时），按条数算的系数在两个方向上都是错的。这里直接量
+     * "它还在不在动"，另加一个绝对上限，免得订阅无限期挂着。
+     */
+    const timer = setInterval(() => {
+      const now = Date.now()
+      if (now - lastActivityAt > SETTLE_IDLE_TIMEOUT_MS || now - startedAt > SETTLE_MAX_WATCH_MS) {
+        settleNow()
+      }
+    }, SETTLE_IDLE_CHECK_MS)
 
     off = useTransferStore.subscribe(check)
     settleWatchersRef.current.add(cleanup)
@@ -285,7 +340,11 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     }
   }
 
-  const uploadPaths = async (localPaths: string[], targetDir = cwd): Promise<void> => {
+  const uploadPaths = async (
+    localPaths: string[],
+    targetDir: string,
+    onConflict: TransferConflictAction | undefined
+  ): Promise<void> => {
     const sessionId = tab.sessionId
     if (!sessionId) {
       message.warning(t('sftp.dropNoSession'))
@@ -298,7 +357,8 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
         sessionId,
         kind: 'upload' as const,
         localPath: p,
-        remotePath: joinRemote(targetDir, p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? 'file')
+        remotePath: joinRemote(targetDir, baseNameOf(p)),
+        ...(onConflict ? { onConflict } : {})
       }))
     )
     message.success(t('sftp.enqueuedUpload', { count: localPaths.length }))
@@ -333,12 +393,75 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       message.warning(t('sftp.dropUnsupported'))
       return
     }
-    void uploadPaths(paths, targetDir)
+    startUpload(paths, targetDir)
   }
 
-  const pickAndUpload = async (): Promise<void> => {
-    const path = await ofs.invoke('app:pickPath', { mode: 'openFile', title: t('sftp.pickUpload') })
-    if (path) await uploadPaths([path])
+  /**
+   * 所有上传入口的唯一汇合点。
+   *
+   * 三层分工：取路径（pickAndUpload / handleDrop）→ 这里 → 冲突裁决 → uploadPaths（入队）。
+   * 中间这一层存在的意义是"入队前该做的事只有一处"。所以
+   * **uploadPaths 全文件只许有一个调用点**：日后新加的上传入口若绕过裁决，
+   * 表现就是多出第二个 `uploadPaths(` 调用点，护栏能看见。
+   *
+   * 拖拽也走这里 —— 拖 200 个文件覆盖远端与用对话框选 200 个一样危险，
+   * 而拖拽恰好是今天唯一能一次带进整棵目录树的入口。
+   */
+  const startUpload = (localPaths: string[], targetDir: string): void => {
+    const sessionId = tab.sessionId
+    if (!sessionId) {
+      message.warning(t('sftp.dropNoSession'))
+      return
+    }
+    if (localPaths.length === 0) return
+    // 上一批还在探测：不排队第二个请求（排队意味着要连点两次确认框，
+    // 而用户早忘了第一次选的是什么）
+    if (uploadRequest) {
+      message.warning(t('sftp.uploadBusy'))
+      return
+    }
+    /*
+     * 设置里的 conflictPolicy 决定"要不要问"：
+     * - 'ask'（默认）→ 探测，有冲突就弹框；
+     * - 其余三值 → 不问，直接把该动作填进每一条（探测仍然要跑：skip 得知道跳哪些、
+     *   rename 得算新名，那都在 main 侧的 planConflicts 里做）。
+     * 这就是那个从来没有界面的设置项第一次有意义的地方。
+     */
+    const policy = settings.sftp.conflictPolicy
+    if (policy !== 'ask') {
+      proceedUpload(localPaths, targetDir, policy === 'resume' ? 'overwrite' : policy)
+      return
+    }
+    setUploadRequest({
+      sessionId,
+      targetDir,
+      localPaths,
+      names: localPaths.map(baseNameOf)
+    })
+  }
+
+  /** 唯一调用 uploadPaths 的地方（见上面那条不变量） */
+  const proceedUpload = (
+    localPaths: string[],
+    targetDir: string,
+    action: TransferConflictAction | undefined
+  ): void => {
+    setUploadRequest(null)
+    void uploadPaths(localPaths, targetDir, action)
+  }
+
+  /**
+   * 从对话框选路径。**必须分两个 mode 各来一次**：Windows/Linux 上
+   * `properties: ['openFile','openDirectory']` 会静默退化成只能选目录（见 app.ipc.ts），
+   * 所以界面上是两个入口，而不是一个"选文件或文件夹"。
+   */
+  const pickAndUpload = async (kind: 'file' | 'folder', targetDir = cwd): Promise<void> => {
+    const paths = await ofs.invoke('app:pickPaths', {
+      mode: kind === 'folder' ? 'openDirectory' : 'openFile',
+      title: kind === 'folder' ? t('sftp.pickUploadFolder') : t('sftp.pickUpload')
+    })
+    if (paths.length === 0) return
+    startUpload(paths, targetDir)
   }
 
   /**
@@ -605,6 +728,22 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     return selectedEntries.length > 1 && selected.includes(target.path) ? selectedEntries : [target]
   }
 
+  /**
+   * 上传的落点。**与 targetsFor 同源**：右键在单个合法目录上时传进那个目录，其余情况
+   * （多选、文件、badName、空白处）一律退回 cwd —— 与"拖到文件行上退回当前目录"
+   * （onRow 的 onDrop 里那个 !isDir 判断）是同一条规则。
+   *
+   * 菜单标签与真正执行的目录**必须走这一个函数**：分成两处算的后果是菜单上写着
+   * 「上传到 logs」、文件却落进了当前目录，而且没有任何报错。
+   */
+  const uploadDirFor = (target: SftpEntry | null): { dir: string; name: string | null } => {
+    const ts = targetsFor(target)
+    const only = ts.length === 1 ? ts[0] : null
+    return only && isDir(only) && !only.badName
+      ? { dir: only.path, name: only.name }
+      : { dir: cwd, name: null }
+  }
+
   const contextItems = (target: SftpEntry | null): MenuProps['items'] => {
     const usable = target !== null && !target.badName
     // 重命名与权限只对单个目标有意义；多选时留着能点只会让人以为是批量改
@@ -620,6 +759,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     const allDirs = usable && dirTargets.length > 0 && dirTargets.every((e) => isDir(e) && !e.badName)
     // 内置编辑器只吃文件。目录点进去、软链按它指向的东西算（isDir 已经处理了这一层）
     const viewable = usable && target !== null && !isDir(target)
+    const uploadInto = uploadDirFor(target)
     return [
       { key: 'refresh', label: t('sftp.refresh') },
       { type: 'divider' },
@@ -637,7 +777,21 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       { key: 'copyPath', label: t('sftp.copyPath'), disabled: !usable },
       { type: 'divider' },
       { key: 'download', label: t('sftp.download'), disabled: !usable },
-      { key: 'upload', label: t('sftp.uploadMenu') },
+      /*
+       * 两个子项而不是一条「上传…」：见 pickAndUpload 上的说明（一个对话框没法同时
+       * 多选文件和文件夹）。整条永不禁用 —— 落点是目录（cwd 或右键中的那个目录），
+       * 与有没有选中项无关，所以它属于"与目标无关的先走"那一族。
+       */
+      {
+        key: 'upload',
+        label: uploadInto.name
+          ? t('sftp.uploadIntoMenu', { dir: uploadInto.name })
+          : t('sftp.uploadMenu'),
+        children: [
+          { key: 'uploadFile', label: t('sftp.uploadFile') },
+          { key: 'uploadFolder', label: t('sftp.uploadFolder') }
+        ]
+      },
       /*
        * 打包传输是**勾选项**，写的是全局设置（与工具栏那个"显示隐藏文件"完全同款）。
        * 它是**建议性**的：main 侧会自己判断值不值得（文件数、远端有没有 tar/mktemp、
@@ -676,8 +830,9 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       void load(cwd, false)
       return
     }
-    if (key === 'upload') {
-      void pickAndUpload()
+    // 空白处右键也要能上传，所以这两条必须排在下面 `if (!target) return` 之前
+    if (key === 'uploadFile' || key === 'uploadFolder') {
+      void pickAndUpload(key === 'uploadFolder' ? 'folder' : 'file', uploadDirFor(target).dir)
       return
     }
     if (key === 'newFile' || key === 'newFolder') {
@@ -865,12 +1020,23 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
             onClick={() => promptNewEntry('dir')}
           />
         </Tooltip>
-        <Tooltip title={t('sftp.upload')}>
+        {/* 两个按钮而不是一个带下拉：这一行从头到尾是"单击即执行"的图标按钮，
+            插一个"点开才有内容"的下拉是唯一的异类；而合成一个对话框做不到
+            （见 pickAndUpload 上的说明） */}
+        <Tooltip title={t('sftp.uploadFile')}>
           <Button
             size="small"
             type="text"
             icon={<Upload size={14} strokeWidth={1.75} />}
-            onClick={() => void pickAndUpload()}
+            onClick={() => void pickAndUpload('file')}
+          />
+        </Tooltip>
+        <Tooltip title={t('sftp.uploadFolder')}>
+          <Button
+            size="small"
+            type="text"
+            icon={<FolderUp size={14} strokeWidth={1.75} />}
+            onClick={() => void pickAndUpload('folder')}
           />
         </Tooltip>
         <Tooltip title={showHidden ? t('sftp.hideHidden') : t('sftp.showHidden')}>
@@ -1016,6 +1182,15 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           }}
         />
       )}
+
+      <UploadConflictModal
+        request={uploadRequest}
+        onCancel={() => setUploadRequest(null)}
+        onProceed={(action) => {
+          if (!uploadRequest) return
+          proceedUpload(uploadRequest.localPaths, uploadRequest.targetDir, action)
+        }}
+      />
 
       {!active && null}
     </div>

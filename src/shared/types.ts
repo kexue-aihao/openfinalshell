@@ -271,7 +271,19 @@ export interface SftpEntry {
   badName?: boolean
 }
 
-export type TransferState = 'queued' | 'running' | 'paused' | 'done' | 'error' | 'canceled'
+/**
+ * `'skipped'` 是终态，与 `'done'` 分开：done 的含义是"字节已经在服务器上了"。
+ * 用 done 表示跳过，会让分组进度的"800/800 完成"在撒谎，也会让所有按终态推理的
+ * 地方（updateActivity、watchTransfers）把跳过算成传完。
+ */
+export type TransferState =
+  | 'queued'
+  | 'running'
+  | 'paused'
+  | 'done'
+  | 'error'
+  | 'canceled'
+  | 'skipped'
 
 export interface TransferTask {
   id: TaskId
@@ -288,6 +300,25 @@ export interface TransferTask {
   /** 目录任务的子文件任务 */
   parentId?: TaskId
   createdAt: number
+  /**
+   * 这是个目录（分组）任务。分组任务**不自己搬字节** —— 它的 transferred/size 是
+   * 子孙的汇总，并且随展开推进而增长（诚实的：main 是渐进发现目录树的，
+   * 所以那一行同时显示 childDone/childTotal，分子分母比百分比可信）。
+   */
+  isGroup?: true
+  childTotal?: number
+  /** 含 skipped —— 跳过是用户要的结果，算"完成"，但下面另记一笔 */
+  childDone?: number
+  childFailed?: number
+  childSkipped?: number
+  /** 展开时跳过的软链接数（分组行上是子树累计） */
+  skippedLinks?: number
+  /**
+   * 这条任务当初裁决的冲突动作。**必须留在任务上**，不能在入队时用掉：
+   * overwrite 要到达 worker（那句"冲突已在入队阶段裁决"靠它才第一次成真），
+   * retry 要复用当初用户选的那个而不是重读可能已改的设置，子任务还要继承它。
+   */
+  onConflict?: TransferConflictAction
   /** 这条任务走的是打包传输 */
   packed?: boolean
   /**
@@ -309,9 +340,51 @@ export interface TransferEnqueueItem {
   kind: 'upload' | 'download'
   localPath: string
   remotePath: string
+  /**
+   * 目录任务展开出来的子任务指回父任务。**main 内部字段**：
+   * `transfer:enqueue` 的 zod schema 里刻意**不声明**它（registry 用 `parsed.data`，
+   * z.object 会把未声明的键剥掉），于是渲染进程物理上伪造不了一个 parentId ——
+   * 伪造一个就能让界面上的分组树错乱。
+   */
+  parentId?: TaskId
+  /** 这一批裁决过的冲突动作。缺省时 worker 按 settings.sftp.conflictPolicy 兜底 */
+  onConflict?: TransferConflictAction
+  /**
+   * 入队前已探到远端同名、且用户选了跳过：直接落 skipped 终态，不开连接、不排队。
+   * **main 内部字段**（同 parentId：zod 里不声明，渲染进程伪造不了 —— 伪造一个
+   * 就能让文件被静默跳过）。
+   */
+  skipExisting?: boolean
 }
 
 export type ConflictPolicy = 'ask' | 'overwrite' | 'skip' | 'rename' | 'resume'
+
+/**
+ * **已裁决**的冲突动作。与 ConflictPolicy 刻意分开：后者含 `'ask'`（还没裁决）
+ * 与 `'resume'`（历史遗留，界面里从来没有、逐文件路径零消费者），
+ * 而这两个值一旦流到 worker，就意味着"谁也没决定"的分支要在写文件那一刻现场编答案。
+ */
+export type TransferConflictAction = 'overwrite' | 'skip' | 'rename'
+
+/** 远端已存在的同名项（探测结果的一条） */
+export interface RemoteConflict {
+  name: string
+  kind: RemoteFileType
+  size: number
+  /** 远端修改时间（毫秒）。0 表示服务器没给 */
+  mtime: number
+}
+
+export interface ConflictProbeResult {
+  conflicts: RemoteConflict[]
+  /** 这一批一共探了多少条 */
+  total: number
+  /**
+   * 探测本身跑通了没有。**false 时界面必须说"未能检查"，绝不能当成"没有冲突"** ——
+   * 把一次失败的探测显示成"无冲突直接传"就是静默覆盖。
+   */
+  probed: boolean
+}
 
 // ---------- 内置编辑器 ----------
 /**

@@ -352,6 +352,25 @@ export function SettingsModal(): React.JSX.Element {
                   onChange={(v) => v && setSftp({ maxConcurrentGlobal: v })}
                 />
               </Row>
+              {/*
+                这个键在 DEFAULT_SETTINGS 里存在很久了，但**从来没有界面**
+                （grep conflictPolicy 在渲染进程里一度零命中），也就一直不生效。
+                现在它决定"上传撞名时要不要问、不问时怎么办"。
+                'resume' 是历史遗留值，界面不给（选它等于 overwrite）。
+              */}
+              <Row label={t('settings.conflictPolicy')} hint={t('settings.conflictPolicyHint')}>
+                <Select
+                  value={settings.sftp.conflictPolicy === 'resume' ? 'overwrite' : settings.sftp.conflictPolicy}
+                  style={{ width: 160 }}
+                  onChange={(v) => setSftp({ conflictPolicy: v })}
+                  options={[
+                    { label: t('settings.conflictAsk'), value: 'ask' },
+                    { label: t('settings.conflictOverwrite'), value: 'overwrite' },
+                    { label: t('settings.conflictSkip'), value: 'skip' },
+                    { label: t('settings.conflictRename'), value: 'rename' }
+                  ]}
+                />
+              </Row>
               <Row label={t('settings.showHiddenFiles')}>
                 <Switch
                   checked={settings.sftp.showHiddenFiles}

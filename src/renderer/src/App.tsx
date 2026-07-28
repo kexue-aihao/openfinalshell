@@ -13,7 +13,7 @@ import { PromptHost } from '@/features/prompts/PromptHost'
 import { TransferDrawer } from '@/features/transfers/TransferDrawer'
 import { SettingsModal } from '@/features/settings/SettingsModal'
 import { CommandEditorModal } from '@/features/snippets/CommandEditorModal'
-import { wireTransferEvents } from '@/stores/useTransferStore'
+import { useTransferStore, wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
 import { wireUpdateEvents } from '@/stores/useUpdateStore'
@@ -43,6 +43,8 @@ export default function App(): React.JSX.Element {
     wireSessionEvents()
     wireTermData()
     wireTransferEvents()
+    // 先订阅、后拉快照：反过来会漏掉这中间到达的事件（load 是合并语义，不会盖掉它们）
+    void useTransferStore.getState().load()
     wireMonitorEvents()
     wireForwardEvents()
     wireUpdateEvents()

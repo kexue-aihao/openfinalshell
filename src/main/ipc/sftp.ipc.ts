@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { z } from 'zod'
 import { MAX_EDIT_BYTES, REMOTE_CHARSETS } from '@shared/constants'
 import { handle } from './registry'
+import { applyConflictPlan, probeConflicts } from '../sftp/conflictProbe'
 import { fastDelete, fastDeletePreview } from '../sftp/fastDelete'
 import { saveRemoteTextFile } from '../sftp/fileSave'
 import { viewRemoteFile } from '../sftp/fileView'
@@ -28,6 +29,21 @@ const sessionPath = z.object({ sessionId: z.string(), path: z.string().max(4096)
  * 而"守卫只有一处"是这条链路唯一好审计的形状。
  */
 const fastDeletePaths = z.array(z.string().min(1).max(4096)).min(1).max(200)
+
+/**
+ * 冲突探测收的是**基名**，不是路径：目标目录单独给，由 main 用 remoteJoin 拼。
+ * 于是渲染进程递不进 `../` —— 探测本身只读，但拼错目录会让"有没有冲突"这个答案
+ * 指向另一个地方，而用户是照着那个答案做覆盖决定的。
+ */
+const remoteBaseName = z
+  .string()
+  .min(1)
+  .max(255)
+  .refine(
+    (n) => !n.includes('/') && !n.includes('\\') && n !== '.' && n !== '..',
+    '必须是单个文件名'
+  )
+
 export function registerSftpIpc(): void {
   handle('sftp:readdir', ({ sessionId, path }) => readdir(sessionId, path), z.tuple([sessionPath]))
   handle('sftp:realpath', ({ sessionId, path }) => realpath(sessionId, path), z.tuple([sessionPath]))
@@ -141,14 +157,37 @@ export function registerSftpIpc(): void {
   )
 
   handle(
+    'transfer:probeConflicts',
+    ({ sessionId, targetDir, names }) => probeConflicts(sessionId, targetDir, names),
+    z.tuple([
+      z.object({
+        sessionId: z.string(),
+        targetDir: z.string().max(4096),
+        // 与 transfer:enqueue 同一个上限：探测量永远不超过入队量
+        names: z.array(remoteBaseName).min(1).max(5000)
+      })
+    ])
+  )
+
+  /*
+   * ⚠️ 下面这张 schema 里刻意**没有** `parentId` 与 `skipExisting`。
+   *
+   * registry 用的是 `parsed.data`，而 z.object 会把未声明的键剥掉 —— 于是渲染进程
+   * **物理上**伪造不了这两个字段。它们各自都能造成静默的坏事：伪造 parentId 能让
+   * 界面上的分组树错乱，伪造 skipExisting 能让文件被静默跳过。加字段前先想清楚
+   * 这条性质要不要保。（有源码护栏钉着，见 sftpBatchUploadWiring.test.ts。）
+   */
+  handle(
     'transfer:enqueue',
-    (items) =>
+    async (items) =>
       transferQueue.enqueue(
-        items.map((item) => ({
-          ...item,
-          // 未指定本地目标目录时落到系统下载目录
-          localPath: item.localPath || app.getPath('downloads')
-        }))
+        await applyConflictPlan(
+          items.map((item) => ({
+            ...item,
+            // 未指定本地目标目录时落到系统下载目录
+            localPath: item.localPath || app.getPath('downloads')
+          }))
+        )
       ),
     z.tuple([
       z
@@ -157,7 +196,8 @@ export function registerSftpIpc(): void {
             sessionId: z.string(),
             kind: z.enum(['upload', 'download']),
             localPath: z.string().max(4096),
-            remotePath: z.string().max(4096)
+            remotePath: z.string().max(4096),
+            onConflict: z.enum(['overwrite', 'skip', 'rename']).optional()
           })
         )
         .max(5000)
@@ -170,6 +210,12 @@ export function registerSftpIpc(): void {
     z.tuple([
       z.object({ taskId: z.string(), op: z.enum(['pause', 'resume', 'cancel', 'retry']) })
     ])
+  )
+
+  handle(
+    'transfer:controlAll',
+    ({ op }) => ({ affected: transferQueue.controlAll(op) }),
+    z.tuple([z.object({ op: z.enum(['pause', 'resume', 'cancel']) })])
   )
 
   handle('transfer:clearFinished', () => transferQueue.clearFinished())

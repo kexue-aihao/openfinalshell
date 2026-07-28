@@ -1604,8 +1604,9 @@ async function main() {
   }
   if (landed.mask) fail(`放下之后上传遮罩还留在界面上（内容：${landed.mask}）`)
 
-  // 上一次 enqueue 会把传输抽屉弹出来（useTransferStore.enqueue 里写死的），
-  // 它带遮罩、盖在表格上 —— 不关掉的话下一次注入的坐标打在抽屉上，
+  // enqueue **不再**自动弹传输抽屉（那个副作用已经去掉了：它会盖住用户刚拖放的文件列表）。
+  // 这里的 ?.click() 于是通常是空操作，留着是因为别的步骤可能把抽屉开着，
+  // 而抽屉带遮罩、盖在表格上 —— 那样下一次注入的坐标会打在抽屉上，
   // 这一步会以"没退回当前目录"的形式假红。关掉之后行的位置也可能变，重新量一次
   const reMeasured = await evaluate(`
     document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
@@ -1635,8 +1636,8 @@ async function main() {
   }
   console.log('OK 拖到文件夹行：那一行真的高亮、文件真的进了那个目录；放在文件行上退回当前目录')
 
-  // 收尾：删掉本步造的远端痕迹，并把上传抽屉关回去（它 enqueue 时会自己弹出来，
-  // 留着会挡住后面几步要点的东西）
+  // 收尾：删掉本步造的远端痕迹，并确保抽屉是关着的（现在 enqueue 不会自己弹它，
+  // 但别的步骤可能开过；留着会挡住后面几步要点的东西）
   await evaluate(`
     const sid = '${session.sessionId}'
     const rm = async (p, r) => {
@@ -1651,6 +1652,328 @@ async function main() {
     return true
   `)
   rmSync(dndLocal, { force: true })
+
+  // 8.78) 批量上传：整目录拖进去 → 队列界面的分组 / 虚拟化 / 裁决
+  //    这一步存在的理由是那几个"只有真实打包窗口能回答"的问题：
+  //      ① main 真的写了 parentId 吗 —— 不写就会看到一堆平铺行、组行 0 个，
+  //         而单测里 parentId 是我自己造的，证明不了 main 的展开会带上它；
+  //      ② 虚拟化在 file:// + 严格 CSP 下起不起来 —— ResizeObserver 量到 0 就会
+  //         静默退回平铺（界面看着"能用"，几千行时才卡死）；
+  //      ③ **JS 里的行高常量与 CSS 实际渲染高度对不对得上** —— 差一点就会把行裁掉一截
+  //         或者行间露缝，而 100% 缩放下往往看不出来；
+  //      ④ 界面缩放（根元素 CSS zoom）下窗口化的坐标数学还成不成立 ——
+  //         scrollTop 与 getBoundingClientRect 落在两个坐标系里，混算的错位随缩放放大；
+  //      ⑤ "全部跳过"这个裁决是真的到了 main 并被执行，还是只弹了个框。
+  const bulkDir = join(tmpdir(), `ofs-bulk-${process.pid}`)
+  /**
+   * 必须**超过** TransferList 里的 VIRTUAL_ROW_THRESHOLD（60），否则这一步只会走平铺，
+   * 而虚拟化、行高对账、缩放坐标那三条断言就都是空转 —— 第一版取 40，跑出来是
+   * "行数未过阈值走平铺"，等于什么都没验。文件都是几字节，多造 40 个不花时间。
+   */
+  const BULK_FILES = 80
+  mkdirSync(join(bulkDir, 'empty'), { recursive: true })
+  mkdirSync(join(bulkDir, 'sub'), { recursive: true })
+  for (let i = 0; i < BULK_FILES; i++) {
+    writeFileSync(join(bulkDir, `f${String(i).padStart(3, '0')}.txt`), `bulk ${i}\n`)
+  }
+  for (let i = 0; i < 5; i++) writeFileSync(join(bulkDir, 'sub', `s${i}.txt`), `sub ${i}\n`)
+  const bulkName = basename(bulkDir)
+
+  const bulkPrep = await evaluate(`
+    const sid = '${session.sessionId}'
+    document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
+    await new Promise((s) => setTimeout(s, 300))
+    // 先清场：这一步失败一次就会把整棵树留在远端，之后每次 mkdir 都撞名
+    try {
+      await window.ofs.invoke('sftp:delete', { sessionId: sid, path: '/' + ${JSON.stringify(bulkName)}, recursive: true })
+    } catch {}
+    await window.ofs.invoke('transfer:clearFinished')
+    const anchor = document.querySelector('.ant-table-body') || document.querySelector('.ant-table')
+    if (!anchor) return { error: '找不到 SFTP 文件表格' }
+    const r = anchor.getBoundingClientRect()
+    return { at: { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) } }
+  `)
+  if (bulkPrep.error) fail(`批量上传准备失败：${bulkPrep.error}`)
+
+  // 拖整个目录进面板（带真实磁盘路径，理由同 8.77）
+  const bulkData = { items: [], files: [bulkDir], dragOperationsMask: 1 }
+  for (const type of ['dragEnter', 'dragOver', 'drop']) {
+    await send('Input.dispatchDragEvent', {
+      type,
+      x: bulkPrep.at.x,
+      y: bulkPrep.at.y,
+      data: bulkData
+    })
+    await sleep(200)
+  }
+
+  // 打开队列（现在 enqueue 不会自己弹抽屉了，得自己点状态栏那条速度 —— 顺带验证它能开）
+  const bulkQueue = await evaluate(`
+    const bar = [...document.querySelectorAll('*')].find((e) => /statusBar/.test(String(e.className)))
+    const clickable = [...(bar?.children ?? [])].find((e) => /clickable/.test(String(e.className)))
+    if (!clickable) return { error: '状态栏上没有可点的传输条目（enqueue 之后应该出现）' }
+    clickable.click()
+    await new Promise((s) => setTimeout(s, 600))
+    if (!document.querySelector('.ant-drawer-open')) return { error: '点状态栏没能打开传输抽屉' }
+
+    // 等展开把子任务铺出来
+    for (let i = 0; i < 60; i++) {
+      if (document.querySelectorAll('[class*=groupRow]').length > 0) break
+      await new Promise((s) => setTimeout(s, 300))
+    }
+    const groups = [...document.querySelectorAll('[class*=groupRow]')]
+    return {
+      groupRows: groups.length,
+      groupText: (groups[0]?.textContent ?? '').replace(/\\s+/g, ' ').trim().slice(0, 120),
+      flatSingles: document.querySelectorAll('[class*=item_]').length
+    }
+  `)
+  if (bulkQueue.error) fail(`批量上传：${bulkQueue.error}`)
+  if (bulkQueue.groupRows < 1) {
+    fail(
+      `拖整个目录之后队列里没有分组行（main 没写 parentId，或界面没按它分组）：` +
+        `groupRows=${bulkQueue.groupRows}`
+    )
+  }
+  if (!/\d+\/\d+/.test(bulkQueue.groupText)) {
+    fail(`分组行上没有"已完成 n/m"这种计数（文本：${bulkQueue.groupText}）`)
+  }
+
+  // 展开分组 → 行数越过阈值 → 虚拟化应当接管；同时量真实行高与声明高度是否一致
+  const bulkVirtual = await evaluate(`
+    const chev = document.querySelector('button[class*=chevron]')
+    if (!chev) return { error: '分组行上没有展开按钮' }
+    chev.click()
+    await new Promise((s) => setTimeout(s, 600))
+
+    const host = [...document.querySelectorAll('div')].find((d) => /listHost/.test(String(d.className)))
+    if (!host) return { error: '找不到队列列表容器' }
+    const sc = host.firstElementChild
+    const virtual = sc.style.position === 'relative'
+    const rows = virtual ? [...sc.querySelectorAll(':scope > div > div')] : [...sc.children]
+    // 声明高度（JS 里的 ROW_H）与浏览器实际渲染高度必须逐行相等
+    const mismatch = rows
+      .filter((r) => r.style.height && parseInt(r.style.height, 10) !== r.offsetHeight)
+      .map((r) => ({ declared: r.style.height, actual: r.offsetHeight }))
+    // 相邻行之间不许有缝（缝就意味着偏移账与真实高度对不上）
+    const gaps = []
+    for (let i = 0; i + 1 < rows.length; i++) {
+      const a = rows[i], b = rows[i + 1]
+      if (!a.style.top || !b.style.top) continue
+      const g = parseInt(b.style.top, 10) - (parseInt(a.style.top, 10) + a.offsetHeight)
+      if (g !== 0) gaps.push(g)
+    }
+    return {
+      virtual,
+      rendered: rows.length,
+      childRows: document.querySelectorAll('[class*=childRow]').length,
+      viewportH: sc.clientHeight,
+      scrollH: virtual ? parseInt(sc.firstElementChild.style.height, 10) : sc.scrollHeight,
+      mismatch,
+      gaps
+    }
+  `)
+  if (bulkVirtual.error) fail(`批量上传：${bulkVirtual.error}`)
+  if (bulkVirtual.mismatch.length > 0) {
+    fail(
+      `行高不一致：JS 声明的定位高度与真实渲染高度对不上 ` +
+        `${JSON.stringify(bulkVirtual.mismatch.slice(0, 3))} —— ` +
+        `改了 TransferList.module.css 里某条带子的高度但没改 ROW_H（或反过来）`
+    )
+  }
+  if (bulkVirtual.gaps.length > 0) {
+    fail(`虚拟化行之间有缝隙：${bulkVirtual.gaps.slice(0, 5).join(' ')}`)
+  }
+  if (bulkVirtual.viewportH <= 0) {
+    fail('队列容器高度量到 0 —— ResizeObserver 在打包环境里没生效，虚拟化会静默退回平铺')
+  }
+  /*
+   * 这一步的行数是特意造过阈值的（BULK_FILES 上面有说明），所以**必须**走虚拟化。
+   * 掉回平铺只有两种原因，两种都得响：ResizeObserver 在打包环境里没量到高度，
+   * 或者阈值/行数算错了 —— 而那会让后面"行高对账""缩放坐标"两条断言变成空转。
+   */
+  if (!bulkVirtual.virtual) {
+    fail(
+      `队列没有走虚拟化（渲染 ${bulkVirtual.rendered} 行、视口 ${bulkVirtual.viewportH}px）——` +
+        ` 行数应当已经超过阈值，掉回平铺说明容器高度没量到或阈值算错`
+    )
+  }
+  // 抽屉只有一两百像素高，装不下 80 行；装得下说明窗口没收窄
+  if (bulkVirtual.rendered >= BULK_FILES) {
+    fail(
+      `虚拟化没有真的在虚拟：一次渲染了 ${bulkVirtual.rendered} 行` +
+        `（视口 ${bulkVirtual.viewportH}px，总高 ${bulkVirtual.scrollH}px）`
+    )
+  }
+  console.log(
+    `OK 队列分组与虚拟化：${bulkQueue.groupRows} 个分组、` +
+      `${bulkVirtual.virtual ? `虚拟化渲染 ${bulkVirtual.rendered}/${bulkVirtual.childRows}+ 行` : '行数未过阈值走平铺'}` +
+      `、行高零偏差`
+  )
+
+  // ④ 界面缩放下再量一遍（窗口化唯一必须真机验的那点数学）
+  const bulkZoom = await evaluate(`
+    await window.ofs.invoke('settings:set', { uiZoom: 150 })
+    await new Promise((s) => setTimeout(s, 900))
+    const host = [...document.querySelectorAll('div')].find((d) => /listHost/.test(String(d.className)))
+    const sc = host?.firstElementChild
+    if (!sc) return { error: '缩放后找不到队列容器' }
+    const virtual = sc.style.position === 'relative'
+    const rows = virtual ? [...sc.querySelectorAll(':scope > div > div')] : [...sc.children]
+    const mismatch = rows
+      .filter((r) => r.style.height && parseInt(r.style.height, 10) !== r.offsetHeight)
+      .map((r) => ({ declared: r.style.height, actual: r.offsetHeight }))
+    // 拉到底：最后一行必须完整可见（偏移账错了这里会空一块或压住）
+    let lastOk = true
+    if (virtual) {
+      sc.scrollTop = sc.scrollHeight
+      await new Promise((s) => setTimeout(s, 400))
+      const now = [...sc.querySelectorAll(':scope > div > div')]
+      const last = now[now.length - 1]
+      const bottom = parseInt(last.style.top, 10) + last.offsetHeight
+      lastOk = Math.abs(bottom - parseInt(sc.firstElementChild.style.height, 10)) <= 1
+    }
+    await window.ofs.invoke('settings:set', { uiZoom: 100 })
+    await new Promise((s) => setTimeout(s, 600))
+    return { virtual, viewportH: sc.clientHeight, mismatch, lastOk }
+  `)
+  if (bulkZoom.error) fail(`批量上传：${bulkZoom.error}`)
+  if (bulkZoom.mismatch.length > 0) {
+    fail(`界面缩放 150% 下行高对不上：${JSON.stringify(bulkZoom.mismatch.slice(0, 3))}`)
+  }
+  if (bulkZoom.viewportH <= 0) fail('界面缩放 150% 下队列容器高度量到 0')
+  // 缩放后仍然必须是虚拟化，否则 lastOk 恒为 true（那条断言就白写了）
+  if (!bulkZoom.virtual) fail('界面缩放 150% 下队列掉回了平铺，缩放坐标那条断言会变成空转')
+  if (!bulkZoom.lastOk) {
+    fail('界面缩放 150% 下拉到底，最后一行的底边与总高对不上 —— 窗口化把两个坐标系混算了')
+  }
+  console.log('OK 界面缩放 150% 下窗口化坐标仍然对齐（拉到底最后一行完整可见）')
+
+  // ⑤ 空目录如实建 + 文件真的传上去了
+  const bulkLanded = await evaluate(`
+    const sid = '${session.sessionId}'
+    const root = '/' + ${JSON.stringify(bulkName)}
+    const ls = async (p) => {
+      try {
+        return (await window.ofs.invoke('sftp:readdir', { sessionId: sid, path: p })).map((e) => e.name)
+      } catch { return null }
+    }
+    // 轮询上限要留在 CDP 的 30 秒之内（这一整块是一次 Runtime.evaluate）
+    for (let i = 0; i < 40; i++) {
+      const names = await ls(root)
+      if (names && names.filter((n) => /^f\\d{3}\\.txt$/.test(n)).length >= ${BULK_FILES}) break
+      await new Promise((s) => setTimeout(s, 300))
+    }
+    return { top: await ls(root), empty: await ls(root + '/empty'), sub: await ls(root + '/sub') }
+  `)
+  if (!bulkLanded.top) fail(`批量上传后远端没有 /${bulkName} 目录`)
+  const uploadedCount = bulkLanded.top.filter((n) => /^f\d{3}\.txt$/.test(n)).length
+  if (uploadedCount < BULK_FILES) {
+    fail(`批量上传只落了 ${uploadedCount}/${BULK_FILES} 个文件（远端有 [${bulkLanded.top.join(' ')}]）`)
+  }
+  if (bulkLanded.empty === null) {
+    fail('空目录没有在远端建出来 —— expandUpload 的 mkdirp 分支没走到（静默少一个目录）')
+  }
+  if ((bulkLanded.empty ?? []).length !== 0) fail(`空目录不空：[${bulkLanded.empty.join(' ')}]`)
+  if ((bulkLanded.sub ?? []).length !== 5) {
+    fail(`二级目录里应有 5 个文件，实际 [${(bulkLanded.sub ?? []).join(' ')}]`)
+  }
+  console.log(`OK 批量上传落地：${uploadedCount} 个文件 + 空目录如实建 + 二级目录完整`)
+
+  // ⑥ 「全部跳过」这个裁决真的到了 main：改大本地文件后重传，远端大小不该变
+  const probeFile = `f000.txt`
+  writeFileSync(join(bulkDir, probeFile), 'CHANGED CONTENT — should not reach the server\n')
+  const bulkSkip = await evaluate(`
+    const sid = '${session.sessionId}'
+    const root = '/' + ${JSON.stringify(bulkName)}
+    const sizeOf = async () => {
+      const list = await window.ofs.invoke('sftp:readdir', { sessionId: sid, path: root })
+      return list.find((e) => e.name === ${JSON.stringify(probeFile)})?.size ?? -1
+    }
+    const before = await sizeOf()
+    await window.ofs.invoke('transfer:clearFinished')
+    // 直接走 IPC：拖拽那条路会弹裁决框，而这里要验的是"裁决到了 main"，不是框长什么样
+    const ids = await window.ofs.invoke('transfer:enqueue', [{
+      sessionId: sid,
+      kind: 'upload',
+      localPath: ${JSON.stringify(join(bulkDir, probeFile).replace(/\\/g, '\\\\'))},
+      remotePath: root + '/' + ${JSON.stringify(probeFile)},
+      onConflict: 'skip'
+    }])
+    let state = ''
+    for (let i = 0; i < 60; i++) {
+      const t = (await window.ofs.invoke('transfer:list')).find((x) => x.id === ids[0])
+      state = t?.state ?? ''
+      if (['done', 'error', 'canceled', 'skipped'].includes(state)) break
+      await new Promise((s) => setTimeout(s, 200))
+    }
+    return { before, after: await sizeOf(), state }
+  `)
+  if (bulkSkip.state !== 'skipped') {
+    fail(
+      `onConflict:'skip' 撞上同名文件时任务状态应为 skipped，实际是 "${bulkSkip.state}" ——` +
+        ` 裁决没到 main 或者没被执行`
+    )
+  }
+  if (bulkSkip.after !== bulkSkip.before) {
+    fail(
+      `选了跳过，远端文件却被改了（${bulkSkip.before} → ${bulkSkip.after} 字节）——` +
+        ` 这正是"只验框弹出来"会漏掉的那种失败`
+    )
+  }
+  console.log(`OK 「全部跳过」真的到了 main：任务落 skipped，远端文件 ${bulkSkip.before} 字节未变`)
+
+  // ⑦ 全部取消：一条 channel 而不是几十次 invoke —— 期间界面必须还能响应
+  const bulkCancel = await evaluate(`
+    const sid = '${session.sessionId}'
+    await window.ofs.invoke('transfer:clearFinished')
+    const items = []
+    for (let i = 0; i < ${BULK_FILES}; i++) {
+      const name = 'f' + String(i).padStart(3, '0') + '.txt'
+      items.push({
+        sessionId: sid,
+        kind: 'upload',
+        localPath: ${JSON.stringify(bulkDir.replace(/\\/g, '\\\\'))} + '\\\\' + name,
+        remotePath: '/' + ${JSON.stringify(bulkName)} + '/c-' + name,
+        onConflict: 'overwrite'
+      })
+    }
+    await window.ofs.invoke('transfer:enqueue', items)
+    const t0 = Date.now()
+    const r = await window.ofs.invoke('transfer:controlAll', { op: 'cancel' })
+    const elapsed = Date.now() - t0
+    // 取消之后队列里不该再有 queued/running
+    let live = -1
+    for (let i = 0; i < 30; i++) {
+      const list = await window.ofs.invoke('transfer:list')
+      live = list.filter((x) => x.state === 'queued' || x.state === 'running').length
+      if (live === 0) break
+      await new Promise((s) => setTimeout(s, 200))
+    }
+    // 界面还活着吗（一次简单 DOM 查询能回来就算活着）
+    const responsive = Boolean(document.querySelector('[class*=listHost]'))
+    return { affected: r.affected, elapsed, live, responsive }
+  `)
+  if (bulkCancel.affected <= 0) fail('transfer:controlAll 报告一条都没动到')
+  if (bulkCancel.live !== 0) fail(`全部取消之后还剩 ${bulkCancel.live} 条 queued/running`)
+  if (!bulkCancel.responsive) fail('全部取消之后界面没响应')
+  console.log(
+    `OK 全部取消一条 channel 搞定：动到 ${bulkCancel.affected} 条、` +
+      `invoke 耗时 ${bulkCancel.elapsed}ms、队列归零`
+  )
+
+  // 收尾
+  await evaluate(`
+    const sid = '${session.sessionId}'
+    try {
+      await window.ofs.invoke('sftp:delete', { sessionId: sid, path: '/' + ${JSON.stringify(bulkName)}, recursive: true })
+    } catch {}
+    await window.ofs.invoke('transfer:clearFinished')
+    document.querySelector('.ant-drawer-open .ant-drawer-close')?.click()
+    await new Promise((s) => setTimeout(s, 400))
+    return true
+  `)
+  rmSync(bulkDir, { recursive: true, force: true })
 
   // 8.8) 内置编辑器：CM6 在 file:// + 严格 CSP + 根元素 CSS zoom 里到底能不能用
   //    这一步存在的理由是"只有真实打包窗口能回答"的那几个问题：

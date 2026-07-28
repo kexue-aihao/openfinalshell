@@ -1,5 +1,5 @@
 import { MAIN_ONLY_SETTINGS_PATHS, type EventMap, type OfsApi } from '@shared/ipc'
-import { DEFAULT_SETTINGS } from '@shared/constants'
+import { DEFAULT_SETTINGS, TRANSFER_FINAL_STATES } from '@shared/constants'
 import type {
   CommandHistoryEntry,
   ConnectionGroup,
@@ -255,40 +255,162 @@ export function createMockOfs(): OfsApi {
     monitorTimers.set(sessionId, setInterval(push, 1000))
   }
 
-  /** 模拟传输：分 10 步推进进度 */
-  function mockTransfer(item: TransferEnqueueItem): TransferTask {
+  /**
+   * 状态变更走合批，与 main 侧同形（缓 id、到点取快照发一批）。
+   *
+   * 桩**必须真的发出长度 > 1 的批**，否则渲染侧那条批量 upsert 的代码路径在浏览器里
+   * 从未被走到过 —— 一次入队 3 个文件在 mock 下也只发 3 条长度 1 的批，
+   * 界面看着好好的，真机上第一次批量上传才暴露。
+   */
+  const pendingStates = new Set<string>()
+  let stateFlushTimer: ReturnType<typeof setTimeout> | null = null
+  function publishTask(task: TransferTask): void {
+    pendingStates.add(task.id)
+    stateFlushTimer ??= setTimeout(() => {
+      stateFlushTimer = null
+      const tasks = [...pendingStates]
+        .map((id) => mockTasks.find((t) => t.id === id))
+        .filter((t): t is TransferTask => Boolean(t))
+        .map((t) => ({ ...t }))
+      pendingStates.clear()
+      if (tasks.length > 0) emit('transfer:states', { tasks })
+    }, 50)
+  }
+
+  /** 一条叶子任务：按 size 决定步数，边推进度边跑 */
+  function mockLeaf(
+    item: TransferEnqueueItem & { parentId?: string },
+    size: number,
+    steps: number,
+    failAt?: number
+  ): TransferTask {
     const task: TransferTask = {
       id: crypto.randomUUID(),
       sessionId: item.sessionId,
       kind: item.kind,
       localPath: item.localPath,
       remotePath: item.remotePath,
-      size: 5 * 1024 * 1024,
+      size,
       transferred: 0,
       state: 'running',
-      speedBps: 1024 * 1024,
-      createdAt: Date.now()
+      speedBps: size > 0 ? Math.max(1, Math.round(size / (steps * 0.25))) : 0,
+      createdAt: Date.now(),
+      ...(item.parentId ? { parentId: item.parentId } : {})
     }
     mockTasks.push(task)
-    emit('transfer:state', { task: { ...task } })
+    publishTask(task)
+    if (size === 0 || steps <= 0) {
+      task.state = 'done'
+      task.speedBps = 0
+      publishTask(task)
+      return task
+    }
     let step = 0
     const iv = setInterval(() => {
       step += 1
-      task.transferred = Math.min(task.size, Math.round((task.size * step) / 10))
+      task.transferred = Math.min(size, Math.round((size * step) / steps))
       emit('transfer:progress', {
         taskId: task.id,
         transferred: task.transferred,
-        total: task.size,
+        total: size,
         speedBps: task.speedBps
       })
-      if (step >= 10) {
+      if (failAt !== undefined && step >= failAt) {
+        clearInterval(iv)
+        task.state = 'error'
+        task.error = '模拟失败：权限不足'
+        task.speedBps = 0
+        publishTask(task)
+        return
+      }
+      if (step >= steps) {
         clearInterval(iv)
         task.state = 'done'
         task.speedBps = 0
-        emit('transfer:state', { task: { ...task } })
+        publishTask(task)
       }
     }, 250)
     return task
+  }
+
+  /**
+   * 模拟一次入队。
+   *
+   * **basename 里不含 `.` 的当成目录**，于是浏览器里也能调出真实形态：
+   * 父任务 size = -1 → scanning → 展开出若干子任务（带 parentId、大小各异、
+   * 其中一条会失败、一条是空文件）→ 父任务等子任务跑完才终态。
+   * 没有这一层，分组折叠与总进度在 mock 下根本长不出来（`# mock` 语义，不是真判据）。
+   */
+  function mockTransfer(item: TransferEnqueueItem): TransferTask {
+    const base = item.localPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
+    if (base.includes('.')) return mockLeaf(item, 5 * 1024 * 1024, 10)
+
+    // # mock 目录：形状照 main（先入队子任务，再让父任务收尾）
+    const group: TransferTask = {
+      id: crypto.randomUUID(),
+      sessionId: item.sessionId,
+      kind: item.kind,
+      localPath: item.localPath,
+      remotePath: item.remotePath,
+      size: -1,
+      transferred: 0,
+      state: 'running',
+      phase: 'scanning',
+      isGroup: true,
+      speedBps: 0,
+      createdAt: Date.now()
+    }
+    mockTasks.push(group)
+    publishTask(group)
+
+    setTimeout(() => {
+      group.phase = undefined
+      group.size = 0
+      const kids = [
+        { name: 'a.bin', size: 8 * 1024 * 1024, steps: 30 },
+        { name: 'b.log', size: 512 * 1024, steps: 4 },
+        { name: 'c.txt', size: 0, steps: 0 },
+        { name: 'd.tar.gz', size: 3 * 1024 * 1024, steps: 12 },
+        { name: 'e.conf', size: 96 * 1024, steps: 4, failAt: 2 },
+        { name: 'f.dat', size: 2 * 1024 * 1024, steps: 8 }
+      ]
+      group.childTotal = kids.length
+      for (const kid of kids) {
+        const child = mockLeaf(
+          {
+            sessionId: item.sessionId,
+            kind: item.kind,
+            localPath: `${item.localPath}/${kid.name}`,
+            remotePath: `${item.remotePath}/${kid.name}`,
+            parentId: group.id
+          },
+          kid.size,
+          kid.steps,
+          kid.failAt
+        )
+        group.size += child.size
+      }
+      publishTask(group)
+
+      // 父任务活到最后一个子任务终态为止（与 main 同形）
+      const watch = setInterval(() => {
+        const kidsNow = mockTasks.filter((t) => t.parentId === group.id)
+        const finished = kidsNow.filter((t) => TRANSFER_FINAL_STATES.has(t.state))
+        group.childDone = kidsNow.filter((t) => t.state === 'done').length
+        group.childFailed = kidsNow.filter((t) => t.state === 'error').length
+        group.transferred = kidsNow.reduce((sum, t) => sum + t.transferred, 0)
+        if (finished.length < kidsNow.length) {
+          publishTask(group)
+          return
+        }
+        clearInterval(watch)
+        group.state = (group.childFailed ?? 0) > 0 ? 'error' : 'done'
+        if (group.state === 'error') group.error = `${group.childFailed} 个文件失败`
+        publishTask(group)
+      }, 250)
+    }, 400)
+
+    return group
   }
 
   const handlers: Record<string, (...args: never[]) => unknown> = {
@@ -319,6 +441,18 @@ export function createMockOfs(): OfsApi {
     'app:pickPath': (arg: never) => {
       const { mode } = arg as unknown as { mode: string }
       return mode === 'openDirectory' ? 'C:\\Users\\demo\\Downloads' : 'C:\\Users\\demo\\demo-file.bin'
+    },
+    // 多选：文件回三条（其中一条与 app:pickPath 同名，方便造出"远端已存在"的场景），
+    // 文件夹回一条 —— 真机上能不能多选文件夹取决于 shell，别在 mock 里假定它行
+    'app:pickPaths': (arg: never) => {
+      const { mode } = arg as unknown as { mode: string }
+      return mode === 'openDirectory'
+        ? ['C:\\Users\\demo\\demo-dir']
+        : [
+            'C:\\Users\\demo\\demo-file.bin',
+            'C:\\Users\\demo\\notes.txt',
+            'C:\\Users\\demo\\archive.tar.gz'
+          ]
     },
     'app:openExternal': () => undefined,
     'app:openPath': () => undefined,
@@ -641,6 +775,24 @@ export function createMockOfs(): OfsApi {
       mockForwardRuntimes.set(forwardId, runtime)
       emit('forward:state', { runtime })
     },
+    /*
+     * # mock：判据故意假到一眼能认出来（名字里带 demo- 就算冲突），**不重实现真判据**。
+     * 它只为了让浏览器里"有冲突"与"无冲突"两条路都能走一遍。
+     */
+    'transfer:probeConflicts': (arg: never) => {
+      const { names } = arg as unknown as { names: string[] }
+      const hit = names.filter((n) => n.startsWith('demo-'))
+      return {
+        conflicts: hit.map((name) => ({
+          name,
+          kind: name.includes('.') ? ('file' as const) : ('dir' as const),
+          size: 1234567,
+          mtime: 0
+        })),
+        total: names.length,
+        probed: true
+      }
+    },
     'transfer:list': () => mockTasks,
     'transfer:enqueue': (items: never) =>
       (items as unknown as TransferEnqueueItem[]).map((item) => mockTransfer(item).id),
@@ -649,11 +801,22 @@ export function createMockOfs(): OfsApi {
       const task = mockTasks.find((t) => t.id === taskId)
       if (!task) return
       task.state = op === 'cancel' ? 'canceled' : op === 'pause' ? 'paused' : 'running'
-      emit('transfer:state', { task: { ...task } })
+      publishTask(task)
+    },
+    'transfer:controlAll': (arg: never) => {
+      const { op } = arg as unknown as { op: string }
+      let affected = 0
+      for (const task of mockTasks) {
+        if (TRANSFER_FINAL_STATES.has(task.state)) continue
+        task.state = op === 'cancel' ? 'canceled' : op === 'pause' ? 'paused' : 'running'
+        publishTask(task)
+        affected += 1
+      }
+      return { affected }
     },
     'transfer:clearFinished': () => {
       for (let i = mockTasks.length - 1; i >= 0; i--) {
-        if (['done', 'error', 'canceled'].includes(mockTasks[i].state)) mockTasks.splice(i, 1)
+        if (TRANSFER_FINAL_STATES.has(mockTasks[i].state)) mockTasks.splice(i, 1)
       }
     },
     'monitor:start': (arg: never) => {
@@ -715,6 +878,75 @@ export function createMockOfs(): OfsApi {
         writeTerm(termId, ch)
       }
     }
+  }
+
+  /**
+   * 量产开关：`__ofsMockBulk(2000)` 造 n 条任务（按 50 条一组分成若干分组）。
+   *
+   * 没有它，"上千行的队列界面会不会卡"在浏览器里根本调不出来 —— 而那正是虚拟化
+   * 要解决的问题。只在 mock 模式下挂，产物里不存在（api.ts 有 window.ofs + DEV 双闸门）。
+   */
+  ;(globalThis as unknown as Record<string, unknown>).__ofsMockBulk = (n = 2000): number => {
+    const states: Array<TransferTask['state']> = ['running', 'queued', 'done', 'error', 'paused']
+    const groups = Math.ceil(n / 50)
+    let made = 0
+    for (let g = 0; g < groups; g++) {
+      const group: TransferTask = {
+        id: crypto.randomUUID(),
+        sessionId: 'bulk',
+        kind: 'upload',
+        localPath: `C:\\bulk\\dir-${g}`,
+        remotePath: `/bulk/dir-${g}`,
+        size: 0,
+        transferred: 0,
+        state: 'running',
+        isGroup: true,
+        speedBps: 0,
+        createdAt: Date.now() + g
+      }
+      mockTasks.push(group)
+      const count = Math.min(50, n - made)
+      group.childTotal = count
+      for (let i = 0; i < count; i++) {
+        const size = 1024 * (64 + ((i * 7919) % 4096))
+        const state = states[(g + i) % states.length]
+        const transferred = state === 'done' ? size : Math.round(size * (((i * 31) % 100) / 100))
+        mockTasks.push({
+          id: crypto.randomUUID(),
+          sessionId: 'bulk',
+          kind: 'upload',
+          localPath: `C:\\bulk\\dir-${g}\\f${String(i).padStart(3, '0')}.bin`,
+          remotePath: `/bulk/dir-${g}/f${String(i).padStart(3, '0')}.bin`,
+          size,
+          transferred,
+          state,
+          speedBps: state === 'running' ? 512 * 1024 : 0,
+          createdAt: Date.now() + g * 100 + i,
+          parentId: group.id
+        })
+        group.size += size
+        group.transferred += transferred
+        made += 1
+      }
+      group.childDone = 0
+      emit('transfer:states', { tasks: mockTasks.slice(-count - 1).map((t) => ({ ...t })) })
+    }
+    // 一条没有父亲的散件：真实队列里两种行都有，而 single 行的行高与分组行不同
+    const solo: TransferTask = {
+      id: crypto.randomUUID(),
+      sessionId: 'bulk',
+      kind: 'download',
+      localPath: 'C:\\bulk\\solo.iso',
+      remotePath: '/bulk/solo.iso',
+      size: 700 * 1024 * 1024,
+      transferred: 123 * 1024 * 1024,
+      state: 'running',
+      speedBps: 3 * 1024 * 1024,
+      createdAt: Date.now() + groups + 1
+    }
+    mockTasks.push(solo)
+    emit('transfer:states', { tasks: [{ ...solo }] })
+    return made
   }
 
   return {

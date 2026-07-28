@@ -172,6 +172,22 @@
   justify-content: center;
 }
 
+/* ---- 上传冲突框（列表与提示样式直接复用下面快速删除那一套，CSS 产物零增长） ---- */
+.conflictScanning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--ofs-text-2);
+}
+
+.conflictMeta {
+  float: right;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}
+
 /* ---- 快速删除的确认框 ---- */
 .fastDeleteList {
   max-height: 132px;

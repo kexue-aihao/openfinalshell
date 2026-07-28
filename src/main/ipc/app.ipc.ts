@@ -44,6 +44,33 @@ export function registerAppIpc(): void {
     ])
   )
 
+  /**
+   * `properties` 里**永远只有一个选择器类型**。
+   *
+   * electron.d.ts 原话（showOpenDialog 的 properties）：Windows 与 Linux 上打开对话框
+   * 不能同时是文件选择器和目录选择器，`['openFile','openDirectory']` 只会显示**目录**
+   * 选择器。这正是最难发现的一类坏法：编译过、不抛错、"选文件"这个入口静默变成
+   * "只能选文件夹"。所以界面上是两个入口，各传一个 mode，一条代码路径。
+   */
+  handle(
+    'app:pickPaths',
+    async ({ mode, defaultPath, title }) => {
+      const r = await dialog.showOpenDialog({
+        defaultPath,
+        title,
+        properties: [mode, 'multiSelections']
+      })
+      return r.canceled ? [] : r.filePaths
+    },
+    z.tuple([
+      z.object({
+        mode: z.enum(['openFile', 'openDirectory']),
+        defaultPath: z.string().max(4096).optional(),
+        title: z.string().max(200).optional()
+      })
+    ])
+  )
+
   handle(
     'app:openExternal',
     async (url) => {

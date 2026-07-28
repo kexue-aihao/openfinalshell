@@ -150,6 +150,24 @@ describe('dedupeName', () => {
     const taken = new Set(['README'])
     expect(dedupeName('README', (c) => taken.has(c))).toBe('README (2)')
   })
+
+  /**
+   * 双扩展名会切在**最后**一个点上，`a.tar.gz` → `a.tar (2).gz`。
+   *
+   * 这是 lastIndexOf('.') 的必然结果，也是 Windows 资源管理器的行为 ——
+   * 钉成"有意如此"，免得下一个人当 bug 顺手"修"掉（那会让"全部重命名"的
+   * 落地名与提示文案里承诺的形状不一致）。
+   */
+  it('双扩展名切在最后一个点上（与资源管理器一致，有意如此）', () => {
+    const taken = new Set(['a.tar.gz'])
+    expect(dedupeName('a.tar.gz', (c) => taken.has(c))).toBe('a.tar (2).gz')
+  })
+
+  /** 隐藏文件的前导点不是扩展名分隔符（dot > 0 那个判断守的就是这个） */
+  it('以点开头的名字不被当成"空主名 + 扩展名"', () => {
+    const taken = new Set(['.bashrc'])
+    expect(dedupeName('.bashrc', (c) => taken.has(c))).toBe('.bashrc (2)')
+  })
 })
 
 describe('entryParse', () => {
