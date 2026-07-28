@@ -88,6 +88,25 @@ CREATE TABLE IF NOT EXISTS forwards (
 );
 CREATE INDEX IF NOT EXISTS idx_forwards_profile ON forwards(profile_id);
 
+-- 可复用的代理与私钥。被 profiles.json 里的 proxyId / auth.privateKeyId 引用。
+-- 注意本库**没有一处 FOREIGN KEY、也没开 PRAGMA foreign_keys** —— 引用完整性一律手写，
+-- 所以"删除被引用的实体要拦住"那条逻辑在 savedProxies.ts / savedKeys.ts 里自己实现。
+CREATE TABLE IF NOT EXISTS proxies (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  json       TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS private_keys (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  json       TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- 命令历史。**命令原文就是主键** —— 去重是靠它而不是靠查询时 DISTINCT：
 -- 一条 ls 执行一百次只占一行（use_count +1），历史列表不会被高频命令刷满。
 -- 不记 profile_id：命令是跨机器复用的（同一条 systemctl 在哪台上都想再敲一遍），

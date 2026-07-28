@@ -7,6 +7,10 @@ import type {
   ForwardRule,
   ForwardRuntime,
   ProfileDraft,
+  SavedPrivateKey,
+  SavedPrivateKeyDraft,
+  SavedProxy,
+  SavedProxyDraft,
   SftpEntry,
   Snippet,
   SnippetGroup,
@@ -43,6 +47,26 @@ export function createMockOfs(): OfsApi {
     { command: 'systemctl status nginx', lastUsedAt: Date.now() - 60_000, useCount: 3 },
     { command: 'tail -f /var/log/nginx/error.log', lastUsedAt: Date.now() - 120_000, useCount: 1 }
   ]
+  const mockProxies: SavedProxy[] = [
+    {
+      id: 'p-clash',
+      name: '本机 Clash',
+      type: 'socks5',
+      host: '127.0.0.1',
+      port: 7890,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+  ]
+  const mockKeys: SavedPrivateKey[] = [
+    {
+      id: 'k-ed25519',
+      name: 'id_ed25519',
+      path: 'C:\Users\you\.ssh\id_ed25519',
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+  ]
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   const encoder = new TextEncoder()
 
@@ -63,7 +87,7 @@ export function createMockOfs(): OfsApi {
     auth: {
       method: draft.auth.method,
       passwordRef: draft.auth.password ? 'mock-ref' : undefined,
-      privateKeyPath: draft.auth.privateKeyPath
+      privateKeyId: draft.auth.privateKeyId
     },
     terminal: draft.terminal,
     options: draft.options,
@@ -504,6 +528,63 @@ export function createMockOfs(): OfsApi {
     },
     'history:clear': () => {
       mockHistory.length = 0
+    },
+
+    // 已保存的代理与私钥：预置各一条，好让连接抽屉里那两个下拉框在浏览器里就有东西可选
+    'proxy:list': () => mockProxies,
+    'proxy:save': (draft: never) => {
+      const d = draft as unknown as SavedProxyDraft
+      const now = Date.now()
+      const idx = mockProxies.findIndex((x) => x.id === d.id)
+      const saved: SavedProxy = {
+        id: d.id ?? crypto.randomUUID(),
+        name: d.name,
+        type: d.type,
+        host: d.host,
+        port: d.port,
+        username: d.username,
+        passwordRef: d.password ? 'mock-proxy-ref' : mockProxies[idx]?.passwordRef,
+        createdAt: mockProxies[idx]?.createdAt ?? now,
+        updatedAt: now
+      }
+      if (idx >= 0) mockProxies[idx] = saved
+      else mockProxies.push(saved)
+      return saved
+    },
+    'proxy:delete': (id: never) => {
+      const target = id as unknown as string
+      // 被引用时不删 —— 与 main 侧同一条语义，好让那个"列出被谁引用"的弹框在浏览器里也能验
+      const usedBy = profiles.filter((p) => p.proxyId === target).map((p) => p.name)
+      if (usedBy.length > 0) return { deleted: false as const, usedBy }
+      const idx = mockProxies.findIndex((x) => x.id === target)
+      if (idx >= 0) mockProxies.splice(idx, 1)
+      return { deleted: true as const }
+    },
+    'key:list': () => mockKeys,
+    'key:save': (draft: never) => {
+      const d = draft as unknown as SavedPrivateKeyDraft
+      const now = Date.now()
+      const idx = mockKeys.findIndex((x) => x.id === d.id)
+      const saved: SavedPrivateKey = {
+        id: d.id ?? crypto.randomUUID(),
+        name: d.name,
+        path: d.path,
+        passphraseRef: d.passphrase ? 'mock-pass-ref' : mockKeys[idx]?.passphraseRef,
+        note: d.note,
+        createdAt: mockKeys[idx]?.createdAt ?? now,
+        updatedAt: now
+      }
+      if (idx >= 0) mockKeys[idx] = saved
+      else mockKeys.push(saved)
+      return saved
+    },
+    'key:delete': (id: never) => {
+      const target = id as unknown as string
+      const usedBy = profiles.filter((p) => p.auth.privateKeyId === target).map((p) => p.name)
+      if (usedBy.length > 0) return { deleted: false as const, usedBy }
+      const idx = mockKeys.findIndex((x) => x.id === target)
+      if (idx >= 0) mockKeys.splice(idx, 1)
+      return { deleted: true as const }
     },
 
     'snippet:list': () => ({ groups: snippetGroups, snippets }),

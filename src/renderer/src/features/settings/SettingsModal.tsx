@@ -25,11 +25,20 @@ import { useUiStore } from '@/stores/useUiStore'
 import { terminalThemes } from '@/themes/terminal'
 import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
+import { SavedRefsPanel } from './SavedRefsPanel'
 import { TerminalPreview } from './TerminalPreview'
 import { SHORTCUTS } from './shortcuts'
 import styles from './SettingsModal.module.css'
 
-type Section = 'general' | 'appearance' | 'terminal' | 'sftp' | 'security' | 'shortcuts' | 'about'
+type Section =
+  | 'general'
+  | 'appearance'
+  | 'terminal'
+  | 'sftp'
+  | 'savedRef'
+  | 'security'
+  | 'shortcuts'
+  | 'about'
 
 export function SettingsModal(): React.JSX.Element {
   const { t } = useTranslation()
@@ -116,8 +125,22 @@ export function SettingsModal(): React.JSX.Element {
           selectedKeys={[section]}
           onSelect={({ key }) => onOpenSection(key as Section)}
           items={(
-            ['general', 'appearance', 'terminal', 'sftp', 'security', 'shortcuts', 'about'] as Section[]
-          ).map((key) => ({ key, label: t(`settings.section_${key}`) }))}
+            [
+              'general',
+              'appearance',
+              'terminal',
+              'sftp',
+              'savedRef',
+              'security',
+              'shortcuts',
+              'about'
+            ] as Section[]
+          ).map((key) => ({
+            key,
+            // 代理与私钥那一段的标题住在 savedRef.* 里（整段文案都在那儿），
+            // 不为了凑 settings.section_* 的命名再复制一份
+            label: key === 'savedRef' ? t('savedRef.section') : t(`settings.section_${key}`)
+          }))}
         />
 
         <div className={styles.content}>
@@ -371,6 +394,8 @@ export function SettingsModal(): React.JSX.Element {
               </Row>
             </>
           )}
+
+          {section === 'savedRef' && <SavedRefsPanel />}
 
           {section === 'security' && (
             <>

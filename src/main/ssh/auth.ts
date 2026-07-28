@@ -4,6 +4,7 @@ import type { ConnectConfig } from 'ssh2'
 import type { ConnectionProfile, PasswordPromptPayload, SessionId } from '@shared/types'
 import { vault } from '../store/Vault'
 import { rememberPassword } from '../store/connections'
+import { getPrivateKey, getProxy } from '../store/savedRefs'
 import { promptBroker } from './PromptBroker'
 import { dialThroughProxy, ProxyError, type ResolvedProxy } from './proxyDial'
 
@@ -25,13 +26,22 @@ export function detectAgent(): string | undefined {
   return undefined
 }
 
-/** profile 上的代理配置 → 明文形态（密码从 Vault 取）；直连返回 null */
+/**
+ * profile 引用的代理 → 明文形态（密码从 Vault 取）；**没引用代理就是直连，返回 null**。
+ *
+ * 两处"宁可报错也不静默直连"：用户明确要求走代理时，悄悄直连可能等于暴露真实来源。
+ * 所以引用了一条查不到的代理（被删了、库被手工改过）与地址为空一样，都抛 `ProxyError`。
+ */
 export function resolveProxy(profile: ConnectionProfile): ResolvedProxy | null {
-  const p = profile.proxy
-  if (!p || p.type === 'none') return null
-  // 宁可报错也不静默直连 —— 用户明确要求走代理时，直连可能等于暴露真实来源
+  if (!profile.proxyId) return null
+  const p = getProxy(profile.proxyId)
+  if (!p) {
+    throw new ProxyError(
+      '这条连接引用的代理已不存在，请在"设置 → 代理与私钥"里重新指定，或把代理改成直连'
+    )
+  }
   if (!p.host.trim()) {
-    throw new ProxyError('已启用代理但未填写代理地址，请在连接设置的"代理"里补全')
+    throw new ProxyError(`代理「${p.name}」没有填写地址，请在"设置 → 代理与私钥"里补全`)
   }
   return {
     type: p.type,
@@ -91,15 +101,22 @@ export async function buildConnectConfig(
       break
     }
     case 'privateKey': {
-      const keyPath = profile.auth.privateKeyPath
-      if (!keyPath) throw new Error('未指定私钥文件')
-      try {
-        config.privateKey = await readFile(keyPath)
-      } catch {
-        throw new Error(`无法读取私钥文件：${keyPath}`)
+      const keyId = profile.auth.privateKeyId
+      if (!keyId) throw new Error('未指定私钥，请在连接设置里选一条已保存的私钥')
+      const key = getPrivateKey(keyId)
+      if (!key) {
+        throw new Error(
+          '这条连接引用的私钥已不存在，请在"设置 → 代理与私钥"里重新指定'
+        )
       }
-      if (profile.auth.passphraseRef) {
-        config.passphrase = vault.getSecret(profile.auth.passphraseRef) ?? undefined
+      try {
+        config.privateKey = await readFile(key.path)
+      } catch {
+        // 报错要指名是哪一条保存的私钥 —— 只报路径的话，用户得自己回想哪台机器用的是它
+        throw new Error(`读不到私钥「${key.name}」的文件：${key.path}`)
+      }
+      if (key.passphraseRef) {
+        config.passphrase = vault.getSecret(key.passphraseRef) ?? undefined
       }
       break
     }

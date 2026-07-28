@@ -13,7 +13,13 @@ import type {
 } from '@shared/types'
 import { prepare, tx } from '../store/Database'
 import { vault } from '../store/Vault'
-import { getProfile, saveGroup, upsertProfile } from '../store/connections'
+import {
+  extractInlineRefs,
+  getProfile,
+  saveGroup,
+  upsertProfile
+} from '../store/connections'
+import { upsertPrivateKey, upsertProxy } from '../store/savedRefs'
 import { saveForward } from '../store/forwards'
 import { saveSnippet, saveSnippetGroup } from '../store/snippets'
 import { getSettings, patchSettings, stripMainOnlyPaths } from './settings'
@@ -59,6 +65,9 @@ const profileSchema = z.object({
   auth: z.object({
     method: z.enum(['password', 'privateKey', 'agent']),
     passwordRef: idSchema.optional(),
+    /** v0.4 起：引用一条已保存的私钥 */
+    privateKeyId: idSchema.optional(),
+    /** @deprecated v0.3 及以前的内联路径，导入后由 extractInlineRefs 补成引用 */
     privateKeyPath: z.string().max(1024).optional(),
     passphraseRef: idSchema.optional()
   }),
@@ -80,6 +89,8 @@ const profileSchema = z.object({
       compress: z.boolean().default(false)
     })
     .default({}),
+  /** v0.4 起：引用一条已保存的代理 */
+  proxyId: idSchema.optional(),
   proxy: z
     .object({
       type: z.enum(['none', 'http', 'socks5']),
@@ -140,6 +151,33 @@ const knownHostSchema = z.object({
   addedAt: z.number().default(() => Date.now())
 })
 
+/**
+ * 可复用的代理与私钥（v0.4 起）。**必须排在 profiles 之前写入**：连接引用它们。
+ * 老文件（v0.3 及以前）里没有这两个数组，`.default([])` 让它们照样能导入 ——
+ * 那些文件里的内联代理与私钥路径由 extractInlineRefs 在写完连接之后补成引用。
+ */
+const savedProxySchema = z.object({
+  id: idSchema,
+  name: z.string().min(1).max(120),
+  type: z.enum(['http', 'socks5']),
+  host: z.string().max(255),
+  port: z.number().int().min(1).max(65535),
+  username: z.string().max(255).optional(),
+  passwordRef: idSchema.optional(),
+  createdAt: z.number().default(() => Date.now()),
+  updatedAt: z.number().default(() => Date.now())
+})
+
+const savedKeySchema = z.object({
+  id: idSchema,
+  name: z.string().min(1).max(120),
+  path: z.string().min(1).max(1024),
+  passphraseRef: idSchema.optional(),
+  note: z.string().max(4096).optional(),
+  createdAt: z.number().default(() => Date.now()),
+  updatedAt: z.number().default(() => Date.now())
+})
+
 const envelopeSchema = z.object({
   app: z.literal('openfinalshell'),
   formatVersion: z.number().int().min(1),
@@ -153,7 +191,9 @@ const envelopeSchema = z.object({
     snippetGroups: z.array(z.unknown()).default([]),
     snippets: z.array(z.unknown()).default([]),
     forwards: z.array(z.unknown()).default([]),
-    knownHosts: z.array(z.unknown()).default([])
+    knownHosts: z.array(z.unknown()).default([]),
+    proxies: z.array(z.unknown()).default([]),
+    privateKeys: z.array(z.unknown()).default([])
   }),
   secrets: z
     .object({
@@ -180,6 +220,8 @@ interface ParsedImport {
   snippets: z.output<typeof snippetSchema>[]
   forwards: z.output<typeof forwardSchema>[]
   knownHosts: z.output<typeof knownHostSchema>[]
+  proxies: z.output<typeof savedProxySchema>[]
+  privateKeys: z.output<typeof savedKeySchema>[]
   settings?: Record<string, unknown>
   secrets?: SealedSecrets
   invalid: number
@@ -227,6 +269,8 @@ function parseEnvelope(text: string): ParsedImport {
   const snippets = partition(snippetSchema, d.snippets)
   const forwards = partition(forwardSchema, d.forwards)
   const knownHosts = partition(knownHostSchema, d.knownHosts)
+  const proxies = partition(savedProxySchema, d.proxies)
+  const privateKeys = partition(savedKeySchema, d.privateKeys)
 
   return {
     appVersion: env.data.appVersion,
@@ -238,6 +282,8 @@ function parseEnvelope(text: string): ParsedImport {
     snippets: snippets.ok,
     forwards: forwards.ok,
     knownHosts: knownHosts.ok,
+    proxies: proxies.ok,
+    privateKeys: privateKeys.ok,
     settings: d.settings,
     secrets: env.data.secrets,
     invalid:
@@ -246,7 +292,9 @@ function parseEnvelope(text: string): ParsedImport {
       snippetGroups.bad +
       snippets.bad +
       forwards.bad +
-      knownHosts.bad
+      knownHosts.bad +
+      proxies.bad +
+      privateKeys.bad
   }
 }
 
@@ -297,6 +345,8 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
     counts: {
       profiles: parsed.profiles.length,
       groups: parsed.groups.length,
+      proxies: parsed.proxies.length,
+      privateKeys: parsed.privateKeys.length,
       snippets: parsed.snippets.length,
       forwards: parsed.forwards.length,
       knownHosts: parsed.knownHosts.length,
@@ -432,6 +482,8 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
   const result: ImportResult = {
     profiles: 0,
     groups: 0,
+    proxies: 0,
+    privateKeys: 0,
     snippets: 0,
     forwards: 0,
     knownHosts: 0,
@@ -449,9 +501,14 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
       const groupIds = new Map<string, string>()
       const profileIds = new Map<string, string>()
       const snippetGroupIds = new Map<string, string>()
+      const proxyIds = new Map<string, string>()
+      const keyIds = new Map<string, string>()
       if (dup) {
         for (const g of parsed.groups) groupIds.set(g.id, randomUUID())
         for (const p of parsed.profiles) profileIds.set(p.id, randomUUID())
+        // 不预分配的话，副本连接会指回**原来那条**代理/私钥
+        for (const x of parsed.proxies) proxyIds.set(x.id, randomUUID())
+        for (const k of parsed.privateKeys) keyIds.set(k.id, randomUUID())
         for (const g of parsed.snippetGroups) snippetGroupIds.set(g.id, randomUUID())
       }
       const mapId = (m: Map<string, string>, id: string | null): string | null =>
@@ -487,6 +544,42 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           return stored
         }
 
+        /*
+         * 代理与私钥**必须排在 profiles 之前** —— 连接引用它们。
+         * 它们跟着 profiles 那个开关一起导入（不单独给勾选项）：允许"只导连接不导代理"
+         * 就等于允许造出一批指向空气的引用，而那种连接要到连接时才报错。
+         */
+        for (const x of parsed.proxies) {
+          const id = proxyIds.get(x.id) ?? x.id
+          if (opts.conflict === 'skip' && rowExists('proxies', 'id', id)) {
+            result.skipped++
+            continue
+          }
+          upsertProxy({
+            ...x,
+            id,
+            name: dup ? `${x.name}（导入）` : x.name,
+            passwordRef: takeRef(x.passwordRef)
+          })
+          result.proxies++
+        }
+        for (const k of parsed.privateKeys) {
+          const id = keyIds.get(k.id) ?? k.id
+          if (opts.conflict === 'skip' && rowExists('private_keys', 'id', id)) {
+            result.skipped++
+            continue
+          }
+          upsertPrivateKey({
+            ...k,
+            id,
+            name: dup ? `${k.name}（导入）` : k.name,
+            passphraseRef: takeRef(k.passphraseRef)
+          })
+          result.privateKeys++
+        }
+
+        /** 本次真正写进库的那些，交给 extractInlineRefs 补引用 */
+        const imported: ConnectionProfile[] = []
         for (const p of parsed.profiles) {
           const id = profileIds.get(p.id) ?? p.id
           const existing = getProfile(id)
@@ -505,11 +598,14 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
             auth: {
               method: p.auth.method,
               passwordRef: takeRef(p.auth.passwordRef),
+              privateKeyId: mapId(keyIds, p.auth.privateKeyId ?? null) ?? undefined,
+              // v0.3 及以前的老字段：原样搬进来，随后由 extractInlineRefs 补成引用
               privateKeyPath: p.auth.privateKeyPath,
               passphraseRef: takeRef(p.auth.passphraseRef)
             },
             terminal: p.terminal,
             options: p.options,
+            proxyId: mapId(proxyIds, p.proxyId ?? null) ?? undefined,
             proxy: p.proxy
               ? { ...p.proxy, passwordRef: takeRef(p.proxy.passwordRef) }
               : undefined,
@@ -537,7 +633,25 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
             }
           }
           upsertProfile(profile)
+          imported.push(profile)
           result.profiles++
+        }
+
+        /*
+         * **v0.3 及以前导出的文件**里，代理与私钥是内联在每条连接上的（没有 proxies /
+         * privateKeys 两个数组）。不补这一步，导进来的连接就是"直连、没有私钥"——
+         * 而且不报错，用户要到第一次连接失败才发现。
+         *
+         * 走的是与升级迁移**同一个** extractInlineRefs：一份实现，两个调用方。
+         * 它会与库里已有的实体去重，所以反复导入同一个老文件也不会堆出一串重复代理。
+         */
+        const extracted = extractInlineRefs(imported)
+        result.proxies += extracted.proxies
+        result.privateKeys += extracted.keys
+        if (extracted.proxies > 0 || extracted.keys > 0) {
+          notes.push(
+            `这个文件来自旧版本：已把其中内联的代理与私钥抽成可复用的记录（代理 ${extracted.proxies} 条、私钥 ${extracted.keys} 条），在"设置 → 代理与私钥"里可以改名。`
+          )
         }
       }
 

@@ -17,6 +17,7 @@ import type { ProfileDraft, SessionState } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
+import { savePrivateKey } from '../../src/main/store/savedRefs'
 import { patchSettings } from '../../src/main/services/settings'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'
 import { sshManager } from '../../src/main/ssh/SshConnectionManager'
@@ -204,7 +205,11 @@ suite('真实服务器：私钥认证', () => {
     const keyProfile = saveProfile(
       draft({
         name: 'real-advanced-key',
-        auth: { method: 'privateKey', privateKeyPath: keyPath, passphrase }
+        // 私钥 v0.4 起是可复用实体：先存一条，连接只引用它的 id
+        auth: {
+          method: 'privateKey',
+          privateKeyId: savePrivateKey({ name: 'acc-key', path: keyPath, passphrase }).id
+        }
       })
     )
     try {
@@ -223,7 +228,14 @@ suite('真实服务器：私钥认证', () => {
     const badProfile = saveProfile(
       draft({
         name: 'real-advanced-key-bad',
-        auth: { method: 'privateKey', privateKeyPath: keyPath, passphrase: 'wrong-passphrase' }
+        auth: {
+          method: 'privateKey',
+          privateKeyId: savePrivateKey({
+            name: 'acc-key-bad',
+            path: keyPath,
+            passphrase: 'wrong-passphrase'
+          }).id
+        }
       })
     )
     try {
@@ -239,7 +251,10 @@ suite('真实服务器：私钥认证', () => {
     const noPassProfile = saveProfile(
       draft({
         name: 'real-advanced-key-nopass',
-        auth: { method: 'privateKey', privateKeyPath: keyPath }
+        auth: {
+          method: 'privateKey',
+          privateKeyId: savePrivateKey({ name: 'acc-key-nopass', path: keyPath }).id
+        }
       })
     )
     try {

@@ -1,5 +1,5 @@
 /**
- * 经代理连接的端到端链路：profile.proxy → buildConnectConfig → dialThroughProxy → ssh2 → shell。
+ * 经代理连接的端到端链路：profile.proxyId → SavedProxy → buildConnectConfig → dialThroughProxy → ssh2 → shell。
  *
  * 代理用本进程起的假代理（会统计连接数并把流量转给 fixture sshd），所以整条链路可离线验证：
  * 断言"确实走了代理"而不只是"连上了" —— 直连也能连上 fixture，光看结果分不出来。
@@ -11,6 +11,7 @@ import type { EventMap } from '@shared/ipc'
 import type { ProfileDraft } from '@shared/types'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, getProfile, saveProfile } from '../../src/main/store/connections'
+import { getProxy, saveProxy } from '../../src/main/store/savedRefs'
 import { vault } from '../../src/main/store/Vault'
 import { sshManager } from '../../src/main/ssh/SshConnectionManager'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'
@@ -245,7 +246,17 @@ afterEach(async () => {
   await Promise.all(openProxies.splice(0).map((p) => p.close()))
 })
 
-function draft(proxy: ProfileDraft['proxy'], name = 'via-proxy'): ProfileDraft {
+/**
+ * 代理不再内联在连接上（v0.4 起是可复用实体），所以这里先存一条 SavedProxy 再引用它。
+ * 传 null 表示直连。
+ */
+type ProxySpec = { type: 'http' | 'socks5'; host: string; port: number; username?: string; password?: string } | null
+
+function draft(proxy: ProxySpec, name = 'via-proxy'): ProfileDraft {
+  const proxyId = proxy
+    ? saveProxy({ name: `${name}-proxy`, type: proxy.type, host: proxy.host, port: proxy.port,
+                  username: proxy.username, password: proxy.password }).id
+    : undefined
   return {
     name,
     groupId: null,
@@ -262,11 +273,11 @@ function draft(proxy: ProfileDraft['proxy'], name = 'via-proxy'): ProfileDraft {
       monitorEnabled: false,
       compress: false
     },
-    proxy
+    proxyId
   }
 }
 
-async function openVia(proxy: ProfileDraft['proxy']): Promise<string> {
+async function openVia(proxy: ProxySpec): Promise<string> {
   const profile = saveProfile(draft(proxy))
   createdProfiles.push(profile.id)
   const { sessionId } = await sshManager.open(profile.id)
@@ -330,30 +341,44 @@ describe('经代理连接', () => {
     )
     createdProfiles.push(profile.id)
 
-    // conn:save 的返回值与落盘结构里都只有引用
-    expect(profile.proxy?.passwordRef).toBeTruthy()
+    // 连接上只有一个 proxyId；密码的 Vault 引用归那条 SavedProxy
+    expect(profile.proxyId).toBeTruthy()
     expect(JSON.stringify(profile)).not.toContain('p-secret')
-    expect(vault.getSecret(profile.proxy!.passwordRef!)).toBe('p-secret')
+    const savedProxy = getProxy(profile.proxyId!)!
+    expect(savedProxy.passwordRef).toBeTruthy()
+    expect(JSON.stringify(savedProxy)).not.toContain('p-secret')
+    expect(vault.getSecret(savedProxy.passwordRef!)).toBe('p-secret')
 
     await sshManager.open(profile.id)
     expect(proxy.credentials).toEqual(['pu:p-secret'])
   })
 
-  it('type=none 视作直连，代理密码一并从 Vault 清掉', async () => {
+  /**
+   * 把连接改成直连（不再引用代理）之后**代理密码必须还在** —— 那条代理是共享实体，
+   * 可能还有别的机器在用。v0.3 的内联版在这里是要清掉密码的（ref 独占），
+   * 改成引用之后照抄那个行为就是"改一台机器的代理，把别人的密码删了"。
+   */
+  it('不引用代理即直连，而那条代理的密码不受影响', async () => {
     const proxy = await startFakeProxy({ kind: 'http' })
     const saved = saveProfile(
-      draft({ type: 'http', host: '127.0.0.1', port: proxy.port, password: 'gone' })
+      draft({ type: 'http', host: '127.0.0.1', port: proxy.port, password: 'kept' })
     )
     createdProfiles.push(saved.id)
-    const ref = saved.proxy!.passwordRef!
-    expect(vault.getSecret(ref)).toBe('gone')
+    const ref = getProxy(saved.proxyId!)!.passwordRef!
+    expect(vault.getSecret(ref)).toBe('kept')
 
-    const direct = saveProfile({ ...draft({ type: 'none', host: '', port: 0 }), id: saved.id })
-    expect(direct.proxy).toBeUndefined()
-    expect(vault.getSecret(ref)).toBeNull()
+    const direct = saveProfile({ ...draft(null), id: saved.id })
+    expect(direct.proxyId).toBeUndefined()
+    expect(vault.getSecret(ref)).toBe('kept')
 
     await sshManager.open(direct.id)
     expect(proxy.tunnels).toBe(0) // 直连，没经过代理
+  })
+
+  it('引用了一条已不存在的代理 —— 报错而不是静默直连', async () => {
+    const profile = saveProfile({ ...draft(null), proxyId: 'no-such-proxy' })
+    createdProfiles.push(profile.id)
+    await expect(sshManager.open(profile.id)).rejects.toThrow(/引用的代理已不存在/)
   })
 
   it('代理拒绝连接时报代理的错，不误导成 SSH 认证失败', async () => {
@@ -378,11 +403,12 @@ describe('经代理连接', () => {
     )
   })
 
-  it('启用了代理却没填地址 —— 报错而不是静默直连', async () => {
+  it('引用的代理地址是空的 —— 报错而不是静默直连', async () => {
     const profile = saveProfile(draft({ type: 'socks5', host: '   ', port: 1080 }))
     createdProfiles.push(profile.id)
-    expect(getProfile(profile.id)?.proxy?.type).toBe('socks5')
-    await expect(sshManager.open(profile.id)).rejects.toThrow(/已启用代理但未填写代理地址/)
+    // saveProxy 会 trim，所以库里那条的 host 是空串
+    expect(getProxy(getProfile(profile.id)!.proxyId!)!.host).toBe('')
+    await expect(sshManager.open(profile.id)).rejects.toThrow(/没有填写地址/)
   })
 
   it('走代理时断线重连仍会重新拨一条隧道', async () => {

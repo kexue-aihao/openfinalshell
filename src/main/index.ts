@@ -13,13 +13,15 @@ import { registerSftpIpc } from './ipc/sftp.ipc'
 import { registerMonitorIpc } from './ipc/monitor.ipc'
 import { registerForwardIpc } from './ipc/forward.ipc'
 import { registerHistoryIpc } from './ipc/history.ipc'
+import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { forwardManager } from './forward/ForwardManager'
 import { flushForwards } from './store/forwards'
 import { packTempDir, transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
 import { closeDatabase } from './store/Database'
-import { flushConnections } from './store/connections'
+import { flushConnections, migrateInlineRefsOnce } from './store/connections'
+import { flushSavedRefs } from './store/savedRefs'
 import { flushSnippets } from './store/snippets'
 import { flushKnownHosts } from './ssh/hostkeys'
 import { vault } from './store/Vault'
@@ -65,6 +67,16 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     Menu.setApplicationMenu(null)
 
+    /**
+     * 内联代理/私钥 → 可复用实体的一次性迁移。
+     *
+     * 显式排在注册 IPC 之前，而不是挂在 listConnections() 这种读路径上：
+     * 迁移会改写 profiles 表，让它发生在一个确定的时刻比"第一次有人列连接时"好排查；
+     * 而且拨号侧（auth.ts）读 profile 时不该还有没迁移完的可能。
+     * 函数内部由 meta 标记挡住，重复调用无副作用。
+     */
+    migrateInlineRefsOnce()
+
     registerAppIpc()
     registerSettingsIpc()
     registerConnIpc()
@@ -75,6 +87,7 @@ if (!app.requestSingleInstanceLock()) {
     registerMonitorIpc()
     registerForwardIpc()
     registerHistoryIpc()
+    registerSavedRefsIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
@@ -118,6 +131,7 @@ if (!app.requestSingleInstanceLock()) {
     sshManager.closeAll()
     void settingsStore().flush()
     void flushConnections()
+    void flushSavedRefs()
     void flushKnownHosts()
     void flushSnippets()
     void flushForwards()

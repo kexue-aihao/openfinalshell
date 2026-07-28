@@ -15,9 +15,10 @@ import {
 import { useTranslation } from 'react-i18next'
 import { PRESET_COLORS } from '@shared/constants'
 import type { ProfileDraft } from '@shared/types'
-import { ofs } from '@/ipc/api'
 import { useConnectionStore } from '@/stores/useConnectionStore'
+import { useSavedRefStore } from '@/stores/useSavedRefStore'
 import { useUiStore } from '@/stores/useUiStore'
+import { PrivateKeyEditModal, ProxyEditModal } from '@/features/settings/SavedRefModals'
 
 interface FormValues {
   name: string
@@ -28,8 +29,8 @@ interface FormValues {
   username: string
   authMethod: 'password' | 'privateKey' | 'agent'
   password?: string
-  privateKeyPath?: string
-  passphrase?: string
+  /** 引用一条已保存的私钥。路径与口令都归那条记录 */
+  privateKeyId?: string
   charset: string
   termType: string
   startupCommand?: string
@@ -38,11 +39,8 @@ interface FormValues {
   legacyAlgorithms: boolean
   compress: boolean
   monitorEnabled: boolean
-  proxyType: 'none' | 'http' | 'socks5'
-  proxyHost?: string
-  proxyPort: number
-  proxyUsername?: string
-  proxyPassword?: string
+  /** 引用一条已保存的代理；空 = 直连 */
+  proxyId?: string
   note?: string
 }
 
@@ -54,6 +52,13 @@ export function ProfileEditDrawer(): React.JSX.Element {
   const { profiles, groups, save } = useConnectionStore()
   const [form] = Form.useForm<FormValues>()
   const [saving, setSaving] = useState(false)
+  const proxies = useSavedRefStore((s) => s.proxies)
+  const keys = useSavedRefStore((s) => s.keys)
+  const refsLoaded = useSavedRefStore((s) => s.loaded)
+  const loadRefs = useSavedRefStore((s) => s.load)
+  /** 'new' 或一条现有记录；从下拉框底部的「新建…」进来 */
+  const [editingProxy, setEditingProxy] = useState<'new' | null>(null)
+  const [editingKey, setEditingKey] = useState<'new' | null>(null)
 
   const editing = useMemo(
     () => (editingId && editingId !== 'new' ? profiles.find((p) => p.id === editingId) : undefined),
@@ -61,7 +66,10 @@ export function ProfileEditDrawer(): React.JSX.Element {
   )
   const open = editingId !== null
   const hasSavedPassword = Boolean(editing?.auth.passwordRef)
-  const hasSavedProxyPassword = Boolean(editing?.proxy?.passwordRef)
+
+  useEffect(() => {
+    if (open && !refsLoaded) void loadRefs()
+  }, [open, refsLoaded, loadRefs])
 
   useEffect(() => {
     if (!open) return
@@ -75,8 +83,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         username: editing.username,
         authMethod: editing.auth.method,
         password: '',
-        privateKeyPath: editing.auth.privateKeyPath,
-        passphrase: '',
+        privateKeyId: editing.auth.privateKeyId,
         charset: editing.terminal.charset,
         termType: editing.terminal.termType,
         startupCommand: editing.terminal.startupCommand,
@@ -85,11 +92,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         legacyAlgorithms: editing.options.legacyAlgorithms,
         compress: editing.options.compress,
         monitorEnabled: editing.options.monitorEnabled,
-        proxyType: editing.proxy?.type ?? 'none',
-        proxyHost: editing.proxy?.host,
-        proxyPort: editing.proxy?.port ?? 7890,
-        proxyUsername: editing.proxy?.username,
-        proxyPassword: '',
+        proxyId: editing.proxyId,
         note: editing.note
       })
     } else {
@@ -130,8 +133,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         auth: {
           method: v.authMethod,
           password: v.password || undefined,
-          privateKeyPath: v.privateKeyPath || undefined,
-          passphrase: v.passphrase || undefined
+          privateKeyId: v.privateKeyId || undefined
         },
         terminal: {
           charset: v.charset,
@@ -146,16 +148,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
           monitorEnabled: v.monitorEnabled,
           compress: v.compress
         },
-        proxy:
-          v.proxyType === 'none'
-            ? { type: 'none', host: '', port: v.proxyPort }
-            : {
-                type: v.proxyType,
-                host: (v.proxyHost ?? '').trim(),
-                port: v.proxyPort,
-                username: v.proxyUsername?.trim() || undefined,
-                password: v.proxyPassword || undefined
-              },
+        proxyId: v.proxyId || undefined,
         note: v.note || undefined
       }
       await save(draft)
@@ -166,14 +159,6 @@ export function ProfileEditDrawer(): React.JSX.Element {
     } finally {
       setSaving(false)
     }
-  }
-
-  const pickKeyFile = async (): Promise<void> => {
-    const path = await ofs.invoke('app:pickPath', {
-      mode: 'openFile',
-      title: t('conn.pickPrivateKey')
-    })
-    if (path) form.setFieldValue('privateKeyPath', path)
   }
 
   return (
@@ -214,9 +199,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
           compress: false,
           // 必须在 initialValues 里：折叠面板没展开过时 Form.Item 不挂载，
           // 只有 initialValues 写进 store 的值才拿得到（见 submit 里的注释）
-          monitorEnabled: true,
-          proxyType: 'none',
-          proxyPort: 7890
+          monitorEnabled: true
         }}
       >
         <Form.Item name="name" label={t('conn.name')} rules={[{ required: true, message: t('conn.nameRequired') }]}>
@@ -271,26 +254,38 @@ export function ProfileEditDrawer(): React.JSX.Element {
               )
             }
             if (method === 'privateKey') {
+              const picked = keys.find((k) => k.id === form.getFieldValue('privateKeyId'))
               return (
                 <>
                   <Form.Item
-                    name="privateKeyPath"
-                    label={t('conn.privateKeyPath')}
+                    name="privateKeyId"
+                    label={t('conn.privateKey')}
                     rules={[{ required: true, message: t('conn.privateKeyRequired') }]}
+                    extra={
+                      picked ? (
+                        // 选中之后把路径与"口令已存"弱化显示出来：下拉框里只有名字，
+                        // 而用户要确认的是"这条到底指着哪个文件"
+                        <span className="ofs-dim">
+                          {picked.path}
+                          {picked.passphraseRef ? ` · ${t('conn.passphraseSaved')}` : ''}
+                        </span>
+                      ) : (
+                        t('conn.privateKeyPickHint')
+                      )
+                    }
                   >
-                    <Input
-                      placeholder="C:\\Users\\you\\.ssh\\id_ed25519"
-                      addonAfter={
-                        <a onClick={() => void pickKeyFile()}>{t('conn.browse')}</a>
-                      }
+                    <Select
+                      placeholder={t('conn.privateKeySelect')}
+                      options={keys.map((k) => ({ label: k.name, value: k.id }))}
+                      popupRender={(menu) => (
+                        <>
+                          {menu}
+                          <div className="ofs-select-footer">
+                            <a onClick={() => setEditingKey('new')}>{t('conn.privateKeyNew')}</a>
+                          </div>
+                        </>
+                      )}
                     />
-                  </Form.Item>
-                  <Form.Item
-                    name="passphrase"
-                    label={t('conn.passphrase')}
-                    extra={editing?.auth.passphraseRef ? t('conn.passwordSavedHint') : undefined}
-                  >
-                    <Input.Password placeholder={editing?.auth.passphraseRef ? '••••••••' : ''} />
                   </Form.Item>
                 </>
               )
@@ -396,53 +391,46 @@ export function ProfileEditDrawer(): React.JSX.Element {
               label: t('conn.proxy'),
               children: (
                 <>
-                  <Form.Item name="proxyType" label={t('conn.proxyType')} extra={t('conn.proxyHint')}>
-                    <Radio.Group
-                      optionType="button"
-                      options={[
-                        { label: t('conn.proxyNone'), value: 'none' },
-                        { label: 'HTTP', value: 'http' },
-                        { label: 'SOCKS5', value: 'socks5' }
-                      ]}
-                    />
-                  </Form.Item>
-                  <Form.Item noStyle shouldUpdate={(a, b) => a.proxyType !== b.proxyType}>
-                    {({ getFieldValue }) =>
-                      getFieldValue('proxyType') === 'none' ? null : (
-                        <>
-                          <Space.Compact block>
-                            <Form.Item
-                              name="proxyHost"
-                              label={t('conn.proxyHost')}
-                              style={{ flex: 1 }}
-                              rules={[{ required: true, message: t('conn.proxyHostRequired') }]}
-                            >
-                              <Input placeholder="127.0.0.1" />
-                            </Form.Item>
-                            <Form.Item
-                              name="proxyPort"
-                              label={t('conn.port')}
-                              style={{ width: 110, marginLeft: 8 }}
-                            >
-                              <InputNumber min={1} max={65535} style={{ width: '100%' }} />
-                            </Form.Item>
-                          </Space.Compact>
-                          <Form.Item name="proxyUsername" label={t('conn.proxyUsername')}>
-                            <Input autoComplete="off" placeholder={t('conn.proxyAuthOptional')} />
-                          </Form.Item>
-                          <Form.Item
-                            name="proxyPassword"
-                            label={t('conn.proxyPassword')}
-                            extra={hasSavedProxyPassword ? t('conn.passwordSavedHint') : undefined}
-                          >
-                            <Input.Password
-                              autoComplete="new-password"
-                              placeholder={hasSavedProxyPassword ? '••••••••' : ''}
-                            />
-                          </Form.Item>
-                        </>
+                  {/* 包一层 shouldUpdate：extra 里要显示选中那条代理的地址，
+                      而 Collapse 的 children 是在组件体里构造的，不包就不会随选择变化重渲染 */}
+                  <Form.Item noStyle shouldUpdate={(a, b) => a.proxyId !== b.proxyId}>
+                    {({ getFieldValue }) => {
+                      const pickedProxy = proxies.find((x) => x.id === getFieldValue('proxyId'))
+                      return (
+                  <Form.Item
+                    name="proxyId"
+                    label={t('conn.proxy')}
+                    extra={
+                      pickedProxy ? (
+                        <span className="ofs-dim">
+                          {pickedProxy.type.toUpperCase()} {pickedProxy.host}:{pickedProxy.port}
+                          {pickedProxy.username ? ` · ${pickedProxy.username}` : ''}
+                          {pickedProxy.passwordRef ? ` · ${t('conn.passwordSaved')}` : ''}
+                        </span>
+                      ) : (
+                        t('conn.proxyHint')
                       )
                     }
+                  >
+                    <Select
+                      allowClear
+                      placeholder={t('conn.proxyNone')}
+                      options={proxies.map((x) => ({
+                        label: `${x.name}（${x.type.toUpperCase()} ${x.host}:${x.port}）`,
+                        value: x.id
+                      }))}
+                      popupRender={(menu) => (
+                        <>
+                          {menu}
+                          <div className="ofs-select-footer">
+                            <a onClick={() => setEditingProxy('new')}>{t('conn.proxyNew')}</a>
+                          </div>
+                        </>
+                      )}
+                    />
+                  </Form.Item>
+                      )
+                    }}
                   </Form.Item>
                 </>
               )
@@ -450,6 +438,22 @@ export function ProfileEditDrawer(): React.JSX.Element {
           ]}
         />
       </Form>
+
+      {/* 新建代理/私钥：与设置页共用同一份弹窗；存完顺手选上，用户不用再回下拉框里挑一次 */}
+      {editingProxy && (
+        <ProxyEditModal
+          target={editingProxy}
+          onClose={() => setEditingProxy(null)}
+          onSaved={(id) => form.setFieldValue('proxyId', id)}
+        />
+      )}
+      {editingKey && (
+        <PrivateKeyEditModal
+          target={editingKey}
+          onClose={() => setEditingKey(null)}
+          onSaved={(id) => form.setFieldValue('privateKeyId', id)}
+        />
+      )}
     </Drawer>
   )
 }

@@ -17,6 +17,7 @@ import type { EventMap } from '@shared/ipc'
 import type { ProfileDraft, ProxyType } from '@shared/types'
 import { bindMainWindow } from '../../src/main/ipc/registry'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
+import { saveProxy } from '../../src/main/store/savedRefs'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'
 import { sshManager } from '../../src/main/ssh/SshConnectionManager'
 import { readdir } from '../../src/main/sftp/SftpManager'
@@ -98,13 +99,15 @@ function draft(type: Exclude<ProxyType, 'none'>): ProfileDraft {
       monitorEnabled: false,
       compress: false
     },
-    proxy: {
+    // 代理是可复用实体：每条用例存一条，连接只引用 id
+    proxyId: saveProxy({
+      name: `acc-${type}-${PROXY_PORT}`,
       type,
       host: PROXY_HOST!,
       port: PROXY_PORT,
       username: PROXY_USER,
       password: PROXY_PASSWORD
-    }
+    }).id
   }
 }
 
@@ -153,7 +156,12 @@ suite('经真实代理连真实服务器', () => {
     const profile = saveProfile({
       ...draft(KINDS[0] ?? 'socks5'),
       name: 'real-via-bad-proxy',
-      proxy: { type: KINDS[0] ?? 'socks5', host: PROXY_HOST!, port: badPort }
+      proxyId: saveProxy({
+        name: 'acc-bad-proxy',
+        type: KINDS[0] ?? 'socks5',
+        host: PROXY_HOST!,
+        port: badPort
+      }).id
     })
     createdProfiles.push(profile.id)
     await expect(sshManager.open(profile.id)).rejects.toThrow(

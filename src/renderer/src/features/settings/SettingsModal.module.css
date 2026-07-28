@@ -180,3 +180,49 @@
   line-height: 1.6;
   color: var(--ofs-text-2);
 }
+
+/* 代理与私钥那一段的列表行 */
+.refHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.refRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--ofs-radius-m);
+}
+.refRow:hover {
+  background: var(--ofs-bg-hover);
+}
+
+.refMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.refName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ofs-text-1);
+}
+
+.refSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}
+
+.refUsers {
+  flex: none;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}

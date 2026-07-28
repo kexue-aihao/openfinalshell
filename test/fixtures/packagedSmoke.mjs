@@ -2395,6 +2395,69 @@ async function main() {
   `)
   rmSync(fsDir, { recursive: true, force: true })
 
+  /*
+   * 9.8) 已保存的代理与私钥：在真产物里走一遍"建 → 被连接引用 → 删被引用的被拦下"。
+   *
+   * 只有真产物能回答的两件事：那 6 条 channel 真的注册了（前缀漏进白名单的话
+   * preload 会当场拦掉，而单测里 mock 的是 store 不是桥），以及**删除被引用时
+   * 回来的是一份连接名清单而不是异常** —— 后者是整片设计里唯一一处"失败不抛错"的约定。
+   */
+  const refs = await evaluate(`
+    const proxy = await window.ofs.invoke('proxy:save', {
+      name: 'smoke-proxy', type: 'socks5', host: '127.0.0.1', port: 7891, password: 'smoke-pw'
+    })
+    const key = await window.ofs.invoke('key:save', {
+      name: 'smoke-key', path: 'C:\\\\smoke\\\\id_ed25519', passphrase: 'smoke-pp'
+    })
+    // 明文一个字都不许回到界面层
+    const leaked = JSON.stringify([proxy, key])
+    const list = await window.ofs.invoke('proxy:list')
+
+    // 建一条引用它们的连接
+    const p = await window.ofs.invoke('conn:save', {
+      name: 'smoke-refs', groupId: null, host: '127.0.0.1', port: ${sshPort}, username: 'test',
+      auth: { method: 'privateKey', privateKeyId: key.id },
+      terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      options: { keepaliveInterval: 15000, readyTimeout: 10000, legacyAlgorithms: false,
+                 autoReconnect: false, monitorEnabled: false, compress: false },
+      proxyId: proxy.id
+    })
+
+    const blockedProxy = await window.ofs.invoke('proxy:delete', proxy.id)
+    const blockedKey = await window.ofs.invoke('key:delete', key.id)
+
+    // 把连接删掉，再删就该成功了
+    await window.ofs.invoke('conn:delete', p.id)
+    const afterProxy = await window.ofs.invoke('proxy:delete', proxy.id)
+    const afterKey = await window.ofs.invoke('key:delete', key.id)
+
+    return {
+      建好了: Boolean(proxy.id && key.id),
+      有明文: leaked.includes('smoke-pw') || leaked.includes('smoke-pp'),
+      有引用: { proxyId: p.proxyId === proxy.id, keyId: p.auth.privateKeyId === key.id },
+      列表里有: list.some((x) => x.id === proxy.id),
+      blockedProxy, blockedKey, afterProxy, afterKey,
+      剩下: (await window.ofs.invoke('proxy:list')).length
+    }
+  `)
+  if (refs.error) fail(refs.error)
+  if (!refs.建好了) fail('proxy:save / key:save 没建出记录')
+  if (refs.有明文) fail('代理密码或私钥口令的明文回到了界面层 —— 只该回引用')
+  if (!refs.列表里有) fail('proxy:list 里找不到刚建的那条')
+  if (!refs.有引用.proxyId || !refs.有引用.keyId) {
+    fail(`连接没带上引用：${JSON.stringify(refs.有引用)}`)
+  }
+  if (refs.blockedProxy.deleted !== false || !refs.blockedProxy.usedBy?.includes('smoke-refs')) {
+    fail(`删被引用的代理应被拦下并列出连接名，实际：${JSON.stringify(refs.blockedProxy)}`)
+  }
+  if (refs.blockedKey.deleted !== false || !refs.blockedKey.usedBy?.includes('smoke-refs')) {
+    fail(`删被引用的私钥应被拦下并列出连接名，实际：${JSON.stringify(refs.blockedKey)}`)
+  }
+  if (refs.afterProxy.deleted !== true || refs.afterKey.deleted !== true) {
+    fail('没人引用之后应该删得掉')
+  }
+  console.log('OK 代理与私钥：建→被引用→删被拦下（列出连接名）→改完再删成功，明文不回传')
+
   // 10) 清理
   await evaluate(`
     await window.ofs.invoke('monitor:stop', '${session.sessionId}')

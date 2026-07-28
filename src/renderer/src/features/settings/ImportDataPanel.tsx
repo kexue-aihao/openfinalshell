@@ -160,6 +160,16 @@ export function ImportDataPanel(): React.JSX.Element {
                   profiles: preview.counts.profiles,
                   groups: preview.counts.groups
                 })}
+                {/* 代理与私钥没有独立勾选项：连接引用它们，单独勾会造出指向空气的引用。
+                    这里只把条数说出来，让用户知道它们会跟着一起进来 */}
+                {(preview.counts.proxies > 0 || preview.counts.privateKeys > 0) && (
+                  <span className={styles.rowHint}>
+                    {t('settings.importIncludeRefs', {
+                      proxies: preview.counts.proxies,
+                      keys: preview.counts.privateKeys
+                    })}
+                  </span>
+                )}
               </Checkbox>
               <Checkbox
                 checked={include.snippets}

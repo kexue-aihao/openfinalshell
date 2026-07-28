@@ -7,6 +7,7 @@ import * as conns from '../../src/main/store/connections'
 import * as snippets from '../../src/main/store/snippets'
 import * as forwards from '../../src/main/store/forwards'
 import * as hostkeys from '../../src/main/ssh/hostkeys'
+import * as savedRefs from '../../src/main/store/savedRefs'
 import { vault } from '../../src/main/store/Vault'
 import { getSettings, patchSettings } from '../../src/main/services/settings'
 import { exportData } from '../../src/main/services/exportData'
@@ -49,7 +50,9 @@ function wipe(): void {
     'snippets',
     'snippet_groups',
     'forwards',
-    'known_hosts'
+    'known_hosts',
+    'proxies',
+    'private_keys'
   ]) {
     prepare(`DELETE FROM ${table}`).run()
   }
@@ -122,7 +125,9 @@ function writeEnvelope(name: string, patch: Record<string, unknown>): string {
         snippetGroups: [],
         snippets: [],
         forwards: [],
-        knownHosts: []
+        knownHosts: [],
+        proxies: [],
+        privateKeys: []
       },
       ...patch
     }),
@@ -516,5 +521,193 @@ describe('导入：安全与完整性边界', () => {
     expect(s.sftp.showHiddenFiles).toBe(false)
     // 表是空的，所以这一趟不该剥掉任何东西、也不该多出一条 note
     expect(r.notes.some((n) => n.includes('出于安全'))).toBe(false)
+  })
+})
+
+describe('导入：可复用的代理与私钥', () => {
+  /**
+   * v0.4 起代理与私钥是独立实体，连接按 id 引用。往返必须把这层引用带过去 ——
+   * 断言"密码还能用"而不只是"字段还在"：ref 对不上的话字段看着没问题，连接时才失败。
+   */
+  it('往返：连接仍指向同一条代理/私钥，密码与口令都还能用', async () => {
+    wipe()
+    const proxy = savedRefs.saveProxy({
+      name: '共享代理',
+      type: 'socks5',
+      host: '127.0.0.1',
+      port: 7890,
+      password: 'px-pw'
+    })
+    const key = savedRefs.savePrivateKey({ name: 'k1', path: '/home/u/.ssh/id', passphrase: 'kp' })
+    conns.saveProfile({
+      name: '引用者',
+      groupId: null,
+      host: '10.0.0.9',
+      port: 22,
+      username: 'root',
+      auth: { method: 'privateKey', privateKeyId: key.id },
+      terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      options: {
+        keepaliveInterval: 15000,
+        readyTimeout: 10000,
+        legacyAlgorithms: false,
+        autoReconnect: false,
+        monitorEnabled: false,
+        compress: false
+      },
+      proxyId: proxy.id
+    })
+
+    const file = await exportSeed('refs-roundtrip.json', true)
+    wipe()
+    const preview = await inspectImport({ sourcePath: file })
+    expect(preview!.counts.proxies).toBe(1)
+    expect(preview!.counts.privateKeys).toBe(1)
+
+    const r = await applyImport({
+      token: preview!.token,
+      passphrase: PASS,
+      conflict: 'overwrite',
+      include: ALL
+    })
+    expect(r.proxies).toBe(1)
+    expect(r.privateKeys).toBe(1)
+
+    const p = conns.listConnections().profiles.find((x) => x.name === '引用者')!
+    const px = savedRefs.getProxy(p.proxyId!)!
+    const k = savedRefs.getPrivateKey(p.auth.privateKeyId!)!
+    expect(px.host).toBe('127.0.0.1')
+    expect(vault.getSecret(px.passwordRef!)).toBe('px-pw')
+    expect(vault.getSecret(k.passphraseRef!)).toBe('kp')
+  })
+
+  it('duplicate 策略：副本指向**新**的代理，而不是原来那条', async () => {
+    wipe()
+    const proxy = savedRefs.saveProxy({ name: 'px', type: 'http', host: 'h', port: 1 })
+    conns.saveProfile({
+      name: '原件',
+      groupId: null,
+      host: 'h',
+      port: 22,
+      username: 'root',
+      auth: { method: 'password' },
+      terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      options: {
+        keepaliveInterval: 15000,
+        readyTimeout: 10000,
+        legacyAlgorithms: false,
+        autoReconnect: false,
+        monitorEnabled: false,
+        compress: false
+      },
+      proxyId: proxy.id
+    })
+    const file = await exportSeed('refs-dup.json', false)
+
+    const preview = await inspectImport({ sourcePath: file })
+    await applyImport({ token: preview!.token, conflict: 'duplicate', include: ALL })
+
+    const copy = conns.listConnections().profiles.find((x) => x.name.includes('（导入）'))!
+    expect(copy.proxyId).toBeTruthy()
+    expect(copy.proxyId).not.toBe(proxy.id)
+    expect(savedRefs.listProxies()).toHaveLength(2)
+  })
+
+  /**
+   * **v0.3 及以前导出的文件**：代理与私钥内联在连接上，没有 proxies / privateKeys 两个数组。
+   * 不补抽取的话，导进来的连接是"直连、没有私钥"—— 不报错，用户第一次连接才发现。
+   */
+  it('老格式文件：内联的代理与私钥被抽成可复用记录并挂上引用', async () => {
+    wipe()
+    const file = writeEnvelope('legacy-inline.json', {
+      data: {
+        groups: [],
+        profiles: [
+          {
+            id: 'legacy-1',
+            name: '老连接',
+            groupId: null,
+            host: '10.0.0.7',
+            port: 22,
+            username: 'root',
+            auth: { method: 'privateKey', privateKeyPath: '/home/u/.ssh/legacy_key' },
+            terminal: { charset: 'utf-8', termType: 'xterm' },
+            options: {
+              keepaliveInterval: 15000,
+              readyTimeout: 10000,
+              legacyAlgorithms: false,
+              autoReconnect: false,
+              monitorEnabled: false,
+              compress: false
+            },
+            proxy: { type: 'socks5', host: '10.0.0.8', port: 1080 },
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ],
+        snippetGroups: [],
+        snippets: [],
+        forwards: [],
+        knownHosts: []
+      }
+    })
+
+    const preview = await inspectImport({ sourcePath: file })
+    // 老文件里这两个数组是空的
+    expect(preview!.counts.proxies).toBe(0)
+    expect(preview!.counts.privateKeys).toBe(0)
+
+    const r = await applyImport({ token: preview!.token, conflict: 'overwrite', include: ALL })
+    // 抽取出来的算进结果里，并给一条说明
+    expect(r.proxies).toBe(1)
+    expect(r.privateKeys).toBe(1)
+    expect(r.notes.some((n) => n.includes('旧版本'))).toBe(true)
+
+    const p = conns.getProfile('legacy-1')!
+    expect(p.proxyId).toBeTruthy()
+    expect(savedRefs.getProxy(p.proxyId!)?.port).toBe(1080)
+    expect(p.auth.privateKeyId).toBeTruthy()
+    expect(savedRefs.getPrivateKey(p.auth.privateKeyId!)?.path).toBe('/home/u/.ssh/legacy_key')
+  })
+
+  it('反复导入同一个老文件不会堆出重复的代理', async () => {
+    wipe()
+    const file = writeEnvelope('legacy-twice.json', {
+      data: {
+        groups: [],
+        profiles: [
+          {
+            id: 'legacy-2',
+            name: '老连接',
+            groupId: null,
+            host: '10.0.0.7',
+            port: 22,
+            username: 'root',
+            auth: { method: 'password' },
+            terminal: { charset: 'utf-8', termType: 'xterm' },
+            options: {
+              keepaliveInterval: 15000,
+              readyTimeout: 10000,
+              legacyAlgorithms: false,
+              autoReconnect: false,
+              monitorEnabled: false,
+              compress: false
+            },
+            proxy: { type: 'http', host: '10.0.0.8', port: 8080 },
+            createdAt: 1,
+            updatedAt: 1
+          }
+        ],
+        snippetGroups: [],
+        snippets: [],
+        forwards: [],
+        knownHosts: []
+      }
+    })
+    for (const _ of [1, 2]) {
+      const preview = await inspectImport({ sourcePath: file })
+      await applyImport({ token: preview!.token, conflict: 'overwrite', include: ALL })
+    }
+    expect(savedRefs.listProxies()).toHaveLength(1)
   })
 })

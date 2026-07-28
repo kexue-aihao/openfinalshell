@@ -13,6 +13,13 @@ import type {
   CommandHistoryEntry,
   ConnectionGroup,
   ConnectionProfile,
+  DeleteRefResult,
+  PrivateKeyId,
+  ProxyId,
+  SavedPrivateKey,
+  SavedPrivateKeyDraft,
+  SavedProxy,
+  SavedProxyDraft,
   FinalShellImportOptions,
   FinalShellImportResult,
   FinalShellScan,
@@ -201,6 +208,20 @@ export interface InvokeMap {
   'forward:delete': { args: [ForwardId]; result: void }
   'forward:control': { args: [{ forwardId: ForwardId; sessionId: SessionId; op: 'start' | 'stop' }]; result: void }
 
+  // --- 已保存的代理 / 私钥（被连接引用的可复用实体） ---
+  'proxy:list': { args: []; result: SavedProxy[] }
+  'proxy:save': { args: [SavedProxyDraft]; result: SavedProxy }
+  /**
+   * 删一条代理。**被引用时不删、也不抛异常**，而是回报正在用它的连接名 ——
+   * 抛异常的话渲染进程只能拿到一句话，列不出到底是哪几台机器在用它。
+   */
+  'proxy:delete': { args: [ProxyId]; result: DeleteRefResult }
+
+  'key:list': { args: []; result: SavedPrivateKey[] }
+  'key:save': { args: [SavedPrivateKeyDraft]; result: SavedPrivateKey }
+  /** 同 proxy:delete */
+  'key:delete': { args: [PrivateKeyId]; result: DeleteRefResult }
+
   // --- 命令历史 ---
   /** 最近用过的命令，按 lastUsedAt 倒序（上限 COMMAND_HISTORY_MAX_ROWS） */
   'history:list': { args: []; result: CommandHistoryEntry[] }
@@ -269,6 +290,8 @@ export const CHANNEL_PREFIXES = [
   'monitor:',
   'forward:',
   'history:',
+  'proxy:',
+  'key:',
   'snippet:',
   'snippetGroup:'
 ] as const

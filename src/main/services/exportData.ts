@@ -51,6 +51,9 @@ interface Envelope {
     snippets: unknown[]
     forwards: unknown[]
     knownHosts: unknown[]
+    /** 可复用的代理与私钥（v0.4 起）。连接按 id 引用它们，所以必须一起导出 */
+    proxies: unknown[]
+    privateKeys: unknown[]
   }
   secrets?: {
     kdf: 'scrypt'
@@ -77,6 +80,8 @@ function collect(): Envelope['data'] {
       'SELECT id, name, sort_order FROM snippet_groups ORDER BY sort_order, name'
     ).map((g) => ({ id: g.id, name: g.name, order: g.sort_order })),
     snippets: json('SELECT json FROM snippets ORDER BY sort_order'),
+    proxies: json('SELECT json FROM proxies ORDER BY created_at'),
+    privateKeys: json('SELECT json FROM private_keys ORDER BY created_at'),
     forwards: json('SELECT json FROM forwards'),
     knownHosts: rows<{
       key: string
@@ -128,12 +133,24 @@ function sealSecrets(refs: string[], passphrase: string): Envelope['secrets'] {
 }
 
 /** 收集所有被引用到的 secret ref（只导出真正在用的，不搬孤儿条目） */
-function referencedRefs(profiles: ConnectionProfile[]): string[] {
+function referencedRefs(data: Envelope['data']): string[] {
   const refs = new Set<string>()
-  for (const p of profiles) {
+  for (const p of data.profiles) {
     if (p.auth.passwordRef) refs.add(p.auth.passwordRef)
+    // 迁移前的老字段也扫一遍：库里可能还留着（迁移刻意不删旧字段）
     if (p.auth.passphraseRef) refs.add(p.auth.passphraseRef)
     if (p.proxy?.passwordRef) refs.add(p.proxy.passwordRef)
+  }
+  /*
+   * ⚠️ 代理密码与私钥口令现在归**独立实体**，不再挂在 profile 上。
+   * 漏扫这两张表的后果是"勾了含密码导出，但代理密码与私钥口令一条都没进文件"——
+   * 而且不会有任何报错，用户到换机导入那天才发现。
+   */
+  for (const x of data.proxies as Array<{ passwordRef?: string }>) {
+    if (x.passwordRef) refs.add(x.passwordRef)
+  }
+  for (const k of data.privateKeys as Array<{ passphraseRef?: string }>) {
+    if (k.passphraseRef) refs.add(k.passphraseRef)
   }
   return [...refs]
 }
@@ -164,7 +181,7 @@ export async function exportData(opts: ExportOptions): Promise<ExportResult | nu
   }
 
   const data = collect()
-  const refs = referencedRefs(data.profiles)
+  const refs = referencedRefs(data)
   const envelope: Envelope = {
     app: 'openfinalshell',
     formatVersion: EXPORT_FORMAT_VERSION,

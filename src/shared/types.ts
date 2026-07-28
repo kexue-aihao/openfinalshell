@@ -26,9 +26,20 @@ export interface ConnectionAuth {
   method: AuthMethod
   /** Vault 引用；无值且 method=password 时连接前向用户索要一次性密码 */
   passwordRef?: SecretRef
-  /** 私钥一律引用外部文件，不内嵌 */
+  /**
+   * 引用一条已保存的私钥（`SavedPrivateKey`）。v0.4 起私钥认证走这条。
+   *
+   * 路径与口令都归那条记录，所以换一次私钥文件位置只改一处，
+   * 新增机器直接从下拉框里挑。
+   */
+  privateKeyId?: PrivateKeyId
+  /**
+   * @deprecated v0.4 迁移前的内联私钥路径。**只在迁移时读，之后不再写入。**
+   * 留着字段（而不是从类型里删掉）是为了让迁移代码有类型可依，
+   * 也为了"迁移写错了还能人工找回"—— 与 v0.1.0 那次 JSON 迁移保留 `.migrated` 文件同一条取舍。
+   */
   privateKeyPath?: string
-  /** 私钥口令的 Vault 引用 */
+  /** @deprecated 同上：迁移后口令归 `SavedPrivateKey.passphraseRef` */
   passphraseRef?: SecretRef
 }
 
@@ -45,6 +56,88 @@ export interface ConnectionProxy {
   /** 代理密码的 Vault 引用，renderer 永远拿不到明文 */
   passwordRef?: SecretRef
 }
+
+// ---------- 可复用的代理与私钥 ----------
+export type ProxyId = string
+export type PrivateKeyId = string
+
+/**
+ * 一条可被多台机器引用的代理。
+ *
+ * v0.3 及以前代理是**内联**在每条连接上的（`ConnectionProfile.proxy`），同一个
+ * Clash 混合端口要在 20 台机器上各填一遍、改端口要改 20 遍。提成独立实体之后
+ * 连接只存一个 `proxyId`。
+ *
+ * 没有 `'none'` 这个类型：**不用代理就是不引用**（`proxyId` 为空）。内联那版必须有
+ * `'none'` 是因为字段本身总在，而独立实体里"存在即启用"。
+ */
+export interface SavedProxy {
+  id: ProxyId
+  /** 显示名。迁移出来的先叫 `host:port`，用户可改 */
+  name: string
+  type: Exclude<ProxyType, 'none'>
+  host: string
+  port: number
+  username?: string
+  /** 代理密码的 Vault 引用，renderer 永远拿不到明文 */
+  passwordRef?: SecretRef
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * 一条可被多台机器引用的私钥。
+ *
+ * **只记路径，不存私钥内容** —— 与 `ConnectionAuth.privateKeyPath` 上那条
+ * "私钥一律引用外部文件，不内嵌"的声明是同一个决定。代价是私钥文件被移动或删除后
+ * 这条记录失效（连接时会明确报出是哪一条），换来的是私钥明文永不进本项目的库与导出文件。
+ */
+export interface SavedPrivateKey {
+  id: PrivateKeyId
+  /** 显示名。迁移出来的取文件名 */
+  name: string
+  path: string
+  /** 私钥口令的 Vault 引用 */
+  passphraseRef?: SecretRef
+  note?: string
+  createdAt: number
+  updatedAt: number
+}
+
+/**
+ * 两个实体的草稿类型走与 `ProfileDraft` 完全相同的规矩：
+ * **明文口令只单向进 main**，`undefined` 或空串 = 保持原值，要清掉得显式 `clearSecret`。
+ */
+export interface SavedProxyDraft {
+  id?: ProxyId
+  name: string
+  type: Exclude<ProxyType, 'none'>
+  host: string
+  port: number
+  username?: string
+  /** 明文，仅在保存表单时单向传给 main */
+  password?: string
+  /** true 时清除已存的代理密码 */
+  clearSecret?: boolean
+}
+
+export interface SavedPrivateKeyDraft {
+  id?: PrivateKeyId
+  name: string
+  path: string
+  /** 明文，同上 */
+  passphrase?: string
+  clearSecret?: boolean
+  note?: string
+}
+
+/**
+ * 删除一条被引用的实体时的结果。
+ *
+ * **被引用不是错误**，所以不抛异常：它是"这一次没删，先去改那几条连接"。
+ * 抛异常的话渲染进程只能拿到一句话，列不出到底是哪几台机器在用它。
+ */
+export type DeleteRefResult = { deleted: true } | { deleted: false; usedBy: string[] }
 
 export interface ConnectionProfile {
   id: ProfileId
@@ -72,7 +165,14 @@ export interface ConnectionProfile {
     monitorEnabled: boolean
     compress: boolean
   }
-  /** 经 HTTP/SOCKS5 代理拨号；无值或 type='none' 为直连 */
+  /**
+   * 引用一条已保存的代理（`SavedProxy`）拨号；**无值 = 直连**。v0.4 起走这条。
+   */
+  proxyId?: ProxyId
+  /**
+   * @deprecated v0.4 迁移前的内联代理。**只在迁移时读，之后不再写入。**
+   * 理由与 `ConnectionAuth.privateKeyPath` 那条相同。
+   */
   proxy?: ConnectionProxy
   /** 预留（v1.5 跳板机），v1 不做 UI */
   jumpHostId?: ProfileId
@@ -82,7 +182,13 @@ export interface ConnectionProfile {
   lastUsedAt?: number
 }
 
-/** renderer 提交的连接草稿：密码/口令为明文，main 转 Vault 引用后落盘 */
+/**
+ * renderer 提交的连接草稿：密码为明文，main 转 Vault 引用后落盘。
+ *
+ * ⚠️ v0.4 起草稿里**没有内联代理与私钥路径**了 —— 那两样各归自己的实体，
+ * 连接只提交 `proxyId` 与 `auth.privateKeyId`。所以这里把 `proxy` 也 Omit 掉：
+ * 留着它就意味着"还有第二条写代理的路"，而那正是这次改造要消掉的东西。
+ */
 export interface ProfileDraft
   extends Omit<ConnectionProfile, 'id' | 'auth' | 'proxy' | 'createdAt' | 'updatedAt'> {
   id?: ProfileId
@@ -90,14 +196,10 @@ export interface ProfileDraft
     method: AuthMethod
     /** 明文，仅在保存表单时单向传给 main；undefined = 保持原值 */
     password?: string
-    privateKeyPath?: string
-    passphrase?: string
-    /** true 时清除已存密码/口令 */
+    /** 引用一条已保存的私钥 */
+    privateKeyId?: PrivateKeyId
+    /** true 时清除已存密码 */
     clearPassword?: boolean
-  }
-  proxy?: Omit<ConnectionProxy, 'passwordRef'> & {
-    /** 明文，同上；undefined = 保持原值 */
-    password?: string
   }
 }
 
@@ -518,6 +620,8 @@ export interface ImportPreview {
   counts: {
     profiles: number
     groups: number
+    proxies: number
+    privateKeys: number
     snippets: number
     forwards: number
     knownHosts: number
@@ -540,6 +644,9 @@ export interface ImportApplyOptions {
 export interface ImportResult {
   profiles: number
   groups: number
+  /** 可复用的代理与私钥（跟着 profiles 那个开关一起导入） */
+  proxies: number
+  privateKeys: number
   snippets: number
   forwards: number
   knownHosts: number
