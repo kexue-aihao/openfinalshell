@@ -10,8 +10,12 @@
 import type {
   AppSettings,
   AppVersions,
+  CommandHistoryEntry,
   ConnectionGroup,
   ConnectionProfile,
+  FinalShellImportOptions,
+  FinalShellImportResult,
+  FinalShellScan,
   ForwardId,
   ForwardRule,
   ForwardRuntime,
@@ -62,6 +66,15 @@ export interface InvokeMap {
   'app:importPreview': { args: []; result: ImportPreview | null }
   /** 按 importPreview 给的 token 真正写入 */
   'app:importData': { args: [ImportApplyOptions]; result: ImportResult }
+  /**
+   * 选一个 FinalShell 数据目录并扫描，返回概要供用户确认；取消对话框返回 null。
+   *
+   * `dir` 只给测试与冒烟用（不弹对话框）。**渲染进程正常路径下不传** ——
+   * 让渲染进程递任意路径进来，等于把"读哪个目录"的决定权交给了它。
+   */
+  'app:finalshellScan': { args: [{ dir?: string }]; result: FinalShellScan | null }
+  /** 按 finalshellScan 给的 token 真正写入（密码走 Vault 加密，见 finalshellImport） */
+  'app:finalshellImport': { args: [FinalShellImportOptions]; result: FinalShellImportResult }
 
   // --- 设置 ---
   'settings:get': { args: []; result: AppSettings }
@@ -188,6 +201,21 @@ export interface InvokeMap {
   'forward:delete': { args: [ForwardId]; result: void }
   'forward:control': { args: [{ forwardId: ForwardId; sessionId: SessionId; op: 'start' | 'stop' }]; result: void }
 
+  // --- 命令历史 ---
+  /** 最近用过的命令，按 lastUsedAt 倒序（上限 COMMAND_HISTORY_MAX_ROWS） */
+  'history:list': { args: []; result: CommandHistoryEntry[] }
+  /**
+   * 记一条命令。**故意走 invoke 而不是 SendMap**：
+   *
+   * 它看着像热路径（每敲一次回车一条），但真实频率是**人手速**，一次 invoke 的代价
+   * 完全付得起；而 SendMap 那条路按设计是不过 zod 的（见 registry.onSend 的注释），
+   * 于是渲染进程的一个 bug 就能把任意长度的字符串写进库里。这条 channel 的入参
+   * 恰好是"用户在生产服务器上敲的原话"，宁可让它慢一点也要过一遍长度与非空校验。
+   */
+  'history:push': { args: [{ command: string }]; result: void }
+  /** 清空历史。不可逆，界面上有独立确认 */
+  'history:clear': { args: []; result: void }
+
   // --- 快捷命令 ---
   'snippet:list': { args: []; result: { groups: SnippetGroup[]; snippets: Snippet[] } }
   'snippet:save': { args: [Snippet]; result: void }
@@ -240,6 +268,7 @@ export const CHANNEL_PREFIXES = [
   'transfer:',
   'monitor:',
   'forward:',
+  'history:',
   'snippet:',
   'snippetGroup:'
 ] as const

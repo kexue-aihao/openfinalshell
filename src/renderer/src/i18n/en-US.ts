@@ -62,7 +62,15 @@ export default {
       openSftp: 'Open file manager',
       closeSftp: 'Close file manager',
       openMonitor: 'Open server monitor',
-      closeMonitor: 'Close server monitor'
+      closeMonitor: 'Close server monitor',
+      history: 'Command history',
+      historyTip: 'Command history (Ctrl+Shift+H)',
+      historyHint: '↑↓ select · Enter puts it on the command line (never runs it) · Esc close',
+      historyFilter: 'Filter commands…',
+      historyEmpty: 'Nothing yet. Commands you run in the terminal show up here',
+      historyNoMatch: 'No matching command',
+      historyClear: 'Clear list',
+      historyClearConfirm: 'Clear the entire command history? This cannot be undone.'
     },
     monitor: {
       title: 'Server monitor',
@@ -260,9 +268,34 @@ export default {
       autoEnter: 'Send Enter',
       sendToAll: 'Send to all terminals',
       history: 'Command history',
+      historyEmpty:
+        'Commands you run in the terminal are recorded here (Ctrl+Shift+H floats the full list over the terminal)',
+      historyItemTip: 'Click to put it on the command line (never runs it): {{command}}',
       deleteConfirm: 'Delete snippet "{{name}}"?',
       noActiveTerminal: 'No active terminal — connect first',
       placeholderHint: 'Placeholders (replaced with the active session):'
+    },
+    commandEditor: {
+      title: 'Command editor',
+      openHint: 'Command editor: compose a one-off (multi-line) command and send it',
+      placeholder:
+        'Write the command to send — multiple lines are fine.\nCtrl+Enter sends.\n\nFor example:\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log',
+      empty: 'Nothing to send yet',
+      send: 'Send',
+      sendHint: 'Send to the selected sessions (Ctrl+Enter)',
+      sendTo: 'Send to',
+      targetCurrent: 'Current session',
+      targetAll: 'All sessions',
+      sent: 'Sent to {{count}} session(s)',
+      autoEnter: 'Append Enter',
+      autoEnterHint:
+        'Appends a newline, i.e. actually runs it. With this off the text just sits on the command line until you press Enter yourself',
+      expandVars: 'Expand placeholders',
+      // ⚠️ No `{{host}}`-style literals in this string: i18next would treat them as
+      // interpolation variables and render empty. The placeholders are appended in JSX.
+      expandVarsHint: 'Before sending, replace these placeholders per target session:',
+      saveAsSnippet: 'Save as snippet',
+      saveAsSnippetName: 'Name this snippet'
     },
     prompt: {
       hostkeyNewTitle: 'First connection: verify host fingerprint',
@@ -384,6 +417,20 @@ export default {
       importResultSummary:
         'Imported {{profiles}} connections, {{snippets}} snippets, {{forwards}} forwarding rules, {{knownHosts}} trusted hosts and restored {{secrets}} passwords.',
       importResultSkipped: 'Skipped {{skipped}}; {{invalid}} incomplete entries were ignored.',
+      fsImportTitle: 'Import from FinalShell',
+      fsImportDesc:
+        'Reads a FinalShell data directory (it should contain a `conn` subdirectory) and brings over connections and groups. ⚠️ Passwords do not come across: FinalShell encrypts them with a key built into its own client, and this project does not guess that key — enter the password once on first connect and tick “remember”, and it will be encrypted by this machine’s key store.',
+      fsImportButton: 'Choose FinalShell data directory…',
+      fsImportModalTitle: 'Confirm FinalShell import',
+      fsImportCounts: 'Found {{profiles}} SSH connection(s) and {{groups}} group(s)',
+      fsImportMore: '…and {{count}} more',
+      fsImportSkipped:
+        'Will skip: {{invalid}} structurally incomplete, {{notSsh}} non-SSH connection(s).',
+      fsImportConflict: 'When this machine already has the same target (host + port + user)',
+      fsImportConflictSkip: 'Skip',
+      fsImportConflictDuplicate: 'Always create new',
+      fsImportResult:
+        'Imported {{profiles}} connection(s) and {{groups}} group(s); skipped {{skipped}}.',
       section_shortcuts: 'Shortcuts',
       section_about: 'About',
       language: 'Language',
@@ -417,6 +464,9 @@ export default {
       confirmMultilinePaste: 'Confirm multi-line paste',
       webgl: 'WebGL renderer',
       webglHint: 'Falls back to the DOM renderer when off — safer, slightly slower',
+      saveCommandHistory: 'Record command history',
+      saveCommandHistoryHint:
+        'Remembers the commands you run in the terminal; Ctrl+Shift+H brings them back. The history stays in the local database and is never included in exported app data. Turning this off only stops new entries — use “Clear list” in the overlay to delete what is already there.',
       downloadDir: 'Default download directory',
       downloadDirHint: 'Leave empty to be asked each time',
       downloadDirPlaceholder: 'e.g. D:\\Downloads',
@@ -455,6 +505,7 @@ export default {
       prevTab: 'Previous tab',
       gotoTab: 'Go to tab N',
       search: 'Find in terminal',
+      history: 'Open command history',
       copy: 'Copy selection',
       paste: 'Paste',
       sigint: 'Send interrupt (never intercepted)',

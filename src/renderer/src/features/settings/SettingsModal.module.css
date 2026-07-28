@@ -166,3 +166,17 @@
   font-size: 11px;
   color: var(--ofs-text-3);
 }
+
+/* FinalShell 导入确认框里的连接摘要：给用户一眼确认"目录扫对了" */
+.fsSamples {
+  max-height: 140px;
+  overflow: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-bg-subtle, transparent);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ofs-text-2);
+}

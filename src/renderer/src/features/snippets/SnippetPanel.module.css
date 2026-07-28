@@ -77,6 +77,13 @@
   overflow: auto;
 }
 
+.historyEmpty {
+  padding: 2px 8px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ofs-text-3);
+}
+
 .historyItem {
   padding: 3px 8px;
   border-radius: var(--ofs-radius-s);

@@ -127,6 +127,20 @@ export const FAST_DELETE_TIMEOUT_MS = 600_000
 export const FAST_DELETE_BATCH = 64
 export const FAST_DELETE_MAX_COMMAND_CHARS = 8000
 
+/**
+ * 命令历史。
+ *
+ * `MAX_CHARS` 同时是**三处**的上限：采集时的丢弃阈值、IPC 那侧 zod 的 `.max()`、
+ * 以及入库前的最后一道。一条命令超过 2000 字符基本只有一种来源 ——
+ * 往终端里粘了一整段脚本（bracketed paste 之后它在缓冲里就是一"行"），
+ * 那东西进历史列表既没用又占地方。
+ *
+ * `MAX_ROWS` 是保留的记录条数（按 `lastUsedAt` 淘汰最老的）。因为同一条命令只占一行，
+ * 1000 条是"一年的日常运维命令"这个量级，而不是"1000 次按键"。
+ */
+export const COMMAND_HISTORY_MAX_CHARS = 2000
+export const COMMAND_HISTORY_MAX_ROWS = 1000
+
 export const DEFAULT_TERMINAL_FONT_FAMILY =
   '"Maple Mono NF CN", "Cascadia Mono", Consolas, "Microsoft YaHei Mono", "Microsoft YaHei", monospace'
 
@@ -150,7 +164,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
     rightClick: 'paste',
     confirmMultilinePaste: true,
     themeId: 'auto',
-    webgl: true
+    webgl: true,
+    // 默认**开**：命令历史是这类客户端的常规能力，默认关等于没做。
+    // 关掉只停止**新的**记录 —— 已经记下的要用「清空列表」删，
+    // 因为"关掉开关顺手把历史删了"是不可逆操作，不该由一个开关默默替用户做
+    saveCommandHistory: true
   },
   sftp: {
     downloadDir: '',

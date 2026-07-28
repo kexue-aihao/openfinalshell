@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Spin } from 'antd'
-import { Activity, Eraser, FolderTree, Search, Unplug } from 'lucide-react'
+import { Activity, Eraser, FolderTree, History, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
+import { useHistoryStore } from '@/stores/useHistoryStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
+import { captureCommand } from './commandCapture'
 import { createTerminal, type TerminalBundle } from './createTerminal'
-import { registerTerm, unregisterTerm } from './termRegistry'
+import { noteProgrammaticWrite, registerTerm, trackerFor, unregisterTerm } from './termRegistry'
+import { HistoryOverlay } from './HistoryOverlay'
 import { SearchOverlay } from './SearchOverlay'
 import { resolveTerminalTheme } from '@/themes/terminal'
 import styles from './TerminalPane.module.css'
@@ -42,6 +45,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const termIdRef = useRef<string | null>(null)
   const openingRef = useRef(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
 
   const sendResize = useCallback((): void => {
@@ -56,12 +60,24 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     }
   }, [])
 
+  /**
+   * 往当前终端写一段**程序生成**的文本（粘贴、命令历史回填）。
+   *
+   * 写之前先 `noteProgrammaticWrite`：这一行的"提示符末尾列"就此不可信 ——
+   * 光标被写进去的内容推走了，而它不是用户敲的。不标记的话，用户在回填的命令后面
+   * 再补几个字符然后回车，记进历史的就只有他补的那几个字符（语义见 commandCapture.ts）。
+   */
+  const writeToTerm = useCallback((data: string): void => {
+    const termId = termIdRef.current
+    if (!termId) return
+    noteProgrammaticWrite(termId)
+    ofs.send('term:input', { termId, data })
+  }, [])
+
   const pasteFromClipboard = useCallback(async (): Promise<void> => {
     const text = await navigator.clipboard.readText().catch(() => '')
     if (!text || !termIdRef.current) return
-    const doPaste = (): void => {
-      if (termIdRef.current) ofs.send('term:input', { termId: termIdRef.current, data: text })
-    }
+    const doPaste = (): void => writeToTerm(text)
     if (settings.terminal.confirmMultilinePaste && text.includes('\n')) {
       modal.confirm({
         title: t('terminal.multilinePasteTitle'),
@@ -73,7 +89,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     } else {
       doPaste()
     }
-  }, [modal, settings.terminal.confirmMultilinePaste, t])
+  }, [modal, settings.terminal.confirmMultilinePaste, t, writeToTerm])
 
   // ---- 创建 xterm 实例（tab 存续期间常驻，重连不重建） ----
   useEffect(() => {
@@ -84,7 +100,15 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     bundle.term.open(el)
 
     bundle.term.onData((data) => {
-      if (termIdRef.current) ofs.send('term:input', { termId: termIdRef.current, data })
+      const termId = termIdRef.current
+      if (!termId) return
+      /*
+       * 命令历史采集的第一半：这一行第一次有输入时，光标正停在提示符末尾。
+       * 挂在 onData 而不是键盘事件上，是为了把输入法上屏也算进来 ——
+       * 中文候选是经 onData 提交的，没有对应的 keydown。
+       */
+      trackerFor(termId).noteKeystroke(bundle.term.buffer.active)
+      ofs.send('term:input', { termId, data })
     })
 
     if (settings.terminal.copyOnSelect) {
@@ -110,6 +134,31 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       if (ev.ctrlKey && !ev.shiftKey && ev.code === 'KeyF') {
         setSearchOpen(true)
         return false
+      }
+      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyH') {
+        setHistoryOpen(true)
+        return false
+      }
+      /*
+       * 命令历史采集的第二半：回车**按下**的这一刻，shell 还没处理它，
+       * 屏幕上那一行就是即将执行的命令。切法与三道守卫都在 commandCapture.ts。
+       *
+       * 一律 `return true` —— 采集不许影响回车本身。真出了异常也只是这一条没记上，
+       * 绝不能让终端吞掉一次回车（那是"这个软件坏了"级别的表现）。
+       */
+      if (ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey) {
+        try {
+          if (useSettingsStore.getState().settings?.terminal.saveCommandHistory) {
+            const termId = termIdRef.current
+            const command = termId
+              ? captureCommand(bundle.term.buffer.active, trackerFor(termId))
+              : null
+            if (command) useHistoryStore.getState().push(command)
+          }
+        } catch {
+          /* 采集永不阻断按键 */
+        }
+        return true
       }
       return true
     })
@@ -226,6 +275,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
           { type: 'divider' as const },
           { key: 'clear', label: t('terminal.clear') },
           { key: 'search', label: t('terminal.search') },
+          { key: 'history', label: t('terminal.history') },
           { type: 'divider' as const },
           { key: 'disconnect', label: t('terminal.disconnect'), danger: true }
         ]
@@ -241,6 +291,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     else if (key === 'selectAll') bundle.term.selectAll()
     else if (key === 'clear') bundle.term.clear()
     else if (key === 'search') setSearchOpen(true)
+    else if (key === 'history') setHistoryOpen(true)
     else if (key === 'disconnect') void closeTab(tab.id)
   }
 
@@ -274,6 +325,14 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               onClick={() => setSearchOpen(true)}
             />
           </TitlebarSafeTooltip>
+          <TitlebarSafeTooltip title={t('terminal.historyTip')}>
+            <Button
+              size="small"
+              type={historyOpen ? 'primary' : 'text'}
+              icon={<History size={14} strokeWidth={1.75} />}
+              onClick={() => setHistoryOpen((v) => !v)}
+            />
+          </TitlebarSafeTooltip>
           <TitlebarSafeTooltip title={t('terminal.clear')}>
             <Button
               size="small"
@@ -292,6 +351,16 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
             />
           </TitlebarSafeTooltip>
         </div>
+      )}
+
+      {historyOpen && (
+        <HistoryOverlay
+          onInsert={writeToTerm}
+          onClose={() => {
+            setHistoryOpen(false)
+            bundleRef.current?.term.focus()
+          }}
+        />
       )}
 
       {searchOpen && bundleRef.current && (

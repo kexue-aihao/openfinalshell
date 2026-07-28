@@ -61,7 +61,15 @@ export default {
       openSftp: '打开文件管理',
       closeSftp: '关闭文件管理',
       openMonitor: '打开服务器监控',
-      closeMonitor: '关闭服务器监控'
+      closeMonitor: '关闭服务器监控',
+      history: '命令历史',
+      historyTip: '命令历史（Ctrl+Shift+H）',
+      historyHint: '↑↓ 选择 · Enter 回填到命令行（不会自动执行）· Esc 关闭',
+      historyFilter: '过滤命令…',
+      historyEmpty: '还没有记录。在终端里执行过的命令会出现在这里',
+      historyNoMatch: '没有匹配的命令',
+      historyClear: '清空列表',
+      historyClearConfirm: '清空全部命令历史？此操作不可撤销。'
     },
     monitor: {
       title: '服务器监控',
@@ -255,9 +263,32 @@ export default {
       autoEnter: '自动回车',
       sendToAll: '发送到所有终端',
       history: '命令历史',
+      historyEmpty: '在终端里执行过的命令会记在这里（Ctrl+Shift+H 可在终端上浮出完整列表）',
+      historyItemTip: '点击回填到命令行（不会自动执行）：{{command}}',
       deleteConfirm: '删除快捷命令 "{{name}}"？',
       noActiveTerminal: '没有可用的终端，请先连接',
       placeholderHint: '可用占位符（发送时替换为当前会话信息）：'
+    },
+    commandEditor: {
+      title: '命令编辑器',
+      openHint: '命令编辑器：临时拼一段（多行）命令发到会话',
+      placeholder:
+        '在这里写要发送的命令，可以是多行。\nCtrl+Enter 发送。\n\n例：\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log',
+      empty: '还没有内容',
+      send: '发送',
+      sendHint: '发送到选定的会话（Ctrl+Enter）',
+      sendTo: '发送到',
+      targetCurrent: '当前会话',
+      targetAll: '所有会话',
+      sent: '已发送到 {{count}} 个会话',
+      autoEnter: '自动回车',
+      autoEnterHint: '末尾补一个回车，即真的执行。关掉则内容停在命令行上等你自己按回车',
+      expandVars: '展开占位符',
+      // ⚠️ 这句里**不能**写 {{host}} 那样的字面量：i18next 会把它当插值变量替换成空串。
+      // 占位符本身由 JSX 拼在这句后面（与 snippet.placeholderHint 同一个做法）
+      expandVarsHint: '发送前把这几个占位符按目标会话替换掉：',
+      saveAsSnippet: '保存为快捷命令',
+      saveAsSnippetName: '给这条快捷命令起个名字'
     },
     prompt: {
       hostkeyNewTitle: '首次连接：确认主机指纹',
@@ -371,6 +402,19 @@ export default {
       importResultSummary:
         '已导入 {{profiles}} 个连接、{{snippets}} 条快捷命令、{{forwards}} 条转发规则、{{knownHosts}} 台已信任主机，恢复 {{secrets}} 条密码。',
       importResultSkipped: '跳过 {{skipped}} 项，另有 {{invalid}} 个条目结构不完整被忽略。',
+      fsImportTitle: '从 FinalShell 导入',
+      fsImportDesc:
+        '读取 FinalShell 的数据目录（里面应有 conn 子目录），把连接与分组导进来。⚠️ 密码不会跟过来：FinalShell 的密码用它自己内置的密钥加密，本项目不猜那个密钥 —— 首次连接时输入一次并勾选"记住密码"，密码就由本机密钥库加密保存。',
+      fsImportButton: '选择 FinalShell 数据目录…',
+      fsImportModalTitle: '确认导入 FinalShell 数据',
+      fsImportCounts: '找到 {{profiles}} 条 SSH 连接、{{groups}} 个分组',
+      fsImportMore: '…另有 {{count}} 条',
+      fsImportSkipped: '将跳过：{{invalid}} 条结构不完整、{{notSsh}} 条非 SSH 连接。',
+      fsImportConflict: '本机已有同一台主机（相同主机+端口+用户名）时',
+      fsImportConflictSkip: '跳过',
+      fsImportConflictDuplicate: '一律新建',
+      fsImportResult:
+        '已导入 {{profiles}} 条连接、{{groups}} 个分组，跳过 {{skipped}} 条。',
       section_shortcuts: '快捷键',
       section_about: '关于',
       language: '界面语言',
@@ -404,6 +448,9 @@ export default {
       confirmMultilinePaste: '多行粘贴前确认',
       webgl: 'WebGL 渲染',
       webglHint: '关闭后回退 DOM 渲染，兼容性更好但性能略低',
+      saveCommandHistory: '记录命令历史',
+      saveCommandHistoryHint:
+        '把在终端里执行过的命令记下来，Ctrl+Shift+H 可随时翻出来回填。历史只存在本机数据库里，导出应用数据时不包含它。关掉只停止记录新的，已有记录用浮层里的「清空列表」删除。',
       downloadDir: '默认下载目录',
       downloadDirHint: '留空则每次下载时询问',
       downloadDirPlaceholder: '如 D:\\Downloads',
@@ -439,6 +486,7 @@ export default {
       prevTab: '上一个标签',
       gotoTab: '切换到第 N 个标签',
       search: '在终端中查找',
+      history: '打开命令历史',
       copy: '复制选中内容',
       paste: '粘贴',
       sigint: '发送中断信号（不会被拦截）',

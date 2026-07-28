@@ -23,6 +23,7 @@ import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { terminalThemes } from '@/themes/terminal'
+import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
 import { TerminalPreview } from './TerminalPreview'
 import { SHORTCUTS } from './shortcuts'
@@ -282,6 +283,15 @@ export function SettingsModal(): React.JSX.Element {
                   onChange={(v) => setTerminal({ webgl: v })}
                 />
               </Row>
+              <Row
+                label={t('settings.saveCommandHistory')}
+                hint={t('settings.saveCommandHistoryHint')}
+              >
+                <Switch
+                  checked={settings.terminal.saveCommandHistory}
+                  onChange={(v) => setTerminal({ saveCommandHistory: v })}
+                />
+              </Row>
             </>
           )}
 
@@ -415,6 +425,7 @@ export function SettingsModal(): React.JSX.Element {
               </div>
 
               <ImportDataPanel />
+              <FinalShellImportPanel />
             </>
           )}
 

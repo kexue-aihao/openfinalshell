@@ -1,6 +1,7 @@
 import { MAIN_ONLY_SETTINGS_PATHS, type EventMap, type OfsApi } from '@shared/ipc'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type {
+  CommandHistoryEntry,
   ConnectionGroup,
   ConnectionProfile,
   ForwardRule,
@@ -36,6 +37,11 @@ export function createMockOfs(): OfsApi {
       order: 2
     },
     { id: 's4', groupId: 'default', name: '监听端口', command: 'ss -tulnp', autoEnter: true, order: 3 }
+  ]
+  /** 假命令历史：预置两条，好让浮层在浏览器里一打开就有东西可看 */
+  const mockHistory: CommandHistoryEntry[] = [
+    { command: 'systemctl status nginx', lastUsedAt: Date.now() - 60_000, useCount: 3 },
+    { command: 'tail -f /var/log/nginx/error.log', lastUsedAt: Date.now() - 120_000, useCount: 1 }
   ]
   const listeners = new Map<string, Set<(payload: unknown) => void>>()
   const encoder = new TextEncoder()
@@ -460,6 +466,44 @@ export function createMockOfs(): OfsApi {
       // 字节数按 UTF-8 估（mock 里没有 iconv）；charset 只是拿来确认参数真的传到了
       const bytes = new TextEncoder().encode(body).length + (hasBom && charset === 'utf8' ? 3 : 0)
       return { kind: 'saved' as const, bytes, mode: 0o644 }
+    },
+
+    // FinalShell 导入：浏览器里没有文件对话框，给一份固定的扫描结果把两步界面走通
+    'app:finalshellScan': () => ({
+      token: 'mock-fs-token',
+      dir: 'C:\\Users\\me\\AppData\\Local\\finalshell',
+      counts: { profiles: 2, groups: 1, invalid: 1, notSsh: 1, lockedPasswords: 2 },
+      samples: [
+        { name: 'Hytron-HK1', host: '203.0.113.7', port: 50035, username: 'root' },
+        { name: '备份机', host: '203.0.113.9', port: 22, username: 'ubuntu' }
+      ],
+      notes: [
+        '2 条连接在 FinalShell 里存了密码。那些密码用 FinalShell 自己的密钥加密，本项目不猜它的密钥，所以不会跟过来 —— 首次连接时输入一次并勾选"记住密码"，即由本机密钥库加密保存。'
+      ]
+    }),
+    'app:finalshellImport': () => ({
+      profiles: 2,
+      groups: 1,
+      skipped: 0,
+      invalid: 1,
+      secrets: 0,
+      notes: ['导入的连接没有密码：FinalShell 的密码用它自己的密钥加密，本项目不猜那个密钥。']
+    }),
+
+    // 命令历史：进程内一份，够验"记录 → 去重计数 → 过滤 → 回填 → 清空"整条界面链路
+    'history:list': () => [...mockHistory].sort((a, b) => b.lastUsedAt - a.lastUsedAt),
+    'history:push': (arg: never) => {
+      const { command } = arg as unknown as { command: string }
+      const existing = mockHistory.find((e) => e.command === command)
+      if (existing) {
+        existing.useCount += 1
+        existing.lastUsedAt = Date.now()
+      } else {
+        mockHistory.push({ command, lastUsedAt: Date.now(), useCount: 1 })
+      }
+    },
+    'history:clear': () => {
+      mockHistory.length = 0
     },
 
     'snippet:list': () => ({ groups: snippetGroups, snippets }),

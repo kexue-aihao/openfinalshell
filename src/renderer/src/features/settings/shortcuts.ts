@@ -6,6 +6,7 @@ export const SHORTCUTS: Array<{ keys: string; descKey: string }> = [
   { keys: 'Ctrl + Shift + Tab', descKey: 'shortcut.prevTab' },
   { keys: 'Alt + 1…9', descKey: 'shortcut.gotoTab' },
   { keys: 'Ctrl + F', descKey: 'shortcut.search' },
+  { keys: 'Ctrl + Shift + H', descKey: 'shortcut.history' },
   { keys: 'Ctrl + Shift + C', descKey: 'shortcut.copy' },
   { keys: 'Ctrl + Shift + V / Ctrl + V', descKey: 'shortcut.paste' },
   { keys: 'Ctrl + C', descKey: 'shortcut.sigint' },

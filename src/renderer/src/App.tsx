@@ -12,6 +12,7 @@ import { ProfileEditDrawer } from '@/features/connections/ProfileEditDrawer'
 import { PromptHost } from '@/features/prompts/PromptHost'
 import { TransferDrawer } from '@/features/transfers/TransferDrawer'
 import { SettingsModal } from '@/features/settings/SettingsModal'
+import { CommandEditorModal } from '@/features/snippets/CommandEditorModal'
 import { wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
@@ -79,6 +80,9 @@ export default function App(): React.JSX.Element {
           <PromptHost />
           <TransferDrawer />
           <SettingsModal />
+          {/* 挂在这里而不是快捷命令面板里：侧栏切到别的视图时那个面板会卸载，
+              而命令编辑器开着的时候不该跟着消失（草稿也就跟着没了） */}
+          <CommandEditorModal />
         </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>

@@ -364,6 +364,20 @@ export interface ForwardRuntime {
   error?: string
 }
 
+// ---------- 命令历史 ----------
+/**
+ * 一条在终端里执行过的命令。
+ *
+ * 命令原文本身就是主键（见 main/store/commandHistory.ts）—— 所以这里没有 id：
+ * 同一条命令执行十次是**一条**记录（`useCount` +1、`lastUsedAt` 更新），
+ * 而不是十条。历史列表最烦人的失效方式就是被 `ls` 刷满。
+ */
+export interface CommandHistoryEntry {
+  command: string
+  lastUsedAt: number
+  useCount: number
+}
+
 // ---------- 快捷命令 ----------
 export interface SnippetGroup {
   id: string
@@ -408,6 +422,14 @@ export interface AppSettings {
     /** 'auto' = 跟随 UI 主题 */
     themeId: string
     webgl: boolean
+    /**
+     * 记录在终端里执行过的命令（命令历史）。
+     *
+     * 关掉只停止**新的**记录，不动已经记下的 —— 删除走「清空列表」那个显式动作。
+     * 之所以给这个开关：历史里存的是用户敲进生产服务器的原话，而命令行上偶尔真的会带口令
+     * （`mysql -pXXX`、`curl -u a:b`）。那份数据不导出、不上传，但让人能关掉是应有的。
+     */
+    saveCommandHistory: boolean
   }
   sftp: {
     downloadDir: string
@@ -526,6 +548,51 @@ export interface ImportResult {
   skipped: number
   invalid: number
   /** 需要让用户知道的额外情况（未覆盖的主机指纹、未导入的本机字段等） */
+  notes: string[]
+}
+
+// ---------- 从 FinalShell 导入 ----------
+/**
+ * 扫描 FinalShell 数据目录的结果，给确认框看。
+ *
+ * ⚠️ **一个字节的密文都不下发。** 渲染进程只需要知道"有几条、长什么样、什么带不过来"，
+ * 而密文留在 main 侧的暂存里 —— 与本项目自己的导入同一条规矩（见 ImportPreview.token）。
+ */
+export interface FinalShellScan {
+  /** 一次性令牌：main 侧暂存已解析内容，渲染进程不接触路径也不接触密文 */
+  token: string
+  dir: string
+  counts: {
+    profiles: number
+    groups: number
+    /** 结构不完整、被跳过的条目 */
+    invalid: number
+    /** 不是 SSH 的条目（RDP/VNC 之类），本项目不支持 */
+    notSsh: number
+    /** 有密码但解不出来的条数 —— 导入后这些连接需要重新输入密码 */
+    lockedPasswords: number
+  }
+  /** 前几条的可读摘要，让用户确认"扫对了目录" */
+  samples: Array<{ name: string; host: string; port: number; username: string }>
+  /** 需要让用户知道的情况（密码带不过来、代理/转发未解析…） */
+  notes: string[]
+}
+
+/** 同一台主机已存在时怎么办。id 是新生成的，所以判重按"主机+端口+用户名" */
+export type FinalShellConflictPolicy = 'skip' | 'duplicate'
+
+export interface FinalShellImportOptions {
+  token: string
+  conflict: FinalShellConflictPolicy
+}
+
+export interface FinalShellImportResult {
+  profiles: number
+  groups: number
+  skipped: number
+  invalid: number
+  /** 真正写进本机密钥库的密码条数（当前恒为 0，见 finalshellImport 里的说明） */
+  secrets: number
   notes: string[]
 }
 

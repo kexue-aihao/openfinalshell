@@ -1,0 +1,80 @@
+/*
+ * 贴着终端底部：命令行就在下面，列表往上长、过滤框在最下面 ——
+ * 眼睛与手都不用跨过整个面板。宽度给到 720px 但用 max-width 收着，
+ * 窄窗口下跟着面板缩，不会横向溢出。
+ */
+.overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 720px;
+  padding: 6px 8px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-l);
+  background: var(--ofs-bg-elevated);
+  box-shadow: var(--ofs-shadow-panel);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ofs-text-1);
+}
+
+.hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+}
+
+.list {
+  max-height: 240px;
+  overflow: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: var(--ofs-radius-s);
+  cursor: pointer;
+}
+
+.rowActive {
+  background: var(--ofs-bg-hover);
+}
+
+.cmd {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  color: var(--ofs-text-1);
+}
+
+.count {
+  flex: none;
+  font-size: 11px;
+  color: var(--ofs-text-3);
+  font-variant-numeric: tabular-nums;
+}

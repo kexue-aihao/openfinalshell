@@ -176,9 +176,20 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
 
         session.on('shell', (acceptShell) => {
           const stream = acceptShell()
-          const prompt = () => stream.write('test@fixture:~$ ')
+          /**
+           * 提示符可切换 —— `ps1 exotic` / `ps1 default`。
+           *
+           * 这不是玩票：命令历史的采集有两条路，主路是"这一行第一个键按下时光标在第几列"，
+           * 退路是认 `$ ` / `# ` / `% `。默认这个提示符**两条路都能走通**，
+           * 于是冒烟里主路坏掉了也照样绿（退路兜住了）。
+           * exotic 那个提示符里没有任何一个退路认得的符号，
+           * 所以它一响，主路就是唯一能把命令切出来的东西。
+           */
+          const PROMPTS = { default: 'test@fixture:~$ ', exotic: '➜  ~ ' }
+          let ps1 = PROMPTS.default
+          const prompt = () => stream.write(ps1)
           stream.write(`欢迎使用测试 SSH 服务器 (${ptyInfo.cols}x${ptyInfo.rows})\r\n`)
-          stream.write('可用命令: echo <文本> / flood <MB> / size / exit\r\n')
+          stream.write('可用命令: echo <文本> / flood <MB> / size / ps1 <default|exotic> / exit\r\n')
           prompt()
 
           let line = ''
@@ -214,6 +225,12 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
             }
             if (cmd.startsWith('echo ')) {
               stream.write(`${cmd.slice(5)}\r\n`)
+              return prompt()
+            }
+            const ps1cmd = /^ps1\s+(default|exotic)$/.exec(cmd)
+            if (ps1cmd) {
+              ps1 = PROMPTS[ps1cmd[1]]
+              stream.write(`prompt -> ${ps1cmd[1]}\r\n`)
               return prompt()
             }
             const flood = /^flood\s+(\d+)$/.exec(cmd)

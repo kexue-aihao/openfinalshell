@@ -1,0 +1,48 @@
+.editor {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  /* 不许横向换行破坏一条长命令的可读性；也别让文本框自己缩放导致底部工具条跳动 */
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.hint {
+  margin: 6px 0 0 !important;
+  font-size: 11px;
+}
+
+.hint code {
+  padding: 0 3px;
+  font-size: 11px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--ofs-text-2);
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: default;
+}
+
+.sendTo {
+  font-size: 12px;
+  color: var(--ofs-text-3);
+}

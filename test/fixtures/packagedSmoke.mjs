@@ -9,7 +9,7 @@
  * 用法：node test/fixtures/packagedSmoke.mjs [exePath] [sshPort] [cdpPort]
  */
 import { spawn } from 'node:child_process'
-import { rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -130,6 +130,50 @@ async function main() {
     }
   })
   await send('Runtime.enable')
+
+  // ---- 通用输入助手（编辑器与命令历史两步共用；放这里是因为 const 有 TDZ，
+  //      定义必须排在两个使用点之前）----
+  /**
+   * 按一个**功能键或组合键**（Ctrl+S、Backspace、End…）。
+   * 用 rawKeyDown 是因为它只走按键处理、不产生文本输入 —— 快捷键要的正是这个。
+   */
+  const press = async (key, code, vk, modifiers = 0) => {
+    for (const type of ['rawKeyDown', 'keyUp']) {
+      await send('Input.dispatchKeyEvent', {
+        type,
+        modifiers,
+        key,
+        code,
+        windowsVirtualKeyCode: vk,
+        nativeVirtualKeyCode: vk
+      })
+    }
+  }
+  /**
+   * 敲一个**字符**。这里必须用 `keyDown` 并带上 `text`，不能用 `rawKeyDown` ——
+   * 后者不产生文本输入，字符压根不会进文档。（第一版就是拿 press 去敲 'x'，
+   * 报的是"编辑器卡在组词态"，而真实产物一切正常。这类"测法造出来的红"
+   * 和真 bug 长得一模一样，与 Ctrl+F 那次合成 KeyboardEvent 是同一个坑的另一面：
+   * **快捷键要 rawKeyDown，打字要 keyDown+text**。）
+   */
+  const typeChar = async (ch, code, vk) => {
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: ch,
+      code,
+      text: ch,
+      unmodifiedText: ch,
+      windowsVirtualKeyCode: vk,
+      nativeVirtualKeyCode: vk
+    })
+    await send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: ch,
+      code,
+      windowsVirtualKeyCode: vk,
+      nativeVirtualKeyCode: vk
+    })
+  }
 
   // 1) preload 桥是否注入（打包后 preload 路径最容易错）
   const bridge = await evaluate(`
@@ -534,6 +578,391 @@ async function main() {
   if (!monitorClosed.监控已关闭) fail('点了监控面板的关闭按钮，面板却还在')
   if (!monitorClosed.仍然ready) fail('关掉监控面板后会话掉出了 ready')
 
+  /*
+   * 8.57) 命令历史：真窗口里走完"在终端里敲一条 → 浮层里点回来"整条链路。
+   *
+   * 这一步回答的是几个**只有真 xterm 能回答**的问题 —— 单测那侧喂的是一个假缓冲，
+   * 它能验切法，验不了"接线接对了没有"：
+   *
+   *  - 采集读的是真实缓冲：真提示符（fixture 打的是 `test@fixture:~$ `）、真回显、
+   *    真光标列，promptCol 那条路在真 xterm 上到底成不成立；
+   *  - 回车的 keydown 确实在 shell 处理之前跑到我们的 handler（顺序反了就永远采到上一条）；
+   *  - 点一条历史**只回填、不执行**。判据是"**没有**出现新的提示符" ——
+   *    fixture 每执行一条命令必然重打一次提示符，所以这条判据不依赖任何解析；
+   *  - 设置里那个开关真的关得掉记录；
+   *  - 「清空列表」这条 UI 路径真的清得掉。
+   */
+  const HIST_CMD = 'echo mark-9137'
+  /**
+   * 敲一串 ASCII。必须 keyDown+text（rawKeyDown 不产生文本输入，见 typeChar 的注释）。
+   *
+   * ⚠️ **虚拟键码不能拿字符码顶替**。第一版把 `-` 的 vk 写成 `'-'.charCodeAt(0)` = 45，
+   * 而 45 是 **VK_INSERT** —— xterm 按键码判断这是 Insert 键，于是那个字符压根没发出去，
+   * shell 收到的是 `echo mark9137`。报出来的错却是"命令没进历史（采集没成立）"，
+   * 指着一个完全没问题的地方。标点必须查表：`-` 是 VK_OEM_MINUS(189)。
+   */
+  const VK = { ' ': 32, '-': 189, '.': 190, '/': 191, '=': 187 }
+  const typeAscii = async (text) => {
+    for (const ch of text) {
+      const code = /[a-z]/i.test(ch)
+        ? `Key${ch.toUpperCase()}`
+        : /[0-9]/.test(ch)
+          ? `Digit${ch}`
+          : ch === ' '
+            ? 'Space'
+            : ch === '-'
+              ? 'Minus'
+              : ''
+      const vk = VK[ch] ?? ch.toUpperCase().charCodeAt(0)
+      await typeChar(ch, code, vk)
+      await sleep(15)
+    }
+  }
+
+  const histPrep = await evaluate(`
+    await window.ofs.invoke('history:clear')
+    await window.ofs.invoke('settings:set', { terminal: { saveCommandHistory: true } })
+    const tas = [...document.querySelectorAll('.xterm-helper-textarea')]
+    if (tas.length === 0) {
+      return {
+        error:
+          '界面上没有终端（.xterm-helper-textarea），命令历史无从验证。现场：' +
+          JSON.stringify({
+            xterm: document.querySelectorAll('.xterm').length,
+            screen: document.querySelectorAll('.xterm-screen').length,
+            textarea: document.querySelectorAll('textarea').length,
+            标签: [...document.querySelectorAll('.ant-tabs-tab')].map((e) => e.textContent.trim()),
+            欢迎页: Boolean(document.body.innerText.includes('快速连接')),
+            弹窗: document.querySelectorAll('.ant-modal').length
+          })
+      }
+    }
+    /*
+     * 可能有多个终端（前面几步建过几条会话）。要挑**活动 tab 里那个** ——
+     * 非活动 tab 的 xterm 仍然挂在 DOM 上（SessionViewHost 是全部常驻叠放的），
+     * 往那个里面敲键，字会进另一条会话，而断言看的是历史库，
+     * 于是失败信息会指向"采集坏了"，其实是敲错了终端。
+     */
+    const visible = tas.find((ta) => {
+      const view = ta.closest('[class*="viewActive"]') ?? ta.closest('div')
+      return ta.getBoundingClientRect().width > 0 && view
+    })
+    const ta = visible ?? tas[tas.length - 1]
+    ta.focus()
+    return { focused: document.activeElement === ta, 终端数: tas.length }
+  `)
+  if (histPrep.error) fail(histPrep.error)
+  if (!histPrep.focused) fail('终端没拿到焦点，敲进去的键不会经过 xterm')
+
+  await typeAscii(HIST_CMD)
+  await press('Enter', 'Enter', 13)
+  await sleep(900)
+
+  const recorded = await evaluate(`
+    const list = await window.ofs.invoke('history:list')
+    return { list: list.map((e) => e.command), first: list[0] }
+  `)
+  if (recorded.error) fail(recorded.error)
+  if (!recorded.list.includes(HIST_CMD)) {
+    fail(
+      `真终端里敲的命令没进历史（采集在真 xterm 上没成立）。库里现有：${JSON.stringify(recorded.list)}`
+    )
+  }
+  console.log(`OK 命令历史采集：真终端敲「${HIST_CMD}」→ 已记录（用过 ${recorded.first.useCount} 次）`)
+
+  // Ctrl+Shift+H 浮出列表
+  await press('H', 'KeyH', 72, 10) // modifiers: Ctrl(2) | Shift(8)
+  await sleep(500)
+  const histOverlay = await evaluate(`
+    const input = document.querySelector('input[placeholder="过滤命令…"]')
+    if (!input) return { error: 'Ctrl+Shift+H 没打开命令历史浮层（找不到过滤框）' }
+    const box = input.closest('div')
+    const rows = [...document.querySelectorAll('[data-row]')].map((e) => e.textContent.trim())
+    // 原生窗口按钮区遮挡：浮层贴着底边，理论上撞不上，但改布局时容易踩
+    const wco = navigator.windowControlsOverlay
+    let hits = []
+    if (wco && wco.visible) {
+      const bar = wco.getTitlebarAreaRect()
+      for (const el of box.querySelectorAll('button, input, [data-row]')) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        if (r.top < bar.height && r.right > bar.width) hits.push(el.textContent.trim().slice(0, 20))
+      }
+    }
+    return { rows, hits }
+  `)
+  if (histOverlay.error) fail(histOverlay.error)
+  if (!histOverlay.rows.includes(HIST_CMD)) {
+    fail(`浮层里没有刚敲的那条命令，列出来的是：${JSON.stringify(histOverlay.rows)}`)
+  }
+  if (histOverlay.hits.length > 0) {
+    fail(`命令历史浮层里有元素被原生窗口按钮遮挡：${histOverlay.hits.join(', ')}`)
+  }
+  console.log(`OK 命令历史浮层：Ctrl+Shift+H 打开，列出 ${histOverlay.rows.length} 条`)
+
+  // 点一条 → 只回填。判据：命令回显了，但**没有新的提示符**（执行必然重打提示符）
+  const refill = await evaluate(`
+    window.__histData = ''
+    window.__histOff = window.ofs.on('term:data', ({ data }) => {
+      window.__histData += new TextDecoder().decode(data)
+    })
+    const row = [...document.querySelectorAll('[data-row]')].find(
+      (e) => e.textContent.trim() === ${JSON.stringify(HIST_CMD)}
+    )
+    if (!row) return { error: '浮层里那一行不见了' }
+    row.click()
+    await new Promise((r) => setTimeout(r, 900))
+    window.__histOff()
+    return {
+      tail: window.__histData,
+      浮层还开着: Boolean(document.querySelector('input[placeholder="过滤命令…"]'))
+    }
+  `)
+  if (refill.error) fail(refill.error)
+  if (!refill.tail.includes('mark-9137')) {
+    fail(`点了历史但命令没回填到命令行，终端这段时间收到的是：${JSON.stringify(refill.tail)}`)
+  }
+  if (/test@fixture:~\$/.test(refill.tail)) {
+    fail(
+      `点一条历史竟然执行了它 —— 终端打出了新的提示符：${JSON.stringify(refill.tail.slice(-120))}`
+    )
+  }
+  if (refill.浮层还开着) fail('回填之后浮层没有收起')
+  console.log('OK 点历史只回填不执行（回显到了命令行，且没有新提示符）')
+
+  // Ctrl+C 收拾掉命令行上那条，免得干扰下一段的输入
+  await press('c', 'KeyC', 67, 2)
+  await sleep(400)
+
+  // 开关关掉之后不再记新的
+  await evaluate(`
+    await window.ofs.invoke('settings:set', { terminal: { saveCommandHistory: false } })
+    document.querySelector('.xterm-helper-textarea')?.focus()
+    return true
+  `)
+  await typeAscii('echo off-9137')
+  await press('Enter', 'Enter', 13)
+  await sleep(900)
+  const gated = await evaluate(`
+    const list = await window.ofs.invoke('history:list')
+    await window.ofs.invoke('settings:set', { terminal: { saveCommandHistory: true } })
+    return { list: list.map((e) => e.command) }
+  `)
+  if (gated.error) fail(gated.error)
+  if (gated.list.some((c) => c.includes('off-9137'))) {
+    fail(`关掉「记录命令历史」之后还在记：${JSON.stringify(gated.list)}`)
+  }
+  if (!gated.list.includes(HIST_CMD)) {
+    fail('关掉开关顺带把已有记录弄丢了 —— 它只该停止记录新的')
+  }
+  console.log('OK 「记录命令历史」开关：关掉后不再记新的，已有记录不动')
+
+  // 「清空列表」这条 UI 路径
+  await press('H', 'KeyH', 72, 10)
+  await sleep(500)
+  const cleared = await evaluate(`
+    const norm = (s) => s.replace(/\\s+/g, '')
+    const clearBtn = [...document.querySelectorAll('button')].find((b) => norm(b.textContent) === '清空列表')
+    if (!clearBtn) return { error: '浮层里找不到「清空列表」按钮' }
+    clearBtn.click()
+    await new Promise((r) => setTimeout(r, 400))
+    const ok = [...document.querySelectorAll('.ant-popconfirm button')].find((b) => norm(b.textContent) === '确定')
+    if (!ok) return { error: '「清空列表」没有弹二次确认（不可逆操作必须有）' }
+    ok.click()
+    await new Promise((r) => setTimeout(r, 600))
+    const list = await window.ofs.invoke('history:list')
+    return { left: list.length }
+  `)
+  if (cleared.error) fail(cleared.error)
+  if (cleared.left !== 0) fail(`点了「清空列表」但库里还剩 ${cleared.left} 条`)
+  console.log('OK 「清空列表」：有二次确认，确认后库里为空')
+
+  // Esc 收起浮层：它贴在终端底部，留着会挡住后面几步要 hover / 点击的东西
+  await press('Escape', 'Escape', 27)
+  await sleep(300)
+  const overlayGone = await evaluate(
+    `return { 还开着: Boolean(document.querySelector('input[placeholder="过滤命令…"]')) }`
+  )
+  if (overlayGone.还开着) fail('Esc 关不掉命令历史浮层')
+
+  /*
+   * 换一个**退路认不出来的提示符**再采一次。
+   *
+   * 这一步补的是上面那几条断言的一个盲区：fixture 默认的 `test@fixture:~$ ` 里有 `$ `，
+   * 于是"提示符列"这条主路即使坏掉，"认 $ / # / %"那条退路也会把命令切出来 ——
+   * 断言照样绿。exotic 提示符（`➜  ~ `）里没有任何退路认得的符号，
+   * 所以它一响，主路就是唯一能把命令切对的东西：这条断言只对主路负责。
+   */
+  await evaluate(`document.querySelector('.xterm-helper-textarea')?.focus(); return true`)
+  await typeAscii('ps1 exotic')
+  await press('Enter', 'Enter', 13)
+  await sleep(700)
+  await typeAscii('df -h /data')
+  await press('Enter', 'Enter', 13)
+  await sleep(900)
+  const exotic = await evaluate(`
+    const list = await window.ofs.invoke('history:list')
+    return { list: list.map((e) => e.command) }
+  `)
+  if (exotic.error) fail(exotic.error)
+  if (!exotic.list.includes('df -h /data')) {
+    fail(
+      '提示符里没有 $ / # / % 时命令没进历史 —— "提示符列"那条主路在真 xterm 上没成立，' +
+        `退路也认不出这种提示符。库里现有：${JSON.stringify(exotic.list)}`
+    )
+  }
+  // 切出来的必须是**干净的命令**，不许带上提示符的残渣
+  for (const bad of exotic.list) {
+    if (/➜|~ df/.test(bad)) fail(`历史里记下了带提示符残渣的命令：${JSON.stringify(bad)}`)
+  }
+  console.log('OK 提示符里没有 $/#/% 时也切得对（走的是"提示符列"那条主路）')
+  await typeAscii('ps1 default')
+  await press('Enter', 'Enter', 13)
+  await sleep(600)
+
+
+  // 收尾：这台机器是真的用户数据目录，别把冒烟造的历史留下
+  await evaluate(`await window.ofs.invoke('history:clear'); return true`)
+
+  /*
+   * 8.58) 命令编辑器：从**界面**打开 → 输入 → 发送，一路走真按钮。
+   *
+   * 只有真窗口能回答的三件事：
+   *  - 侧栏切到「快捷命令」之后那个铅笔按钮真的在（图标按钮没有可访问名字，
+   *    所以按"紧邻「新建命令」的那个按钮"定位 —— 布局改了这条会红，那正是要它红的时候）；
+   *  - 文本框里的内容真的发到了当前会话（判据是 fixture 回显了它）；
+   *  - 多行 + 真执行时那道确认框真的弹（单测只能证明代码里判了 confirmMultilinePaste，
+   *    证不了它在真 antd 里弹得出来）。
+   */
+  const openEditor = await evaluate(`
+    // 活动栏按钮顺序固定：连接 / 快捷命令 / 端口转发 / 传输队列 / (间隔) 主题 / 设置
+    const navButtons = [...document.querySelectorAll('nav button')]
+    if (navButtons.length < 4) return { error: '活动栏按钮少于 4 个，界面结构变了' }
+    navButtons[1].click()
+    await new Promise((r) => setTimeout(r, 500))
+
+    const newBtn = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent.trim() === '新建命令'
+    )
+    if (!newBtn) return { error: '切到「快捷命令」之后找不到「新建命令」按钮' }
+    const toolbar = newBtn.parentElement
+    const pencil = [...toolbar.querySelectorAll('button')].find((b) => b !== newBtn)
+    if (!pencil) return { error: '「新建命令」旁边没有命令编辑器按钮' }
+    pencil.click()
+    await new Promise((r) => setTimeout(r, 600))
+
+    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
+      m.textContent.includes('命令编辑器')
+    )
+    if (!modal) return { error: '点了按钮但命令编辑器没打开' }
+    const ta = modal.querySelector('textarea')
+    if (!ta) return { error: '命令编辑器里没有文本框' }
+    ta.focus()
+    return {
+      focused: document.activeElement === ta,
+      按钮: [...modal.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean)
+    }
+  `)
+  if (openEditor.error) fail(openEditor.error)
+  if (!openEditor.focused) fail('命令编辑器的文本框没拿到焦点')
+  for (const label of ['保存为快捷命令', '发送']) {
+    if (!openEditor.按钮.some((b) => b.replace(/\s+/g, '') === label)) {
+      fail(`命令编辑器里找不到「${label}」按钮，实际有：${openEditor.按钮.join(' / ')}`)
+    }
+  }
+
+  // 单行：不该弹确认框，直接发出去
+  await send('Input.insertText', { text: 'echo editor-4471' })
+  await sleep(200)
+  const singleSend = await evaluate(`
+    window.__edData = ''
+    const off = window.ofs.on('term:data', ({ data }) => {
+      window.__edData += new TextDecoder().decode(data)
+    })
+    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
+      m.textContent.includes('命令编辑器')
+    )
+    const sendBtn = [...modal.querySelectorAll('button')].find(
+      (b) => b.textContent.replace(/\\s+/g, '') === '发送'
+    )
+    sendBtn.click()
+    await new Promise((r) => setTimeout(r, 1200))
+    off()
+    return {
+      tail: window.__edData,
+      弹框: document.querySelectorAll('.ant-modal-confirm').length,
+      历史: (await window.ofs.invoke('history:list')).map((e) => e.command)
+    }
+  `)
+  if (singleSend.error) fail(singleSend.error)
+  if (!singleSend.tail.includes('editor-4471')) {
+    fail(`命令编辑器发送后终端没有回显：${JSON.stringify(singleSend.tail.slice(-160))}`)
+  }
+  if (singleSend.弹框 > 0) fail('单行命令不该弹多行确认框')
+  if (!singleSend.历史.includes('echo editor-4471')) {
+    fail(`命令编辑器发出去的命令没进历史：${JSON.stringify(singleSend.历史)}`)
+  }
+  console.log('OK 命令编辑器：界面打开 → 单行发送 → 终端回显 + 进历史，且没有多余确认框')
+
+  // 多行 + 自动回车：必须先弹一次确认（与终端粘贴同一条规矩）
+  const multiConfirm = await evaluate(`
+    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
+      m.textContent.includes('命令编辑器')
+    )
+    const ta = modal.querySelector('textarea')
+    ta.focus()
+    ta.setSelectionRange(0, ta.value.length)
+    return true
+  `)
+  if (multiConfirm.error) fail(multiConfirm.error)
+  await send('Input.insertText', { text: 'echo line-1\necho line-2' })
+  await sleep(200)
+  const multiSend = await evaluate(`
+    const norm = (s) => s.replace(/\\s+/g, '')
+    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
+      m.textContent.includes('命令编辑器')
+    )
+    const sendBtn = [...modal.querySelectorAll('button')].find((b) => norm(b.textContent) === '发送')
+    sendBtn.click()
+    await new Promise((r) => setTimeout(r, 600))
+    const dlg = [...document.querySelectorAll('.ant-modal-confirm')].at(-1)
+    if (!dlg) return { error: '多行 + 自动回车没有弹确认框' }
+    const title = dlg.querySelector('.ant-modal-confirm-title')?.textContent ?? ''
+    window.__edData = ''
+    const off = window.ofs.on('term:data', ({ data }) => {
+      window.__edData += new TextDecoder().decode(data)
+    })
+    const ok = [...dlg.querySelectorAll('.ant-btn')].find((b) => norm(b.textContent) === '确定')
+    if (!ok) return { error: '确认框里没有「确定」按钮' }
+    ok.click()
+    await new Promise((r) => setTimeout(r, 1200))
+    off()
+    return { title, tail: window.__edData }
+  `)
+  if (multiSend.error) fail(multiSend.error)
+  if (!/粘贴多行/.test(multiSend.title)) {
+    fail(`多行确认框的标题不对：${JSON.stringify(multiSend.title)}`)
+  }
+  if (!multiSend.tail.includes('line-1') || !multiSend.tail.includes('line-2')) {
+    fail(`确认之后两行都该发出去，实际回显：${JSON.stringify(multiSend.tail.slice(-200))}`)
+  }
+  console.log('OK 命令编辑器：多行 + 自动回车先弹确认框，确认后两行都发出去了')
+
+  // 关掉编辑器与历史，别把状态留给后面几步
+  await evaluate(`
+    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
+      m.textContent.includes('命令编辑器')
+    )
+    modal?.querySelector('.ant-modal-close')?.click()
+    await new Promise((r) => setTimeout(r, 400))
+    // 侧栏切回连接树：后面几步要在树里双击
+    const nav = [...document.querySelectorAll('nav button')]
+    nav[0].click()
+    await new Promise((r) => setTimeout(r, 400))
+    await window.ofs.invoke('history:clear')
+    return true
+  `)
+
   // 8.6) 顶部悬浮工具条的 tooltip 会不会被原生窗口按钮切掉
   //    step 7 扫的是"元素自己的矩形"，扫不到 tooltip，两个独立原因：① 它从不 hover，而 antd 的
   //    气泡是 hover 才挂到 body 的 portal，扫描那一刻 DOM 里没有它；② 就算挂着，气泡是
@@ -718,6 +1147,9 @@ async function main() {
       '关闭文件管理',
       '打开服务器监控',
       '查找',
+      // 命令历史那颗按钮就长在这条工具条上，也就长在原生按钮区正下方 ——
+      // 不列进来这一轮就不会 hover 它，它的气泡被系统按钮切掉也没人知道
+      '命令历史（Ctrl+Shift+H）',
       '清屏',
       '断开连接'
     ])
@@ -1499,47 +1931,6 @@ async function main() {
    * 后面那段还故意从背后改一次远端，逼出 conflict + nonAtomic **两个连着弹**：
    * 老那种一个 force 管三件事的设计在这里只会弹一次，两个连弹正是三个开关拆开的证据。
    */
-  /**
-   * 按一个**功能键或组合键**（Ctrl+S、Backspace、End…）。
-   * 用 rawKeyDown 是因为它只走按键处理、不产生文本输入 —— 快捷键要的正是这个。
-   */
-  const press = async (key, code, vk, modifiers = 0) => {
-    for (const type of ['rawKeyDown', 'keyUp']) {
-      await send('Input.dispatchKeyEvent', {
-        type,
-        modifiers,
-        key,
-        code,
-        windowsVirtualKeyCode: vk,
-        nativeVirtualKeyCode: vk
-      })
-    }
-  }
-  /**
-   * 敲一个**字符**。这里必须用 `keyDown` 并带上 `text`，不能用 `rawKeyDown` ——
-   * 后者不产生文本输入，字符压根不会进文档。（第一版就是拿 press 去敲 'x'，
-   * 报的是"编辑器卡在组词态"，而真实产物一切正常。这类"测法造出来的红"
-   * 和真 bug 长得一模一样，与 Ctrl+F 那次合成 KeyboardEvent 是同一个坑的另一面：
-   * **快捷键要 rawKeyDown，打字要 keyDown+text**。）
-   */
-  const typeChar = async (ch, code, vk) => {
-    await send('Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      key: ch,
-      code,
-      text: ch,
-      unmodifiedText: ch,
-      windowsVirtualKeyCode: vk,
-      nativeVirtualKeyCode: vk
-    })
-    await send('Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      key: ch,
-      code,
-      windowsVirtualKeyCode: vk,
-      nativeVirtualKeyCode: vk
-    })
-  }
   /** 找当前那个确认框：回标题、正文与按钮文字，供断言与诊断 */
   const readModal = () => `
     const dlg = [...document.querySelectorAll('.ant-modal-confirm')].at(-1)
@@ -1864,8 +2255,11 @@ async function main() {
   if (settingsPanel.error) fail(settingsPanel.error)
   if (settingsPanel.rectBad) fail(`原生按钮区矩形不可信，设置弹窗的遮挡检查会假绿：${settingsPanel.rectBad}`)
   if (settingsPanel.crashed) fail('安全与数据面板渲染崩溃（ErrorBoundary 兜住了）')
-  for (const label of ['导出…', '选择文件导入…']) {
-    if (!settingsPanel.buttons.includes(label)) {
+  // 比较前把空白全去掉：那一步读按钮文字时压掉了空白，
+  // 而「选择 FinalShell 数据目录…」里带空格 —— 按原文比对会找不到它
+  for (const label of ['导出…', '选择文件导入…', '选择 FinalShell 数据目录…']) {
+    const norm = (s) => s.replace(/\s+/g, '')
+    if (!settingsPanel.buttons.some((b) => norm(b) === norm(label))) {
       fail(`安全与数据面板里找不到「${label}」按钮，实际有：${settingsPanel.buttons.join(' / ')}`)
     }
   }
@@ -1893,6 +2287,113 @@ async function main() {
     fail(`app:importData 通路不对，期望"导入会话已失效"，实际：${importWiring.message}`)
   }
   console.log('OK app:importData 通路正常（假 token 被服务层拒绝，而非卡在校验或未注册）')
+
+  /*
+   * 9.7) 从 FinalShell 导入：在真产物里跑完 扫描 → 写库 → 连接树能看见。
+   *
+   * 目录由这边现造（`app:finalshellScan` 收一个 dir 就是为了这个：界面正常路径不传它，
+   * 走系统对话框，而 CDP 关不掉那个对话框）。样本保留 FinalShell 真实记录的字段名与形状，
+   * 主机与密文都是编的 —— 冒烟脚本里不该躺着任何人的真实凭据。
+   *
+   * 最要紧的一条断言在最后：**库里那条连接不许有密码引用**。
+   * FinalShell 的密码解不出来（理由见 services/finalshellImport.ts），
+   * 所以正确行为是"连接进来了、密码留空"；哪天有人接上一个猜的推导，这条会红。
+   */
+  const fsDir = join(tmpdir(), `ofs-fs-smoke-${Date.now()}`)
+  mkdirSync(join(fsDir, 'conn'), { recursive: true })
+  const fsConn = {
+    id: 'smokeconn0000001',
+    name: 'fs-smoke-conn',
+    parent_id: 'smokegroup000001',
+    host: '203.0.113.77',
+    port: 50035,
+    user_name: 'root',
+    conection_type: 100,
+    authentication_type: 2,
+    // 形状与真实密文一致（8 字节头 + 3 个 DES 块），值是编的
+    password: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    secret_key_id: 'smokekey00000001',
+    proxy_id: '',
+    terminal_encoding: 'GBK',
+    description: '冒烟导入',
+    port_forwarding_list: [],
+    remote_port_forwarding: {},
+    create_time: 1782610958947,
+    modified_time: 1782611139179,
+    access_time: 1785192866687
+  }
+  const fsGroup = {
+    id: 'smokegroup000001',
+    name: 'fs-smoke-group',
+    parent_id: '',
+    conection_type: 0,
+    create_time: 1782610000000,
+    modified_time: 1782610000001
+  }
+  writeFileSync(join(fsDir, 'conn', 'a_connection.json'), JSON.stringify(fsConn), 'utf8')
+  writeFileSync(join(fsDir, 'conn', 'b_connection.json'), JSON.stringify(fsGroup), 'utf8')
+
+  const fsImport = await evaluate(`
+    const scan = await window.ofs.invoke('app:finalshellScan', { dir: ${JSON.stringify(fsDir)} })
+    if (!scan) return { error: 'finalshellScan 返回了 null（没有弹对话框时不该发生）' }
+    const r = await window.ofs.invoke('app:finalshellImport', { token: scan.token, conflict: 'duplicate' })
+    const { profiles, groups } = await window.ofs.invoke('conn:list')
+    const p = profiles.find((x) => x.name === 'fs-smoke-conn')
+    const g = groups.find((x) => x.name === 'fs-smoke-group')
+    return {
+      扫描: { profiles: scan.counts.profiles, groups: scan.counts.groups, locked: scan.counts.lockedPasswords },
+      提示: scan.notes,
+      结果: { profiles: r.profiles, groups: r.groups, secrets: r.secrets },
+      连接: p
+        ? {
+            host: p.host,
+            port: p.port,
+            username: p.username,
+            charset: p.terminal.charset,
+            note: p.note,
+            分组对得上: Boolean(g) && p.groupId === g.id,
+            有密码引用: Boolean(p.auth.passwordRef),
+            id: p.id
+          }
+        : null,
+      分组id: g ? g.id : null
+    }
+  `)
+  if (fsImport.error) fail(fsImport.error)
+  if (fsImport.扫描.profiles !== 1 || fsImport.扫描.groups !== 1) {
+    fail(`扫描结果不对：${JSON.stringify(fsImport.扫描)}`)
+  }
+  if (fsImport.扫描.locked !== 1) fail('没认出"有密码但解不开"那一条')
+  if (!fsImport.提示.some((n) => n.includes('不会跟过来'))) {
+    fail(`扫描没给出"密码不会跟过来"的说明：${JSON.stringify(fsImport.提示)}`)
+  }
+  if (!fsImport.连接) fail('导入之后连接树里找不到那条连接')
+  if (fsImport.连接.host !== '203.0.113.77' || fsImport.连接.port !== 50035) {
+    fail(`主机/端口没映射对：${JSON.stringify(fsImport.连接)}`)
+  }
+  if (fsImport.连接.username !== 'root') fail('user_name 没映射到 username')
+  if (fsImport.连接.charset !== 'gbk') fail(`terminal_encoding=GBK 应映射成 gbk，实际 ${fsImport.连接.charset}`)
+  if (fsImport.连接.note !== '冒烟导入') fail('description 没映射到备注')
+  if (!fsImport.连接.分组对得上) fail('parent_id 没重建成本项目的分组层级')
+  if (fsImport.连接.有密码引用) {
+    fail('导入的连接竟然带了密码引用 —— FinalShell 的密码解不出来，正确行为是留空')
+  }
+  console.log(
+    `OK FinalShell 导入：扫到 1 连接 + 1 分组 → 落库（GBK/备注/分组都对），密码留空（${fsImport.结果.secrets} 条写入密钥库）`
+  )
+
+  // 清掉冒烟造的那条连接与分组，再删临时目录
+  await evaluate(`
+    const { profiles, groups } = await window.ofs.invoke('conn:list')
+    for (const p of profiles.filter((x) => x.name === 'fs-smoke-conn')) {
+      await window.ofs.invoke('conn:delete', p.id)
+    }
+    for (const g of groups.filter((x) => x.name === 'fs-smoke-group')) {
+      await window.ofs.invoke('group:delete', g.id)
+    }
+    return true
+  `)
+  rmSync(fsDir, { recursive: true, force: true })
 
   // 10) 清理
   await evaluate(`

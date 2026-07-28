@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { App as AntdApp, Button, Empty, Form, Input, Modal, Switch, Tooltip } from 'antd'
-import { Pencil, Plus, Send, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Send, SquarePen, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Snippet } from '@shared/types'
 import { ofs } from '@/ipc/api'
+import { noteProgrammaticWrite } from '@/features/terminal/termRegistry'
+import { useCommandEditorStore } from '@/stores/useCommandEditorStore'
+import { useHistoryStore } from '@/stores/useHistoryStore'
 import { expandSnippet, useSnippetStore } from '@/stores/useSnippetStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
@@ -17,7 +20,16 @@ interface EditState {
 export function SnippetPanel(): React.JSX.Element {
   const { t } = useTranslation()
   const { message, modal } = AntdApp.useApp()
-  const { groups, snippets, loaded, history, load, save, remove, pushHistory } = useSnippetStore()
+  const { groups, snippets, loaded, load, save, remove } = useSnippetStore()
+  /**
+   * 历史来自 useHistoryStore —— 与终端里敲的命令是**同一份**、落库、跨重启还在。
+   * 上一版这里读的是 useSnippetStore 里一个纯内存数组，只装"从这个面板点出去的命令"，
+   * 于是每次启动它都是空的，而空的时候整块不渲染 → 这个功能等于不存在。
+   */
+  const history = useHistoryStore((s) => s.entries)
+  const historyLoaded = useHistoryStore((s) => s.loaded)
+  const loadHistory = useHistoryStore((s) => s.load)
+  const pushHistory = useHistoryStore((s) => s.push)
   const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const profiles = useConnectionStore((s) => s.profiles)
@@ -26,7 +38,8 @@ export function SnippetPanel(): React.JSX.Element {
 
   useEffect(() => {
     if (!loaded) void load()
-  }, [loaded, load])
+    if (!historyLoaded) void loadHistory()
+  }, [loaded, load, historyLoaded, loadHistory])
 
   const activeTab = tabs.find((tb) => tb.id === activeTabId)
   const activeProfile = profiles.find((p) => p.id === activeTab?.profileId)
@@ -44,12 +57,34 @@ export function SnippetPanel(): React.JSX.Element {
         user: profile?.username,
         port: profile?.port
       })
+      // 这一行是程序写进去的，提示符列不再可信（语义见 features/terminal/commandCapture.ts）
+      noteProgrammaticWrite(tab.termId!)
       void ofs.invoke('term:exec', {
         termId: tab.termId!,
         command: autoEnter ? `${text}\n` : text
       })
+      /*
+       * 只在**真的执行了**（autoEnter）时记历史，而且记展开后的原话 ——
+       * 历史是"执行过什么"，不是"点过什么"，所以 {{host}} 那类占位符要按当时那台机器展开。
+       * autoEnter=false 时命令只是躺在命令行上等用户按回车，那一下由终端那侧的采集记，
+       * 在这里再记一遍就成了"没执行也进历史"。
+       */
+      if (autoEnter) pushHistory(text)
     }
-    pushHistory(command)
+  }
+
+  /**
+   * 把一条历史回填到当前终端的命令行。**不带回车** —— 与命令历史浮层同一条规矩：
+   * 列表里躺着的是在生产服务器上敲过的原话，单击就执行会把误点的代价定在事故那一档。
+   */
+  const refill = (command: string): void => {
+    const termId = activeTab?.termId
+    if (!termId) {
+      message.warning(t('snippet.noActiveTerminal'))
+      return
+    }
+    noteProgrammaticWrite(termId)
+    ofs.send('term:input', { termId, data: command })
   }
 
   const openEdit = (snippet: Snippet | null): void => {
@@ -86,6 +121,14 @@ export function SnippetPanel(): React.JSX.Element {
         >
           {t('snippet.new')}
         </Button>
+        {/* 命令编辑器：临时拼一段多行命令发出去（与"存起来反复用"的快捷命令分工不同） */}
+        <Tooltip title={t('commandEditor.openHint')}>
+          <Button
+            size="small"
+            icon={<SquarePen size={14} strokeWidth={1.75} />}
+            onClick={() => useCommandEditorStore.getState().setOpen(true)}
+          />
+        </Tooltip>
       </div>
 
       <div className={styles.list}>
@@ -153,21 +196,31 @@ export function SnippetPanel(): React.JSX.Element {
         })}
       </div>
 
-      {history.length > 0 && (
-        <div className={styles.history}>
-          <div className={styles.groupName}>{t('snippet.history')}</div>
-          {history.map((cmd, i) => (
+      {/*
+        * 历史那一块**恒常显示**（空的时候给一行说明）。上一版是 history.length > 0 才渲染，
+        * 而那份历史又不持久化 —— 于是每次启动这一块在 DOM 里根本不存在，
+        * 没人能发现这个功能。空态是这里唯一的入口说明。
+        *
+        * 单击=回填到命令行，与命令历史浮层完全一致（上一版是双击直接执行，
+        * 既与上面的快捷命令项不一致，又让误点的代价变成"在生产上执行一条旧命令"）。
+        */}
+      <div className={styles.history}>
+        <div className={styles.groupName}>{t('snippet.history')}</div>
+        {history.length === 0 ? (
+          <div className={styles.historyEmpty}>{t('snippet.historyEmpty')}</div>
+        ) : (
+          history.slice(0, 20).map((entry) => (
             <div
-              key={`${cmd}-${i}`}
+              key={entry.command}
               className={styles.historyItem}
-              title={cmd}
-              onDoubleClick={() => send(cmd, true)}
+              title={t('snippet.historyItemTip', { command: entry.command })}
+              onClick={() => refill(entry.command)}
             >
-              {cmd}
+              {entry.command}
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
       <Modal
         open={edit.open}

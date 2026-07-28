@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { emit, handle } from './registry'
 import { exportData } from '../services/exportData'
 import { applyImport, inspectImport } from '../services/importData'
+import { applyFinalShellImport, scanFinalShell } from '../services/finalshellImport'
 import { getSettings } from '../services/settings'
 import { applyWindowChrome } from '../window'
 import { scopedLogger } from '../utils/logger'
@@ -107,6 +108,30 @@ export function registerAppIpc(): void {
           knownHosts: z.boolean(),
           settings: z.boolean()
         })
+      })
+    ])
+  )
+
+  /**
+   * FinalShell 导入。与本项目自己的导入同一条形状：main 选目录 + 解析 → 只回 token。
+   *
+   * `dir` 在 schema 里是可选的，但**渲染进程正常路径下不传** —— 它存在只为测试与冒烟
+   * （那两处没法点系统对话框）。传了也只是决定"读哪个目录"，读到的内容一律当外来数据校验，
+   * 而写库那一步走的是 saveProfile（唯一的加密入口），不因为路径由谁给而变。
+   */
+  handle(
+    'app:finalshellScan',
+    (opts) => scanFinalShell(opts),
+    z.tuple([z.object({ dir: z.string().max(4096).optional() })])
+  )
+
+  handle(
+    'app:finalshellImport',
+    (opts) => applyFinalShellImport(opts),
+    z.tuple([
+      z.object({
+        token: z.string().min(1).max(200),
+        conflict: z.enum(['skip', 'duplicate'])
       })
     ])
   )

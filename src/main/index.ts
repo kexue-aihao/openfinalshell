@@ -12,6 +12,7 @@ import { registerSnippetIpc } from './ipc/snippet.ipc'
 import { registerSftpIpc } from './ipc/sftp.ipc'
 import { registerMonitorIpc } from './ipc/monitor.ipc'
 import { registerForwardIpc } from './ipc/forward.ipc'
+import { registerHistoryIpc } from './ipc/history.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { forwardManager } from './forward/ForwardManager'
 import { flushForwards } from './store/forwards'
@@ -73,6 +74,7 @@ if (!app.requestSingleInstanceLock()) {
     registerSftpIpc()
     registerMonitorIpc()
     registerForwardIpc()
+    registerHistoryIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，

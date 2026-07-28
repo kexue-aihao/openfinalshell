@@ -87,6 +87,17 @@ CREATE TABLE IF NOT EXISTS forwards (
   json       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_forwards_profile ON forwards(profile_id);
+
+-- 命令历史。**命令原文就是主键** —— 去重是靠它而不是靠查询时 DISTINCT：
+-- 一条 ls 执行一百次只占一行（use_count +1），历史列表不会被高频命令刷满。
+-- 不记 profile_id：命令是跨机器复用的（同一条 systemctl 在哪台上都想再敲一遍），
+-- 按连接切开会让列表在最需要它的时候（换了台机器要重复同一串操作）恰好是空的。
+CREATE TABLE IF NOT EXISTS command_history (
+  command      TEXT PRIMARY KEY,
+  last_used_at INTEGER NOT NULL,
+  use_count    INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_cmd_history_used ON command_history(last_used_at DESC);
 `
 
 let db: DatabaseSync | null = null
