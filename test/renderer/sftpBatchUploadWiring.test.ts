@@ -122,12 +122,18 @@ describe('上传入口只有一个汇合点', () => {
 
   /**
    * 空白处右键也要能上传 —— 分发必须排在"没有目标就返回"之前。
-   * 在 onContextClick 块内找，别撞上 targetsFor 里那句 `if (!target) return []`。
+   *
+   * 只在 onContextClick 块内找就够了：`targetsFor` 里那句 `if (!target) return []`
+   * 在块外。**不许拿 `return\n` 去区分它们** —— 那样匹配就依赖行尾，
+   * 本地 LF 通过、CI 检出成 CRLF 时静默变成 -1（这条护栏第一次上 CI 就是这么红的）。
+   * 改成"块内必须恰好出现一次"，日后真多出一处时它会直接告诉你，而不是悄悄匹配错的那个。
    */
   it('上传分发排在 if (!target) return 之前', () => {
     const body = blockAfter(src, 'const onContextClick =')
+    const bails = body.match(/if \(!target\) return/g) ?? []
+    expect(bails).toHaveLength(1)
     const at = body.indexOf("key === 'uploadFolder'")
-    const bail = body.indexOf('if (!target) return\n')
+    const bail = body.indexOf('if (!target) return')
     expect(at).toBeGreaterThan(0)
     expect(bail).toBeGreaterThan(0)
     expect(at).toBeLessThan(bail)
