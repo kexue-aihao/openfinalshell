@@ -402,6 +402,24 @@ export default {
       blockedDesc: 'These connections still reference it. Change them in the connection editor first, then come back:',
       blockedMore: '…and {{count}} more'
     },
+    update: {
+      idle: 'Not checked',
+      check: 'Check for updates',
+      checking: 'Checking…',
+      upToDate: 'You are on the latest version',
+      availableTag: 'v{{version}} found — downloading in the background',
+      readyTag: 'v{{version}} downloaded — restart to finish',
+      install: 'Restart and install',
+      failed: 'Update check failed',
+      portable: 'The portable build cannot update itself — download the new version from Releases',
+      note: 'New versions download in the background (only the changed parts). **Installing is always your call** — it requires quitting the app, so it never restarts on its own.',
+      confirmTitle: 'Restart and install now?',
+      confirmBody:
+        'Installing quits the app. These will be disconnected: {{sessions}} session(s), {{transfers}} running transfer(s), {{forwards}} port forward(s).',
+      confirmTail:
+        'Transfers are cancelled (partial data stays in .part and can resume later). The app quits and reopens once installed.',
+      confirmOk: 'Disconnect and install'
+    },
     settings: {
       section_general: 'General',
       section_appearance: 'Appearance',
@@ -468,6 +486,9 @@ export default {
       language: 'Language',
       confirmOnCloseTab: 'Confirm before closing a tab',
       confirmOnCloseTabHint: 'Only asks while the session is still connected',
+      autoCheckUpdate: 'Check for updates automatically',
+      autoCheckUpdateHint:
+        'Checks after launch and every 6 hours, downloading new versions in the background (changed parts only). Installing is always your call — it disconnects every session. You can still check manually under About.',
       disableGpu: 'Disable hardware acceleration',
       disableGpuHint: 'Enable if old GPU drivers cause a black screen; needs a restart',
       restartRequired: 'This takes effect after restarting the app',

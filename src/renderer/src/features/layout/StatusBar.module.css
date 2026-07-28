@@ -41,3 +41,12 @@
   background: var(--ofs-bg-hover);
   color: var(--ofs-text-1);
 }
+
+/* 更新就绪的小标记：亮一点、但不抢眼 —— 它不该跟终端里的输出抢注意力 */
+.updateDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ofs-success, #52c41a);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ofs-success, #52c41a) 25%, transparent);
+}

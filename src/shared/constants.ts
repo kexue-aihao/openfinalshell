@@ -153,6 +153,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   disableGpu: false,
   confirmOnCloseTab: true,
   restoreTabsOnLaunch: false,
+  autoCheckUpdate: true,
   terminal: {
     fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
     fontSize: 14,

@@ -16,6 +16,7 @@ import { CommandEditorModal } from '@/features/snippets/CommandEditorModal'
 import { wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
+import { wireUpdateEvents } from '@/stores/useUpdateStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import i18n from '@/i18n'
 
@@ -44,6 +45,7 @@ export default function App(): React.JSX.Element {
     wireTransferEvents()
     wireMonitorEvents()
     wireForwardEvents()
+    wireUpdateEvents()
   }, [init])
 
   const mode: 'dark' | 'light' = useMemo(() => {

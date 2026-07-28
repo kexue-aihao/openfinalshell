@@ -63,3 +63,20 @@ publish:
   provider: github
   owner: kexue-aihao
   repo: openfinalshell
+  # 按架构分 channel。**这一行是自动更新能同时服务两个架构的全部前提。**
+  #
+  # Windows 上 latest.yml 的文件名不带架构后缀 —— app-builder-lib 的
+  # out/publish/updateInfoBuilder.js 里 getArchPrefixForUpdateFile() 只对 Linux 加后缀。
+  # 于是 x64 与 ia32 两个 job 各写一份**同名** latest.yml，合并上传到同一个 Release
+  # 就是静默互相覆盖（download-artifact 的 merge-multiple 后写的赢，gh release 也不报错），
+  # 结果是一半用户拿到的 feed 里 sha512 属于另一个架构。
+  #
+  # publish 配置里的字符串会按架构分别做宏展开（PublishManager.js expandPublishConfig），
+  # 所以这一行让两个 job 各写 latest-x64.yml / latest-ia32.yml，
+  # 并把对应 channel 烧进各自安装包的 app-update.yml —— 客户端无从挑错。
+  #
+  # 另一条路是一次调用给两个架构（那样只写一份含两条 file 的 latest.yml），但会额外
+  # 产出双架构合体包（见上面 win.target 的注释：732MB、耗时翻倍），不划算；
+  # 而且 UpdateFileInfo 结构里没有 arch 字段、排序还把 ia32 排在 x64 前面，
+  # 客户端若是"取第一个 exe"，x64 用户会被静默装上 32 位包。
+  channel: latest-${arch}

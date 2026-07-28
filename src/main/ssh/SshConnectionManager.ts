@@ -137,6 +137,11 @@ class SshConnectionManager {
   closeAll(): void {
     for (const sessionId of [...this.sessions.keys()]) this.close(sessionId)
   }
+
+  /** 活着的会话数。自动更新在装之前要告诉用户"这一下会断掉几条会话" */
+  liveCount(): number {
+    return this.sessions.size
+  }
 }
 
 export const sshManager = new SshConnectionManager()

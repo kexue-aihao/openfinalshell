@@ -6,6 +6,7 @@
 - **改远端配置文件不用下载**：右键打开、语法高亮、`Ctrl+S` 存回去，写回是原子替换并保留权限位
 - **零 native 依赖**：数据库用 Node 内置的 `node:sqlite`、凭据用 Electron 内置的 `safeStorage`，所以 32 位（x86）也有正式安装包
 - **界面层拿不到明文密码**：渲染进程全程 `contextIsolation` + `sandbox`，密码只在保存表单时单向进主进程，之后只剩一个引用
+- **不用卸载、也不用下整包**：应用内自动更新，后台只下变化的部分；**但装不装由你点** —— 这软件里跑着活的 SSH 会话，装更新要退出应用，那一下不该由软件替你决定
 
 MIT 许可 · Windows x64 / ia32 · 简体中文与 English
 
@@ -157,17 +158,28 @@ MIT 许可 · Windows x64 / ia32 · 简体中文与 English
 | `OpenFinalShell-<版本>-x64.exe` | 64 位免安装版 |
 | `OpenFinalShell-<版本>-ia32.exe` | 32 位免安装版 |
 
-同目录的 `SHA256SUMS.txt` 可校验。安装包暂未做代码签名，首次运行可能出现 SmartScreen 提示。macOS / Linux 的构建目标在配置里，但**尚未发布**。
+同目录的 `SHA256SUMS.txt` 可校验（另有 `latest-*.yml` 与 `*.blockmap`，那是自动更新用的元数据，不用手工下载）。安装包暂未做代码签名，首次运行可能出现 SmartScreen 提示。macOS / Linux 的构建目标在配置里，但**尚未发布**。
+
+**升级不用卸载。** 两条路：
+
+- **应用内自动更新**（安装版）：启动后与之后每 6 小时查一次，发现新版就在后台下载
+  （NSIS 差量包，通常只下变化的几 MB），下完在设置 → 关于与状态栏亮一个标记。
+  点「重启并安装」时，若还有活动会话/传输/转发，会先把**具体条数**摆给你看再确认 ——
+  **软件绝不自己重启**。自动检查可以在设置 → 常规里关掉，手动检查按钮照旧可用。
+- **直接盖装**：下新版安装包双击即可，不必先卸载，数据也不会丢
+  （安装器升级时会给旧卸载器传 `--updated`，`deleteAppDataOnUninstall` 那条清理被跳过）。
+
+⚠️ 免安装版**不支持应用内更新**（它没有安装器，装 NSIS 包等于把它变成安装版），只提示去下载。
 
 ## 技术栈
 
 Electron 43 + React 18 + TypeScript · [ssh2](https://github.com/mscdex/ssh2) · [xterm.js](https://xtermjs.org/) · [CodeMirror 6](https://codemirror.net/) · Ant Design 5 · zustand · ECharts
 
-运行时依赖只有三个：`ssh2`、`iconv-lite`、`electron-log`。渲染层的库全是 devDependency，由 Vite 打成一个 bundle。
+运行时依赖四个：`ssh2`、`iconv-lite`、`electron-log`、`electron-updater`。渲染层的库全是 devDependency，由 Vite 打成一个 bundle。
 
 四条贯穿全项目的取向：
 
-- **零 native 硬依赖**。数据落 SQLite 但用的是 Electron/Node 内置的 `node:sqlite`，凭据用内置 `safeStorage`，SOCKS5 自己实现 —— 不引 better-sqlite3 / argon2 / keytar / socksv5。这不是洁癖：`better-sqlite3` 这类原生模块在 32 位上要现编，会直接掐死 x86 产物。
+- **零 native 硬依赖**。数据落 SQLite 但用的是 Electron/Node 内置的 `node:sqlite`，凭据用内置 `safeStorage`，SOCKS5 自己实现 —— 不引 better-sqlite3 / argon2 / keytar / socksv5。这不是洁癖：`better-sqlite3` 这类原生模块在 32 位上要现编，会直接掐死 x86 产物。（`electron-updater` 及它带进来的 16 个传递依赖**全是纯 JS**，这条红线不受影响 —— 变的只是"三个运行时依赖"这个数。）
 - **渲染进程是纯视图**。`contextIsolation` + `sandbox` 全开，ssh2 / fs 只在主进程；能力经 preload 白名单暴露，IPC 入参一律 zod 校验。CSP 是 `script-src 'self'`（无 `unsafe-eval`、无 `blob:`）—— 这也是内置编辑器选 CodeMirror 而不是 Monaco 的决定性原因。
 - **凭据引用（credentialRef）模式**。明文密码只在保存表单时单向进主进程，加密落盘后仅返回一个引用；渲染进程从来拿不到明文，也拿不到冲突检测用的文件基线。
 - **IPC 契约唯一事实来源**是 `src/shared/ipc.ts`，main / preload / renderer 三层都只从那里取 channel 名与类型。
@@ -269,7 +281,7 @@ npm run smoke:packaged
 
 ### 渲染进程的字节预算
 
-渲染层的库全是 devDependency，由 Vite 打成一个 bundle —— 好处是不碰"三个运行时依赖 / 零 native"这条红线，代价是**没人看得见它在长**。`npm run check:bundle` 把它变成一个会报红的事实：JS ≤ 3.3MB、gzip ≤ 950KB、**CSS ≤ 80KB**。
+渲染层的库全是 devDependency，由 Vite 打成一个 bundle —— 好处是不碰"少量运行时依赖 / 零 native"这条红线，代价是**没人看得见它在长**。`npm run check:bundle` 把它变成一个会报红的事实：JS ≤ 3.3MB、gzip ≤ 950KB、**CSS ≤ 80KB**。
 
 三条反空转断言比阈值本身更重要：产物必须真的找到且 > 1MB（路径写错时"0 ≤ 阈值"永远成立）；JS 必须真的被 minify 过；CSS 那条卡得很紧是**故意的** —— 它同时是"编辑器不引入自带样式表"的护栏（Monaco 光 `editor.main.css` 就 412KB）。
 
@@ -351,6 +363,19 @@ git tag v0.2.1 && git push origin v0.2.1
 - **id 不复用**：它的 id 是 16 位随机串，导入后一律换成本项目的 UUID，所以判重只能按
   "主机+端口+用户名"，可选跳过或一律新建。
 - 上级分组不在所选目录里时，那条连接落到根目录并在结果里说明。
+
+**自动更新的边界：**
+
+- **第一次多半是全量。** electron-updater 的差量要拿本机缓存里的旧安装包做基准
+  （`%LOCALAPPDATA%\openfinalshell-updater\`），而"自己去 Releases 下载装的那一版"
+  不在那个缓存里。所以第一次自动更新大概率下整包，之后每一跳才吃到差量。
+- **没有代码签名。** 更新包的可信度靠 HTTPS + `latest-*.yml` 里的 sha512（CI 会在打包后
+  重算一次核对），不靠签名。这与现在"首次运行有 SmartScreen 提示"是同一件事的延续。
+- **32 位装的会一直留在 32 位。** 两个架构各有自己的 feed（`latest-x64.yml` /
+  `latest-ia32.yml`），安装包里烧的是对应那一个 —— 更新器不做架构迁移，想换到 64 位得手工重装。
+- **免安装版不自更新**，只提示。
+- 安装那一下会**断开所有终端会话、取消进行中的传输、停掉端口转发**。这是退出应用的必然结果，
+  所以确认框里会把条数说清楚；传输的已完成部分留在 `.part` 里，下次可以续传。
 
 **命令历史的边界：**
 

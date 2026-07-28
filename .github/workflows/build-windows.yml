@@ -112,10 +112,65 @@ jobs:
             esac
           done
 
+      # 自动更新的元数据。这几条断言比阈值本身重要：
+      # feed 静默指错架构、或者压根没产出，界面上都毫无症状 —— 用户只是永远收不到更新。
+      - name: 断言 update feed 与 blockmap
+        shell: bash
+        run: |
+          cd release
+          arch=${{ matrix.arch }}
+          ver=$(node -p "require('../package.json').version")
+          setup="OpenFinalShell-$ver-setup-$arch.exe"
+
+          # ① 裸 latest.yml 出现 = electron-builder.yml 的 publish.channel 丢了。
+          #    那意味着两个架构的 job 会在 Release 里互相覆盖（静默）。
+          if [ -e latest.yml ]; then
+            echo "::error::出现裸 latest.yml —— publish.channel: latest-\${arch} 没生效"
+            exit 1
+          fi
+          n=$(ls latest-*.yml 2>/dev/null | wc -l)
+          if [ "$n" -ne 1 ] || [ ! -f "latest-$arch.yml" ]; then
+            echo "::error::期望恰好一份 latest-$arch.yml，实际 $n 份：$(ls latest-*.yml 2>/dev/null)"
+            exit 1
+          fi
+
+          # ② feed 只能指向本架构的安装包，且只有一条 file 条目（免安装版不进 feed）
+          if ! grep -q "url: $setup" "latest-$arch.yml"; then
+            echo "::error::latest-$arch.yml 的 url 不是 $setup"; cat "latest-$arch.yml"; exit 1
+          fi
+          files=$(grep -c '^  - url:' "latest-$arch.yml")
+          if [ "$files" -ne 1 ]; then
+            echo "::error::latest-$arch.yml 有 $files 条 file 条目，应为 1"; cat "latest-$arch.yml"; exit 1
+          fi
+          if grep -q 'portable' "latest-$arch.yml"; then
+            echo "::error::免安装版不该进 feed（它装不了，也没有 blockmap）"; exit 1
+          fi
+
+          # ③ sha512 必须与实际文件对得上 —— 差量与全量下载都靠它校验，
+          #    对不上的话客户端下完才失败，而 CI 这里是能提前发现的
+          want=$(grep -m1 'sha512:' "latest-$arch.yml" | sed 's/.*sha512: //')
+          got=$(openssl dgst -sha512 -binary "$setup" | openssl base64 -A)
+          if [ "$want" != "$got" ]; then
+            echo "::error::sha512 不匹配：feed=$want 实际=$got"; exit 1
+          fi
+
+          # ④ 差量下载的前提：安装包的 blockmap 在，且只有一个
+          b=$(ls *.blockmap 2>/dev/null | wc -l)
+          if [ "$b" -ne 1 ] || [ ! -f "$setup.blockmap" ]; then
+            echo "::error::期望恰好 1 个 $setup.blockmap，实际 $b 个：$(ls *.blockmap 2>/dev/null)"
+            exit 1
+          fi
+          cat "latest-$arch.yml"
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
-          path: release/*.exe
+          # 除了 exe，自动更新还要 feed 与 blockmap。少了它们客户端根本查不到新版本，
+          # 而这两样此前一直被生成、又一直被丢掉。
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest-*.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -130,6 +185,24 @@ jobs:
           pattern: windows-*
           merge-multiple: true
           path: dist
+
+      # download-artifact 的 merge-multiple 会让同名文件后写的赢（静默）。
+      # 上一步的 per-arch 断言看不到这一层，所以合并后必须再断一次。
+      - name: 断言合并后的产物集合
+        run: |
+          cd dist
+          ls -l
+          [ "$(ls *.exe | wc -l)" -eq 4 ] || { echo "::error::期望 4 个 exe"; exit 1; }
+          [ "$(ls *.exe.blockmap | wc -l)" -eq 2 ] || { echo "::error::期望 2 个 blockmap"; exit 1; }
+          test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
+          test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
+          if [ -e latest.yml ]; then
+            echo "::error::出现裸 latest.yml —— 两个架构的 feed 互相覆盖了"; exit 1
+          fi
+          # 两份 feed 必须各自指向自己的架构，交叉了就是 32 位用户装 64 位包
+          grep -q 'setup-x64.exe' latest-x64.yml || { echo "::error::latest-x64.yml 没指向 x64 包"; exit 1; }
+          grep -q 'setup-ia32.exe' latest-ia32.yml || { echo "::error::latest-ia32.yml 没指向 ia32 包"; exit 1; }
+          grep -H 'url:' latest-*.yml
 
       # 安装包没有代码签名，校验和是用户确认完整性的唯一手段
       - name: 生成校验和
@@ -153,6 +226,9 @@ jobs:
           | `*-portable-ia32.exe` | 32 位（x86）免安装 |
 
           安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
+
+          > `latest-*.yml` 与 `*.blockmap` 是**应用内自动更新**用的元数据，不用手工下载。
+          > 其中 blockmap 让下一版只下载变化的部分，所以历史版本的这两个文件不会删。
 
           > 安装包**未做代码签名**，首次运行 Windows SmartScreen 可能提示"未知发布者"，
           > 点"更多信息 → 仍要运行"即可。可用 `SHA256SUMS.txt` 校验文件完整性。
@@ -179,7 +255,7 @@ jobs:
           # v0.1.0-rc1 这类带后缀的 tag 视为预发布
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/*.exe dist/SHA256SUMS.txt \
+            dist/*.exe dist/*.exe.blockmap dist/latest-*.yml dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "OpenFinalShell $GITHUB_REF_NAME" \
             --notes-file notes.md \

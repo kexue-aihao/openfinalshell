@@ -391,6 +391,23 @@ export default {
       blockedDesc: '下面这些连接正在引用它。请先在连接编辑里改掉，再回来删除：',
       blockedMore: '…另有 {{count}} 条'
     },
+    update: {
+      idle: '未检查',
+      check: '检查更新',
+      checking: '正在检查…',
+      upToDate: '已是最新版本',
+      availableTag: '发现新版本 v{{version}}，正在后台下载',
+      readyTag: 'v{{version}} 已下载，重启即可完成更新',
+      install: '重启并安装',
+      failed: '检查更新失败',
+      portable: '免安装版不支持应用内更新，请到 Releases 下载新版覆盖',
+      note: '自动检查到新版本后会在后台下载（只下变化的部分）。**装不装由你点** —— 安装需要退出应用，所以绝不会自己重启。',
+      confirmTitle: '现在重启并安装更新？',
+      confirmBody:
+        '安装需要退出应用，这些会被断开：{{sessions}} 条会话、{{transfers}} 个进行中的传输、{{forwards}} 条端口转发。',
+      confirmTail: '传输任务会被取消（已完成的部分保留 .part，下次可续传）。确认后应用会退出、装完自动重新打开。',
+      confirmOk: '断开并安装'
+    },
     settings: {
       section_general: '常规',
       section_appearance: '外观',
@@ -452,6 +469,9 @@ export default {
       language: '界面语言',
       confirmOnCloseTab: '关闭标签前确认',
       confirmOnCloseTabHint: '仅在会话仍连接时询问',
+      autoCheckUpdate: '自动检查更新',
+      autoCheckUpdateHint:
+        '启动后与之后每 6 小时查一次，发现新版就在后台下载（只下变化的部分）。安装永远要你自己点 —— 那一下会断开所有会话。关掉后仍可在「关于」里手动检查。',
       disableGpu: '禁用硬件加速',
       disableGpuHint: '老显卡驱动出现黑屏时开启；需重启应用',
       restartRequired: '该设置将在重启应用后生效',

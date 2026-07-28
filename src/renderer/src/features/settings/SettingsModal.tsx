@@ -26,6 +26,7 @@ import { terminalThemes } from '@/themes/terminal'
 import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
 import { SavedRefsPanel } from './SavedRefsPanel'
+import { UpdatePanel } from './UpdatePanel'
 import { TerminalPreview } from './TerminalPreview'
 import { SHORTCUTS } from './shortcuts'
 import styles from './SettingsModal.module.css'
@@ -161,6 +162,12 @@ export function SettingsModal(): React.JSX.Element {
                 <Switch
                   checked={settings.confirmOnCloseTab}
                   onChange={(v) => set('confirmOnCloseTab', v)}
+                />
+              </Row>
+              <Row label={t('settings.autoCheckUpdate')} hint={t('settings.autoCheckUpdateHint')}>
+                <Switch
+                  checked={settings.autoCheckUpdate}
+                  onChange={(v) => set('autoCheckUpdate', v)}
                 />
               </Row>
               <Row label={t('settings.disableGpu')} hint={t('settings.disableGpuHint')}>
@@ -481,6 +488,7 @@ export function SettingsModal(): React.JSX.Element {
               <Typography.Paragraph type="secondary" style={{ marginTop: 12, textAlign: 'center' }}>
                 {t('welcome.subtitle')}
               </Typography.Paragraph>
+              <UpdatePanel />
               <Button
                 type="link"
                 onClick={() =>

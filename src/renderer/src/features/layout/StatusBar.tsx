@@ -6,6 +6,8 @@ import { ofs } from '@/ipc/api'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useTransferStore } from '@/stores/useTransferStore'
+import { useUpdateStore } from '@/stores/useUpdateStore'
+import { useUiStore } from '@/stores/useUiStore'
 import { formatSpeed } from '@/utils/format'
 import styles from './StatusBar.module.css'
 
@@ -18,6 +20,9 @@ export function StatusBar(): React.JSX.Element {
   const tasks = useTransferStore((s) => s.tasks)
   const setDrawerOpen = useTransferStore((s) => s.setDrawerOpen)
   const [versions, setVersions] = useState<AppVersions | null>(null)
+  const update = useUpdateStore((s) => s.state)
+  const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
+  const ready = update?.status === 'downloaded'
 
   useEffect(() => {
     void ofs.invoke('app:getVersions').then(setVersions)
@@ -57,7 +62,17 @@ export function StatusBar(): React.JSX.Element {
       )}
       {profile && <span className={styles.item}>{profile.terminal.charset.toUpperCase()}</span>}
       {versions && (
-        <span className={`${styles.item} tabular-nums`}>
+        /*
+         * 更新就绪时整条变成可点的 —— 点开设置页的「关于」，那儿才有「重启并安装」。
+         * 刻意不弹气泡：这个窗口里已经有终端、监控、传输三处在动，
+         * 再冒一个"有新版"的浮层只会盖住用户正在看的东西。
+         */
+        <span
+          className={`${styles.item} tabular-nums ${ready ? styles.clickable : ''}`}
+          onClick={ready ? () => setSettingsOpen(true) : undefined}
+          title={ready ? t('update.readyTag', { version: update?.version ?? '' }) : undefined}
+        >
+          {ready && <span className={styles.updateDot} />}
           {t('status.version')} {versions.app}
         </span>
       )}

@@ -530,6 +530,11 @@ export function createMockOfs(): OfsApi {
       mockHistory.length = 0
     },
 
+    // 浏览器调试模式没有 autoUpdater，恒定报"已是最新" —— 免安装那条分支要真产物才验得到
+    'update:check': () => ({ status: 'none' as const, current: '0.1.0-mock' }),
+    'update:download': () => {},
+    'update:install': () => ({ error: '浏览器调试模式不支持安装更新' }),
+
     // 已保存的代理与私钥：预置各一条，好让连接抽屉里那两个下拉框在浏览器里就有东西可选
     'proxy:list': () => mockProxies,
     'proxy:save': (draft: never) => {

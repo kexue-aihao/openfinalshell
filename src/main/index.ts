@@ -14,6 +14,7 @@ import { registerMonitorIpc } from './ipc/monitor.ipc'
 import { registerForwardIpc } from './ipc/forward.ipc'
 import { registerHistoryIpc } from './ipc/history.ipc'
 import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
+import { registerUpdateIpc } from './ipc/update.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { forwardManager } from './forward/ForwardManager'
 import { flushForwards } from './store/forwards'
@@ -26,6 +27,7 @@ import { flushSnippets } from './store/snippets'
 import { flushKnownHosts } from './ssh/hostkeys'
 import { vault } from './store/Vault'
 import { createMainWindow } from './window'
+import { startUpdateChecks, stopUpdateChecks } from './services/updater'
 
 initLogger()
 
@@ -88,6 +90,7 @@ if (!app.requestSingleInstanceLock()) {
     registerForwardIpc()
     registerHistoryIpc()
     registerSavedRefsIpc()
+    registerUpdateIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
@@ -108,6 +111,9 @@ if (!app.requestSingleInstanceLock()) {
     const win = createMainWindow()
     bindMainWindow(win)
 
+    // 更新检查排在建窗之后：它要往窗口推状态事件，而且延迟 10 秒才真的查
+    startUpdateChecks()
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         bindMainWindow(createMainWindow())
@@ -120,6 +126,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('before-quit', () => {
+    stopUpdateChecks()
     transferQueue.cancelAll()
     monitorManager.stopAll()
     forwardManager.stopAll()

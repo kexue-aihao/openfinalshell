@@ -99,3 +99,23 @@ body {
     animation: none !important;
   }
 }
+
+/* 设置 → 关于里更新那一行 */
+.ofs-update-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 下拉框底部的「新建…」入口（代理与私钥两处共用） */
+.ofs-select-footer {
+  padding: 6px 12px;
+  border-top: 1px solid var(--ofs-border);
+}
+
+/* 弱化的辅助说明（选中的代理/私钥的地址与路径） */
+.ofs-dim {
+  color: var(--ofs-text-3);
+  font-size: 11px;
+}

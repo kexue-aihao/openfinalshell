@@ -40,4 +40,4 @@ Windows PowerShell 5.1 向原生程序传参时，字符串内的 `"` 会破坏�
 
 - 构建：`npm run dev`（electron-vite HMR）、`npm run build`、`npm run typecheck`
 - 结构：`src/shared`（IPC 契约唯一事实来源）/ `src/main`（全部 SSH/SFTP/监控/转发逻辑）/ `src/preload` / `src/renderer`
-- 安全红线：contextIsolation + sandbox；凭据走 Vault(safeStorage) credentialRef 模式，明文永不回传 renderer；零 native 硬依赖
+- 安全红线：contextIsolation + sandbox；凭据走 Vault(safeStorage) credentialRef 模式，明文永不回传 renderer；零 native 硬依赖（运行时依赖四个，全无 native）

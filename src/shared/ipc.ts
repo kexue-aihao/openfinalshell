@@ -20,6 +20,8 @@ import type {
   SavedPrivateKeyDraft,
   SavedProxy,
   SavedProxyDraft,
+  UpdateInstallResult,
+  UpdateState,
   FinalShellImportOptions,
   FinalShellImportResult,
   FinalShellScan,
@@ -208,6 +210,17 @@ export interface InvokeMap {
   'forward:delete': { args: [ForwardId]; result: void }
   'forward:control': { args: [{ forwardId: ForwardId; sessionId: SessionId; op: 'start' | 'stop' }]; result: void }
 
+  // --- 自动更新 ---
+  /** 手动检查一次（自动检查在 main 侧按时钟跑，不经这条） */
+  'update:check': { args: []; result: UpdateState }
+  'update:download': { args: []; result: void }
+  /**
+   * 装更新。`force=false` 时若有活动会话/传输/转发，**一个字节都不装**，
+   * 回一份 `needsConfirm` 让界面去问 —— 与内置编辑器保存那三道闸门同一套思路：
+   * 数字由 main 算（它才是这些东西的持有者），界面负责问，确认后带 force 再来一次。
+   */
+  'update:install': { args: [{ force: boolean }]; result: UpdateInstallResult }
+
   // --- 已保存的代理 / 私钥（被连接引用的可复用实体） ---
   'proxy:list': { args: []; result: SavedProxy[] }
   'proxy:save': { args: [SavedProxyDraft]; result: SavedProxy }
@@ -272,6 +285,8 @@ export interface EventMap {
   'monitor:state': { sessionId: SessionId; state: MonitorState; error?: string }
   'forward:state': { runtime: ForwardRuntime }
   'settings:changed': AppSettings
+  /** 更新器状态（checking / available / downloading 进度 / downloaded / error） */
+  'update:state': UpdateState
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +307,7 @@ export const CHANNEL_PREFIXES = [
   'history:',
   'proxy:',
   'key:',
+  'update:',
   'snippet:',
   'snippetGroup:'
 ] as const

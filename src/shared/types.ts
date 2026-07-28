@@ -511,6 +511,14 @@ export interface AppSettings {
   disableGpu: boolean
   confirmOnCloseTab: boolean
   restoreTabsOnLaunch: boolean
+  /**
+   * 自动检查更新（启动后 10 秒一次，之后每 6 小时）。默认开。
+   *
+   * 关掉只停止**自动**检查，设置页里的「检查更新」按钮照旧可用。
+   * 下载是自动的、**安装永远要用户点** —— 这个软件里跑着活的 SSH 会话，
+   * 装更新必然要退出应用，那一下不能由软件替用户决定。
+   */
+  autoCheckUpdate: boolean
   terminal: {
     fontFamily: string
     fontSize: number
@@ -702,6 +710,52 @@ export interface FinalShellImportResult {
   secrets: number
   notes: string[]
 }
+
+// ---------- 自动更新 ----------
+/**
+ * 更新器的状态。`unsupported` 专门给**免安装版**：它的 resources 里也带着
+ * `app-update.yml`（nsis 与 portable 共享同一个 win-unpacked），如果不拦住，
+ * 免安装用户会被下载一个 NSIS 安装包并装到 `%LOCALAPPDATA%` —— 等于把他悄悄变成安装版。
+ */
+export type UpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'none'
+  | 'error'
+  | 'unsupported'
+
+export interface UpdateState {
+  status: UpdateStatus
+  /** 当前版本，界面一处显示 */
+  current: string
+  /** 新版本号（available / downloading / downloaded 时有） */
+  version?: string
+  /** 下载进度百分比 */
+  percent?: number
+  transferred?: number
+  total?: number
+  error?: string
+}
+
+/**
+ * 安装前要告诉用户的代价。**装更新必然要退出应用**，而退出就断掉所有
+ * 终端会话、传输任务与端口转发 —— 这是这个软件与普通桌面应用最大的不同，
+ * 所以数字由 main 侧算（它才是这些东西的唯一持有者），不让渲染进程猜。
+ */
+export interface UpdateActivity {
+  sessions: number
+  transfers: number
+  forwards: number
+}
+
+/** `update:install` 的结果：要么真的开始装，要么先回一份"会断掉什么"等用户确认 */
+export type UpdateInstallResult =
+  | { installing: true }
+  | { needsConfirm: UpdateActivity }
+  | { error: string }
 
 // ---------- known hosts ----------
 export interface KnownHostEntry {
