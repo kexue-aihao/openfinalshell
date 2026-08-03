@@ -9,7 +9,7 @@ import type { SessionTab } from '@/stores/useSessionStore'
 import { EChart } from '@/components/EChart'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { formatBytes, formatDuration } from '@/utils/format'
-import { areaOption, dualLineOption } from './charts'
+import { areaOption, dualLineOption, latencyBarOption, latencyColor } from './charts'
 import styles from './MonitorPanel.module.css'
 
 interface Props {
@@ -47,7 +47,9 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, tab.state, tab.shellEpoch])
 
-  const history = sessionId ? historyOf(sessionId) : { cpu: [], memPct: [], rxBps: [], txBps: [] }
+  const history = sessionId
+    ? historyOf(sessionId)
+    : { cpu: [], memPct: [], rxBps: [], txBps: [], latencyMs: [] }
 
   const cpuOption = useMemo(
     () => areaOption([...history.cpu], accent),
@@ -64,6 +66,11 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
     () => dualLineOption([...history.rxBps], [...history.txBps], accent, '#faad14', formatBytes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [snapshot?.ts, accent]
+  )
+  const latencyOption = useMemo(
+    () => latencyBarOption([...history.latencyMs]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot?.ts]
   )
 
   const header = (
@@ -190,6 +197,20 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
           </div>
           <EChart option={netOption} height={48} />
         </div>
+
+        {/* 延迟：既有采集通道的往返毫秒（写帧 → 首见 BEGIN 哨兵），不另开连接 */}
+        {snapshot.latencyMs !== undefined && (
+          <div className={styles.card}>
+            <div className={styles.cardHead}>
+              <span className={styles.cardHeadTitle}>{t('monitor.latency')}</span>
+            </div>
+            <div className={styles.bigNumber} style={{ color: latencyColor(snapshot.latencyMs) }}>
+              {snapshot.latencyMs}
+              <span className={styles.unit}>ms</span>
+            </div>
+            <EChart option={latencyOption} height={40} />
+          </div>
+        )}
 
         {/* 连接数。措辞上要分清：UDP 是无连接的，/proc/net/udp 列的是**已打开的套接字** */}
         {snapshot.conns && (

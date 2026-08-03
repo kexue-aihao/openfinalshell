@@ -8,6 +8,7 @@ import {
   parseMeminfo,
   parseNetDev,
   parseProcStat,
+  parsePsAux,
   parsePsTop,
   parseSockstat,
   parseStaticInfo,
@@ -230,6 +231,67 @@ describe('parsePsTop', () => {
 
   it('畸形输出返回空数组', () => {
     expect(parsePsTop('ps: command not found')).toEqual([])
+  })
+})
+
+describe('parsePsAux（procps -eo --sort 不可用时的回落）', () => {
+  it('完整 aux 格式（BSD/无 --sort 的 procps）', () => {
+    // 真实列序：USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+    const text = `root      1234 45.2  3.1 123456 45678 ?  Ssl  10:00 1:23 /usr/bin/node server.js
+www-data  2345 12.0  1.5  98765 12345 ?  S    10:01 0:12 nginx: worker process`
+    const procs = parsePsAux(text)
+    expect(procs).toHaveLength(2)
+    expect(procs[0]).toEqual({ pid: 1234, cpuPct: 45.2, memPct: 3.1, name: '/usr/bin/node server.js' })
+    expect(procs[1].name).toBe('nginx: worker process')
+  })
+
+  it('USER 是纯数字 uid 时仍按 aux 列序解析（容器里常见）', () => {
+    const text = `1000      4321  5.0  0.8 123456 45678 ?  S  10:00 0:01 python3 app.py --port 8080`
+    const procs = parsePsAux(text)
+    expect(procs).toEqual([{ pid: 4321, cpuPct: 5, memPct: 0.8, name: 'python3 app.py --port 8080' }])
+  })
+
+  it('OpenWrt 非 DESKTOP BusyBox 格式（PID USER VSZ STAT COMMAND）——功能点名要救的就是它', () => {
+    // 真实形态：VSZ 可为 0（内核线程）或带 m 后缀；STAT 可带修饰（SW / S<）
+    const text = `    1 root      1420 S    /sbin/procd
+    3 root         0 SW   [ksoftirqd/0]
+  801 nobody     129m S<   /usr/sbin/nginx -g daemon off;`
+    const procs = parsePsAux(text)
+    expect(procs).toHaveLength(3)
+    expect(procs.map((p) => p.pid).sort((a, b) => a - b)).toEqual([1, 3, 801])
+    expect(procs.find((p) => p.pid === 1)?.name).toBe('/sbin/procd')
+    expect(procs.find((p) => p.pid === 3)?.name).toBe('[ksoftirqd/0]')
+    // 带 m 后缀的 VSZ 不许误入 TIME 分支把 STAT 粘进进程名
+    expect(procs.find((p) => p.pid === 801)?.name).toBe('/usr/sbin/nginx -g daemon off;')
+    expect(procs.every((p) => p.cpuPct === 0 && p.memPct === 0)).toBe(true)
+  })
+
+  it('BusyBox 格式（PID USER TIME COMMAND）：CPU/MEM 给 0 而不是编数字', () => {
+    const text = `    1 root      0:03 /sbin/init
+  742 root      0:00 /usr/sbin/dropbear -R
+  801 nobody    1:02 nginx: worker process`
+    const procs = parsePsAux(text)
+    expect(procs).toHaveLength(3)
+    expect(procs.map((p) => p.pid).sort()).toEqual([1, 742, 801])
+    expect(procs.every((p) => p.cpuPct === 0 && p.memPct === 0)).toBe(true)
+    expect(procs.find((p) => p.pid === 801)?.name).toBe('nginx: worker process')
+  })
+
+  it('表头行天然过不了数字校验，无需特判', () => {
+    const withHeader = `USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+root 1 0.1 0.2 100 200 ? Ss 10:00 0:01 /sbin/init`
+    expect(parsePsAux(withHeader)).toHaveLength(1)
+    expect(parsePsAux('PID   USER     TIME  COMMAND')).toEqual([])
+  })
+
+  it('结果按 CPU 降序收尾（服务器侧 sort 在 BusyBox 上排不出正确顺序）', () => {
+    const text = `root  10  1.0 0.1 100 200 ? S 10:00 0:01 low
+root  20 99.0 0.5 100 200 ? R 10:00 9:59 high`
+    expect(parsePsAux(text).map((p) => p.name)).toEqual(['high', 'low'])
+  })
+
+  it('畸形输出返回空数组', () => {
+    expect(parsePsAux('ps: unrecognized option: e')).toEqual([])
   })
 })
 

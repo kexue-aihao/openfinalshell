@@ -15,7 +15,8 @@ import type {
   Snippet,
   SnippetGroup,
   TransferEnqueueItem,
-  TransferTask
+  TransferTask,
+  TrustedHostkey
 } from '@shared/types'
 
 /**
@@ -46,6 +47,25 @@ export function createMockOfs(): OfsApi {
   const mockHistory: CommandHistoryEntry[] = [
     { command: 'systemctl status nginx', lastUsedAt: Date.now() - 60_000, useCount: 3 },
     { command: 'tail -f /var/log/nginx/error.log', lastUsedAt: Date.now() - 120_000, useCount: 1 }
+  ]
+  /** 假已信任主机：一条 IPv4 + 一条 IPv6，撤销交互在浏览器里可直接调 */
+  const mockKnownHosts: TrustedHostkey[] = [
+    {
+      key: '192.168.1.10:22:ssh-ed25519',
+      host: '192.168.1.10',
+      port: 22,
+      keyType: 'ssh-ed25519',
+      fingerprintSha256: 'SHA256:mockmockmockmockmockmockmockmockmockmockmoc',
+      addedAt: Date.now() - 86_400_000
+    },
+    {
+      key: '::1:2222:rsa-sha2-512',
+      host: '::1',
+      port: 2222,
+      keyType: 'rsa-sha2-512',
+      fingerprintSha256: 'SHA256:v6demov6demov6demov6demov6demov6demov6demov',
+      addedAt: Date.now() - 3_600_000
+    }
   ]
   const mockProxies: SavedProxy[] = [
     {
@@ -246,7 +266,10 @@ export function createMockOfs(): OfsApi {
                   TIME_WAIT: 3 + Math.round(wave(6, 5)),
                   CLOSE_WAIT: 1
                 }
-              : undefined
+              : undefined,
+          // wave 内部钳在 [0,100]，直接用永远到不了红档（≥200）——乘出去让三档配色
+          // （<100 绿 / <200 黄 / 其余红）都能在浏览器里周期性看到
+          latencyMs: Math.round(wave(45, 45) * 3)
         }
       })
     }
@@ -476,6 +499,11 @@ export function createMockOfs(): OfsApi {
       const copy = { ...structuredClone(src), id: crypto.randomUUID(), name: `${src.name} (副本)` }
       profiles.push(copy)
       return copy
+    },
+    'conn:knownHosts': () => mockKnownHosts.slice(),
+    'conn:knownHostsDelete': (key: never) => {
+      const idx = mockKnownHosts.findIndex((x) => x.key === (key as unknown as string))
+      if (idx >= 0) mockKnownHosts.splice(idx, 1)
     },
     'group:save': (group: never) => {
       const g = group as unknown as ConnectionGroup

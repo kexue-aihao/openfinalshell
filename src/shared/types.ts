@@ -509,6 +509,12 @@ export interface MonitorSnapshot {
    * 缺文件/缺 awk/超时一律当"没这份明细"，不影响总数、更不许把面板打成 failed。
    */
   tcpStates?: Record<string, number>
+  /**
+   * 本机 ↔ 服务器的通道往返毫秒：采集帧写入到首见 BEGIN 哨兵回显的耗时。
+   * 走的是既有 SSH 通道，不另开连接（反复 TCP 探 22 端口会刷 sshd 日志）。
+   * 打点尚未发生（首帧之前）时缺失。
+   */
+  latencyMs?: number
 }
 
 export type MonitorState = 'running' | 'failed' | 'unsupported' | 'stopped'
@@ -832,6 +838,17 @@ export type UpdateInstallResult =
 
 // ---------- known hosts ----------
 export interface KnownHostEntry {
+  keyType: string
+  fingerprintSha256: string
+  addedAt: number
+}
+
+/** 「已信任主机」管理面板的行（known_hosts 表一行 + 从主键拆出的展示字段） */
+export interface TrustedHostkey {
+  /** 表主键 "host:port:keyType"，撤销信任时原样回传 */
+  key: string
+  host: string
+  port: number
   keyType: string
   fingerprintSha256: string
   addedAt: number

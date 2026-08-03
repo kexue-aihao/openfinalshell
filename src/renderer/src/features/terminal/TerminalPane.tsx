@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Spin } from 'antd'
 import { Activity, Eraser, FolderTree, History, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { DEFAULT_SETTINGS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
 import { ofs } from '@/ipc/api'
 import { useHistoryStore } from '@/stores/useHistoryStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -74,6 +75,26 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     ofs.send('term:input', { termId, data })
   }, [])
 
+  /**
+   * 调字号：不直接改本实例的 term.options，而是写回设置 ——
+   * 所有 tab 经"字体热更新" effect 同步生效，且随设置持久化。
+   * 钳制范围与设置面板的 InputNumber 是同一份常量。
+   */
+  const setFontSize = useCallback((next: number): void => {
+    const store = useSettingsStore.getState()
+    const terminal = store.settings?.terminal
+    if (!terminal) return
+    const clamped = Math.min(TERM_FONT_SIZE_MAX, Math.max(TERM_FONT_SIZE_MIN, next))
+    if (clamped !== terminal.fontSize) store.patch({ terminal: { ...terminal, fontSize: clamped } })
+  }, [])
+  const adjustFontSize = useCallback(
+    (delta: number): void => {
+      const cur = useSettingsStore.getState().settings?.terminal.fontSize
+      if (cur !== undefined) setFontSize(cur + delta)
+    },
+    [setFontSize]
+  )
+
   const pasteFromClipboard = useCallback(async (): Promise<void> => {
     const text = await navigator.clipboard.readText().catch(() => '')
     if (!text || !termIdRef.current) return
@@ -140,6 +161,28 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         return false
       }
       /*
+       * Ctrl+= / Ctrl+- / Ctrl+0 调字号（与 Ctrl+滚轮同一条通路）。
+       * 用 ev.key 而不是 code：数字键盘的 +/- 也该生效。
+       * 两条刻意的排除：Ctrl+Shift+-（key 为 '_'）是 readline 的 undo（0x1F），不许抢；
+       * '+' 不排 shift —— 多数布局 '+' 本来就要按 shift 才打得出。
+       */
+      if (ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+        if (ev.key === '=' || ev.key === '+') {
+          adjustFontSize(1)
+          return false
+        }
+        if (ev.key === '-' && !ev.shiftKey) {
+          adjustFontSize(-1)
+          return false
+        }
+        // '0' 不排 shift：法语 AZERTY 等布局的数字本来就要按 Shift 才打得出，
+        // 而美式布局 Ctrl+Shift+0 产生的 key 是 ')'，根本到不了这个分支 —— 排了纯属误伤
+        if (ev.key === '0') {
+          setFontSize(DEFAULT_SETTINGS.terminal.fontSize)
+          return false
+        }
+      }
+      /*
        * 命令历史采集的第二半：回车**按下**的这一刻，shell 还没处理它，
        * 屏幕上那一行就是即将执行的命令。切法与三道守卫都在 commandCapture.ts。
        *
@@ -163,6 +206,30 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       return true
     })
 
+    // Ctrl+滚轮调字号。capture 阶段接：xterm 自己的 viewport wheel 监听在后代节点上，
+    // 不截住的话按着 Ctrl 滚动还会同时滚缓冲区。
+    // deltaY 必须累积成"格"再走步：分立滚轮每格一个 ±100/120 的事件，一格一步没问题；
+    // 精密触控板/捏合被 Chromium 合成为每秒几十个小 deltaY 的 ctrl+wheel 事件，
+    // 按事件计步的话一次轻扫就把字号打到 8/32 端点，顺带几十次 settings 落库 + 全终端 refit
+    let wheelAcc = 0
+    const onWheel = (ev: WheelEvent): void => {
+      if (!ev.ctrlKey || ev.deltaY === 0) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      // 方向反转时旧余量作废，否则上一手势剩的零头会吃掉反方向的第一步
+      if (Math.sign(ev.deltaY) !== Math.sign(wheelAcc)) wheelAcc = 0
+      // DOM_DELTA_LINE（少见）约 3 行一格；像素模式按 100px 一格。
+      // 累加原始 delta、走步时才除 —— 先除后加的话 0.1×10 是 0.999…，恰好整格的手势走不了步
+      const unit = ev.deltaMode === WheelEvent.DOM_DELTA_LINE ? 3 : 100
+      wheelAcc += ev.deltaY
+      const steps = Math.trunc(wheelAcc / unit)
+      if (steps !== 0) {
+        wheelAcc -= steps * unit
+        adjustFontSize(-steps) // deltaY 向上为负 = 放大
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false, capture: true })
+
     let raf = 0
     let timer: ReturnType<typeof setTimeout> | null = null
     const observer = new ResizeObserver(() => {
@@ -174,6 +241,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     observer.observe(el)
 
     return () => {
+      el.removeEventListener('wheel', onWheel, { capture: true })
       observer.disconnect()
       if (timer) clearTimeout(timer)
       cancelAnimationFrame(raf)
@@ -261,6 +329,19 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       bundle.term.options.theme = resolveTerminalTheme(settings.terminal.themeId, uiMode)
     }
   }, [uiMode, settings.terminal.themeId])
+
+  // ---- 字体热更新：设置改了要作用于**已开的**终端，不是只影响下一个 tab ----
+  useEffect(() => {
+    const bundle = bundleRef.current
+    if (!bundle) return
+    const t = settings.terminal
+    const opts = bundle.term.options
+    if (opts.fontSize !== t.fontSize) opts.fontSize = t.fontSize
+    if (opts.fontFamily !== t.fontFamily) opts.fontFamily = t.fontFamily
+    if (opts.lineHeight !== t.lineHeight) opts.lineHeight = t.lineHeight
+    // cell 尺寸变了：refit 并把新 cols/rows 通知 PTY（sendResize 内部只在真变时 invoke）
+    sendResize()
+  }, [settings.terminal.fontSize, settings.terminal.fontFamily, settings.terminal.lineHeight, sendResize])
 
   const connecting = tab.state === 'connecting' || tab.state === 'authenticating'
   const reconnecting = tab.state === 'reconnecting'

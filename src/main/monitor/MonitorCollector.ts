@@ -16,6 +16,7 @@ import {
   parseMeminfo,
   parseNetDev,
   parseProcStat,
+  parsePsAux,
   parsePsTop,
   parseSockstat,
   parseStaticInfo,
@@ -26,7 +27,7 @@ import {
   type DiskCounters,
   type IfaceCounters
 } from './parsers'
-import { buildFrame, buildStaticFrame, splitSections } from './script'
+import { buildFrame, buildStaticFrame, SENTINEL, splitSections } from './script'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('monitor')
@@ -65,6 +66,14 @@ export class MonitorCollector {
   private failures = 0
   private intervalMs = MONITOR_DEFAULT_INTERVAL_MS
   private hasTimeoutCmd = false
+  /** procps 的 `-eo --sort` 是否可用；探测前按可用处理（等于今天的既有行为） */
+  private hasPsSort = true
+  /**
+   * 最近一次帧首哨兵回显的往返毫秒。帧首那句 `echo BEGIN` 服务器收到即回显，
+   * 写入→首见 BEGIN ≈ 一个 SSH 通道往返 —— 不必像 pixshell 那样反复对 22 端口
+   * 开 TCP 连接测延迟（那会刷一屏 sshd 的 "did not receive identification string"）。
+   */
+  private lastLatencyMs: number | null = null
   private stopped = false
   private lastDfTick = -MONITOR_DF_EVERY_N_TICKS
   private lastDiskFs: MonitorSnapshot['diskFs'] = null
@@ -120,6 +129,8 @@ export class MonitorCollector {
       return null
     }
     this.hasTimeoutCmd = (sections.get('HASTIMEOUT') ?? '').includes('yes')
+    // 段缺失（不该发生）时保持 procps 路径 —— 与探测机制上线前的行为一致
+    this.hasPsSort = (sections.get('HASPSSORT') ?? 'yes').includes('yes')
     return parseStaticInfo({
       uname,
       hostname: sections.get('HOSTNAME') ?? '',
@@ -133,7 +144,7 @@ export class MonitorCollector {
   private request(script: string, seq: number): Promise<string | null> {
     return new Promise((resolve) => {
       if (!this.channel) return resolve(null)
-      this.pendingFrame = { seq, resolve }
+      this.pendingFrame = { seq, resolve, writtenAt: Date.now(), beginSeen: false }
       this.frameTimer = setTimeout(() => {
         if (this.pendingFrame?.seq === seq) {
           this.pendingFrame = null
@@ -145,12 +156,27 @@ export class MonitorCollector {
     })
   }
 
-  private pendingFrame: { seq: number; resolve: (body: string | null) => void } | null = null
+  private pendingFrame: {
+    seq: number
+    resolve: (body: string | null) => void
+    /** 延迟打点：channel.write 的时刻 */
+    writtenAt: number
+    /** BEGIN 哨兵只打一次点（后续 chunk 不再扫） */
+    beginSeen: boolean
+  } | null = null
 
   private onData(chunk: Buffer): void {
     this.buffer += chunk.toString('utf8')
     // 缓冲上限保护：畸形输出时不无限增长
     if (this.buffer.length > 4 * 1024 * 1024) this.buffer = this.buffer.slice(-1024 * 1024)
+
+    // 延迟打点：首见本帧 BEGIN 哨兵即记一次往返。只在还没见到时扫（帧首 chunk 就会命中，
+    // 后续 chunk 走的是 boolean 短路，不会在 4MB 缓冲上反复 indexOf）
+    const pending = this.pendingFrame
+    if (pending && !pending.beginSeen && this.buffer.includes(SENTINEL.begin(pending.seq))) {
+      pending.beginSeen = true
+      this.lastLatencyMs = Date.now() - pending.writtenAt
+    }
 
     const match = FRAME_RE.exec(this.buffer)
     if (!match) return
@@ -178,7 +204,7 @@ export class MonitorCollector {
     const withPs = withDf // 与 df 同 tick，摊平重命令开销
 
     void this.request(
-      buildFrame(seq, { withDf, withPs, hasTimeout: this.hasTimeoutCmd }),
+      buildFrame(seq, { withDf, withPs, hasTimeout: this.hasTimeoutCmd, hasPsSort: this.hasPsSort }),
       seq
     ).then((body) => {
       if (body === null) {
@@ -263,7 +289,8 @@ export class MonitorCollector {
             : 0
         }
       }),
-      topProcs: psText ? parsePsTop(psText) : undefined
+      topProcs: psText ? (this.hasPsSort ? parsePsTop(psText) : parsePsAux(psText)) : undefined,
+      latencyMs: this.lastLatencyMs ?? undefined
     }
   }
 

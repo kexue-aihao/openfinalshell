@@ -85,6 +85,7 @@ export default {
       disk: '磁盘',
       topProcs: '进程占用 Top',
       procName: '进程',
+      latency: '延迟',
       conns: '连接数',
       connsSockets: '套接字',
       connsUdp: 'UDP 套接字',
@@ -567,6 +568,17 @@ export default {
       vaultUnavailableDesc: '系统密钥库不可用，密码将不会保存，每次连接时询问。',
       securityNotes:
         '已保存的密码永不回传界面层；日志中的密码、私钥口令等字段会被脱敏。重装系统或更换电脑后旧的凭据库无法解密，请通过加密导出迁移。',
+      knownHostsTitle: '已信任主机',
+      knownHostsDesc:
+        '首次连接时确认过的主机密钥指纹。服务器合法重装（指纹变了）或当初点错了，在这里撤销 —— 下次连接会重新弹出指纹确认。',
+      knownHostsEmpty: '还没有信任过任何主机指纹。',
+      knownHostsHost: '主机',
+      knownHostsAlgo: '算法',
+      knownHostsFp: '指纹 (SHA256)',
+      knownHostsAddedAt: '信任时间',
+      knownHostsRevoke: '撤销',
+      knownHostsRevokeTitle: '撤销对 {{host}} 的信任？',
+      knownHostsRevokeDesc: '只是撤回这次信任决定，不影响连接配置；下次连接该主机会重新确认指纹。',
       openLinkFailed: '无法打开链接'
     },
     shortcut: {

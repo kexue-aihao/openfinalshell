@@ -378,6 +378,9 @@ function runFakeCommand(cmd) {
   if (c.includes('/proc/uptime')) return `${123456 + counterTick}.78 987654.32\n`
   if (c.includes('/proc/loadavg')) return '0.52 0.31 0.24 2/345 6789\n'
   if (/\bdf\b/.test(c)) return `${FAKE_DF}\n`
+  // HASPSSORT 能力探测：fixture 模拟的是 Ubuntu（procps 在），必须答 yes ——
+  // 注意要排在 /^ps\b/ 兜底之前，否则探测段会收到 FAKE_PS、被当成"没有 procps"
+  if (c.includes('--sort=-pcpu >/dev/null')) return 'yes\n'
   if (/^ps\b/.test(c) || c.includes('| head -n 9')) return `${FAKE_PS}\n`
   if (/^uname/.test(c)) return 'Linux 5.15.0-91-generic x86_64\n'
   if (/^hostname/.test(c) || c.includes('kernel/hostname')) return 'fixture-host\n'

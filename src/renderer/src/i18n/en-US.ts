@@ -86,6 +86,7 @@ export default {
       disk: 'Disk',
       topProcs: 'Top processes',
       procName: 'Process',
+      latency: 'Latency',
       conns: 'Connections',
       connsSockets: 'sockets',
       connsUdp: 'UDP sockets',
@@ -592,6 +593,18 @@ export default {
         'The OS keystore is unavailable, so passwords will not be saved — you will be asked on every connect.',
       securityNotes:
         'Stored passwords are never sent back to the UI layer; password and passphrase fields are redacted in logs. An existing vault cannot be decrypted after reinstalling the OS or moving machines — migrate via encrypted export.',
+      knownHostsTitle: 'Trusted hosts',
+      knownHostsDesc:
+        'Host key fingerprints you confirmed on first connect. Revoke one here if the server was legitimately reinstalled (fingerprint changed) or you trusted it by mistake — the next connection will ask for confirmation again.',
+      knownHostsEmpty: 'No trusted host keys yet.',
+      knownHostsHost: 'Host',
+      knownHostsAlgo: 'Algorithm',
+      knownHostsFp: 'Fingerprint (SHA256)',
+      knownHostsAddedAt: 'Trusted at',
+      knownHostsRevoke: 'Revoke',
+      knownHostsRevokeTitle: 'Revoke trust for {{host}}?',
+      knownHostsRevokeDesc:
+        'This only withdraws the trust decision — connection profiles are untouched; the next connection to this host will re-confirm the fingerprint.',
       openLinkFailed: 'Could not open the link'
     },
     shortcut: {

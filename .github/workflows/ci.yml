@@ -1,0 +1,48 @@
+name: ci
+
+# push master / PR 的常规检查。发版走 build-windows.yml（tag 触发），两边职责不重叠：
+# 这里比 verify job 多两道只有本仓自己立的红线 —— bundle 预算（check:bundle）
+# 与构建本身；它们此前只在本地手动跑，README 承诺的 gzip ≤ 950KB 从未被 CI 盯住。
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # PR 连续 push 时只跑最新一版；master 的 push 用 run id 隔离、互不取消
+  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.run_id || 'pr' }}
+  cancel-in-progress: true
+
+env:
+  # 与 build-windows.yml 保持同一版本（本地 24.18.0 上全绿）
+  NODE_VERSION: '24'
+
+jobs:
+  ci:
+    name: 检查（类型 / i18n / 测试 / 构建 / 预算）
+    # 用 windows-latest：集成测试的 fixture 与源码里的 win32 分支只有在 Windows 上才真被执行，
+    # 而 Windows 恰好是本项目唯一的交付平台
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run check:i18n
+
+      # 集成测试起本地 fixture SSH 服务；真机验收用例无 OFS_TEST_* 时自动跳过
+      - run: npm test
+
+      # check:bundle 读 out/ 的产物算 gzip，必须先 build
+      - run: npm run build
+      - run: npm run check:bundle

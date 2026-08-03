@@ -10,6 +10,7 @@ export interface MonitorHistory {
   memPct: number[]
   rxBps: number[]
   txBps: number[]
+  latencyMs: number[]
 }
 
 /**
@@ -21,7 +22,7 @@ const histories = new Map<SessionId, MonitorHistory>()
 export function historyOf(sessionId: SessionId): MonitorHistory {
   let h = histories.get(sessionId)
   if (!h) {
-    h = { cpu: [], memPct: [], rxBps: [], txBps: [] }
+    h = { cpu: [], memPct: [], rxBps: [], txBps: [], latencyMs: [] }
     histories.set(sessionId, h)
   }
   return h
@@ -36,7 +37,9 @@ function pushHistory(sessionId: SessionId, snapshot: MonitorSnapshot): void {
     [h.cpu, snapshot.cpu.usagePct],
     [h.memPct, Number(memPct.toFixed(1))],
     [h.rxBps, rx],
-    [h.txBps, tx]
+    [h.txBps, tx],
+    // 首帧前 latencyMs 缺失，补 0（图表把 0 画成贴底一格，比空洞好认）
+    [h.latencyMs, snapshot.latencyMs ?? 0]
   ] as Array<[number[], number]>) {
     arr.push(value)
     if (arr.length > HISTORY_LEN) arr.shift()

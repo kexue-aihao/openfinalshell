@@ -5,6 +5,7 @@ import type { ConnectionProfile, PasswordPromptPayload, SessionId } from '@share
 import { vault } from '../store/Vault'
 import { rememberPassword } from '../store/connections'
 import { getPrivateKey, getProxy } from '../store/savedRefs'
+import { expandPath } from '../utils/expandPath'
 import { promptBroker } from './PromptBroker'
 import { dialThroughProxy, ProxyError, type ResolvedProxy } from './proxyDial'
 
@@ -109,11 +110,13 @@ export async function buildConnectConfig(
           '这条连接引用的私钥已不存在，请在"设置 → 代理与私钥"里重新指定'
         )
       }
+      // 展开只在读取时做，savedRefs 里保留用户的原始输入（~/.ssh/xxx 跨机器导入才有意义）
+      const keyPath = expandPath(key.path)
       try {
-        config.privateKey = await readFile(key.path)
+        config.privateKey = await readFile(keyPath)
       } catch {
         // 报错要指名是哪一条保存的私钥 —— 只报路径的话，用户得自己回想哪台机器用的是它
-        throw new Error(`读不到私钥「${key.name}」的文件：${key.path}`)
+        throw new Error(`读不到私钥「${key.name}」的文件：${keyPath}`)
       }
       if (key.passphraseRef) {
         config.passphrase = vault.getSecret(key.passphraseRef) ?? undefined

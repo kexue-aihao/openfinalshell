@@ -8,6 +8,7 @@ import {
   saveGroup,
   saveProfile
 } from '../store/connections'
+import { deleteKnownHost, listKnownHosts } from '../ssh/hostkeys'
 
 const profileDraftSchema = z.object({
   id: z.string().optional(),
@@ -56,6 +57,8 @@ export function registerConnIpc(): void {
   handle('conn:save', (draft) => saveProfile(draft), z.tuple([profileDraftSchema]))
   handle('conn:delete', (id) => deleteProfile(id), z.tuple([z.string()]))
   handle('conn:duplicate', (id) => duplicateProfile(id), z.tuple([z.string()]))
+  handle('conn:knownHosts', () => listKnownHosts())
+  handle('conn:knownHostsDelete', (key) => deleteKnownHost(key), z.tuple([z.string().min(1).max(500)]))
   handle('group:save', (group) => saveGroup(group), z.tuple([groupSchema]))
   handle('group:delete', (id) => deleteGroup(id), z.tuple([z.string()]))
 }

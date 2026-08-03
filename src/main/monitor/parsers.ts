@@ -324,6 +324,52 @@ export interface ProcInfo {
   memPct: number
 }
 
+/** BusyBox 的 TIME 列形如 0:00 / 12:34:56 —— 用形状认，别用 Number() 的 NaN 反证 */
+const BUSYBOX_TIME = /^\d+:\d+/
+
+/**
+ * 解析 `ps aux` 变体的输出（procps 的 `-eo --sort` 不可用时的回落路径）。
+ * 三种真实存在的行形态，逐行嗅探：
+ *
+ *   完整 aux（BSD/procps 无 --sort 的场景）：
+ *     USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND...   ← ≥11 列，2~4 列全是数
+ *   BusyBox DESKTOP 构建（Alpine）：
+ *     PID USER TIME COMMAND...                                    ← 第 3 列形如 "0:00"
+ *   BusyBox 非 DESKTOP 构建（OpenWrt 默认）：
+ *     PID USER VSZ STAT COMMAND...                                ← 第 3 列是 VSZ（可带 m 后缀），第 4 列 STAT 以字母开头
+ *
+ * BusyBox 给不出 %CPU/%MEM —— 填 0 而不是编数字；进程名单本身就是这张卡片的价值。
+ * 表头行（USER/PID 打头）天然过不了数字校验，无需特判。
+ */
+export function parsePsAux(text: string, limit = 8): ProcInfo[] {
+  const out: ProcInfo[] = []
+  for (const line of text.trim().split('\n')) {
+    const f = line.trim().split(/\s+/)
+    if (f.length < 4) continue
+    const nums = f.slice(0, 4).map(Number)
+    if (f.length >= 11 && Number.isFinite(nums[1]) && Number.isFinite(nums[2]) && Number.isFinite(nums[3])) {
+      // 完整 aux：USER 可能是纯数字 uid，所以判据放在 2~4 列上
+      out.push({ pid: nums[1], cpuPct: nums[2], memPct: nums[3], name: f.slice(10).join(' ') })
+    } else if (Number.isFinite(nums[0]) && BUSYBOX_TIME.test(f[2])) {
+      // Alpine 形态：PID USER TIME COMMAND。TIME 必须按形状认 ——
+      // 用 !isFinite(第3列) 反证的话，OpenWrt 形态里带后缀的 VSZ（"129m"）会误入这里，
+      // 把 STAT 字母粘进进程名
+      out.push({ pid: nums[0], cpuPct: 0, memPct: 0, name: f.slice(3).join(' ') })
+    } else if (f.length >= 5 && Number.isFinite(nums[0]) && !Number.isFinite(nums[1]) && /^[A-Za-z]/.test(f[3])) {
+      // OpenWrt 形态：PID USER VSZ STAT COMMAND。VSZ 数字或带 m/g 后缀都可能；
+      // STAT（S/R/SW/S< …）以字母开头，而命令列几乎总以 / 或 [ 开头，借此与 TIME 形态互斥。
+      // !isFinite(nums[1]) 把「USER 是纯数字 uid 的完整 aux 短行」挡在门外（那种行归上面）
+      out.push({ pid: nums[0], cpuPct: 0, memPct: 0, name: f.slice(4).join(' ') })
+    } else {
+      continue
+    }
+    if (out.length >= limit) break
+  }
+  // 服务器侧的 sort 在 BusyBox 输出上排不出正确顺序，这里按 CPU 收一次尾；
+  // 全 0 时 sort 稳定，名单顺序保持服务器给出的原样
+  return out.sort((a, b) => b.cpuPct - a.cpuPct)
+}
+
 /** 解析 `ps -eo pid,pcpu,pmem,comm --sort=-pcpu` 的输出 */
 export function parsePsTop(text: string, limit = 8): ProcInfo[] {
   const out: ProcInfo[] = []

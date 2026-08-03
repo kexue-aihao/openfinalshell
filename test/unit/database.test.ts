@@ -328,3 +328,37 @@ describe('导出应用数据', () => {
     ).rejects.toThrow(/至少 8 位/)
   })
 })
+
+describe('已信任主机的列出与撤销', () => {
+  it('listKnownHosts 从主键切出 host/port，IPv6 字面量的冒号不许切错', () => {
+    hostkeys.trustHostkey('::1', 2222, 'rsa-sha2-512', 'V6FP')
+    hostkeys.trustHostkey('10.0.0.8', 22, 'ssh-ed25519', 'V4FP')
+    // 两次写入同一毫秒时 added_at 打平，排序断言会抖 —— 钉两个显式时间戳
+    prepare('UPDATE known_hosts SET added_at = ? WHERE key = ?').run(1000, '::1:2222:rsa-sha2-512')
+    prepare('UPDATE known_hosts SET added_at = ? WHERE key = ?').run(2000, '10.0.0.8:22:ssh-ed25519')
+    const rows = hostkeys.listKnownHosts()
+
+    const v6 = rows.find((r) => r.fingerprintSha256 === 'V6FP')!
+    expect(v6.host).toBe('::1')
+    expect(v6.port).toBe(2222)
+    expect(v6.keyType).toBe('rsa-sha2-512')
+    expect(v6.key).toBe('::1:2222:rsa-sha2-512')
+
+    const v4 = rows.find((r) => r.fingerprintSha256 === 'V4FP')!
+    expect(v4.host).toBe('10.0.0.8')
+    expect(v4.port).toBe(22)
+
+    // 最近信任的在前（v4 的 added_at 更大）
+    expect(rows.indexOf(v4)).toBeLessThan(rows.indexOf(v6))
+  })
+
+  it('deleteKnownHost 撤销后回到 unknown —— 下次连接重新走首次确认', () => {
+    expect(hostkeys.checkHostkey('10.0.0.8', 22, 'ssh-ed25519', 'V4FP')).toEqual({ status: 'match' })
+    hostkeys.deleteKnownHost('10.0.0.8:22:ssh-ed25519')
+    expect(hostkeys.checkHostkey('10.0.0.8', 22, 'ssh-ed25519', 'V4FP')).toEqual({
+      status: 'unknown'
+    })
+    // 只删指定那条，别的记录不动
+    expect(hostkeys.listKnownHosts().some((r) => r.fingerprintSha256 === 'V6FP')).toBe(true)
+  })
+})

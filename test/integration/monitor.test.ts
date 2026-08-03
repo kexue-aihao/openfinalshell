@@ -131,6 +131,11 @@ describe('监控采集', () => {
     expect(snap.diskIo[0].readBps).toBeGreaterThan(0)
 
     expect(snap.uptimeSec).toBeGreaterThan(0)
+
+    // 延迟打点：写帧→首见 BEGIN 哨兵。fixture 在本机，几毫秒以内，但必须存在且非负
+    expect(snap.latencyMs).toBeTypeOf('number')
+    expect(snap.latencyMs!).toBeGreaterThanOrEqual(0)
+    expect(snap.latencyMs!).toBeLessThan(5000)
   })
 
   it('df 与进程列表按 tick 轮换采集（非每帧都带）', async () => {

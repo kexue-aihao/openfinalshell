@@ -48,6 +48,7 @@ import type {
   Snippet,
   SnippetGroup,
   TaskId,
+  TrustedHostkey,
   TermId,
   ConflictProbeResult,
   TransferEnqueueItem,
@@ -113,6 +114,10 @@ export interface InvokeMap {
   'conn:save': { args: [ProfileDraft]; result: ConnectionProfile }
   'conn:delete': { args: [ProfileId]; result: void }
   'conn:duplicate': { args: [ProfileId]; result: ConnectionProfile }
+  /** 已信任主机指纹：列出全部（按信任时间倒序） */
+  'conn:knownHosts': { args: []; result: TrustedHostkey[] }
+  /** 撤销一条信任（arg 为表主键 "host:port:keyType"）。下次连接会重新弹指纹确认 */
+  'conn:knownHostsDelete': { args: [string]; result: void }
   'group:save': { args: [ConnectionGroup]; result: void }
   'group:delete': { args: [GroupId]; result: void }
 

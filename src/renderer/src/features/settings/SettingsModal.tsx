@@ -17,7 +17,7 @@ import {
   Typography
 } from 'antd'
 import { useTranslation } from 'react-i18next'
-import { PRESET_COLORS } from '@shared/constants'
+import { PRESET_COLORS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
 import type { AppSettings } from '@shared/types'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -25,6 +25,7 @@ import { useUiStore } from '@/stores/useUiStore'
 import { terminalThemes } from '@/themes/terminal'
 import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
+import { KnownHostsPanel } from './KnownHostsPanel'
 import { SavedRefsPanel } from './SavedRefsPanel'
 import { UpdatePanel } from './UpdatePanel'
 import { TerminalPreview } from './TerminalPreview'
@@ -230,8 +231,8 @@ export function SettingsModal(): React.JSX.Element {
               </Row>
               <Row label={t('settings.fontSize')}>
                 <InputNumber
-                  min={8}
-                  max={32}
+                  min={TERM_FONT_SIZE_MIN}
+                  max={TERM_FONT_SIZE_MAX}
                   value={settings.terminal.fontSize}
                   onChange={(v) => v && setTerminal({ fontSize: v })}
                 />
@@ -477,6 +478,7 @@ export function SettingsModal(): React.JSX.Element {
 
               <ImportDataPanel />
               <FinalShellImportPanel />
+              <KnownHostsPanel />
             </>
           )}
 

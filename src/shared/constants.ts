@@ -179,6 +179,10 @@ export const COMMAND_HISTORY_MAX_ROWS = 1000
 export const DEFAULT_TERMINAL_FONT_FAMILY =
   '"Maple Mono NF CN", "Cascadia Mono", Consolas, "Microsoft YaHei Mono", "Microsoft YaHei", monospace'
 
+/** 终端字号钳制范围：设置面板的 InputNumber 与 Ctrl+滚轮/快捷键共用同一份 */
+export const TERM_FONT_SIZE_MIN = 8
+export const TERM_FONT_SIZE_MAX = 32
+
 export const DEFAULT_SETTINGS: AppSettings = {
   version: 1,
   language: 'zh-CN',
