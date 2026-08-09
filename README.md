@@ -444,3 +444,5 @@ git tag v0.2.1 && git push origin v0.2.1
 ## 许可
 
 MIT
+
+连接位置标记里的国旗图形取自 [Twemoji](https://github.com/twitter/twemoji)（Twitter，图形部分 CC-BY 4.0），已内联为离线 SVG。
