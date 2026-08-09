@@ -378,6 +378,12 @@ export function SettingsModal(): React.JSX.Element {
                   onChange={(v) => setSftp({ showHiddenFiles: v })}
                 />
               </Row>
+              <Row label={t('settings.followTerminalCd')} hint={t('settings.followTerminalCdHint')}>
+                <Switch
+                  checked={settings.sftp.followTerminalCd}
+                  onChange={(v) => setSftp({ followTerminalCd: v })}
+                />
+              </Row>
               <Row label={t('settings.doubleClickAction')} hint={t('settings.doubleClickActionHint')}>
                 <Segmented
                   value={settings.sftp.doubleClickAction}

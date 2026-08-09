@@ -5,6 +5,7 @@ import type { ConnectionProfile, PasswordPromptPayload, SessionId } from '@share
 import { vault } from '../store/Vault'
 import { rememberPassword } from '../store/connections'
 import { getPrivateKey, getProxy } from '../store/savedRefs'
+import { getSettings } from '../services/settings'
 import { expandPath } from '../utils/expandPath'
 import { promptBroker } from './PromptBroker'
 import { dialThroughProxy, ProxyError, type ResolvedProxy } from './proxyDial'
@@ -28,14 +29,35 @@ export function detectAgent(): string | undefined {
 }
 
 /**
- * profile 引用的代理 → 明文形态（密码从 Vault 取）；**没引用代理就是直连，返回 null**。
- *
- * 两处"宁可报错也不静默直连"：用户明确要求走代理时，悄悄直连可能等于暴露真实来源。
- * 所以引用了一条查不到的代理（被删了、库被手工改过）与地址为空一样，都抛 `ProxyError`。
+ * profile 的代理归属 → 要拨的代理 id；`null` = 直连。
+ * 三态见 `ConnectionProfile.proxyMode`；缺省按 `proxyId ? 'custom' : 'direct'` 兜底（老数据）。
  */
-export function resolveProxy(profile: ConnectionProfile): ResolvedProxy | null {
-  if (!profile.proxyId) return null
-  const p = getProxy(profile.proxyId)
+export function resolveProxyId(
+  profile: ConnectionProfile,
+  defaultProxyId: string | null
+): string | null {
+  const mode = profile.proxyMode ?? (profile.proxyId ? 'custom' : 'direct')
+  if (mode === 'direct') return null
+  if (mode === 'custom') return profile.proxyId ?? null
+  return defaultProxyId // 'follow'
+}
+
+/**
+ * profile 引用的代理 → 明文形态（密码从 Vault 取）；**判定为直连就返回 null**。
+ *
+ * `defaultProxyId` 是全局默认代理（设置里的 `connection.defaultProxyId`），供 `'follow'` 用。
+ *
+ * 两处"宁可报错也不静默直连"：用户明确要求走代理（custom 指定、或 follow 且全局配了代理）时，
+ * 悄悄直连可能等于暴露真实来源。所以指到一条查不到的代理（被删了、库被手工改过）
+ * 与地址为空一样，都抛 `ProxyError`。
+ */
+export function resolveProxy(
+  profile: ConnectionProfile,
+  defaultProxyId: string | null
+): ResolvedProxy | null {
+  const proxyId = resolveProxyId(profile, defaultProxyId)
+  if (!proxyId) return null
+  const p = getProxy(proxyId)
   if (!p) {
     throw new ProxyError(
       '这条连接引用的代理已不存在，请在"设置 → 代理与私钥"里重新指定，或把代理改成直连'
@@ -134,7 +156,7 @@ export async function buildConnectConfig(
   }
 
   // 代理拨号放最后：上面可能停在密码输入弹窗上，先拨会让代理连接白等到超时
-  const proxy = resolveProxy(profile)
+  const proxy = resolveProxy(profile, getSettings().connection.defaultProxyId)
   if (proxy) {
     config.sock = await dialThroughProxy(proxy, { host: profile.host, port: profile.port })
   }

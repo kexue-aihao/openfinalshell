@@ -118,6 +118,8 @@ export interface InvokeMap {
   'conn:knownHosts': { args: []; result: TrustedHostkey[] }
   /** 撤销一条信任（arg 为表主键 "host:port:keyType"）。下次连接会重新弹指纹确认 */
   'conn:knownHostsDelete': { args: [string]; result: void }
+  /** RDP 连接：生成 .rdp 并交系统远程桌面打开（不建会话 tab，凭据由系统接管） */
+  'conn:launchRdp': { args: [ProfileId]; result: void }
   'group:save': { args: [ConnectionGroup]; result: void }
   'group:delete': { args: [GroupId]; result: void }
 

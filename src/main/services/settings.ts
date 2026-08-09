@@ -22,9 +22,17 @@ let store: DocStore<AppSettings> | null = null
  * 标记与改动同一次写入，所以之后用户关掉了就再也不会被掀开。
  */
 function migrateOnce(): void {
-  if (metaGet('sftp_show_hidden_default_v2')) return
-  patchSettings({ sftp: { ...getSettings().sftp, showHiddenFiles: true } })
-  metaSet('sftp_show_hidden_default_v2', String(Date.now()))
+  if (!metaGet('sftp_show_hidden_default_v2')) {
+    patchSettings({ sftp: { ...getSettings().sftp, showHiddenFiles: true } })
+    metaSet('sftp_show_hidden_default_v2', String(Date.now()))
+  }
+  // 默认最大化打开：老用户库里显式存着 maximized:false（persistBounds 每次关窗都写），
+  // 光改 DEFAULT_SETTINGS 掀不动，和 showHiddenFiles 同样的坑，同样一次性迁移。
+  // 之后用户拖成浮窗关掉，persistBounds 会记住 false，再不会被掀成最大化。
+  if (!metaGet('window_maximized_default_v1')) {
+    patchSettings({ window: { ...getSettings().window, maximized: true } })
+    metaSet('window_maximized_default_v1', String(Date.now()))
+  }
 }
 
 export function settingsStore(): DocStore<AppSettings> {

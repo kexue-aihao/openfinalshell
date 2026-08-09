@@ -228,10 +228,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fastDelete: true,
     // 默认**关**：它要在远端建临时文件、在本地起 tar 子进程，而收益只在"很多小文件"
     // 这一种场景上。先让愿意的人显式打开，攒够真机经验再考虑改默认
-    packedTransfer: false
+    packedTransfer: false,
+    // 默认**开**：FinalShell 用户的肌肉记忆是"终端 cd 到哪、文件面板就在哪"，
+    // 默认关等于没做。失败静默（见 types.ts 注释），不会因为它多弹任何错误
+    followTerminalCd: true
   },
   monitor: {
     intervalMs: MONITOR_DEFAULT_INTERVAL_MS
+  },
+  connection: {
+    // null = 新建连接默认直连（与本功能上线前的既有行为一致）。用户在设置里指一条代理后，
+    // 之后新建的连接（proxyMode='follow'）自动走它
+    defaultProxyId: null
   },
   layout: {
     sidePanelSizePct: 18,
@@ -246,6 +254,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   window: {
     width: 1280,
     height: 800,
-    maximized: false
+    // 默认最大化打开。用户拖成浮窗后 persistBounds 会记住，下次按记住的来
+    maximized: true
   }
 }

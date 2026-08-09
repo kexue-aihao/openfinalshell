@@ -19,12 +19,14 @@ const LEGACY_GROUP_ID = '22222222-2222-4222-8222-222222222222'
 mkdirSync(configDir, { recursive: true })
 writeFileSync(
   join(configDir, 'settings.json'),
-  // sftp.showHiddenFiles 显式为 false：老用户库里就是这样，用来验一次性迁移真的掀得动它
+  // showHiddenFiles / window.maximized 都显式为 false：老用户库里就是这样，
+  // 用来验两条一次性迁移真的掀得动存量数据
   JSON.stringify({
     version: 1,
     language: 'en-US',
     terminal: { fontSize: 17 },
-    sftp: { showHiddenFiles: false }
+    sftp: { showHiddenFiles: false },
+    window: { width: 1000, height: 700, maximized: false }
   }),
   'utf8'
 )
@@ -184,6 +186,19 @@ describe('SQLite 存储：旧 JSON 配置迁移', () => {
     expect(settings.getSettings().sftp.showHiddenFiles).toBe(false)
     // 别把后面的用例带偏
     settings.patchSettings({ sftp: { ...settings.getSettings().sftp, showHiddenFiles: true } })
+  })
+
+  it('一次性迁移把 window.maximized 掀成 true（默认最大化打开），并落下标记', () => {
+    expect(settings.getSettings().window.maximized).toBe(true)
+    expect(metaGet('window_maximized_default_v1')).toBeTruthy()
+    // 迁移只掀 maximized，其余窗口尺寸原样保留
+    expect(settings.getSettings().window.width).toBe(1000)
+    expect(settings.getSettings().window.height).toBe(700)
+
+    // 标记已在 → 用户后来拖成浮窗（false）不会被再次掀开
+    settings.patchSettings({ window: { ...settings.getSettings().window, maximized: false } })
+    expect(settings.getSettings().window.maximized).toBe(false)
+    settings.patchSettings({ window: { ...settings.getSettings().window, maximized: true } })
   })
 
   it('迁移后旧文件改名为 .migrated（保留而不删，便于人工核对）', () => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   App as AntdApp,
+  Alert,
   Button,
   Collapse,
   Drawer,
@@ -8,13 +9,15 @@ import {
   Input,
   InputNumber,
   Radio,
+  Segmented,
   Select,
   Space,
   Switch
 } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { PRESET_COLORS } from '@shared/constants'
-import type { ProfileDraft } from '@shared/types'
+import type { ProfileDraft, ProxyMode } from '@shared/types'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSavedRefStore } from '@/stores/useSavedRefStore'
 import { useUiStore } from '@/stores/useUiStore'
@@ -22,6 +25,8 @@ import { PrivateKeyEditModal, ProxyEditModal } from '@/features/settings/SavedRe
 
 interface FormValues {
   name: string
+  /** 'ssh'（默认）或 'rdp'（走系统远程桌面）。rdp 下 SSH 那套字段全部不适用 */
+  protocol?: 'ssh' | 'rdp'
   groupId: string | null
   color?: string
   host: string
@@ -39,7 +44,9 @@ interface FormValues {
   legacyAlgorithms: boolean
   compress: boolean
   monitorEnabled: boolean
-  /** 引用一条已保存的代理；空 = 直连 */
+  /** 代理归属：follow=跟随全局 / direct=直连 / custom=用 proxyId */
+  proxyMode?: ProxyMode
+  /** 引用一条已保存的代理；仅 custom 时有意义 */
   proxyId?: string
   note?: string
 }
@@ -51,9 +58,12 @@ export function ProfileEditDrawer(): React.JSX.Element {
   const setEditing = useUiStore((s) => s.setEditingProfile)
   const { profiles, groups, save } = useConnectionStore()
   const [form] = Form.useForm<FormValues>()
+  // 协议决定要不要显示 SSH 那一整套字段。用 useWatch 让整个抽屉随它重渲染
+  const protocol = (Form.useWatch('protocol', form) ?? 'ssh') as 'ssh' | 'rdp'
   const [saving, setSaving] = useState(false)
   const proxies = useSavedRefStore((s) => s.proxies)
   const keys = useSavedRefStore((s) => s.keys)
+  const defaultProxyId = useSettingsStore((s) => s.settings?.connection.defaultProxyId ?? null)
   const refsLoaded = useSavedRefStore((s) => s.loaded)
   const loadRefs = useSavedRefStore((s) => s.load)
   /** 'new' 或一条现有记录；从下拉框底部的「新建…」进来 */
@@ -76,6 +86,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
     if (editing) {
       form.setFieldsValue({
         name: editing.name,
+        protocol: editing.protocol ?? 'ssh',
         groupId: editing.groupId,
         color: editing.color,
         host: editing.host,
@@ -92,6 +103,8 @@ export function ProfileEditDrawer(): React.JSX.Element {
         legacyAlgorithms: editing.options.legacyAlgorithms,
         compress: editing.options.compress,
         monitorEnabled: editing.options.monitorEnabled,
+        // 老连接没有 proxyMode：按 proxyId 有无兜底，行为与迁移前一字不变
+        proxyMode: editing.proxyMode ?? (editing.proxyId ? 'custom' : 'direct'),
         proxyId: editing.proxyId,
         note: editing.note
       })
@@ -125,6 +138,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
       const draft: ProfileDraft = {
         id: editing?.id,
         name: v.name.trim(),
+        protocol: v.protocol ?? 'ssh',
         groupId: v.groupId ?? null,
         color: v.color,
         host: v.host.trim(),
@@ -148,7 +162,9 @@ export function ProfileEditDrawer(): React.JSX.Element {
           monitorEnabled: v.monitorEnabled,
           compress: v.compress
         },
-        proxyId: v.proxyId || undefined,
+        proxyMode: v.proxyMode ?? 'follow',
+        // proxyId 只在 custom 下保存 —— 否则切到直连/跟随后残留的 id 会误导下次读取
+        proxyId: v.proxyMode === 'custom' ? v.proxyId || undefined : undefined,
         note: v.note || undefined
       }
       await save(draft)
@@ -188,6 +204,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         layout="vertical"
         requiredMark={false}
         initialValues={{
+          protocol: 'ssh',
           groupId: null,
           port: 22,
           authMethod: 'password',
@@ -199,9 +216,26 @@ export function ProfileEditDrawer(): React.JSX.Element {
           compress: false,
           // 必须在 initialValues 里：折叠面板没展开过时 Form.Item 不挂载，
           // 只有 initialValues 写进 store 的值才拿得到（见 submit 里的注释）
-          monitorEnabled: true
+          monitorEnabled: true,
+          // 新建连接默认"跟随全局默认代理"—— 这正是"全局默认对新建连接生效"的落点
+          proxyMode: 'follow'
         }}
       >
+        <Form.Item name="protocol" label={t('conn.protocol')}>
+          <Segmented
+            options={[
+              { label: 'SSH', value: 'ssh' },
+              { label: t('conn.protocolRdp'), value: 'rdp' }
+            ]}
+            // 切到 RDP 时，若端口还是 SSH 默认 22 就换成 RDP 默认 3389（用户没手动改过才动）
+            onChange={(v) => {
+              const port = form.getFieldValue('port')
+              if (v === 'rdp' && port === 22) form.setFieldValue('port', 3389)
+              else if (v === 'ssh' && port === 3389) form.setFieldValue('port', 22)
+            }}
+          />
+        </Form.Item>
+
         <Form.Item name="name" label={t('conn.name')} rules={[{ required: true, message: t('conn.nameRequired') }]}>
           <Input placeholder={t('conn.namePlaceholder')} />
         </Form.Item>
@@ -223,11 +257,24 @@ export function ProfileEditDrawer(): React.JSX.Element {
         <Form.Item
           name="username"
           label={t('conn.username')}
-          rules={[{ required: true, message: t('conn.usernameRequired') }]}
+          // RDP 下用户名可留空，系统远程桌面会自己弹凭据框
+          rules={protocol === 'ssh' ? [{ required: true, message: t('conn.usernameRequired') }] : []}
         >
-          <Input placeholder="root" />
+          <Input placeholder={protocol === 'rdp' ? 'Administrator' : 'root'} />
         </Form.Item>
 
+        {protocol === 'rdp' && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={t('conn.rdpTitle')}
+            description={t('conn.rdpDesc')}
+          />
+        )}
+
+        {protocol === 'ssh' && (
+        <>
         <Form.Item name="authMethod" label={t('conn.authMethod')}>
           <Radio.Group
             optionType="button"
@@ -293,6 +340,8 @@ export function ProfileEditDrawer(): React.JSX.Element {
             return null
           }}
         </Form.Item>
+        </>
+        )}
 
         <Form.Item name="groupId" label={t('conn.group')}>
           <Select
@@ -321,6 +370,12 @@ export function ProfileEditDrawer(): React.JSX.Element {
           </Radio.Group>
         </Form.Item>
 
+        {/* 备注对两种协议都适用，且是常用信息 —— 放主区、不埋进高级选项 */}
+        <Form.Item name="note" label={t('conn.note')}>
+          <Input.TextArea rows={2} placeholder={t('conn.notePlaceholder')} />
+        </Form.Item>
+
+        {protocol === 'ssh' && (
         <Collapse
           ghost
           items={[
@@ -380,9 +435,6 @@ export function ProfileEditDrawer(): React.JSX.Element {
                       <Switch />
                     </Form.Item>
                   </Space>
-                  <Form.Item name="note" label={t('conn.note')}>
-                    <Input.TextArea rows={2} />
-                  </Form.Item>
                 </>
               )
             },
@@ -391,44 +443,73 @@ export function ProfileEditDrawer(): React.JSX.Element {
               label: t('conn.proxy'),
               children: (
                 <>
-                  {/* 包一层 shouldUpdate：extra 里要显示选中那条代理的地址，
-                      而 Collapse 的 children 是在组件体里构造的，不包就不会随选择变化重渲染 */}
-                  <Form.Item noStyle shouldUpdate={(a, b) => a.proxyId !== b.proxyId}>
-                    {({ getFieldValue }) => {
-                      const pickedProxy = proxies.find((x) => x.id === getFieldValue('proxyId'))
-                      return (
-                  <Form.Item
-                    name="proxyId"
-                    label={t('conn.proxy')}
-                    extra={
-                      pickedProxy ? (
-                        <span className="ofs-dim">
-                          {pickedProxy.type.toUpperCase()} {pickedProxy.host}:{pickedProxy.port}
-                          {pickedProxy.username ? ` · ${pickedProxy.username}` : ''}
-                          {pickedProxy.passwordRef ? ` · ${t('conn.passwordSaved')}` : ''}
-                        </span>
-                      ) : (
-                        t('conn.proxyHint')
-                      )
-                    }
-                  >
-                    <Select
-                      allowClear
-                      placeholder={t('conn.proxyNone')}
-                      options={proxies.map((x) => ({
-                        label: `${x.name}（${x.type.toUpperCase()} ${x.host}:${x.port}）`,
-                        value: x.id
-                      }))}
-                      popupRender={(menu) => (
-                        <>
-                          {menu}
-                          <div className="ofs-select-footer">
-                            <a onClick={() => setEditingProxy('new')}>{t('conn.proxyNew')}</a>
-                          </div>
-                        </>
-                      )}
+                  <Form.Item name="proxyMode" label={t('conn.proxyMode')}>
+                    <Radio.Group
+                      options={[
+                        { label: t('conn.proxyModeFollow'), value: 'follow' },
+                        { label: t('conn.proxyModeDirect'), value: 'direct' },
+                        { label: t('conn.proxyModeCustom'), value: 'custom' }
+                      ]}
+                      optionType="button"
                     />
                   </Form.Item>
+                  {/* 包一层 shouldUpdate：mode 决定要不要显示代理下拉，且 follow 的说明文案
+                      要显示全局默认那条代理的地址 —— 两者都得随 proxyMode / proxyId 变化重渲染 */}
+                  <Form.Item
+                    noStyle
+                    shouldUpdate={(a, b) => a.proxyMode !== b.proxyMode || a.proxyId !== b.proxyId}
+                  >
+                    {({ getFieldValue }) => {
+                      const mode = (getFieldValue('proxyMode') ?? 'follow') as ProxyMode
+                      if (mode === 'follow') {
+                        const def = proxies.find((x) => x.id === defaultProxyId)
+                        return (
+                          <span className="ofs-dim">
+                            {def
+                              ? t('conn.proxyFollowVia', {
+                                  name: def.name,
+                                  addr: `${def.type.toUpperCase()} ${def.host}:${def.port}`
+                                })
+                              : t('conn.proxyFollowDirect')}
+                          </span>
+                        )
+                      }
+                      if (mode === 'direct') {
+                        return <span className="ofs-dim">{t('conn.proxyDirectHint')}</span>
+                      }
+                      const pickedProxy = proxies.find((x) => x.id === getFieldValue('proxyId'))
+                      return (
+                        <Form.Item
+                          name="proxyId"
+                          label={t('conn.proxy')}
+                          extra={
+                            pickedProxy ? (
+                              <span className="ofs-dim">
+                                {pickedProxy.type.toUpperCase()} {pickedProxy.host}:{pickedProxy.port}
+                                {pickedProxy.username ? ` · ${pickedProxy.username}` : ''}
+                                {pickedProxy.passwordRef ? ` · ${t('conn.passwordSaved')}` : ''}
+                              </span>
+                            ) : (
+                              t('conn.proxyHint')
+                            )
+                          }
+                        >
+                          <Select
+                            placeholder={t('conn.proxyPick')}
+                            options={proxies.map((x) => ({
+                              label: `${x.name}（${x.type.toUpperCase()} ${x.host}:${x.port}）`,
+                              value: x.id
+                            }))}
+                            popupRender={(menu) => (
+                              <>
+                                {menu}
+                                <div className="ofs-select-footer">
+                                  <a onClick={() => setEditingProxy('new')}>{t('conn.proxyNew')}</a>
+                                </div>
+                              </>
+                            )}
+                          />
+                        </Form.Item>
                       )
                     }}
                   </Form.Item>
@@ -437,6 +518,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
             }
           ]}
         />
+        )}
       </Form>
 
       {/* 新建代理/私钥：与设置页共用同一份弹窗；存完顺手选上，用户不用再回下拉框里挑一次 */}

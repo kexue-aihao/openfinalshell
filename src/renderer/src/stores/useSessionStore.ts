@@ -33,6 +33,12 @@ interface SessionStore {
   activateRelative: (delta: number) => void
   activateIndex: (index: number) => void
   openForProfile: (profile: ConnectionProfile) => Promise<void>
+  /**
+   * 从连接树/最近列表"连接"的统一入口：按协议分派。
+   * SSH → openForProfile（建会话 tab）；RDP → 交系统远程桌面，不建 tab。
+   * 返回被走的分支，让调用方对 RDP 给一句"已在系统远程桌面打开"的反馈。
+   */
+  launchProfile: (profile: ConnectionProfile) => Promise<'ssh' | 'rdp'>
   duplicateTab: (id: string, profiles: ConnectionProfile[]) => Promise<void>
   closeTab: (id: string) => Promise<void>
   closeOthers: (id: string) => Promise<void>
@@ -130,6 +136,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         error: err instanceof Error ? err.message : String(err)
       })
     }
+  },
+
+  launchProfile: async (profile) => {
+    if (profile.protocol === 'rdp') {
+      // 不建 tab、不开 SSH 会话：mstsc 是独立进程，凭据由系统接管
+      await ofs.invoke('conn:launchRdp', profile.id)
+      return 'rdp'
+    }
+    await get().openForProfile(profile)
+    return 'ssh'
   },
 
   duplicateTab: async (id, profiles) => {

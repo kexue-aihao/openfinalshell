@@ -25,6 +25,7 @@ export function WelcomePage(): React.JSX.Element {
   const setEditingProfile = useUiStore((s) => s.setEditingProfile)
   const { profiles, save } = useConnectionStore()
   const openForProfile = useSessionStore((s) => s.openForProfile)
+  const launchProfile = useSessionStore((s) => s.launchProfile)
   const [quick, setQuick] = useState('')
 
   const recent = [...profiles]
@@ -105,7 +106,15 @@ export function WelcomePage(): React.JSX.Element {
                   <div
                     key={p.id}
                     className={styles.recentItem}
-                    onClick={() => void openForProfile(p)}
+                    onClick={() =>
+                      void launchProfile(p)
+                        .then((kind) => {
+                          if (kind === 'rdp') message.success(t('conn.rdpLaunched'))
+                        })
+                        .catch((err) =>
+                          message.error(err instanceof Error ? err.message : String(err))
+                        )
+                    }
                   >
                     <Server size={12} strokeWidth={1.75} />
                     <span className={styles.recentName}>{p.name}</span>

@@ -1,5 +1,14 @@
-import { useEffect, useMemo } from 'react'
-import { App as AntdApp, Button, Dropdown, Empty, Input, Tree, type TreeDataNode } from 'antd'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  App as AntdApp,
+  Button,
+  Dropdown,
+  Empty,
+  Input,
+  Tooltip,
+  Tree,
+  type TreeDataNode
+} from 'antd'
 import { FolderOpen, FolderPlus, Plus, Server } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ConnectionGroup, ConnectionProfile } from '@shared/types'
@@ -16,15 +25,32 @@ export function ConnectionTreePanel(): React.JSX.Element {
   const { modal, message } = AntdApp.useApp()
   const { profiles, groups, loaded, searchText, load, remove, duplicate, saveGroup, removeGroup, setSearchText } =
     useConnectionStore()
-  const openForProfile = useSessionStore((s) => s.openForProfile)
+  const launchProfile = useSessionStore((s) => s.launchProfile)
   const setEditingProfile = useUiStore((s) => s.setEditingProfile)
 
   useEffect(() => {
     if (!loaded) void load()
   }, [loaded, load])
 
+  // 连接树默认展开：启动时把所有分组展开，之后新建的分组也自动展开，
+  // 而用户手动折叠过的分组不再被强行展开（seenGroups 记住"已经替它做过一次展开决定"）
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([])
+  const seenGroups = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const fresh = groups
+      .map((g) => `${GROUP_PREFIX}${g.id}`)
+      .filter((k) => !seenGroups.current.has(k))
+    if (fresh.length === 0) return
+    fresh.forEach((k) => seenGroups.current.add(k))
+    setExpandedKeys((prev) => [...new Set([...prev, ...fresh])])
+  }, [groups])
+
   const connect = (profile: ConnectionProfile): void => {
-    void openForProfile(profile)
+    launchProfile(profile)
+      .then((kind) => {
+        if (kind === 'rdp') message.success(t('conn.rdpLaunched'))
+      })
+      .catch((err) => message.error(err instanceof Error ? err.message : String(err)))
   }
 
   const promptNewGroup = (parentId: string | null): void => {
@@ -104,14 +130,32 @@ export function ConnectionTreePanel(): React.JSX.Element {
           }
         }}
       >
-        <span className={styles.node} onDoubleClick={() => connect(p)}>
-          {p.color && <span className={styles.colorDot} style={{ background: p.color }} />}
-          <Server size={13} strokeWidth={1.75} style={{ flex: 'none' }} />
-          <span className={styles.nodeName}>{p.name}</span>
-          <span className={styles.nodeHost}>
-            {p.username}@{p.host}
+        <Tooltip
+          // 有备注才挂 Tooltip：大树里每个节点都包一层是白付出的成本。
+          // 悬停展示 备注 + 完整 user@host（行内那份会被宽度截断）
+          title={
+            p.note ? (
+              <span style={{ whiteSpace: 'pre-wrap' }}>
+                {p.note}
+                <br />
+                <span className="ofs-dim">
+                  {p.username}@{p.host}
+                </span>
+              </span>
+            ) : null
+          }
+          placement="right"
+          mouseEnterDelay={0.4}
+        >
+          <span className={styles.node} onDoubleClick={() => connect(p)}>
+            {p.color && <span className={styles.colorDot} style={{ background: p.color }} />}
+            <Server size={13} strokeWidth={1.75} style={{ flex: 'none' }} />
+            <span className={styles.nodeName}>{p.name}</span>
+            {/* 有备注时行内副标题显示备注（更贴合"看一眼就知道这台是干嘛的"），
+                否则退回 user@host；完整信息都在 Tooltip 里 */}
+            <span className={styles.nodeHost}>{p.note || `${p.username}@${p.host}`}</span>
           </span>
-        </span>
+        </Tooltip>
       </Dropdown>
     )
   })
@@ -213,6 +257,9 @@ export function ConnectionTreePanel(): React.JSX.Element {
             showIcon={false}
             expandAction="click"
             selectable={false}
+            // 搜索态是平铺的 profile 列表（无分组），expandedKeys 在那种情况下无意义
+            expandedKeys={searchText.trim() ? undefined : expandedKeys}
+            onExpand={(keys) => setExpandedKeys(keys)}
           />
         )}
       </div>

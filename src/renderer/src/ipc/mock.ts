@@ -111,6 +111,8 @@ export function createMockOfs(): OfsApi {
     },
     terminal: draft.terminal,
     options: draft.options,
+    proxyMode: draft.proxyMode,
+    proxyId: draft.proxyId,
     note: draft.note,
     createdAt: Date.now(),
     updatedAt: Date.now()
@@ -505,6 +507,8 @@ export function createMockOfs(): OfsApi {
       const idx = mockKnownHosts.findIndex((x) => x.key === (key as unknown as string))
       if (idx >= 0) mockKnownHosts.splice(idx, 1)
     },
+    // # mock：浏览器里没有系统远程桌面，装个样子让 UI 流程能走完
+    'conn:launchRdp': () => undefined,
     'group:save': (group: never) => {
       const g = group as unknown as ConnectionGroup
       const idx = groups.findIndex((x) => x.id === g.id)

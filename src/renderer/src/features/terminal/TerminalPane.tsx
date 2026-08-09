@@ -10,6 +10,7 @@ import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { captureCommand } from './commandCapture'
+import { emitShellCommand } from './commandEvents'
 import { createTerminal, type TerminalBundle } from './createTerminal'
 import { noteProgrammaticWrite, registerTerm, trackerFor, unregisterTerm } from './termRegistry'
 import { HistoryOverlay } from './HistoryOverlay'
@@ -191,12 +192,17 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
        */
       if (ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey) {
         try {
-          if (useSettingsStore.getState().settings?.terminal.saveCommandHistory) {
-            const termId = termIdRef.current
-            const command = termId
-              ? captureCommand(bundle.term.buffer.active, trackerFor(termId))
-              : null
-            if (command) useHistoryStore.getState().push(command)
+          // 采集一次、两处消费。「记录命令历史」的开关只管历史那一份 ——
+          // SFTP 的 cd 跟随不归它管：关掉历史的用户不该连目录跟随一起失去
+          const termId = termIdRef.current
+          const command = termId
+            ? captureCommand(bundle.term.buffer.active, trackerFor(termId))
+            : null
+          if (command) {
+            if (useSettingsStore.getState().settings?.terminal.saveCommandHistory) {
+              useHistoryStore.getState().push(command)
+            }
+            emitShellCommand(tab.id, command)
           }
         } catch {
           /* 采集永不阻断按键 */

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { App as AntdApp, Button, Empty, Modal, Typography } from 'antd'
+import { App as AntdApp, Button, Empty, Modal, Select, Typography } from 'antd'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { SavedPrivateKey, SavedProxy } from '@shared/types'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSavedRefStore } from '@/stores/useSavedRefStore'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 import { PrivateKeyEditModal, ProxyEditModal } from './SavedRefModals'
 import styles from './SettingsModal.module.css'
 
@@ -29,6 +30,8 @@ export function SavedRefsPanel(): React.JSX.Element {
   const profiles = useConnectionStore((s) => s.profiles)
   const loadProfiles = useConnectionStore((s) => s.load)
   const profilesLoaded = useConnectionStore((s) => s.loaded)
+  const settings = useSettingsStore((s) => s.settings)!
+  const patchSettings = useSettingsStore((s) => s.patch)
 
   const [editingProxy, setEditingProxy] = useState<'new' | SavedProxy | null>(null)
   const [editingKey, setEditingKey] = useState<'new' | SavedPrivateKey | null>(null)
@@ -129,6 +132,30 @@ export function SavedRefsPanel(): React.JSX.Element {
       <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
         {t('savedRef.desc')}
       </Typography.Paragraph>
+
+      {/* 全局默认代理：新建连接（跟随全局）走它，改这里实时影响所有"跟随全局"的连接 */}
+      <div className={styles.refHead}>
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          {t('savedRef.defaultProxy')}
+        </Typography.Title>
+      </div>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+        {t('savedRef.defaultProxyHint')}
+      </Typography.Paragraph>
+      <Select
+        style={{ width: 360, marginBottom: 20 }}
+        value={settings.connection.defaultProxyId ?? ''}
+        onChange={(v) =>
+          patchSettings({ connection: { ...settings.connection, defaultProxyId: v || null } })
+        }
+        options={[
+          { label: t('conn.proxyNone'), value: '' },
+          ...proxies.map((x) => ({
+            label: `${x.name}（${x.type.toUpperCase()} ${x.host}:${x.port}）`,
+            value: x.id
+          }))
+        ]}
+      />
 
       <div className={styles.refHead}>
         <Typography.Title level={5} style={{ margin: 0 }}>

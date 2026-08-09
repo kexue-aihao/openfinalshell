@@ -396,10 +396,23 @@ export default {
       monitorEnabled: 'Auto-start monitor',
       monitorEnabledTip:
         'Open the server monitor on connect. Holds one exec channel open — turn it off on constrained servers',
+      protocol: 'Protocol',
+      protocolRdp: 'RDP remote desktop',
+      rdpTitle: 'Uses the system remote desktop',
+      rdpDesc: 'On connect, a .rdp file is generated and opened with the system remote desktop client (mstsc on Windows). The password is handled by the system credential prompt — this app neither stores nor fills the RDP password. Leave the username blank to let the system ask.',
+      rdpLaunched: 'Opened in the system remote desktop',
       proxy: 'Proxy',
       proxyType: 'Proxy type',
       proxyNone: 'Direct',
       proxyNew: 'New proxy…',
+      proxyMode: 'Proxy',
+      proxyModeFollow: 'Follow global',
+      proxyModeDirect: 'Direct',
+      proxyModeCustom: 'Specific proxy',
+      proxyPick: 'Pick a saved proxy',
+      proxyFollowVia: 'Follows the global default: {{name}} ({{addr}}). Change the default in Settings to switch all at once.',
+      proxyFollowDirect: 'Follows the global default: currently direct. Set a default proxy in Settings → Proxies & keys.',
+      proxyDirectHint: 'This connection forces a direct connection, ignoring the global default proxy.',
       privateKey: 'Private key',
       privateKeySelect: 'Pick a saved private key',
       privateKeyPickHint: 'Save a key once and reuse it across machines (path and passphrase live on that record)',
@@ -413,13 +426,17 @@ export default {
       proxyUsername: 'Proxy username',
       proxyPassword: 'Proxy password',
       proxyAuthOptional: 'Leave empty if the proxy needs no auth',
-      note: 'Note'
+      note: 'Note',
+      notePlaceholder: 'A short description for this machine, shown in the connection list'
     },
     savedRef: {
       section: 'Proxies & keys',
       desc: 'Set these up once, then pick them from a dropdown when adding a machine. Passwords and passphrases are still encrypted by the system keychain; the UI never sees the plaintext.',
       proxies: 'Saved proxies',
       keys: 'Saved private keys',
+      defaultProxy: 'Default proxy',
+      defaultProxyHint:
+        "New connections use this proxy by default (as do connections set to 'Follow global'). Changing it takes effect live on all follow-global connections; connections set to direct or a specific proxy are unaffected.",
       name: 'Name',
       nameRequired: 'Name is required',
       proxyNew: 'New proxy',
@@ -576,6 +593,9 @@ export default {
       doubleClickDownload: 'Downloads it',
       doubleClickOpen: 'Opens it in the editor',
       autoOpenOnConnect: 'Open file manager on connect',
+      followTerminalCd: 'File panel follows terminal cd',
+      followTerminalCdHint:
+        "After running cd in the terminal, the file panel jumps to that directory. Best-effort: `cd -` and paths with variables are not followed; if the directory can't be read, the panel stays put without raising an error.",
       autoOpenOnConnectHint:
         'Expands the SFTP split pane for new sessions. Whether the monitor opens is set per connection',
       packedTransfer: 'Pack directories for transfer',

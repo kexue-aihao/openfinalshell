@@ -83,6 +83,7 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
     const profile: ConnectionProfile = {
       id: existing?.id ?? randomUUID(),
       name: draft.name,
+      protocol: draft.protocol,
       groupId: draft.groupId,
       color: draft.color,
       host: draft.host,
@@ -95,6 +96,7 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
       },
       terminal: draft.terminal,
       options: draft.options,
+      proxyMode: draft.proxyMode,
       proxyId: draft.proxyId,
       jumpHostId: draft.jumpHostId,
       note: draft.note,

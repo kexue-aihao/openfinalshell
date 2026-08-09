@@ -100,9 +100,9 @@ describe('拨号侧', () => {
   const src = stripComments(read(AUTH))
 
   it('引用查不到 / 地址为空都抛 ProxyError，绝不返回 null 静默直连', () => {
-    const body = flat(blockAfter(src, 'export function resolveProxy'))
-    // 唯一允许返回 null 的分支是"压根没引用代理"
-    expect(body).toContain('if (!profile.proxyId) return null')
+    const body = flat(blockAfter(src, 'export function resolveProxy('))
+    // 唯一允许返回 null 的分支是"归属解析下来就是直连"（resolveProxyId 给了 null）
+    expect(body).toContain('if (!proxyId) return null')
     expect(body.match(/return null/g) ?? []).toHaveLength(1)
     expect(body.match(/throw new ProxyError/g) ?? []).toHaveLength(2)
   })
@@ -189,7 +189,8 @@ describe('界面', () => {
 
   it('抽屉提交的是 id，不再拼内联代理', () => {
     const body = flat(blockAfter(drawer, 'const submit ='))
-    expect(body).toContain('proxyId: v.proxyId || undefined')
+    // proxyId 现在按 proxyMode 门控（只在 custom 下带），但仍是 id 引用、绝不拼内联代理对象
+    expect(body).toContain("proxyId: v.proxyMode === 'custom'")
     expect(body).toContain('privateKeyId: v.privateKeyId || undefined')
     expect(body).not.toContain("type: 'none'")
   })

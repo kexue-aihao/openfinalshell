@@ -89,6 +89,10 @@ const profileSchema = z.object({
       compress: z.boolean().default(false)
     })
     .default({}),
+  /** v0.7 起：连接协议（缺省 ssh） */
+  protocol: z.enum(['ssh', 'rdp']).optional(),
+  /** v0.7 起：代理归属方式（缺省按老规则从 proxyId 推） */
+  proxyMode: z.enum(['follow', 'direct', 'custom']).optional(),
   /** v0.4 起：引用一条已保存的代理 */
   proxyId: idSchema.optional(),
   proxy: z
@@ -603,8 +607,10 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
               privateKeyPath: p.auth.privateKeyPath,
               passphraseRef: takeRef(p.auth.passphraseRef)
             },
+            protocol: p.protocol,
             terminal: p.terminal,
             options: p.options,
+            proxyMode: p.proxyMode,
             proxyId: mapId(proxyIds, p.proxyId ?? null) ?? undefined,
             proxy: p.proxy
               ? { ...p.proxy, passwordRef: takeRef(p.proxy.passwordRef) }

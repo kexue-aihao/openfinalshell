@@ -139,9 +139,17 @@ export interface SavedPrivateKeyDraft {
  */
 export type DeleteRefResult = { deleted: true } | { deleted: false; usedBy: string[] }
 
+/** 连接的代理归属方式，语义见 ConnectionProfile.proxyMode */
+export type ProxyMode = 'follow' | 'direct' | 'custom'
+
 export interface ConnectionProfile {
   id: ProfileId
   name: string
+  /**
+   * 连接协议。缺省（老数据）= `'ssh'`。`'rdp'` 走系统远程桌面（生成 .rdp 交给 mstsc），
+   * 此时 auth/terminal/proxy/options 那套 SSH 字段一概不用 —— 凭据由 Windows 自己接管。
+   */
+  protocol?: 'ssh' | 'rdp'
   groupId: GroupId | null
   /** 标签颜色（8 色预置之一），用于树节点与 tab 色点 */
   color?: string
@@ -166,7 +174,19 @@ export interface ConnectionProfile {
     compress: boolean
   }
   /**
-   * 引用一条已保存的代理（`SavedProxy`）拨号；**无值 = 直连**。v0.4 起走这条。
+   * 代理归属方式：
+   * - `'follow'` 跟随全局默认代理（设置里的 `connection.defaultProxyId`）——**新建连接的默认**
+   * - `'direct'` 强制直连，无视全局默认
+   * - `'custom'` 用本连接自己的 `proxyId`
+   *
+   * 缺省（老数据、迁移前）时按 `proxyId ? 'custom' : 'direct'` 解释 ——
+   * 这保证老连接行为**一字不变**：此前直连的不会因为有人配了全局默认就突然改走代理。
+   * 只有此后新建的连接才带 `'follow'`，"全局默认对新建连接生效"正是这么落地的。
+   */
+  proxyMode?: ProxyMode
+  /**
+   * 引用一条已保存的代理（`SavedProxy`）拨号。仅在 `proxyMode === 'custom'` 时有意义；
+   * 缺省语义（无 proxyMode）下无值 = 直连。
    */
   proxyId?: ProxyId
   /**
@@ -650,9 +670,22 @@ export interface AppSettings {
      * 并在那条任务的 notice 里说明原因。
      */
     packedTransfer: boolean
+    /**
+     * 终端里执行 `cd xxx` 后文件面板自动跳到该目录。默认开。
+     * 跳转是 best-effort：目标读不到（cd 打错了、无权限）就原地不动、不报错 ——
+     * 终端自己会把 cd 的错误打给用户，面板再弹一条是重复噪音。
+     */
+    followTerminalCd: boolean
   }
   monitor: {
     intervalMs: number
+  }
+  connection: {
+    /**
+     * 新建连接（proxyMode='follow'）默认走的代理 id；`null` = 默认直连。
+     * 改这里会实时影响所有"跟随全局"的连接，不影响显式设了直连/指定代理的那些。
+     */
+    defaultProxyId: string | null
   }
   layout: {
     /** react-resizable-panels 百分比尺寸 */

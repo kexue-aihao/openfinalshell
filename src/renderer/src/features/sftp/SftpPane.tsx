@@ -6,7 +6,6 @@ import {
   Dropdown,
   Empty,
   Input,
-  Spin,
   Table,
   Tooltip,
   type MenuProps,
@@ -34,6 +33,8 @@ import { useTransferStore } from '@/stores/useTransferStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import { formatBytes, formatTimestamp } from '@/utils/format'
 import { snapOf } from '@/features/transfers/aggregate'
+import { onShellCommand } from '@/features/terminal/commandEvents'
+import { applyCd, parseCdTarget } from './pathSync'
 import { FileIcon } from './FileIcon'
 import { PermissionModal } from './PermissionModal'
 import { UploadConflictModal, type UploadRequest } from './UploadConflictModal'
@@ -46,6 +47,13 @@ interface Props {
 
 /** 终态集合只有 @shared/constants 那一份。漏了新终态，watchTransfers 就永远等不完 */
 const TRANSFER_FINISHED = TRANSFER_FINAL_STATES
+
+/**
+ * 目录判定：symlink 要看指向。纯函数，放模块级 —— 组件里当它是稳定引用，
+ * 于是 columns 的 useMemo 不用把它列进依赖（列进去每次渲染都变，memo 就白做了）。
+ */
+const isDirEntry = (e: SftpEntry): boolean =>
+  e.type === 'dir' || (e.type === 'symlink' && e.targetType === 'dir')
 
 /** 远端命令的 stderr 只给人看前几行：一次 rm -rf 失败可能刷出上千行 Permission denied */
 function firstLines(text: string, n: number): string {
@@ -118,6 +126,8 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   /** 刷新时要用最新的 cwd，不能用入队那一刻闭包里的旧值 */
   const cwdRef = useRef('')
   cwdRef.current = cwd
+  /** 会话初始化时 realpath('.') 的结果，cd 跟随解析 `~` 用；拿不到时 ~ 类目标不跟 */
+  const homeRef = useRef<string | null>(null)
   useEffect(
     () => () => {
       for (const off of settleWatchersRef.current) off()
@@ -129,15 +139,17 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const showHidden = settings.sftp.showHiddenFiles
 
   const load = useCallback(
-    async (dir: string, pushHistory = true): Promise<void> => {
+    async (dir: string, pushHistory = true, silentErrors = false): Promise<void> => {
       if (!tab.sessionId) return
       setLoading(true)
-      setError(null)
+      // silent 模式（cd 跟随）失败时整个面板一个字都不动 —— 连既有的错误框都不碰
+      if (!silentErrors) setError(null)
       try {
         const list = await ofs.invoke('sftp:readdir', { sessionId: tab.sessionId, path: dir })
         setEntries(list)
         setCwd(dir)
         setSelected([])
+        if (!silentErrors) setError(null)
         if (pushHistory) {
           setHistory((h) => {
             const stack = [...h.stack.slice(0, h.index + 1), dir]
@@ -145,7 +157,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           })
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err))
+        if (!silentErrors) setError(err instanceof Error ? err.message : String(err))
       } finally {
         setLoading(false)
       }
@@ -153,15 +165,31 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     [tab.sessionId]
   )
 
-  // 首次打开：解析 home 目录
+  // 首次打开：解析 home 目录（记下来给 cd 跟随解析 `~`；解析不到就没有 ~ 跟随）
   useEffect(() => {
     if (initializedRef.current || !tab.sessionId || tab.state !== 'ready') return
     initializedRef.current = true
     void ofs
       .invoke('sftp:realpath', { sessionId: tab.sessionId, path: '.' })
-      .then((home) => load(home))
+      .then((home) => {
+        homeRef.current = home
+        return load(home)
+      })
       .catch(() => load('/'))
   }, [tab.sessionId, tab.state, load])
+
+  // 终端 cd → 面板跟随。解析纯逻辑在 pathSync.ts；推导不出目标（cd -、$VAR、~user）
+  // 或目标读不到（打错了、无权限）都原地不动 —— 终端自己已经把 cd 的错误给用户看了
+  useEffect(() => {
+    if (!settings.sftp.followTerminalCd) return
+    return onShellCommand(tab.id, (command) => {
+      const target = parseCdTarget(command)
+      if (!target) return
+      const next = applyCd(cwdRef.current, target, homeRef.current)
+      if (!next || next === cwdRef.current) return
+      void load(next, true, true)
+    })
+  }, [tab.id, settings.sftp.followTerminalCd, load])
 
   // 会话重连后重新拉取当前目录
   useEffect(() => {
@@ -182,8 +210,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     })
   }, [entries, showHidden])
 
-  const isDir = (e: SftpEntry): boolean =>
-    e.type === 'dir' || (e.type === 'symlink' && e.targetType === 'dir')
+  const isDir = isDirEntry
 
   /**
    * 「打开」：目录一律进去，文件按调用方给的意图分岔 ——
@@ -499,20 +526,25 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     })
   }
 
-  const doRename = async (entry: SftpEntry, newName: string): Promise<void> => {
-    setRenamingPath(null)
-    if (!tab.sessionId || !newName.trim() || newName === entry.name) return
-    try {
-      await ofs.invoke('sftp:rename', {
-        sessionId: tab.sessionId,
-        from: entry.path,
-        to: joinRemote(cwd, newName.trim())
-      })
-      await load(cwd, false)
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : String(err))
-    }
-  }
+  // useCallback：columns 用 useMemo 缓存，doRename 稳定才能让选中/拖拽等高频状态变化
+  // 不去重建整份 columns（重建会逼虚拟表格重算列布局）
+  const doRename = useCallback(
+    async (entry: SftpEntry, newName: string): Promise<void> => {
+      setRenamingPath(null)
+      if (!tab.sessionId || !newName.trim() || newName === entry.name) return
+      try {
+        await ofs.invoke('sftp:rename', {
+          sessionId: tab.sessionId,
+          from: entry.path,
+          to: joinRemote(cwd, newName.trim())
+        })
+        await load(cwd, false)
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : String(err))
+      }
+    },
+    [tab.sessionId, cwd, load, message]
+  )
 
   const doDelete = (items: SftpEntry[]): void => {
     modal.confirm({
@@ -643,13 +675,16 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     })
   }
 
-  const columns: TableColumnsType<SftpEntry> = [
+  // 缓存整份 columns：只有 t / 正在重命名的行 / doRename 变时才重建。
+  // 不缓存的话，选中一行、拖拽悬停、cd 跟随刷新等高频状态变化都会重建 columns，
+  // 逼 antd 虚拟表格重新测算列宽、把可见行全量重渲染（500 条目录里实测每次约 26ms）
+  const columns: TableColumnsType<SftpEntry> = useMemo(() => [
     {
       title: t('sftp.colName'),
       dataIndex: 'name',
       ellipsis: true,
-      sorter: (a, b) => a.name.localeCompare(b.name),
-      render: (_: unknown, entry) => (
+      sorter: (a: SftpEntry, b: SftpEntry) => a.name.localeCompare(b.name),
+      render: (_: unknown, entry: SftpEntry) => (
         <div className={styles.nameCell}>
           <FileIcon entry={entry} />
           {renamingPath === entry.path ? (
@@ -677,15 +712,15 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       dataIndex: 'size',
       width: 96,
       align: 'right',
-      sorter: (a, b) => a.size - b.size,
-      render: (size: number, entry) =>
-        isDir(entry) ? '-' : <Tooltip title={`${size} B`}>{formatBytes(size)}</Tooltip>
+      sorter: (a: SftpEntry, b: SftpEntry) => a.size - b.size,
+      render: (size: number, entry: SftpEntry) =>
+        isDirEntry(entry) ? '-' : <Tooltip title={`${size} B`}>{formatBytes(size)}</Tooltip>
     },
     {
       title: t('sftp.colMode'),
       dataIndex: 'modeStr',
       width: 104,
-      render: (modeStr: string, entry) => (
+      render: (modeStr: string, entry: SftpEntry) => (
         <a
           style={{ fontFamily: 'ui-monospace, Consolas, monospace' }}
           onClick={(e) => {
@@ -702,12 +737,18 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       title: t('sftp.colMtime'),
       dataIndex: 'mtime',
       width: 132,
-      sorter: (a, b) => a.mtime - b.mtime,
+      sorter: (a: SftpEntry, b: SftpEntry) => a.mtime - b.mtime,
       render: (mtime: number) => formatTimestamp(mtime)
     }
-  ]
+  ], [t, renamingPath, doRename])
 
-  const selectedEntries = visible.filter((e) => selected.includes(e.path))
+  // Set 成员判定 O(1)：selected 是数组，includes 在选区大时是 O(n·m)。
+  // selectedEntries 同样缓存 —— 它喂给 targetsFor，且每次渲染都算一遍没必要
+  const selectedSet = useMemo(() => new Set(selected), [selected])
+  const selectedEntries = useMemo(
+    () => visible.filter((e) => selectedSet.has(e.path)),
+    [visible, selectedSet]
+  )
 
   /**
    * 行与空白处**共用同一份**菜单，靠"有没有目标"把条目变灰，而不是给两套 items ——
@@ -725,7 +766,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
    */
   const targetsFor = (target: SftpEntry | null): SftpEntry[] => {
     if (!target) return []
-    return selectedEntries.length > 1 && selected.includes(target.path) ? selectedEntries : [target]
+    return selectedEntries.length > 1 && selectedSet.has(target.path) ? selectedEntries : [target]
   }
 
   /**
@@ -1076,10 +1117,6 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
               }
             />
           </div>
-        ) : loading && entries.length === 0 ? (
-          <div className={styles.emptyWrap}>
-            <Spin />
-          </div>
         ) : (
           <Table<SftpEntry>
             size="small"
@@ -1089,6 +1126,10 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
             rowKey="path"
             columns={columns}
             dataSource={visible}
+            // 双击进目录要跨一个网络往返（真机上是延迟卡显示的那个 RTT）。这期间旧内容
+            // 还留着、界面看起来"没反应"——加一个 150ms 延迟出现的转圈：本地/秒开的
+            // 目录一闪都不闪，慢链路上则立刻确认"点到了、在读了"。首次加载（空表）同样受用
+            loading={{ spinning: loading, delay: 150 }}
             rowSelection={{
               selectedRowKeys: selected,
               onChange: (keys) => setSelected(keys as string[]),
