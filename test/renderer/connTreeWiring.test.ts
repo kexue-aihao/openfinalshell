@@ -19,8 +19,9 @@ describe('备注', () => {
     expect(drawer.match(/name="note"/g)).toHaveLength(1)
   })
 
-  it('树节点展示备注（有备注时行内显示它，Tooltip 兜住完整信息）', () => {
-    expect(tree).toContain('p.note || `${p.username}@${p.host}`')
+  it('树节点展示备注（有备注时行内显示它，否则回退 user@host；Tooltip 兜住完整信息）', () => {
+    // 有备注优先显示备注，否则回退 user@host（host 是否打码由 maskHost.test.ts 的护栏管）
+    expect(tree).toContain('p.note || `${p.username}@')
     expect(tree).toContain('<Tooltip')
   })
 })

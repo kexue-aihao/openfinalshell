@@ -31,9 +31,16 @@
 }
 
 .nodeHost {
-  flex: none;
-  font-size: 11px;
-  color: var(--ofs-text-3);
+  /* 副标题（user@host / 备注）：过去用最暗的 text-3 + 11px，小屏上发灰看不清。
+     提到 text-2 + 12px 提升对比；能收缩省略而不是溢出到面板外被裁掉。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ofs-text-2);
 }
 
 .colorDot {

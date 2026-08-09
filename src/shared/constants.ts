@@ -239,7 +239,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   connection: {
     // null = 新建连接默认直连（与本功能上线前的既有行为一致）。用户在设置里指一条代理后，
     // 之后新建的连接（proxyMode='follow'）自动走它
-    defaultProxyId: null
+    defaultProxyId: null,
+    // 连接列表默认对 host 打码（截图脱敏）；新键，deepMerge 会给老用户补上此默认，无需迁移
+    maskHostInList: true
   },
   layout: {
     sidePanelSizePct: 18,

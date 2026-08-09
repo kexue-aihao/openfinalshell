@@ -533,6 +533,9 @@ export default {
       themeSystem: '跟随系统',
       accent: '强调色',
       uiZoom: '界面缩放',
+      maskHostInList: '连接列表隐藏完整地址',
+      maskHostInListHint:
+        '连接树里的 IP / 域名只显示首尾片段（如 156.•.•.50），足以区分机器又便于截图分享；完整地址仍用于连接、复制命令与搜索。',
       fontFamily: '终端字体',
       fontSize: '字号',
       lineHeight: '行高',

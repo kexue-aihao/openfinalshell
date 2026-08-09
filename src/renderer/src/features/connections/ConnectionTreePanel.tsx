@@ -14,8 +14,10 @@ import { useTranslation } from 'react-i18next'
 import type { ConnectionGroup, ConnectionProfile } from '@shared/types'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSessionStore } from '@/stores/useSessionStore'
+import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useUiStore } from '@/stores/useUiStore'
 import { RegionMarker, effectiveMarker } from './RegionMarker'
+import { maskHost } from './maskHost'
 import styles from './ConnectionTreePanel.module.css'
 
 const GROUP_PREFIX = 'g:'
@@ -28,6 +30,8 @@ export function ConnectionTreePanel(): React.JSX.Element {
     useConnectionStore()
   const launchProfile = useSessionStore((s) => s.launchProfile)
   const setEditingProfile = useUiStore((s) => s.setEditingProfile)
+  // 连接列表默认对 host 打码（截图脱敏）；用户可在设置里关掉。完整 host 仍用于连接/复制/搜索
+  const maskInList = useSettingsStore((s) => s.settings?.connection.maskHostInList ?? true)
 
   useEffect(() => {
     if (!loaded) void load()
@@ -159,8 +163,10 @@ export function ConnectionTreePanel(): React.JSX.Element {
             <Server size={13} strokeWidth={1.75} style={{ flex: 'none' }} />
             <span className={styles.nodeName}>{p.name}</span>
             {/* 有备注时行内副标题显示备注（更贴合"看一眼就知道这台是干嘛的"），
-                否则退回 user@host；完整信息都在 Tooltip 里 */}
-            <span className={styles.nodeHost}>{p.note || `${p.username}@${p.host}`}</span>
+                否则退回 user@host（host 按设置打码，仅用于区分机器）；完整信息都在 Tooltip 里 */}
+            <span className={styles.nodeHost}>
+              {p.note || `${p.username}@${maskInList ? maskHost(p.host) : p.host}`}
+            </span>
           </span>
         </Tooltip>
       </Dropdown>
@@ -223,7 +229,7 @@ export function ConnectionTreePanel(): React.JSX.Element {
     }
     return buildGroup(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles, groups, searchText, t])
+  }, [profiles, groups, searchText, t, maskInList])
 
   return (
     <div className={styles.panel}>

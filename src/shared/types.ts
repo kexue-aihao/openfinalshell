@@ -692,6 +692,11 @@ export interface AppSettings {
      * 改这里会实时影响所有"跟随全局"的连接，不影响显式设了直连/指定代理的那些。
      */
     defaultProxyId: string | null
+    /**
+     * 连接树里对 IP / 主机名打码（只显示首尾片段，方便截图分享）。默认开。
+     * 只影响显示标签；连接、复制 SSH 命令、搜索仍用完整 host。
+     */
+    maskHostInList: boolean
   }
   layout: {
     /** react-resizable-panels 百分比尺寸 */

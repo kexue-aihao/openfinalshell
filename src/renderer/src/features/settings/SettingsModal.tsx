@@ -217,6 +217,14 @@ export function SettingsModal(): React.JSX.Element {
                   />
                 </div>
               </Row>
+              <Row label={t('settings.maskHostInList')} hint={t('settings.maskHostInListHint')}>
+                <Switch
+                  checked={settings.connection.maskHostInList}
+                  onChange={(v) =>
+                    patch({ connection: { ...settings.connection, maskHostInList: v } })
+                  }
+                />
+              </Row>
             </>
           )}
 

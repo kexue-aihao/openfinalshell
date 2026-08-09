@@ -554,6 +554,9 @@ export default {
       themeSystem: 'System',
       accent: 'Accent color',
       uiZoom: 'UI zoom',
+      maskHostInList: 'Mask addresses in list',
+      maskHostInListHint:
+        'Show only partial IP/hostname (e.g. 156.•.•.50) in the connection tree — enough to tell machines apart and safe for screenshots. The full address is still used for connecting, copy command, and search.',
       fontFamily: 'Terminal font',
       fontSize: 'Font size',
       lineHeight: 'Line height',
