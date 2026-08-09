@@ -101,6 +101,11 @@
   white-space: nowrap;
 }
 
+/* btop 风格趋势图：紧贴卡片内容、上方留一点呼吸 */
+.graph {
+  margin-top: 6px;
+}
+
 /* 横向占用条 */
 .bar {
   height: 6px;

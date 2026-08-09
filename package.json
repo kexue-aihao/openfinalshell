@@ -51,7 +51,6 @@
     "@xterm/addon-webgl": "~0.18.0",
     "@xterm/xterm": "~5.5.0",
     "antd": "^5.29.3",
-    "echarts": "^5.6.0",
     "electron": "^43.2.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",

@@ -63,6 +63,22 @@ describe('发送这条路', () => {
   it('目标为空时提示"请先连接"，而不是静默什么都不做', () => {
     expect(send).toContain("t('snippet.noActiveTerminal')")
   })
+
+  it('发送成功后自动关窗 + 清空正文（回终端看效果、下次打开空白）', () => {
+    // 这两句必须在真正发过 term:exec 的那个 send 闭包里，而不是弹确认前的 doSend 体里
+    expect(send).toContain('setText(\'\')')
+    expect(send).toContain('setOpen(false)')
+    // 关窗/清空排在成功提示之后（即确实发出去了）
+    expect(send.indexOf("t('commandEditor.sent'")).toBeLessThan(send.indexOf('setOpen(false)'))
+  })
+})
+
+describe('每次打开都是空白', () => {
+  it('打开入口走 openBlank（清空正文），不是直接 setOpen(true)', () => {
+    const panel = stripComments(read('src/renderer/src/features/snippets/SnippetPanel.tsx'))
+    expect(panel).toContain('openBlank()')
+    expect(panel).not.toContain('setOpen(true)')
+  })
 })
 
 describe('文案', () => {

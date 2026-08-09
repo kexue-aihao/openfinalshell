@@ -88,6 +88,9 @@ export function CommandEditorModal(): React.JSX.Element {
         if (entry) pushHistory(entry)
       }
       message.success(t('commandEditor.sent', { count: targets.length }))
+      // 发完自动关窗，让用户回到终端看执行效果；顺手清空正文，下次打开是空白的
+      setText('')
+      setOpen(false)
     }
 
     const lines = payload.replace(/\n$/, '').split('\n').length
@@ -149,7 +152,8 @@ export function CommandEditorModal(): React.JSX.Element {
       width={760}
       onCancel={() => setOpen(false)}
       footer={null}
-      // 关掉只是收起：草稿留在 store 里，下次打开还在（重启才没，见 useCommandEditorStore）
+      // 正文不跨"打开"保留：openBlank 每次清空、发送后也清空（见 useCommandEditorStore）。
+      // destroyOnHidden 保持 false 即可 —— 正文由 store 受控，清空它就等于清空这一格
       destroyOnHidden={false}
     >
       <Input.TextArea

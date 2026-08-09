@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Empty } from 'antd'
 import { ChevronDown, ChevronRight, RefreshCw, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -6,10 +6,9 @@ import type { MonitorSnapshot } from '@shared/types'
 import { historyOf, useMonitorStore } from '@/stores/useMonitorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import type { SessionTab } from '@/stores/useSessionStore'
-import { EChart } from '@/components/EChart'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { formatBytes, formatDuration } from '@/utils/format'
-import { areaOption, dualLineOption, latencyBarOption, latencyColor } from './charts'
+import { MonitorGraph } from './MonitorGraph'
 import styles from './MonitorPanel.module.css'
 
 interface Props {
@@ -26,6 +25,13 @@ function usageColor(pct: number, accent: string): string {
   if (pct >= 90) return 'var(--ofs-error)'
   if (pct >= 75) return 'var(--ofs-warning)'
   return accent
+}
+
+/** 延迟分档配色：<100 绿 / <200 黄 / 其余红（对齐 FinalShell 肌肉记忆） */
+function latencyColor(ms: number): string {
+  if (ms < 100) return '#52c41a'
+  if (ms < 200) return '#faad14'
+  return '#ff4d4f'
 }
 
 export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
@@ -50,28 +56,9 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
   const history = sessionId
     ? historyOf(sessionId)
     : { cpu: [], memPct: [], rxBps: [], txBps: [], latencyMs: [] }
-
-  const cpuOption = useMemo(
-    () => areaOption([...history.cpu], accent),
-    // 依赖最新快照的时间戳：每来一帧就重算 option
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot?.ts, accent]
-  )
-  const memOption = useMemo(
-    () => areaOption([...history.memPct], '#13c2c2'),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot?.ts]
-  )
-  const netOption = useMemo(
-    () => dualLineOption([...history.rxBps], [...history.txBps], accent, '#faad14', formatBytes),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot?.ts, accent]
-  )
-  const latencyOption = useMemo(
-    () => latencyBarOption([...history.latencyMs]),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [snapshot?.ts]
-  )
+  // 历史数组是原地 push/shift（引用不变），spread 成新数组让 MonitorGraph 的
+  // useEffect 依赖能察觉变化；每帧一次、60 点小图，开销可忽略
+  void snapshot?.ts // 依赖锚点：每来一帧本组件重渲染，下面几张图跟着重画
 
   const header = (
     <div className={styles.header}>
@@ -152,7 +139,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
             {snapshot.cpu.usagePct.toFixed(1)}
             <span className={styles.unit}>%</span>
           </div>
-          <EChart option={cpuOption} height={48} />
+          <MonitorGraph primary={[...history.cpu]} height={48} max={100} className={styles.graph} />
           {showCores && (
             <div className={styles.coreGrid}>
               {snapshot.cpu.perCore.map((pct, i) => (
@@ -172,7 +159,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
         </div>
 
         {/* 内存 */}
-        <MemCard snapshot={snapshot} accent={accent} option={memOption} />
+        <MemCard snapshot={snapshot} accent={accent} memHistory={[...history.memPct]} />
 
         {/* 网络 */}
         <div className={styles.card}>
@@ -195,7 +182,13 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
               </span>
             </span>
           </div>
-          <EChart option={netOption} height={48} />
+          {/* 下行 = 渐变面积（绿→红按量），上行 = 橙线叠加，与图例配色一致 */}
+          <MonitorGraph
+            primary={[...history.rxBps]}
+            secondary={[...history.txBps]}
+            height={48}
+            className={styles.graph}
+          />
         </div>
 
         {/* 延迟：既有采集通道的往返毫秒（写帧 → 首见 BEGIN 哨兵），不另开连接 */}
@@ -208,7 +201,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
               {snapshot.latencyMs}
               <span className={styles.unit}>ms</span>
             </div>
-            <EChart option={latencyOption} height={40} />
+            <MonitorGraph primary={[...history.latencyMs]} height={40} className={styles.graph} />
           </div>
         )}
 
@@ -329,11 +322,11 @@ function Kv({ k, v }: { k: string; v: string }): React.JSX.Element {
 function MemCard({
   snapshot,
   accent,
-  option
+  memHistory
 }: {
   snapshot: MonitorSnapshot
   accent: string
-  option: Parameters<typeof EChart>[0]['option']
+  memHistory: number[]
 }): React.JSX.Element {
   const { t } = useTranslation()
   const memPct = usePct(snapshot.mem.usedKb, snapshot.mem.totalKb)
@@ -373,7 +366,7 @@ function MemCard({
           </div>
         </>
       )}
-      <EChart option={option} height={40} />
+      <MonitorGraph primary={memHistory} height={40} max={100} className={styles.graph} />
     </div>
   )
 }

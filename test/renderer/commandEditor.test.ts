@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { COMMAND_HISTORY_MAX_CHARS } from '@shared/constants'
 import {
   buildSendText,
@@ -6,6 +6,7 @@ import {
   resolveTargets,
   type TargetTab
 } from '@/features/snippets/commandEditorSend'
+import { useCommandEditorStore } from '@/stores/useCommandEditorStore'
 
 /**
  * 命令编辑器的三条判断。它们错了都不会抛异常、界面照常工作，只是
@@ -68,6 +69,29 @@ describe('发送的正文', () => {
     expect(buildSendText('\n\n', true)).toBe('')
     // 只有空格的一行不算空：那可能是故意发一个空格给某个交互式程序
     expect(buildSendText('   ', true)).toBe('   \n')
+  })
+})
+
+describe('每次打开都是空白（openBlank）', () => {
+  beforeEach(() => {
+    useCommandEditorStore.setState({ open: false, text: '', target: 'current', autoEnter: true, expandVars: true })
+  })
+
+  it('openBlank：清空上次的正文并打开', () => {
+    useCommandEditorStore.setState({ text: '上次没发完的命令', open: false })
+    useCommandEditorStore.getState().openBlank()
+    expect(useCommandEditorStore.getState().text).toBe('')
+    expect(useCommandEditorStore.getState().open).toBe(true)
+  })
+
+  it('openBlank 只清正文，不动 autoEnter/expandVars/target 这些偏好', () => {
+    useCommandEditorStore.setState({ autoEnter: false, expandVars: false, target: 'all', text: 'x' })
+    useCommandEditorStore.getState().openBlank()
+    const s = useCommandEditorStore.getState()
+    expect(s.text).toBe('')
+    expect(s.autoEnter).toBe(false)
+    expect(s.expandVars).toBe(false)
+    expect(s.target).toBe('all')
   })
 })
 

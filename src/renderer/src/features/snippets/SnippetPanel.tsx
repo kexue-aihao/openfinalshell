@@ -126,7 +126,7 @@ export function SnippetPanel(): React.JSX.Element {
           <Button
             size="small"
             icon={<SquarePen size={14} strokeWidth={1.75} />}
-            onClick={() => useCommandEditorStore.getState().setOpen(true)}
+            onClick={() => useCommandEditorStore.getState().openBlank()}
           />
         </Tooltip>
       </div>
