@@ -86,6 +86,7 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
       protocol: draft.protocol,
       groupId: draft.groupId,
       color: draft.color,
+      flag: draft.flag,
       host: draft.host,
       port: draft.port,
       username: draft.username,

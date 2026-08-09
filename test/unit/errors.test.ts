@@ -51,6 +51,20 @@ describe('friendlySshError', () => {
     expect(friendlySshError(new Error('read ECONNRESET'))).toContain('连接被重置')
   })
 
+  it('握手前断开：给出网络/代理/限流的排查方向，而不是原样透出', () => {
+    // ssh2 的原文对用户等于没说；常见于代理掉线（本地 Clash/v2ray 停了）或服务器侧限流
+    const msg = friendlySshError(new Error('Connection lost before handshake'))
+    expect(msg).toContain('握手前连接就断开了')
+    expect(msg).toContain('代理')
+    expect(msg).not.toBe('Connection lost before handshake')
+  })
+
+  it('但"算法协商失败"和"握手超时"仍走各自更准的分支，不被握手兜底截走', () => {
+    // no matching 先判 → 兼容老算法；Timed out 先判 → 连接超时
+    expect(friendlySshError(new Error('Handshake failed: no matching cipher'))).toContain('兼容老算法')
+    expect(friendlySshError(new Error('Timed out while waiting for handshake'))).toContain('连接超时')
+  })
+
   it('未知错误原样透出，不吞信息', () => {
     expect(friendlySshError(new Error('something odd'))).toBe('something odd')
     expect(friendlySshError('plain string')).toBe('plain string')

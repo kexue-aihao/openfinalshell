@@ -26,7 +26,35 @@ import type {
  */
 export function createMockOfs(): OfsApi {
   const settings = structuredClone(DEFAULT_SETTINGS)
-  const profiles: ConnectionProfile[] = []
+  // 预置几台机器，方便浏览器 mock 下看连接树的位置标记（旗/局域网自动/颜色回退）
+  const now = Date.now()
+  const mkProfile = (over: Partial<ConnectionProfile>): ConnectionProfile => ({
+    id: crypto.randomUUID(),
+    name: 'demo',
+    groupId: null,
+    host: '10.0.0.1',
+    port: 22,
+    username: 'root',
+    auth: { method: 'password', passwordRef: 'mock-ref' },
+    terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+    options: {
+      keepaliveInterval: 15000,
+      readyTimeout: 15000,
+      legacyAlgorithms: false,
+      autoReconnect: true,
+      monitorEnabled: true,
+      compress: false
+    },
+    createdAt: now,
+    updatedAt: now,
+    ...over
+  })
+  const profiles: ConnectionProfile[] = [
+    mkProfile({ name: 'ByteVirt-JP1', host: 'jp1.example.org', flag: 'JP' }),
+    mkProfile({ name: 'ByteVirt-US', host: '155.117.155.225', flag: 'US' }),
+    mkProfile({ name: 'NAS', host: '192.168.1.10' }), // 私网 → 自动局域网标记
+    mkProfile({ name: '旧配色机', host: '203.0.113.9', color: '#52c41a' }) // 无 flag → 回退颜色点
+  ]
   const groups: ConnectionGroup[] = []
   // 与 main/store/snippets.ts 的默认值保持一致，便于纯 UI 调试
   const snippetGroups: SnippetGroup[] = [{ id: 'default', name: '常用', order: 0 }]
@@ -101,6 +129,7 @@ export function createMockOfs(): OfsApi {
     name: draft.name,
     groupId: draft.groupId,
     color: draft.color,
+    flag: draft.flag,
     host: draft.host,
     port: draft.port,
     username: draft.username,

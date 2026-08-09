@@ -151,8 +151,14 @@ export interface ConnectionProfile {
    */
   protocol?: 'ssh' | 'rdp'
   groupId: GroupId | null
-  /** 标签颜色（8 色预置之一），用于树节点与 tab 色点 */
+  /** 标签颜色（8 色预置之一），用于 tab 色点与树节点回退标记 */
   color?: string
+  /**
+   * 位置标记：国家/地区代码（如 'JP'/'US'）、`'lan'`（局域网）、`'globe'`（公网/其它）。
+   * 连接树按它显示国旗/局域网图标；未设时，私网 IP 自动显示局域网标记，否则回退到 color 色点。
+   * 由用户按服务器物理位置手选（不自动按 IP 查国家——离线且不外发 IP）。
+   */
+  flag?: string
   host: string
   port: number
   username: string

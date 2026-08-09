@@ -18,6 +18,7 @@ const profileDraftSchema = z.object({
   protocol: z.enum(['ssh', 'rdp']).optional(),
   groupId: z.string().nullable(),
   color: z.string().max(20).optional(),
+  flag: z.string().max(20).optional(),
   host: z.string().min(1).max(255),
   port: z.number().int().min(1).max(65535),
   username: z.string().min(1).max(120),

@@ -15,9 +15,9 @@ import {
   Switch
 } from 'antd'
 import { useTranslation } from 'react-i18next'
-import { PRESET_COLORS } from '@shared/constants'
 import type { ProfileDraft, ProxyMode } from '@shared/types'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { REGIONS, RegionMarker } from './RegionMarker'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSavedRefStore } from '@/stores/useSavedRefStore'
 import { useUiStore } from '@/stores/useUiStore'
@@ -29,6 +29,8 @@ interface FormValues {
   protocol?: 'ssh' | 'rdp'
   groupId: string | null
   color?: string
+  /** 位置标记：国家/地区代码 / 'lan' / 'globe' / 空 */
+  flag?: string
   host: string
   port: number
   username: string
@@ -89,6 +91,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         protocol: editing.protocol ?? 'ssh',
         groupId: editing.groupId,
         color: editing.color,
+        flag: editing.flag,
         host: editing.host,
         port: editing.port,
         username: editing.username,
@@ -141,6 +144,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         protocol: v.protocol ?? 'ssh',
         groupId: v.groupId ?? null,
         color: v.color,
+        flag: v.flag || undefined,
         host: v.host.trim(),
         port: v.port,
         username: v.username.trim(),
@@ -351,23 +355,23 @@ export function ProfileEditDrawer(): React.JSX.Element {
           />
         </Form.Item>
 
-        <Form.Item name="color" label={t('conn.color')}>
-          <Radio.Group>
-            {PRESET_COLORS.map((c) => (
-              <Radio key={c} value={c}>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    background: c,
-                    verticalAlign: 'middle'
-                  }}
-                />
-              </Radio>
-            ))}
-          </Radio.Group>
+        {/* 位置标记：按服务器物理位置手选国旗，或局域网标记。留空时私网地址会自动显示局域网。
+            原「标签颜色」的色点保留在数据里（tab 强调色 + 未设标记时的树节点回退），不再单独设 */}
+        <Form.Item name="flag" label={t('conn.flag')} extra={t('conn.flagHint')}>
+          <Select
+            allowClear
+            placeholder={t('conn.flagNone')}
+            optionLabelProp="label"
+            options={REGIONS.map((r) => ({
+              value: r.code,
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <RegionMarker code={r.code} />
+                  {r.label}
+                </span>
+              )
+            }))}
+          />
         </Form.Item>
 
         {/* 备注对两种协议都适用，且是常用信息 —— 放主区、不埋进高级选项 */}

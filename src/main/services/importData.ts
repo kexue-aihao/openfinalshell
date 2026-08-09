@@ -59,6 +59,7 @@ const profileSchema = z.object({
     .nullish()
     .transform((v) => v ?? null),
   color: z.string().max(20).optional(),
+  flag: z.string().max(20).optional(),
   host: z.string().min(1).max(255),
   port: z.number().int().min(1).max(65535),
   username: z.string().min(1).max(120),
@@ -596,6 +597,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
             name: dup ? `${p.name}（导入）` : p.name,
             groupId: mapId(groupIds, p.groupId),
             color: p.color,
+            flag: p.flag,
             host: p.host,
             port: p.port,
             username: p.username,

@@ -15,6 +15,7 @@ import type { ConnectionGroup, ConnectionProfile } from '@shared/types'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useUiStore } from '@/stores/useUiStore'
+import { RegionMarker, effectiveMarker } from './RegionMarker'
 import styles from './ConnectionTreePanel.module.css'
 
 const GROUP_PREFIX = 'g:'
@@ -148,7 +149,13 @@ export function ConnectionTreePanel(): React.JSX.Element {
           mouseEnterDelay={0.4}
         >
           <span className={styles.node} onDoubleClick={() => connect(p)}>
-            {p.color && <span className={styles.colorDot} style={{ background: p.color }} />}
+            {(() => {
+              // 位置标记优先：显式手选 > 私网自动局域网 > 回退颜色点
+              const marker = effectiveMarker(p.flag, p.host)
+              if (marker) return <RegionMarker code={marker} />
+              if (p.color) return <span className={styles.colorDot} style={{ background: p.color }} />
+              return null
+            })()}
             <Server size={13} strokeWidth={1.75} style={{ flex: 'none' }} />
             <span className={styles.nodeName}>{p.name}</span>
             {/* 有备注时行内副标题显示备注（更贴合"看一眼就知道这台是干嘛的"），
