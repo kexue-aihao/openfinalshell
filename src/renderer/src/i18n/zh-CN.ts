@@ -22,6 +22,29 @@ export default {
       recent: '最近会话',
       noRecent: '暂无最近会话'
     },
+    onboarding: {
+      welcomeTitle: '欢迎使用 OpenFinalShell',
+      welcomeIntro:
+        '把 SSH 终端、远端文件管理与服务器监控放进同一个窗口。连上一台机器，上面是终端、中间是远端文件的编辑器、下面是文件列表，旁边是这台机器的 CPU / 内存 / 网络实时曲线。',
+      featuresTitle: '你可以做这些',
+      featureTerminal: '多标签 SSH 终端，支持分屏、搜索、命令历史与快捷命令',
+      featureSftp: 'SFTP 文件管理：双击打开/编辑、拖拽上传、批量传输队列',
+      featureMonitor: '实时监控 CPU / 内存 / 网络 / 磁盘与进程 Top',
+      featureManage: '连接树分组管理、端口转发、加密凭据存储、数据导入导出',
+      shortcutsTitle: '常用快捷键',
+      getStarted: '开始使用',
+      whatsNewTitle: '更新说明 · v{{version}}',
+      gotIt: '知道了',
+      updatedFromTo: '已从 v{{from}} 更新到 v{{to}}，本次变化：',
+      typeFeat: '新增',
+      typeFix: '修复',
+      viewReleases: '查看全部版本更新',
+      noNotes: '本次为维护性更新，无用户可见改动。'
+    },
+    donate: {
+      title: '赞赏支持 ❤',
+      subtitle: '如果 OpenFinalShell 对你有帮助，欢迎扫码请作者喝杯咖啡'
+    },
     sidebar: {
       connections: '连接管理',
       snippets: '快捷命令',

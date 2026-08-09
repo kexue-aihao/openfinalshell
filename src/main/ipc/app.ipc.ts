@@ -5,6 +5,7 @@ import { exportData } from '../services/exportData'
 import { applyImport, inspectImport } from '../services/importData'
 import { applyFinalShellImport, scanFinalShell } from '../services/finalshellImport'
 import { getSettings } from '../services/settings'
+import { getStartupNotice } from '../services/startupNotice'
 import { applyWindowChrome } from '../window'
 import { scopedLogger } from '../utils/logger'
 
@@ -20,6 +21,8 @@ export function registerAppIpc(): void {
     node: process.versions.node ?? '',
     chrome: process.versions.chrome ?? ''
   }))
+
+  handle('app:getStartupNotice', () => getStartupNotice())
 
   handle(
     'app:pickPath',

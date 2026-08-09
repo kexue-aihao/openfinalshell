@@ -724,6 +724,21 @@ export interface AppVersions {
   chrome: string
 }
 
+/**
+ * 启动提示：由"上次启动记录的版本"与"当前版本"比对得出，用来决定开机弹哪种窗。
+ * - `'fresh'`  从未记录过版本 → 全新安装，弹"功能/快捷键"引导
+ * - `'update'` 版本变了 → 弹"更新了什么"（fromVersion→toVersion 之间的更新说明）
+ * - `'none'`   版本没变 → 不弹
+ */
+export type StartupNoticeKind = 'fresh' | 'update' | 'none'
+export interface StartupNotice {
+  kind: StartupNoticeKind
+  /** 仅 update：上次启动的版本 */
+  fromVersion?: string
+  /** 当前版本 */
+  toVersion: string
+}
+
 // ---------- 数据导入 / 导出 ----------
 /** 导入时同 id 数据已存在的处理方式 */
 export type ImportConflictPolicy = 'skip' | 'overwrite' | 'duplicate'

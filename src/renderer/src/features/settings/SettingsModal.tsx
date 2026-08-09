@@ -27,6 +27,7 @@ import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
 import { KnownHostsPanel } from './KnownHostsPanel'
 import { SavedRefsPanel } from './SavedRefsPanel'
+import { DonateSection } from '@/features/donate/DonateSection'
 import { UpdatePanel } from './UpdatePanel'
 import { TerminalPreview } from './TerminalPreview'
 import { SHORTCUTS } from './shortcuts'
@@ -535,6 +536,7 @@ export function SettingsModal(): React.JSX.Element {
                 GitHub
               </Button>
               <div className={styles.aboutLicense}>MIT License</div>
+              <DonateSection />
             </div>
           )}
         </div>

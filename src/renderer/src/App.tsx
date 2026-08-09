@@ -13,6 +13,7 @@ import { PromptHost } from '@/features/prompts/PromptHost'
 import { TransferDrawer } from '@/features/transfers/TransferDrawer'
 import { SettingsModal } from '@/features/settings/SettingsModal'
 import { CommandEditorModal } from '@/features/snippets/CommandEditorModal'
+import { StartupNoticeModal } from '@/features/onboarding/StartupNoticeModal'
 import { useTransferStore, wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
@@ -87,6 +88,8 @@ export default function App(): React.JSX.Element {
           {/* 挂在这里而不是快捷命令面板里：侧栏切到别的视图时那个面板会卸载，
               而命令编辑器开着的时候不该跟着消失（草稿也就跟着没了） */}
           <CommandEditorModal />
+          {/* 开机弹窗：全新安装弹功能/快捷键引导，增量更新弹更新说明；同版本只弹一次 */}
+          <StartupNoticeModal />
         </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>

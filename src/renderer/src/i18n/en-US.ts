@@ -22,6 +22,29 @@ export default {
       recent: 'Recent sessions',
       noRecent: 'No recent sessions'
     },
+    onboarding: {
+      welcomeTitle: 'Welcome to OpenFinalShell',
+      welcomeIntro:
+        'SSH terminal, remote file management, and server monitoring in one window. Connect to a host and get a terminal on top, an editor for remote files in the middle, the file list below, and live CPU / memory / network graphs on the side.',
+      featuresTitle: 'What you can do',
+      featureTerminal: 'Tabbed SSH terminal with split panes, search, command history, and snippets',
+      featureSftp: 'SFTP file manager: double-click to open/edit, drag to upload, batch transfer queue',
+      featureMonitor: 'Live CPU / memory / network / disk graphs and top processes',
+      featureManage: 'Grouped connection tree, port forwarding, encrypted credential vault, import/export',
+      shortcutsTitle: 'Handy shortcuts',
+      getStarted: 'Get started',
+      whatsNewTitle: "What's new · v{{version}}",
+      gotIt: 'Got it',
+      updatedFromTo: 'Updated from v{{from}} to v{{to}}. Changes in this release:',
+      typeFeat: 'New',
+      typeFix: 'Fix',
+      viewReleases: 'View all releases',
+      noNotes: 'This is a maintenance release with no user-facing changes.'
+    },
+    donate: {
+      title: 'Support ❤',
+      subtitle: 'If OpenFinalShell helps you, scan to buy the author a coffee'
+    },
     sidebar: {
       connections: 'Connections',
       snippets: 'Snippets',

@@ -47,6 +47,7 @@ import type {
   SftpEntry,
   Snippet,
   SnippetGroup,
+  StartupNotice,
   TaskId,
   TrustedHostkey,
   TermId,
@@ -62,6 +63,8 @@ import type { RemoteCharset } from './constants'
 export interface InvokeMap {
   // --- 应用 ---
   'app:getVersions': { args: []; result: AppVersions }
+  // 开机弹窗判定：首次调用会把当前版本记为"已见"，之后同版本返回 'none'
+  'app:getStartupNotice': { args: []; result: StartupNotice }
   'app:pickPath': {
     args: [{ mode: 'openFile' | 'saveFile' | 'openDirectory'; defaultPath?: string; title?: string }]
     result: string | null

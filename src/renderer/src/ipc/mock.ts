@@ -491,6 +491,8 @@ export function createMockOfs(): OfsApi {
       return Object.assign(settings, next)
     },
     'app:getVersions': () => ({ app: '0.1.0-mock', electron: 'browser', node: '-', chrome: '-' }),
+    // 浏览器 mock 里默认当"更新到当前版本"，方便直接预览更新弹窗
+    'app:getStartupNotice': () => ({ kind: 'update', fromVersion: '0.11.0', toVersion: '0.12.0' }),
     // 浏览器里没有原生对话框，返回假路径让传输流程可走通
     'app:pickPath': (arg: never) => {
       const { mode } = arg as unknown as { mode: string }

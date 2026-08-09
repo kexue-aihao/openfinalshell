@@ -1,0 +1,70 @@
+.body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sectionTitle {
+  font-weight: 600;
+  margin: 4px 0 8px;
+}
+
+.featureList {
+  margin: 0 0 4px;
+  padding-left: 20px;
+  line-height: 1.9;
+}
+
+.shortcuts {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcuts td {
+  padding: 3px 8px 3px 0;
+  vertical-align: top;
+  color: var(--ofs-text-2);
+}
+
+.shortcuts td:first-child {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  font-family: var(--ofs-mono, monospace);
+  font-size: 12px;
+  color: var(--ofs-text-1);
+  background: var(--ofs-bg-elevated);
+  border: 1px solid var(--ofs-border);
+  border-radius: 4px;
+}
+
+.noteBlock {
+  margin-bottom: 10px;
+}
+
+.noteVersion {
+  font-weight: 600;
+  margin: 2px 0 6px;
+}
+
+.noteList {
+  margin: 0;
+  padding-left: 4px;
+  list-style: none;
+}
+
+.noteList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  line-height: 1.9;
+}
+
+.noteTag {
+  flex: none;
+  margin-top: 3px;
+}
