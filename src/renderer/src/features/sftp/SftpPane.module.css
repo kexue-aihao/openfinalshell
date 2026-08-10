@@ -172,6 +172,16 @@
   justify-content: center;
 }
 
+/*
+ * 换目录途中占住列表那块地方的骨架。
+ * 高度与 Table 的 scroll.y 对齐（220），这样切目录时面板不会先塌一下再弹回来。
+ */
+.skeletonWrap {
+  height: 220px;
+  padding: 10px 12px;
+  overflow: hidden;
+}
+
 /* ---- 上传冲突框（列表与提示样式直接复用下面快速删除那一套，CSS 产物零增长） ---- */
 .conflictScanning {
   display: flex;

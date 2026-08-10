@@ -800,7 +800,9 @@
       "pathControlChar": "{{what}}에 줄바꿈 또는 NUL 문자가 포함되어 원격 명령에 사용할 수 없습니다: {{path}}",
       "pathTooLong": "{{what}}이(가) {{max}}자를 초과합니다",
       "pathNotAbsolute": "{{what}}은(는) 절대 경로여야 합니다: {{path}}",
-      "pathDotSegment": "{{what}}에는 . 또는 .. 경로 세그먼트를 포함할 수 없습니다: {{path}}"
+      "pathDotSegment": "{{what}}에는 . 또는 .. 경로 세그먼트를 포함할 수 없습니다: {{path}}",
+      "readdirTimeout": "디렉터리를 읽는 중 시간이 초과되었습니다: {{path}}",
+      "readdirTooManyPages": "항목이 너무 많거나 서버가 디렉터리 끝을 알리지 않아 읽기를 중단했습니다: {{path}}"
     },
     "data": {
       "unknownVersion": "알 수 없음",

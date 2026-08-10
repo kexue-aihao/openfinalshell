@@ -199,6 +199,32 @@ describe('SFTP 浏览', () => {
     const entries = await readdir(sessionId, '\\sub')
     expect(entries.map((e) => e.name)).toEqual(['nested.txt'])
   })
+
+  /**
+   * 分页：readdir 现在自己开句柄、自己翻页（为的是把 symlink 的 stat 塞进翻页空档，
+   * 见 readdirPaged.ts）。fixture 服务器每页 50 条，所以 120 个条目会跨 3 页 ——
+   * 这一条验的是真 ssh2 句柄语义下"多页拼接不丢条目、不重复"。
+   */
+  it('跨多页的大目录一条不丢、不重复', async () => {
+    const big = join(sftpRoot, 'many')
+    await fs.mkdir(big, { recursive: true })
+    const expected = Array.from({ length: 120 }, (_, i) => `f${String(i).padStart(3, '0')}.txt`)
+    await Promise.all(expected.map((n) => fs.writeFile(join(big, n), 'x')))
+
+    const entries = await readdir(sessionId, '/many')
+    expect(entries).toHaveLength(120)
+    expect(entries.map((e) => e.name).sort()).toEqual([...expected].sort())
+    // 去重校验：多页拼接最容易犯的错是把某一页读两遍
+    expect(new Set(entries.map((e) => e.path)).size).toBe(120)
+
+    await remove(sessionId, '/many', true)
+  })
+
+  it('空目录返回空列表（EOF 在第一页就来）', async () => {
+    await mkdir(sessionId, '/emptydir')
+    expect(await readdir(sessionId, '/emptydir')).toEqual([])
+    await remove(sessionId, '/emptydir', true)
+  })
 })
 
 describe('SFTP 传输', () => {

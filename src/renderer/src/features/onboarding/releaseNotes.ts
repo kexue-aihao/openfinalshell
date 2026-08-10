@@ -17,6 +17,31 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.15.2',
+    items: [
+      {
+        type: 'feat',
+        zh: '终端 cd 之后 SFTP 面板「按下即翻页」：路径与面包屑立刻切到目标目录，列表位置先显示骨架，不再等一个网络往返才有反应',
+        en: 'The SFTP pane now switches the moment you press Enter: the path and breadcrumb jump to the target directory immediately and the list shows a skeleton, instead of sitting still for a whole round-trip'
+      },
+      {
+        type: 'feat',
+        zh: '目录读取快了：分页读取时顺带解析软链接，一次切目录少两个网络往返（软链接多的目录如 /etc、/usr/bin 最明显）',
+        en: 'Directory listing is faster: symlinks are resolved while paging through entries, cutting two round-trips per directory switch (most noticeable in symlink-heavy directories such as /etc and /usr/bin)'
+      },
+      {
+        type: 'fix',
+        zh: '修复快速连续切目录时可能跳错目录：先后发出的两次读取回来的顺序不定，旧的那次会把面板压回上一个目录',
+        en: 'Fixed landing in the wrong directory when switching quickly: two listings could return out of order and the older one would snap the pane back'
+      },
+      {
+        type: 'fix',
+        zh: '修复一次读取失败后表格被错误提示永久占住，之后即使 cd 跟随成功也要手动刷新才恢复',
+        en: 'Fixed the file table staying stuck on an error message after one failed listing, needing a manual refresh even once following succeeded again'
+      }
+    ]
+  },
+  {
     version: '0.15.1',
     items: [
       {

@@ -1,7 +1,8 @@
 import type { SFTPWrapper } from 'ssh2'
 import type { SessionId, SftpEntry } from '@shared/types'
 import { sshManager } from '../ssh/SshConnectionManager'
-import { toSftpEntry, typeFromMode, type RawDirEntry } from './entryParse'
+import { typeFromMode, type RawDirEntry } from './entryParse'
+import { readdirPaged } from './readdirPaged'
 import { remoteAncestors, remoteJoin, toRemotePath, type RemotePath } from './remotePath'
 
 /** ssh2 的 sftp 回调风格 → Promise（有返回值） */
@@ -22,30 +23,13 @@ async function sftpOf(sessionId: SessionId): Promise<SFTPWrapper> {
   return sshManager.get(sessionId).browseSftpSession()
 }
 
+/**
+ * 目录列举。翻页与 symlink 的 stat 都在 readdirPaged 里 —— 那边把两者交错起来，
+ * 一次 cd 少两个往返（为什么这么做、以及三个不许踩的点，见 readdirPaged.ts 的文件头）。
+ */
 export async function readdir(sessionId: SessionId, path: string): Promise<SftpEntry[]> {
   const sftp = await sftpOf(sessionId)
-  const dir = toRemotePath(path)
-  const raw = await promisify<RawDirEntry[]>((cb) =>
-    sftp.readdir(dir, cb as (err: Error | undefined, list: RawDirEntry[]) => void)
-  )
-  const entries = raw.map((r) => toSftpEntry(dir, r))
-
-  // symlink 需要 follow stat 才知道指向文件还是目录（决定双击行为）
-  await Promise.all(
-    entries
-      .filter((e) => e.type === 'symlink')
-      .map(async (e) => {
-        try {
-          const attrs = await promisify<{ mode: number }>((cb) =>
-            sftp.stat(e.path, cb as (err: Error | undefined, stats: { mode: number }) => void)
-          )
-          e.targetType = typeFromMode(attrs.mode)
-        } catch {
-          e.targetType = 'other' // 断链
-        }
-      })
-  )
-  return entries
+  return readdirPaged(sftp, toRemotePath(path))
 }
 
 export async function realpath(sessionId: SessionId, path: string): Promise<string> {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { applyCd, normalizePosix, parseCdTarget } from '../../src/renderer/src/features/sftp/pathSync'
+import {
+  applyCd,
+  navView,
+  normalizePosix,
+  parseCdTarget
+} from '../../src/renderer/src/features/sftp/pathSync'
 
 describe('parseCdTarget：从命令里解析 cd 目标', () => {
   it('普通形态', () => {
@@ -81,5 +86,31 @@ describe('normalizePosix', () => {
     expect(normalizePosix('/a//b/')).toBe('/a/b')
     expect(normalizePosix('/../..')).toBe('/')
     expect(normalizePosix('/')).toBe('/')
+  })
+})
+
+/**
+ * 乐观导航的显示派生。这一组存在的理由是 navPending 那条规则**特别容易被顺手简化**成
+ * `pendingDir !== null` —— 那样每次刷新都会闪一下骨架，把用户的滚动位置与选中项冲掉。
+ */
+describe('navView：导航中显示什么', () => {
+  it('没有导航在飞时就是已确认目录，且不算在换目录', () => {
+    expect(navView('/var/log', null)).toEqual({ displayDir: '/var/log', navPending: false })
+  })
+
+  it('导航去别处：立刻显示目标（面包屑同一帧翻页），并且算在换目录', () => {
+    expect(navView('/var/log', '/etc')).toEqual({ displayDir: '/etc', navPending: true })
+  })
+
+  it('同目录刷新不算换目录 —— 表格留着，不许换成骨架', () => {
+    expect(navView('/var/log', '/var/log')).toEqual({
+      displayDir: '/var/log',
+      navPending: false
+    })
+  })
+
+  it('首屏（cwd 还是空串）也能显示目标目录', () => {
+    expect(navView('', '/root')).toEqual({ displayDir: '/root', navPending: true })
+    expect(navView('', null)).toEqual({ displayDir: '', navPending: false })
   })
 })

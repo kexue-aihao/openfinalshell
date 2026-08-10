@@ -796,7 +796,9 @@
       "pathControlChar": "{{what}} contains a newline or NUL character and cannot be used in a remote command: {{path}}",
       "pathTooLong": "{{what}} exceeds {{max}} characters",
       "pathNotAbsolute": "{{what}} must be an absolute path: {{path}}",
-      "pathDotSegment": "{{what}} cannot contain . or .. path segments: {{path}}"
+      "pathDotSegment": "{{what}} cannot contain . or .. path segments: {{path}}",
+      "readdirTimeout": "Timed out while listing the directory: {{path}}",
+      "readdirTooManyPages": "Too many entries, or the server never signalled end-of-directory; listing aborted: {{path}}"
     },
     "data": {
       "unknownVersion": "Unknown",

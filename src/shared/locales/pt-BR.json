@@ -800,7 +800,9 @@
       "pathControlChar": "{{what}} contém um caractere de nova linha ou NUL e não pode ser usado em um comando remoto: {{path}}",
       "pathTooLong": "{{what}} excede {{max}} caracteres",
       "pathNotAbsolute": "{{what}} deve ser um caminho absoluto: {{path}}",
-      "pathDotSegment": "{{what}} não pode conter segmentos de caminho . ou ..: {{path}}"
+      "pathDotSegment": "{{what}} não pode conter segmentos de caminho . ou ..: {{path}}",
+      "readdirTimeout": "Tempo esgotado ao listar o diretório: {{path}}",
+      "readdirTooManyPages": "Entradas em excesso ou o servidor não sinalizou o fim do diretório; leitura abortada: {{path}}"
     },
     "data": {
       "unknownVersion": "Desconhecido",

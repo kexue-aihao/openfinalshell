@@ -6,6 +6,7 @@ import {
   Dropdown,
   Empty,
   Input,
+  Skeleton,
   Table,
   Tooltip,
   type MenuProps,
@@ -34,7 +35,7 @@ import type { SessionTab } from '@/stores/useSessionStore'
 import { formatBytes, formatTimestamp } from '@/utils/format'
 import { snapOf } from '@/features/transfers/aggregate'
 import { onShellCommand } from '@/features/terminal/commandEvents'
-import { applyCd, parseCdTarget } from './pathSync'
+import { applyCd, navView, parseCdTarget } from './pathSync'
 import { FileIcon } from './FileIcon'
 import { PermissionModal } from './PermissionModal'
 import { UploadConflictModal, type UploadRequest } from './UploadConflictModal'
@@ -93,6 +94,14 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const enqueue = useTransferStore((s) => s.enqueue)
 
   const [cwd, setCwd] = useState<string>('')
+  /**
+   * 正在导航去的目录（乐观值）。**只给显示用** —— 面包屑/路径框立刻翻到它，
+   * 于是"按下回车"与"路径变了"是同一帧的事，不再等一个网络往返。
+   *
+   * 写操作（新建/上传/拖放/重命名/删除）一律继续读 `cwd`，也就是**已确认**的目录：
+   * 这样即便乐观值最终失败（cd 打错了、没权限），也不可能把文件写到一个没去成的目录里。
+   */
+  const [pendingDir, setPendingDir] = useState<string | null>(null)
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -128,6 +137,10 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   cwdRef.current = cwd
   /** 会话初始化时 realpath('.') 的结果，cd 跟随解析 `~` 用；拿不到时 ~ 类目标不跟 */
   const homeRef = useRef<string | null>(null)
+  /** 导航代号：每次 load 自增，回包时对不上就是过期回包（见 load 里的说明） */
+  const loadSeqRef = useRef(0)
+  /** 报错时那次要去的目录 —— 「重试」重试的是**失败的那个**，而不是当前还待着的这个 */
+  const errorDirRef = useRef<string | null>(null)
   useEffect(
     () => () => {
       for (const off of settleWatchersRef.current) off()
@@ -141,15 +154,37 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const load = useCallback(
     async (dir: string, pushHistory = true, silentErrors = false): Promise<void> => {
       if (!tab.sessionId) return
+      /*
+       * 每次导航领一个代号。回包时代号不再是最新的，说明期间又导航过一次 ——
+       * 这一份是**过期回包**，一个 state 都不许碰。
+       *
+       * 不做这件事的后果：`cd /a` 紧接着 `cd /b`（或双击很快点两下），两个 readdir
+       * 并发在飞，谁先回来不保证。/a 的回包后到就会把面板压回 /a，而面包屑显示的是
+       * /b —— 用户看到的是"跳错了目录"，且刷新一下就好，最难查的那类。
+       */
+      const seq = ++loadSeqRef.current
       setLoading(true)
+      /*
+       * 乐观切路径：面包屑与路径框立刻显示目标目录，列表位置换成骨架。
+       * **绝不动 entries** —— 置空会让 `tab.state !== 'ready' && entries.length === 0`
+       * 那条整面板 early return 在会话抖一下时把整个面板顶成"等待会话"，且再也回不来。
+       */
+      setPendingDir(dir)
       // silent 模式（cd 跟随）失败时整个面板一个字都不动 —— 连既有的错误框都不碰
       if (!silentErrors) setError(null)
       try {
         const list = await ofs.invoke('sftp:readdir', { sessionId: tab.sessionId, path: dir })
+        if (seq !== loadSeqRef.current) return
         setEntries(list)
         setCwd(dir)
         setSelected([])
-        if (!silentErrors) setError(null)
+        /*
+         * 成功就**一定**清错。原先这一句也被 `!silentErrors` 包着，于是：一次失败留下
+         * 错误空态 → 之后 cd 跟随（silent）成功了也不清 → 表格被错误空态永久顶掉，
+         * 表现成"跟随彻底坏了"，只能手动点刷新。
+         */
+        setError(null)
+        errorDirRef.current = null
         if (pushHistory) {
           setHistory((h) => {
             const stack = [...h.stack.slice(0, h.index + 1), dir]
@@ -157,9 +192,17 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           })
         }
       } catch (err) {
-        if (!silentErrors) setError(err instanceof Error ? err.message : String(err))
+        if (seq !== loadSeqRef.current) return
+        if (!silentErrors) {
+          setError(err instanceof Error ? err.message : String(err))
+          errorDirRef.current = dir
+        }
       } finally {
-        setLoading(false)
+        // 被更新的导航取代时不碰这两样：那属于新请求，它自己会收尾
+        if (seq === loadSeqRef.current) {
+          setLoading(false)
+          setPendingDir(null)
+        }
       }
     },
     [tab.sessionId]
@@ -938,10 +981,13 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     }
   }, [contextMenu])
 
+  // 显示派生（规则与"为什么是纯函数"见 pathSync.navView）
+  const { displayDir, navPending } = navView(cwd, pendingDir)
+
   const crumbs = useMemo(() => {
-    const segs = cwd.split('/').filter(Boolean)
+    const segs = displayDir.split('/').filter(Boolean)
     return [{ label: '/', path: '/' }, ...segs.map((s, i) => ({ label: s, path: `/${segs.slice(0, i + 1).join('/')}` }))]
-  }, [cwd])
+  }, [displayDir])
 
   if (tab.state !== 'ready' && entries.length === 0) {
     return (
@@ -957,14 +1003,15 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
     <div
       className={styles.pane}
       onDragEnter={(e) => {
-        if (!isFileDrag(e)) return
+        // 换目录途中不接拖放：落点 cwd 还是上一个目录（与工具栏那三个按钮同一条理由）
+        if (!isFileDrag(e) || navPending) return
         e.preventDefault()
         dragDepthRef.current += 1
         setDragOver(true)
       }}
       onDragOver={(e) => {
         // preventDefault 是"允许在这里放下"的唯一表达方式，必须每次 dragover 都给
-        if (isFileDrag(e)) e.preventDefault()
+        if (isFileDrag(e) && !navPending) e.preventDefault()
       }}
       onDragLeave={(e) => {
         if (!isFileDrag(e)) return
@@ -1021,7 +1068,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
         </Tooltip>
 
         {editingPath === null ? (
-          <div className={styles.breadcrumbBar} onClick={() => setEditingPath(cwd)}>
+          <div className={styles.breadcrumbBar} onClick={() => setEditingPath(displayDir)}>
             {crumbs.map((c, i) => (
               <span key={c.path}>
                 {/* 第 0 段的 label 本身就是 "/"，再补一个分隔符会渲染成 "//root" */}
@@ -1043,7 +1090,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
             className={styles.pathInput}
             size="small"
             autoFocus
-            defaultValue={cwd}
+            defaultValue={displayDir}
             onPressEnter={(e) => {
               const value = (e.target as HTMLInputElement).value.trim()
               setEditingPath(null)
@@ -1053,10 +1100,13 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           />
         )}
 
+        {/* 换目录途中禁掉三个写入口：此刻 cwd 还是上一个目录，
+            在这里新建/上传会把东西落在用户已经离开的目录里（cd 打错时更明显） */}
         <Tooltip title={t('sftp.newFolder')}>
           <Button
             size="small"
             type="text"
+            disabled={navPending}
             icon={<FolderPlus size={14} strokeWidth={1.75} />}
             onClick={() => promptNewEntry('dir')}
           />
@@ -1068,6 +1118,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           <Button
             size="small"
             type="text"
+            disabled={navPending}
             icon={<Upload size={14} strokeWidth={1.75} />}
             onClick={() => void pickAndUpload('file')}
           />
@@ -1076,6 +1127,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           <Button
             size="small"
             type="text"
+            disabled={navPending}
             icon={<FolderUp size={14} strokeWidth={1.75} />}
             onClick={() => void pickAndUpload('folder')}
           />
@@ -1112,10 +1164,23 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
                 <span>
                   {error}
                   <br />
-                  <a onClick={() => void load(cwd, false)}>{t('common.retry')}</a>
+                  {/* 重试的是失败的那个目录，不是脚下这个（脚下这个本来就是好的） */}
+                  <a onClick={() => void load(errorDirRef.current ?? cwd, false)}>
+                    {t('common.retry')}
+                  </a>
                 </span>
               }
             />
+          </div>
+        ) : navPending ? (
+          /*
+           * 换目录途中的骨架。用它**替代** <Table> 而不是盖在上面，是因为这样
+           * 行上的双击/拖放/右键、以及 rowSelection 全部自动失活 —— 不用逐个加守卫，
+           * 也就不会漏掉某一个入口去操作一个还没确认存在的目录里的旧条目。
+           * 刻意不放任何文案：一是无需新增 10 份 locale，二是"骨架"本身就已经在说"在读了"。
+           */
+          <div className={styles.skeletonWrap} aria-busy>
+            <Skeleton active title={false} paragraph={{ rows: 6, width: '100%' }} />
           </div>
         ) : (
           <Table<SftpEntry>

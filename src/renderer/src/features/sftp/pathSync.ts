@@ -46,6 +46,29 @@ export function applyCd(cwd: string, target: string, home: string | null): strin
   return normalizePosix(`${cwd}/${target}`)
 }
 
+/**
+ * 导航中的显示派生：已确认目录 + 正在去的目录 → 面板该显示什么。
+ *
+ * 提成纯函数是因为其中一条规则特别容易被"顺手简化"掉：`navPending` **必须**排除
+ * 同目录刷新。写成 `pendingDir !== null` 的话，每次刷新（以及传输完成后的自动刷新、
+ * 重连后的补拉）都会把表格换成骨架闪一下 —— 用户手里的滚动位置和选中项跟着丢。
+ *
+ * - `displayDir`：面包屑与路径框读它（一发起导航就翻页，不等网络往返）。
+ * - `navPending`：真在换目录。只有它为真时列表位置放骨架，并且禁掉往目录里写的入口。
+ *
+ * 注意**写操作一律不读这里**：它们读已确认的 cwd，否则导航失败（cd 打错）时
+ * 会把文件写进一个根本没去成的目录。
+ */
+export function navView(
+  cwd: string,
+  pendingDir: string | null
+): { displayDir: string; navPending: boolean } {
+  return {
+    displayDir: pendingDir ?? cwd,
+    navPending: pendingDir !== null && pendingDir !== cwd
+  }
+}
+
 /** POSIX 规范化：消 `.`/`..`（越过根停在根）、并去重斜杠与尾斜杠 */
 export function normalizePosix(path: string): string {
   const out: string[] = []

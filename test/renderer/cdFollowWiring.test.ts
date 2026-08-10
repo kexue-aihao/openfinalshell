@@ -44,15 +44,50 @@ describe('cd 跟随：SftpPane 侧', () => {
     expect(handler).toContain('load(next, true, true)')
   })
 
-  it('load 的静默分支：silent 时不碰 error 状态', () => {
+  /**
+   * error 语义分两半，两半的方向相反 —— 这条护栏原先只写了前一半，
+   * 结果把后一半的缺陷（成功也不清错）一起钉死了。
+   */
+  it('load：报错只在非静默时冒泡，但成功一定无条件清错', () => {
     const loadBody = blockAfter(sftp, 'const load = useCallback(')
-    // setError 的每一次调用都必须带 silentErrors 守卫
-    const calls = [...loadBody.matchAll(/setError\(/g)]
-    expect(calls.length).toBeGreaterThan(0)
-    for (const m of calls) {
-      const before = loadBody.slice(Math.max(0, m.index - 40), m.index)
-      expect(before, `setError 调用点缺 silentErrors 守卫：…${before}`).toContain('!silentErrors')
+    // 前一半：把错误**写进** state 的调用必须带 silentErrors 守卫 ——
+    // cd 跟随打错一个目录（cd /vr/log）不该弹错误框，终端自己已经报过了
+    const raising = [...loadBody.matchAll(/setError\((?!null\))/g)]
+    expect(raising.length).toBeGreaterThan(0)
+    for (const m of raising) {
+      const before = loadBody.slice(Math.max(0, m.index - 60), m.index)
+      expect(before, `setError(错误文案) 调用点缺 silentErrors 守卫：…${before}`).toContain(
+        '!silentErrors'
+      )
     }
+    // 后一半：成功路径上的 setError(null) 必须**无条件**。它曾经也被 !silentErrors 包着，
+    // 于是一次失败留下错误空态之后，cd 跟随（静默）再成功也不清 —— 表格被错误空态
+    // 永久顶掉，表现成"跟随彻底坏了"，只能手动点一次刷新才回来。
+    const clearing = [...loadBody.matchAll(/setError\(null\)/g)]
+    expect(clearing.length).toBeGreaterThan(0)
+    const hasUnconditional = clearing.some(
+      (m) => !loadBody.slice(Math.max(0, m.index - 60), m.index).includes('!silentErrors')
+    )
+    expect(hasUnconditional, '成功后清错必须无条件，否则错误空态会永久顶掉表格').toBe(true)
+  })
+
+  /**
+   * 过期回包守卫。`cd /a` 紧接着 `cd /b` 时两个 readdir 并发在飞，回来的顺序没有保证；
+   * 少了代号比对，/a 的后到回包会把面板压回 /a，而面包屑显示的是 /b。
+   */
+  it('load 领代号并在回包时比对，过期回包直接丢弃', () => {
+    const loadBody = blockAfter(sftp, 'const load = useCallback(')
+    expect(loadBody).toContain('++loadSeqRef.current')
+    // 成功与失败两条路径都要比对，否则失败的过期回包仍会弹错误框
+    const checks = [...loadBody.matchAll(/seq !== loadSeqRef\.current/g)]
+    expect(checks.length).toBeGreaterThanOrEqual(2)
+  })
+
+  /** 乐观切路径不许动 entries —— 置空会唤醒整面板的 "等待会话" early return */
+  it('乐观导航只设 pendingDir，绝不清空 entries', () => {
+    const loadBody = blockAfter(sftp, 'const load = useCallback(')
+    expect(loadBody).toContain('setPendingDir(dir)')
+    expect(loadBody).not.toContain('setEntries([])')
   })
 
   it('home 在 realpath 成功时记录（~ 解析的唯一来源）', () => {
