@@ -193,8 +193,18 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
         }
       } catch (err) {
         if (seq !== loadSeqRef.current) return
-        if (!silentErrors) {
-          setError(err instanceof Error ? err.message : String(err))
+        const reason = err instanceof Error ? err.message : String(err)
+        if (silentErrors) {
+          /*
+           * silent 的含义是**不劫持面板**（不把表格换成错误空态），不是"什么都不说"。
+           *
+           * 完全无声的代价已经付过一次：跟随失败时界面只是闪一下就弹回原目录，
+           * 用户描述不出发生了什么，日志里也没有任何痕迹（IPC 层不记 handler 异常），
+           * 排查只能靠猜。一条会自己消失的提示不打扰人，却把"为什么没跟过去"说清楚了。
+           */
+          message.warning(t('sftp.followFailed', { path: dir, reason }))
+        } else {
+          setError(reason)
           errorDirRef.current = dir
         }
       } finally {
@@ -205,7 +215,9 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
         }
       }
     },
-    [tab.sessionId]
+    // message 与 t 都是稳定引用（t 仅在切语言时变），不会让 load 频繁换身份 ——
+    // load 一变，columns / doRename / cd 跟随订阅都要重建，这一点见文件末尾的说明
+    [tab.sessionId, message, t]
   )
 
   // 首次打开：解析 home 目录（记下来给 cd 跟随解析 `~`；解析不到就没有 ~ 跟随）

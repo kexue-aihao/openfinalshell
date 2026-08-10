@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.15.3',
+    items: [
+      {
+        type: 'fix',
+        zh: '目录跟随失败时会明确告诉你原因（例如没有权限、目录不存在），不再只是路径闪一下就弹回去 —— 之前这个失败是完全无声的，既看不到也查不到',
+        en: 'When following a directory fails you now get the actual reason (no permission, directory missing, …) instead of the path flashing and snapping back — previously the failure was completely silent'
+      },
+      {
+        type: 'fix',
+        zh: '撤回 0.15.2 的目录读取提速：它可能导致某些目录读不出来。切目录会慢回原来的样子，等原因查清后再重做提速',
+        en: 'Reverted the 0.15.2 directory-listing speedup: it may have made some directories unreadable. Switching directories is back to the previous speed until the cause is confirmed'
+      }
+    ]
+  },
+  {
     version: '0.15.2',
     items: [
       {

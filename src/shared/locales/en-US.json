@@ -198,7 +198,8 @@
     "dropUnsupported": "Could not read dropped file paths — use the upload button",
     "dropNoSession": "Session is not ready yet — cannot upload",
     "badNameWarning": "This filename is not valid UTF-8 and cannot be operated on",
-    "viewInEditor": "View in built-in editor"
+    "viewInEditor": "View in built-in editor",
+    "followFailed": "Could not follow to {{path}}: {{reason}}"
   },
   "editor": {
     "emptyHint": "Right-click a file in the list below and choose “View in built-in editor”",
@@ -796,9 +797,7 @@
       "pathControlChar": "{{what}} contains a newline or NUL character and cannot be used in a remote command: {{path}}",
       "pathTooLong": "{{what}} exceeds {{max}} characters",
       "pathNotAbsolute": "{{what}} must be an absolute path: {{path}}",
-      "pathDotSegment": "{{what}} cannot contain . or .. path segments: {{path}}",
-      "readdirTimeout": "Timed out while listing the directory: {{path}}",
-      "readdirTooManyPages": "Too many entries, or the server never signalled end-of-directory; listing aborted: {{path}}"
+      "pathDotSegment": "{{what}} cannot contain . or .. path segments: {{path}}"
     },
     "data": {
       "unknownVersion": "Unknown",

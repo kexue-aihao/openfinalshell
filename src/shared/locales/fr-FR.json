@@ -202,7 +202,8 @@
     "dropUnsupported": "Impossible de lire les chemins des fichiers déposés — utilisez le bouton de téléversement",
     "dropNoSession": "La session n'est pas encore prête — téléversement impossible",
     "badNameWarning": "Ce nom de fichier n'est pas de l'UTF-8 valide et ne peut pas être manipulé",
-    "viewInEditor": "Afficher dans l'éditeur intégré"
+    "viewInEditor": "Afficher dans l'éditeur intégré",
+    "followFailed": "Impossible de suivre vers {{path}} : {{reason}}"
   },
   "editor": {
     "emptyHint": "Faites un clic droit sur un fichier dans la liste ci-dessous et choisissez « Afficher dans l'éditeur intégré »",
@@ -800,9 +801,7 @@
       "pathControlChar": "{{what}} contient un saut de ligne ou un caractère NUL et ne peut pas être utilisé dans une commande distante : {{path}}",
       "pathTooLong": "{{what}} dépasse {{max}} caractères",
       "pathNotAbsolute": "{{what}} doit être un chemin absolu : {{path}}",
-      "pathDotSegment": "{{what}} ne peut pas contenir de segments de chemin . ou .. : {{path}}",
-      "readdirTimeout": "Délai dépassé lors de la lecture du répertoire : {{path}}",
-      "readdirTooManyPages": "Trop d'entrées, ou le serveur n'a jamais signalé la fin du répertoire ; lecture abandonnée : {{path}}"
+      "pathDotSegment": "{{what}} ne peut pas contenir de segments de chemin . ou .. : {{path}}"
     },
     "data": {
       "unknownVersion": "Inconnue",

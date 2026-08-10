@@ -202,7 +202,8 @@
     "dropUnsupported": "ドロップされたファイルパスを読み取れませんでした — アップロードボタンを使用してください",
     "dropNoSession": "セッションがまだ準備できていません — アップロードできません",
     "badNameWarning": "このファイル名は有効な UTF-8 ではないため操作できません",
-    "viewInEditor": "内蔵エディターで表示"
+    "viewInEditor": "内蔵エディターで表示",
+    "followFailed": "{{path}} に追従できませんでした：{{reason}}"
   },
   "editor": {
     "emptyHint": "下の一覧でファイルを右クリックし、「内蔵エディターで表示」を選択してください",
@@ -800,9 +801,7 @@
       "pathControlChar": "{{what}} に改行または NUL 文字が含まれており、リモートコマンドで使用できません: {{path}}",
       "pathTooLong": "{{what}} が {{max}} 文字を超えています",
       "pathNotAbsolute": "{{what}} は絶対パスである必要があります: {{path}}",
-      "pathDotSegment": "{{what}} に . または .. のパスセグメントを含めることはできません: {{path}}",
-      "readdirTimeout": "ディレクトリの読み取りがタイムアウトしました：{{path}}",
-      "readdirTooManyPages": "エントリが多すぎる、またはサーバーが終端を返さないため読み取りを中止しました：{{path}}"
+      "pathDotSegment": "{{what}} に . または .. のパスセグメントを含めることはできません: {{path}}"
     },
     "data": {
       "unknownVersion": "不明",

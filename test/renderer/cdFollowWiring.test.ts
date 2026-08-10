@@ -48,18 +48,21 @@ describe('cd 跟随：SftpPane 侧', () => {
    * error 语义分两半，两半的方向相反 —— 这条护栏原先只写了前一半，
    * 结果把后一半的缺陷（成功也不清错）一起钉死了。
    */
-  it('load：报错只在非静默时冒泡，但成功一定无条件清错', () => {
+  it('load：报错只在非静默时占住面板，但成功一定无条件清错', () => {
     const loadBody = blockAfter(sftp, 'const load = useCallback(')
-    // 前一半：把错误**写进** state 的调用必须带 silentErrors 守卫 ——
-    // cd 跟随打错一个目录（cd /vr/log）不该弹错误框，终端自己已经报过了
-    const raising = [...loadBody.matchAll(/setError\((?!null\))/g)]
-    expect(raising.length).toBeGreaterThan(0)
-    for (const m of raising) {
-      const before = loadBody.slice(Math.max(0, m.index - 60), m.index)
-      expect(before, `setError(错误文案) 调用点缺 silentErrors 守卫：…${before}`).toContain(
-        '!silentErrors'
-      )
-    }
+    /*
+     * 前一半：静默分支里**绝不许**把错误写进面板 state（那会把表格换成错误空态）——
+     * cd 跟随打错一个目录不该劫持面板。
+     * 断言写成"对这段分支的要求"而不是钉某个字面量：上一版钉的是 `!silentErrors`
+     * 这几个字，于是把 if/else 换个写法就红，反倒挡着正经改动。
+     */
+    const silentBranch = blockAfter(loadBody, 'if (silentErrors)')
+    expect(silentBranch, '静默分支不许写面板的 error 状态').not.toContain('setError(')
+    // 但静默 ≠ 无声：必须仍然把原因告诉用户，否则失败时界面只闪一下，
+    // 用户描述不出、日志里也没痕迹（IPC 层不记 handler 异常），排查只能靠猜
+    expect(silentBranch, '静默分支必须仍然告知失败原因').toContain('message.warning')
+    // 非静默才把错误文案交给面板
+    expect(loadBody).toContain('setError(reason)')
     // 后一半：成功路径上的 setError(null) 必须**无条件**。它曾经也被 !silentErrors 包着，
     // 于是一次失败留下错误空态之后，cd 跟随（静默）再成功也不清 —— 表格被错误空态
     // 永久顶掉，表现成"跟随彻底坏了"，只能手动点一次刷新才回来。

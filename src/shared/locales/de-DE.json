@@ -202,7 +202,8 @@
     "dropUnsupported": "Die abgelegten Dateipfade konnten nicht gelesen werden — nutze die Hochladen-Schaltfläche",
     "dropNoSession": "Sitzung ist noch nicht bereit — Hochladen nicht möglich",
     "badNameWarning": "Dieser Dateiname ist kein gültiges UTF-8 und kann nicht bearbeitet werden",
-    "viewInEditor": "Im integrierten Editor anzeigen"
+    "viewInEditor": "Im integrierten Editor anzeigen",
+    "followFailed": "Konnte nicht zu {{path}} wechseln: {{reason}}"
   },
   "editor": {
     "emptyHint": "Rechtsklicke unten in der Liste auf eine Datei und wähle „Im integrierten Editor anzeigen“",
@@ -800,9 +801,7 @@
       "pathControlChar": "{{what}} enthält einen Zeilenumbruch oder ein NUL-Zeichen und kann nicht in einem entfernten Befehl verwendet werden: {{path}}",
       "pathTooLong": "{{what}} überschreitet {{max}} Zeichen",
       "pathNotAbsolute": "{{what}} muss ein absoluter Pfad sein: {{path}}",
-      "pathDotSegment": "{{what}} darf keine . oder .. Pfadsegmente enthalten: {{path}}",
-      "readdirTimeout": "Zeitüberschreitung beim Lesen des Verzeichnisses: {{path}}",
-      "readdirTooManyPages": "Zu viele Einträge, oder der Server hat kein Verzeichnisende gemeldet; Lesen abgebrochen: {{path}}"
+      "pathDotSegment": "{{what}} darf keine . oder .. Pfadsegmente enthalten: {{path}}"
     },
     "data": {
       "unknownVersion": "Unbekannt",

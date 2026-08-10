@@ -202,7 +202,8 @@
     "dropUnsupported": "Não foi possível ler os caminhos dos arquivos soltos — use o botão de envio",
     "dropNoSession": "A sessão ainda não está pronta — não é possível enviar",
     "badNameWarning": "Este nome de arquivo não é UTF-8 válido e não pode ser manipulado",
-    "viewInEditor": "Ver no editor interno"
+    "viewInEditor": "Ver no editor interno",
+    "followFailed": "Não foi possível seguir para {{path}}: {{reason}}"
   },
   "editor": {
     "emptyHint": "Clique com o botão direito em um arquivo na lista abaixo e escolha “Ver no editor interno”",
@@ -800,9 +801,7 @@
       "pathControlChar": "{{what}} contém um caractere de nova linha ou NUL e não pode ser usado em um comando remoto: {{path}}",
       "pathTooLong": "{{what}} excede {{max}} caracteres",
       "pathNotAbsolute": "{{what}} deve ser um caminho absoluto: {{path}}",
-      "pathDotSegment": "{{what}} não pode conter segmentos de caminho . ou ..: {{path}}",
-      "readdirTimeout": "Tempo esgotado ao listar o diretório: {{path}}",
-      "readdirTooManyPages": "Entradas em excesso ou o servidor não sinalizou o fim do diretório; leitura abortada: {{path}}"
+      "pathDotSegment": "{{what}} não pode conter segmentos de caminho . ou ..: {{path}}"
     },
     "data": {
       "unknownVersion": "Desconhecido",

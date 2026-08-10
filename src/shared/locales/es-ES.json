@@ -202,7 +202,8 @@
     "dropUnsupported": "No se pudieron leer las rutas de los archivos soltados — usa el botón de subida",
     "dropNoSession": "La sesión aún no está lista — no se puede subir",
     "badNameWarning": "Este nombre de archivo no es UTF-8 válido y no se puede operar con él",
-    "viewInEditor": "Ver en el editor integrado"
+    "viewInEditor": "Ver en el editor integrado",
+    "followFailed": "No se pudo seguir a {{path}}: {{reason}}"
   },
   "editor": {
     "emptyHint": "Haz clic derecho en un archivo de la lista de abajo y elige «Ver en el editor integrado»",
@@ -800,9 +801,7 @@
       "pathControlChar": "{{what}} contiene un salto de línea o un carácter NUL y no se puede usar en un comando remoto: {{path}}",
       "pathTooLong": "{{what}} supera los {{max}} caracteres",
       "pathNotAbsolute": "{{what}} debe ser una ruta absoluta: {{path}}",
-      "pathDotSegment": "{{what}} no puede contener segmentos de ruta . ni ..: {{path}}",
-      "readdirTimeout": "Se agotó el tiempo al listar el directorio: {{path}}",
-      "readdirTooManyPages": "Demasiadas entradas o el servidor no indicó el fin del directorio; lectura cancelada: {{path}}"
+      "pathDotSegment": "{{what}} no puede contener segmentos de ruta . ni ..: {{path}}"
     },
     "data": {
       "unknownVersion": "Desconocida",
