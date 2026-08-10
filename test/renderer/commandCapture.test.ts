@@ -252,3 +252,132 @@ describe('PromptTracker', () => {
     expect(new PromptTracker().promptColFor(fakeBuffer(['root@h:~#'], { cursorX: 9, cursorY: 0 }))).toBeNull()
   })
 })
+
+/**
+ * **行号会被复用** —— 这一组守的是一个真出过的线上缺陷（cd 跟随"时好时坏"）。
+ *
+ * 行号是 `baseY + cursorY`，不随时间单调：xterm 的 scrollback 一满，ybase 就不再增长、
+ * 行改为环形复用；`clear()` 直接把 ybase/y 归零。于是**此后每个新提示符都在同一个绝对行号上**。
+ * 当年只按行号判断"还是那一行"，于是 promptCol 冻结在第一次测到的那一列 ——
+ * 而 PS1 带 cwd，一 `cd` 长度就变，按旧列切出来的是提示符残片，
+ * 于是命令历史被污染、SFTP 的 cd 跟随（parseCdTarget 拿残片得 null）静默失效。
+ *
+ * 现有的 74 条护栏一条都没抓到它，因为**没有一条构造过"同一个绝对行号上的两个不同提示符"**。
+ */
+describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 归零）', () => {
+  /**
+   * 把一行放在**指定的绝对行号**上。
+   *
+   * 与上面的 fakeBuffer 的区别只在这一点：fakeBuffer 按数组下标当行号（够用且直白），
+   * 而这一组要构造的恰恰是"两个不同的提示符先后落在同一个绝对行号上"，
+   * 所以行必须挂在 `baseY + cursorY` 那个位置上，而不是下标 0。
+   * 真实几何：scrollback 5000 + 24 行 → 饱和后光标永远停在 5000 + 23 = 5023。
+   */
+  const SATURATED_ROW = 5023
+  function bufAt(
+    absRow: number,
+    text: string,
+    cursorX: number,
+    cursorY = 23
+  ): BufferLike {
+    return {
+      type: 'normal',
+      baseY: absRow - cursorY,
+      cursorX,
+      cursorY,
+      getLine: (y) =>
+        y === absRow
+          ? {
+              isWrapped: false,
+              translateToString: (trimRight?: boolean) =>
+                trimRight ? text.replace(/\s+$/, '') : text.padEnd(COLS, ' ')
+            }
+          : undefined
+    }
+  }
+
+  it('同一绝对行号上换了个更长的提示符 → 重新测量，切出的是命令而不是残片', () => {
+    const tracker = new PromptTracker()
+    // 第一条：~ 下执行 cd /tmp（提示符 13 列）
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, 'root@host:~# cd /tmp', 13))
+    expect(captureCommand(bufAt(SATURATED_ROW, 'root@host:~# cd /tmp', 20), tracker)).toBe('cd /tmp')
+
+    // 第二条：cd 之后提示符变长（16 列），但缓冲已饱和 → 绝对行号与上面**完全相同**
+    const second = 'root@host:/tmp# cd /var/log'
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, second, 16))
+    const command = captureCommand(bufAt(SATURATED_ROW, second, 27), tracker)
+    expect(command).toBe('cd /var/log')
+    // 缺陷版本用冻结的第 13 列去切 16 列的提示符 → 'p# cd /var/log'
+    expect(command).not.toContain('#')
+  })
+
+  it('提示符没有 $ / # / % 时更致命：残片连启发式都救不回来', () => {
+    const tracker = new PromptTracker()
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, '~ ❯ cd /tmp', 4))
+    expect(captureCommand(bufAt(SATURATED_ROW, '~ ❯ cd /tmp', 11), tracker)).toBe('cd /tmp')
+
+    const second = '/tmp ❯ cd /var/log'
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, second, 7))
+    expect(captureCommand(bufAt(SATURATED_ROW, second, 18), tracker)).toBe('cd /var/log')
+  })
+
+  it('提示符变短（cd 回上层）也照样重新测量', () => {
+    const tracker = new PromptTracker()
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, 'root@host:/var/log# cd /', 20))
+    expect(captureCommand(bufAt(SATURATED_ROW, 'root@host:/var/log# cd /', 24), tracker)).toBe('cd /')
+
+    const shallow = 'root@host:/# ls -al'
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, shallow, 12))
+    expect(captureCommand(bufAt(SATURATED_ROW, shallow, 19), tracker)).toBe('ls -al')
+  })
+
+  it('clear() 把行号归零 → 两次 clear 之间 cd 过，第二条照样不许沿用旧列', () => {
+    /*
+     * 这一条不需要 scrollback 饱和：`clear()`（消除按钮 / shell 的 clear，ESC[3J）
+     * 把 ybase 与 y 都归零，于是**每次 clear 之后的提示符都落在绝对行 0**。
+     * 两次 clear 之间 cd 过一次，就凑出"同一行号、两个不同提示符"。
+     */
+    const tracker = new PromptTracker()
+    // 第一次 clear 之后：在 ~ 下敲一条
+    tracker.noteKeystroke(bufAt(0, 'root@host:~# ls', 13, 0))
+    expect(captureCommand(bufAt(0, 'root@host:~# ls', 15, 0), tracker)).toBe('ls')
+    // cd 过、又 clear 了一次 → 还是绝对行 0，但提示符更长
+    const after = 'root@host:/etc/nginx# nginx -t'
+    tracker.noteKeystroke(bufAt(0, after, 22, 0))
+    const command = captureCommand(bufAt(0, after, 30, 0), tracker)
+    expect(command).toBe('nginx -t')
+    expect(command).not.toContain('#')
+  })
+
+  it('提示符没变（同一 cwd 连着敲）时仍然只测第一次', () => {
+    const tracker = new PromptTracker()
+    const rows = 'root@host:~# ls -al'
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, rows, 13))
+    // 打字过程中的后续按键不许把列号推走
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, rows, 16))
+    expect(tracker.promptColFor(bufAt(SATURATED_ROW, rows, 19))).toBe(13)
+  })
+
+  it('回车即失效：提交过的那一列不许被下一行沿用', () => {
+    const tracker = new PromptTracker()
+    const rows = 'root@host:~# pwd'
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, rows, 13))
+    expect(captureCommand(bufAt(SATURATED_ROW, rows, 16), tracker)).toBe('pwd')
+    // 采集完就该忘掉 —— 哪怕下一行落在同一个绝对行号上
+    expect(tracker.promptColFor(bufAt(SATURATED_ROW, rows, 16))).toBeNull()
+  })
+
+  it('快捷命令回填的不可信闩只在那一行有效，行被复用后能恢复可信', () => {
+    const tracker = new PromptTracker()
+    // 约定是"写之前调"，那时这一行还只是提示符
+    tracker.noteProgrammaticWrite(bufAt(SATURATED_ROW, 'root@host:~# ', 13))
+    const filled = 'root@host:~# df -h'
+    // 同一行：闩闩着 → 主路让位，退回启发式拿整条命令
+    expect(tracker.promptColFor(bufAt(SATURATED_ROW, filled, 18))).toBeNull()
+    expect(captureCommand(bufAt(SATURATED_ROW, filled, 18), tracker)).toBe('df -h')
+    // 复用出的新提示符（cd 过，更长）：重新测量、恢复可信，主路照样切得对
+    const next = 'root@host:/opt# systemctl status nginx'
+    tracker.noteKeystroke(bufAt(SATURATED_ROW, next, 16))
+    expect(tracker.promptColFor(bufAt(SATURATED_ROW, next, 38))).toBe(16)
+  })
+})

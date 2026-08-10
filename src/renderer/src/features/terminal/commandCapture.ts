@@ -128,24 +128,66 @@ export class PromptTracker {
   private row: number | null = null
   private col = 0
   private trusted = true
+  /**
+   * 测到 `col` 那一刻、它之前的那段文本（就是提示符本身）。
+   *
+   * ⚠️ **这一份是必需的，不是冗余**：绝对行号会被 xterm 复用，这段文本不会。
+   * 详见 noteKeystroke 里那段注释。
+   */
+  private prompt = ''
 
   noteKeystroke(buf: BufferLike): void {
     const row = logicalStartRow(buf)
-    if (this.row === row) return
+    const line = readLogicalLine(buf)
+    /*
+     * 还是那一行 → 不重测（要的是提示符末尾那一列，不是用户打字之后的光标位置）。
+     *
+     * ⚠️ **"还是那一行"不能只看行号。** 行号是 `baseY + cursorY`，而它并不随时间单调：
+     * xterm 的 scrollback 一满，`ybase` 就不再增长、行改为环形复用
+     * （`BufferService.scroll`：`if (!willBufferBeTrimmed) buffer.ybase++`），
+     * `clear()`（消除按钮 / shell 的 clear）更是直接把 ybase 与 y 归零。
+     * 于是**此后每一个新提示符都落在同一个绝对行号上**。
+     *
+     * 只按行号判断的后果：这道守卫永久早退 → `col` 冻结在第一次测到的那一列。
+     * 而 PS1 里通常带 cwd，用户一 `cd` 提示符长度就变，按冻结的列去切，切出来的是
+     * `p# cd /var/log` 这种残片 —— 命令历史被污染，SFTP 的 cd 跟随（parseCdTarget
+     * 解析残片得 null）**整条链静默失效**。而且它是不对称的：cwd 比冻结时深就坏、
+     * 浅则碰巧还对，所以表现为"时好时坏、又出现了"。
+     *
+     * 所以再比一次那段前缀：行号能被复用，那段文本不能。提示符一变就重测，自愈。
+     * 这一条同时管住 noteProgrammaticWrite 的不可信闩：闩只在**那一行**有效，
+     * 行被复用出一个新提示符时会重新测量并恢复可信，不会永久卡在启发式上。
+     */
+    if (this.row === row && line.startsWith(this.prompt)) return
     this.row = row
     this.col = buf.cursorX
+    this.prompt = line.slice(0, buf.cursorX)
     this.trusted = true
   }
 
   noteProgrammaticWrite(buf: BufferLike): void {
     this.row = logicalStartRow(buf)
     this.col = 0
+    // 记下写之前这一行的样子（调用约定是"写之前调"，那时它就是提示符本身）：
+    // 上面那道守卫靠它判断闩还该不该继续闩着
+    this.prompt = readLogicalLine(buf)
     this.trusted = false
+  }
+
+  /** 这一行已提交（回车）。下一行必须重新测量，测量结果不许跨行泄漏 */
+  noteSubmit(): void {
+    this.row = null
+    this.col = 0
+    this.prompt = ''
+    this.trusted = true
   }
 
   promptColFor(buf: BufferLike): number | null {
     if (this.row === null || !this.trusted) return null
-    return this.row === logicalStartRow(buf) ? this.col : null
+    if (this.row !== logicalStartRow(buf)) return null
+    // 行号对得上也可能是复用来的另一行：那段提示符还在原位才认这个列号，
+    // 否则宁可返回 null 退回启发式，也不按一个已经不成立的列号硬切
+    return readLogicalLine(buf).startsWith(this.prompt) ? this.col : null
   }
 }
 
@@ -158,5 +200,12 @@ export class PromptTracker {
  */
 export function captureCommand(buf: BufferLike, tracker: PromptTracker): string | null {
   if (buf.type === 'alternate') return null
-  return extractCommand(readLogicalLine(buf), tracker.promptColFor(buf))
+  const command = extractCommand(readLogicalLine(buf), tracker.promptColFor(buf))
+  /*
+   * 采集发生在回车按下的那一刻，也就是这一行**提交**的那一刻 —— 量到的列号到此为止。
+   * 不清掉的话，xterm 把新提示符复用回同一个绝对行号时（scrollback 满 / clear），
+   * 上一条命令那一列会被当成新提示符的列继续用（详见 PromptTracker.noteKeystroke）。
+   */
+  tracker.noteSubmit()
+  return command
 }

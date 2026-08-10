@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.15.1',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复终端 cd 之后 SFTP 面板不跟随跳转：终端输出把回滚缓冲用满（或清屏两次）之后，提示符位置会被记错，cd 到更深的目录就跟不动了',
+        en: 'Fixed the SFTP pane not following a terminal cd: once terminal output filled the scrollback (or the screen was cleared twice), the prompt position was mis-measured and cd into a deeper directory stopped working'
+      },
+      {
+        type: 'fix',
+        zh: '同一原因也会让命令历史记进提示符残片（如 "p# ls"）—— 新记录已恢复正常，已混入的残片可在 设置 → 安全与数据 里清空历史',
+        en: 'The same cause also recorded prompt fragments into command history (e.g. "p# ls"). New entries are correct now; existing fragments can be removed via Settings → Security & Data → clear history'
+      }
+    ]
+  },
+  {
     version: '0.15.0',
     items: [
       {
