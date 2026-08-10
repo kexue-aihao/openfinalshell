@@ -617,7 +617,11 @@
     "knownHostsRevoke": "Revocar",
     "knownHostsRevokeTitle": "¿Revocar la confianza en {{host}}?",
     "knownHostsRevokeDesc": "Esto solo retira la decisión de confianza — los perfiles de conexión quedan intactos; la próxima conexión a este host volverá a confirmar la huella.",
-    "openLinkFailed": "No se pudo abrir el enlace"
+    "openLinkFailed": "No se pudo abrir el enlace",
+    "changelog": "Registro de cambios",
+    "exportEncryptAll": "Cifrar todo el archivo (también hosts y nombres de usuario, requiere contraseña de exportación)",
+    "exportEncryptAllHint": "El archivo exportado no contiene texto sin cifrar. Nota: tras activar el cifrado local, ya no podrá migrar copiando el .db entre equipos; use exportación/importación cifrada.",
+    "importEncryptedNote": "Este archivo está cifrado por completo. Introduzca la contraseña de exportación para importar todo su contenido."
   },
   "shortcut": {
     "duplicateSession": "Duplicar la sesión actual",
@@ -839,7 +843,9 @@
       "updatePortable": "Para la versión portátil, descarga la nueva versión desde Releases y sobrescríbela.",
       "updateNotDownloaded": "La actualización aún no ha terminado de descargarse.",
       "rdpNoHost": "Esta conexión RDP no tiene dirección de host.",
-      "rdpLaunchFailed": "No se pudo iniciar el Escritorio Remoto del sistema: {{error}}"
+      "rdpLaunchFailed": "No se pudo iniciar el Escritorio Remoto del sistema: {{error}}",
+      "dataKeyUnavailable": "Clave de datos no disponible: no se pueden descifrar los datos cifrados (es posible que haya cambiado el equipo o la cuenta del sistema).",
+      "exportNoteEncrypted": "Esta es una exportación cifrada por completo: todos los datos (incluidos hosts y nombres de usuario) se cifran con la contraseña de exportación (scrypt + AES-256-GCM). Si pierde la contraseña, no se podrá recuperar nada."
     },
     "net": {
       "portInUse": "Puerto ya en uso: {{addr}}:{{port}}",

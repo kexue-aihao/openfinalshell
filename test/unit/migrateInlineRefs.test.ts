@@ -4,6 +4,8 @@ import type { ConnectionProfile } from '@shared/types'
 const { database, metaGet, prepare } = await import('../../src/main/store/Database')
 const conns = await import('../../src/main/store/connections')
 const { listPrivateKeys, listProxies } = await import('../../src/main/store/savedRefs')
+// 迁移会经 upsertProfile 把改动过的连接写成密文，读原始 json 列要先解密（未加密值原样透传）
+const { decField } = await import('../../src/main/store/crypto')
 
 /**
  * 内联代理 / 私钥路径 → 可复用实体的**一次性迁移**。
@@ -175,8 +177,8 @@ describe('旧字段保留', () => {
    */
   it('proxy / privateKeyPath 仍在 JSON 列里', () => {
     const row = prepare('SELECT json FROM profiles WHERE id = ?').get('a') as { json: string }
-    expect(JSON.parse(row.json).proxy).toBeDefined()
+    expect(JSON.parse(decField(row.json)).proxy).toBeDefined()
     const row2 = prepare('SELECT json FROM profiles WHERE id = ?').get('e') as { json: string }
-    expect(JSON.parse(row2.json).auth.privateKeyPath).toBe('/home/u/.ssh/id_ed25519')
+    expect(JSON.parse(decField(row2.json)).auth.privateKeyPath).toBe('/home/u/.ssh/id_ed25519')
   })
 })

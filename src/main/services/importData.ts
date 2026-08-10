@@ -12,6 +12,7 @@ import type {
   ImportResult
 } from '@shared/types'
 import { prepare, tx } from '../store/Database'
+import { encField, tokenize } from '../store/crypto'
 import { vault } from '../store/Vault'
 import {
   extractInlineRefs,
@@ -184,42 +185,54 @@ const savedKeySchema = z.object({
   updatedAt: z.number().default(() => Date.now())
 })
 
+/** scrypt + AES-256-GCM 密文块（v1 的 secrets、v2 的 enc 同形） */
+const sealedBlockSchema = z.object({
+  kdf: z.literal('scrypt'),
+  // 范围卡死：这个数直接决定我们要申请多少内存
+  n: z.number().int().min(1 << 12).max(1 << 17),
+  salt: z.string().max(200),
+  iv: z.string().max(200),
+  tag: z.string().max(200),
+  cipher: z.string()
+})
+
+const dataSchema = z.object({
+  settings: z.record(z.string(), z.unknown()).optional(),
+  groups: z.array(z.unknown()).default([]),
+  profiles: z.array(z.unknown()).default([]),
+  snippetGroups: z.array(z.unknown()).default([]),
+  snippets: z.array(z.unknown()).default([]),
+  forwards: z.array(z.unknown()).default([]),
+  knownHosts: z.array(z.unknown()).default([]),
+  proxies: z.array(z.unknown()).default([]),
+  privateKeys: z.array(z.unknown()).default([])
+})
+
+/** v1：明文 data + 可选密码块 */
 const envelopeSchema = z.object({
   app: z.literal('openfinalshell'),
   formatVersion: z.number().int().min(1),
   appVersion: z.string().max(60).default(() => t('err.data.unknownVersion')),
   exportedAt: z.number().default(0),
   includesSecrets: z.boolean().default(false),
-  data: z.object({
-    settings: z.record(z.string(), z.unknown()).optional(),
-    groups: z.array(z.unknown()).default([]),
-    profiles: z.array(z.unknown()).default([]),
-    snippetGroups: z.array(z.unknown()).default([]),
-    snippets: z.array(z.unknown()).default([]),
-    forwards: z.array(z.unknown()).default([]),
-    knownHosts: z.array(z.unknown()).default([]),
-    proxies: z.array(z.unknown()).default([]),
-    privateKeys: z.array(z.unknown()).default([])
-  }),
-  secrets: z
-    .object({
-      kdf: z.literal('scrypt'),
-      // 范围卡死：这个数直接决定我们要申请多少内存
-      n: z.number().int().min(1 << 12).max(1 << 17),
-      salt: z.string().max(200),
-      iv: z.string().max(200),
-      tag: z.string().max(200),
-      cipher: z.string()
-    })
-    .optional()
+  data: dataSchema,
+  secrets: sealedBlockSchema.optional()
 })
 
-type SealedSecrets = NonNullable<z.output<typeof envelopeSchema>['secrets']>
+/** v2：整文件加密——除信封头外只有一个 enc 密文块 */
+const encEnvelopeSchema = z.object({
+  app: z.literal('openfinalshell'),
+  formatVersion: z.number().int().min(1),
+  appVersion: z.string().max(60).default(() => t('err.data.unknownVersion')),
+  exportedAt: z.number().default(0),
+  includesSecrets: z.boolean().default(false),
+  enc: sealedBlockSchema
+})
 
-interface ParsedImport {
-  appVersion: string
-  exportedAt: number
-  includesSecrets: boolean
+type SealedBlock = z.output<typeof sealedBlockSchema>
+
+/** 分区后的领域数据（v1 在解析时得到；v2 在 apply 用口令解密后才得到） */
+interface Partitioned {
   profiles: z.output<typeof profileSchema>[]
   groups: z.output<typeof groupSchema>[]
   snippetGroups: z.output<typeof snippetGroupSchema>[]
@@ -229,8 +242,19 @@ interface ParsedImport {
   proxies: z.output<typeof savedProxySchema>[]
   privateKeys: z.output<typeof savedKeySchema>[]
   settings?: Record<string, unknown>
-  secrets?: SealedSecrets
   invalid: number
+}
+
+interface ParsedImport extends Partitioned {
+  appVersion: string
+  exportedAt: number
+  includesSecrets: boolean
+  /** v2 整文件加密：内容尚未解密，等 apply 时用口令解出 */
+  encrypted: boolean
+  /** v2 的整文件密文块 */
+  enc?: SealedBlock
+  /** v1 的密码块 */
+  secrets?: SealedBlock
 }
 
 function partition<S extends z.ZodTypeAny>(
@@ -247,6 +271,51 @@ function partition<S extends z.ZodTypeAny>(
   return { ok, bad }
 }
 
+/** 逐类校验分区（v1 解析时、v2 解密后都走它）。一条坏数据只跳这一条、不废整份文件 */
+function partitionData(d: z.output<typeof dataSchema>): Partitioned {
+  const profiles = partition(profileSchema, d.profiles)
+  const groups = partition(groupSchema, d.groups)
+  const snippetGroups = partition(snippetGroupSchema, d.snippetGroups)
+  const snippets = partition(snippetSchema, d.snippets)
+  const forwards = partition(forwardSchema, d.forwards)
+  const knownHosts = partition(knownHostSchema, d.knownHosts)
+  const proxies = partition(savedProxySchema, d.proxies)
+  const privateKeys = partition(savedKeySchema, d.privateKeys)
+  return {
+    profiles: profiles.ok,
+    groups: groups.ok,
+    snippetGroups: snippetGroups.ok,
+    snippets: snippets.ok,
+    forwards: forwards.ok,
+    knownHosts: knownHosts.ok,
+    proxies: proxies.ok,
+    privateKeys: privateKeys.ok,
+    settings: d.settings,
+    invalid:
+      profiles.bad +
+      groups.bad +
+      snippetGroups.bad +
+      snippets.bad +
+      forwards.bad +
+      knownHosts.bad +
+      proxies.bad +
+      privateKeys.bad
+  }
+}
+
+const EMPTY_PARTITION: Partitioned = {
+  profiles: [],
+  groups: [],
+  snippetGroups: [],
+  snippets: [],
+  forwards: [],
+  knownHosts: [],
+  proxies: [],
+  privateKeys: [],
+  settings: undefined,
+  invalid: 0
+}
+
 function parseEnvelope(text: string): ParsedImport {
   let raw: unknown
   try {
@@ -254,7 +323,7 @@ function parseEnvelope(text: string): ParsedImport {
   } catch {
     throw new Error(t('err.data.invalidJson'))
   }
-  const head = raw as { app?: unknown; formatVersion?: unknown }
+  const head = raw as { app?: unknown; formatVersion?: unknown; enc?: unknown }
   if (head?.app !== 'openfinalshell') {
     throw new Error(t('err.data.notOfsExport'))
   }
@@ -266,44 +335,32 @@ function parseEnvelope(text: string): ParsedImport {
       })
     )
   }
+
+  // v2 整文件加密：只有一个 enc 块，内容要等 apply 拿到口令才能解密/分区
+  if (head.enc !== undefined) {
+    const env = encEnvelopeSchema.safeParse(raw)
+    if (!env.success) throw new Error(t('err.data.corruptEnvelope'))
+    return {
+      ...EMPTY_PARTITION,
+      appVersion: env.data.appVersion,
+      exportedAt: env.data.exportedAt,
+      includesSecrets: env.data.includesSecrets,
+      encrypted: true,
+      enc: env.data.enc
+    }
+  }
+
   const env = envelopeSchema.safeParse(raw)
   if (!env.success) {
     throw new Error(t('err.data.corruptEnvelope'))
   }
-
-  const d = env.data.data
-  const profiles = partition(profileSchema, d.profiles)
-  const groups = partition(groupSchema, d.groups)
-  const snippetGroups = partition(snippetGroupSchema, d.snippetGroups)
-  const snippets = partition(snippetSchema, d.snippets)
-  const forwards = partition(forwardSchema, d.forwards)
-  const knownHosts = partition(knownHostSchema, d.knownHosts)
-  const proxies = partition(savedProxySchema, d.proxies)
-  const privateKeys = partition(savedKeySchema, d.privateKeys)
-
   return {
+    ...partitionData(env.data.data),
     appVersion: env.data.appVersion,
     exportedAt: env.data.exportedAt,
     includesSecrets: env.data.includesSecrets && env.data.secrets !== undefined,
-    profiles: profiles.ok,
-    groups: groups.ok,
-    snippetGroups: snippetGroups.ok,
-    snippets: snippets.ok,
-    forwards: forwards.ok,
-    knownHosts: knownHosts.ok,
-    proxies: proxies.ok,
-    privateKeys: privateKeys.ok,
-    settings: d.settings,
-    secrets: env.data.secrets,
-    invalid:
-      profiles.bad +
-      groups.bad +
-      snippetGroups.bad +
-      snippets.bad +
-      forwards.bad +
-      knownHosts.bad +
-      proxies.bad +
-      privateKeys.bad
+    encrypted: false,
+    secrets: env.data.secrets
   }
 }
 
@@ -351,6 +408,8 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
     appVersion: parsed.appVersion,
     exportedAt: parsed.exportedAt,
     includesSecrets: parsed.includesSecrets,
+    // v2 整文件加密：条目数要解密后才知道，这里先报 0，界面据此提示"输入口令后导入"
+    encrypted: parsed.encrypted,
     counts: {
       profiles: parsed.profiles.length,
       groups: parsed.groups.length,
@@ -370,7 +429,8 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
 // 密码段
 // ---------------------------------------------------------------------------
 
-function openSecrets(sealed: SealedSecrets, passphrase: string): Record<string, string> {
+/** 用口令解开一个密文块，返回明文字符串。GCM 校验失败一律归为"口令不对"（含文件被改） */
+function openSealedString(sealed: SealedBlock, passphrase: string): string {
   const key = scryptSync(passphrase, Buffer.from(sealed.salt, 'base64'), SCRYPT_KEYLEN, {
     N: sealed.n,
     r: 8,
@@ -379,9 +439,8 @@ function openSecrets(sealed: SealedSecrets, passphrase: string): Record<string, 
   })
   const d = createDecipheriv('aes-256-gcm', key, Buffer.from(sealed.iv, 'base64'))
   d.setAuthTag(Buffer.from(sealed.tag, 'base64'))
-  let json: string
   try {
-    json = Buffer.concat([
+    return Buffer.concat([
       d.update(Buffer.from(sealed.cipher, 'base64')),
       d.final()
     ]).toString('utf8')
@@ -389,7 +448,10 @@ function openSecrets(sealed: SealedSecrets, passphrase: string): Record<string, 
     // GCM 校验失败：口令不对，或文件被改过 —— 两者无法区分，一起说
     throw new Error(t('err.data.wrongPassphrase'))
   }
-  const parsed = z.record(z.string(), z.string()).safeParse(JSON.parse(json))
+}
+
+function openSecrets(sealed: SealedBlock, passphrase: string): Record<string, string> {
+  const parsed = z.record(z.string(), z.string()).safeParse(JSON.parse(openSealedString(sealed, passphrase)))
   if (!parsed.success) throw new Error(t('err.data.badSecretsFormat'))
   return parsed.data
 }
@@ -476,8 +538,26 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
   const notes: string[] = []
 
   // 口令先验证再动库：口令输错是最常见的失败，不该让用户重新选一遍文件
+  let resolved: Partitioned = parsed
   let secretMap: Record<string, string> = {}
-  if (parsed.secrets && opts.passphrase) {
+  if (parsed.encrypted) {
+    // v2 整文件加密：口令既解密整包、也带出密码明文映射
+    if (!opts.passphrase) throw new Error(t('err.data.passphraseRequired'))
+    let obj: unknown
+    try {
+      obj = JSON.parse(openSealedString(parsed.enc!, opts.passphrase))
+    } catch (err) {
+      // openSealedString 的 wrongPassphrase 直接抛；JSON.parse 失败也归为文件损坏/口令错
+      if (err instanceof Error && err.message === t('err.data.wrongPassphrase')) throw err
+      throw new Error(t('err.data.corruptEnvelope'))
+    }
+    const shape = z
+      .object({ data: dataSchema, secrets: z.record(z.string(), z.string()).optional() })
+      .safeParse(obj)
+    if (!shape.success) throw new Error(t('err.data.corruptEnvelope'))
+    resolved = partitionData(shape.data.data)
+    secretMap = shape.data.secrets ?? {}
+  } else if (parsed.secrets && opts.passphrase) {
     secretMap = openSecrets(parsed.secrets, opts.passphrase)
   } else if (parsed.secrets && opts.include.profiles) {
     notes.push(t('err.data.noPassphraseSecrets'))
@@ -499,7 +579,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
     secrets: 0,
     settingsApplied: false,
     skipped: 0,
-    invalid: parsed.invalid,
+    invalid: resolved.invalid,
     notes
   }
 
@@ -513,18 +593,18 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
       const proxyIds = new Map<string, string>()
       const keyIds = new Map<string, string>()
       if (dup) {
-        for (const g of parsed.groups) groupIds.set(g.id, randomUUID())
-        for (const p of parsed.profiles) profileIds.set(p.id, randomUUID())
+        for (const g of resolved.groups) groupIds.set(g.id, randomUUID())
+        for (const p of resolved.profiles) profileIds.set(p.id, randomUUID())
         // 不预分配的话，副本连接会指回**原来那条**代理/私钥
-        for (const x of parsed.proxies) proxyIds.set(x.id, randomUUID())
-        for (const k of parsed.privateKeys) keyIds.set(k.id, randomUUID())
-        for (const g of parsed.snippetGroups) snippetGroupIds.set(g.id, randomUUID())
+        for (const x of resolved.proxies) proxyIds.set(x.id, randomUUID())
+        for (const k of resolved.privateKeys) keyIds.set(k.id, randomUUID())
+        for (const g of resolved.snippetGroups) snippetGroupIds.set(g.id, randomUUID())
       }
       const mapId = (m: Map<string, string>, id: string | null): string | null =>
         id === null ? null : (m.get(id) ?? id)
 
       if (opts.include.profiles) {
-        for (const g of parsed.groups) {
+        for (const g of resolved.groups) {
           const id = groupIds.get(g.id) ?? g.id
           if (opts.conflict === 'skip' && rowExists('conn_groups', 'id', id)) {
             result.skipped++
@@ -558,7 +638,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
          * 它们跟着 profiles 那个开关一起导入（不单独给勾选项）：允许"只导连接不导代理"
          * 就等于允许造出一批指向空气的引用，而那种连接要到连接时才报错。
          */
-        for (const x of parsed.proxies) {
+        for (const x of resolved.proxies) {
           const id = proxyIds.get(x.id) ?? x.id
           if (opts.conflict === 'skip' && rowExists('proxies', 'id', id)) {
             result.skipped++
@@ -572,7 +652,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           })
           result.proxies++
         }
-        for (const k of parsed.privateKeys) {
+        for (const k of resolved.privateKeys) {
           const id = keyIds.get(k.id) ?? k.id
           if (opts.conflict === 'skip' && rowExists('private_keys', 'id', id)) {
             result.skipped++
@@ -589,7 +669,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
 
         /** 本次真正写进库的那些，交给 extractInlineRefs 补引用 */
         const imported: ConnectionProfile[] = []
-        for (const p of parsed.profiles) {
+        for (const p of resolved.profiles) {
           const id = profileIds.get(p.id) ?? p.id
           const existing = getProfile(id)
           if (existing && opts.conflict === 'skip') {
@@ -671,7 +751,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
       }
 
       if (opts.include.snippets) {
-        for (const g of parsed.snippetGroups) {
+        for (const g of resolved.snippetGroups) {
           const id = snippetGroupIds.get(g.id) ?? g.id
           if (opts.conflict === 'skip' && rowExists('snippet_groups', 'id', id)) {
             result.skipped++
@@ -683,7 +763,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
             order: g.order
           })
         }
-        for (const s of parsed.snippets) {
+        for (const s of resolved.snippets) {
           const id = dup ? randomUUID() : s.id
           if (opts.conflict === 'skip' && rowExists('snippets', 'id', id)) {
             result.skipped++
@@ -696,7 +776,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
 
       // 转发必须排在连接之后：要先确认目标连接真的存在，否则就是指不到人的孤儿规则
       if (opts.include.forwards) {
-        for (const f of parsed.forwards) {
+        for (const f of resolved.forwards) {
           const profileId = mapId(profileIds, f.profileId) ?? f.profileId
           if (!getProfile(profileId)) {
             result.skipped++
@@ -718,13 +798,15 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
          * 覆盖一条不一致的指纹等于悄悄替用户吞掉中间人告警 ——
          * 本机记的和文件里写的不一样时，宁可保留本机记录，让 TOFU 该弹就弹。
          */
+        // key 存决定论 token（等值查找），明文规范键加密进 host_enc（与 hostkeys.ts 一致）
         const ins = prepare(
-          `INSERT INTO known_hosts(key, key_type, fingerprint, added_at)
-           VALUES(?, ?, ?, ?) ON CONFLICT(key) DO NOTHING`
+          `INSERT INTO known_hosts(key, key_type, fingerprint, added_at, host_enc)
+           VALUES(?, ?, ?, ?, ?) ON CONFLICT(key) DO NOTHING`
         )
         let clashes = 0
-        for (const k of parsed.knownHosts) {
-          const row = prepare('SELECT fingerprint FROM known_hosts WHERE key = ?').get(k.key) as
+        for (const k of resolved.knownHosts) {
+          const token = tokenize(k.key)
+          const row = prepare('SELECT fingerprint FROM known_hosts WHERE key = ?').get(token) as
             | { fingerprint: string }
             | undefined
           if (row) {
@@ -732,7 +814,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
             result.skipped++
             continue
           }
-          ins.run(k.key, k.keyType, k.fingerprintSha256, k.addedAt)
+          ins.run(token, k.keyType, k.fingerprintSha256, k.addedAt, encField(k.key))
           result.knownHosts++
         }
         if (clashes > 0) {
@@ -745,8 +827,8 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
   }
 
   // 设置放在事务之后：DocStore 有内存缓存，跟着事务回滚会让缓存与库不一致
-  if (opts.include.settings && parsed.settings) {
-    const { patch, notes: settingNotes } = sanitizeSettings(parsed.settings)
+  if (opts.include.settings && resolved.settings) {
+    const { patch, notes: settingNotes } = sanitizeSettings(resolved.settings)
     patchSettings(patch)
     result.settingsApplied = true
     notes.push(...settingNotes)

@@ -58,11 +58,15 @@ export function ImportDataPanel(): React.JSX.Element {
     if (!preview) return
     setImporting(true)
     try {
+      const needPass = preview.encrypted || preview.includesSecrets
       const r = await ofs.invoke('app:importData', {
         token: preview.token,
-        passphrase: preview.includesSecrets && pass ? pass : undefined,
+        passphrase: needPass && pass ? pass : undefined,
         conflict,
-        include
+        // 整文件加密的文件解密前拿不到条目数，无法按类勾选：整体导入（设置除外，避免悄悄套配色）
+        include: preview.encrypted
+          ? { profiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
+          : include
       })
       setPass('')
       setResult(r)
@@ -133,72 +137,85 @@ export function ImportDataPanel(): React.JSX.Element {
               </div>
             </div>
 
-            {preview.invalid > 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message={t('settings.importInvalidWarn', { count: preview.invalid })}
-              />
-            )}
-            {preview.conflicts > 0 && (
+            {preview.encrypted && (
               <Alert
                 type="info"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message={t('settings.importConflictWarn', { count: preview.conflicts })}
+                message={t('settings.importEncryptedNote')}
               />
             )}
 
-            <div className={styles.importSection}>{t('settings.importSelectLabel')}</div>
-            <div className={styles.importChecks}>
-              <Checkbox
-                checked={include.profiles}
-                onChange={(e) => toggle('profiles')(e.target.checked)}
-              >
-                {t('settings.importIncludeProfiles', {
-                  profiles: preview.counts.profiles,
-                  groups: preview.counts.groups
-                })}
-                {/* 代理与私钥没有独立勾选项：连接引用它们，单独勾会造出指向空气的引用。
-                    这里只把条数说出来，让用户知道它们会跟着一起进来 */}
-                {(preview.counts.proxies > 0 || preview.counts.privateKeys > 0) && (
-                  <span className={styles.rowHint}>
-                    {t('settings.importIncludeRefs', {
-                      proxies: preview.counts.proxies,
-                      keys: preview.counts.privateKeys
-                    })}
-                  </span>
+            {!preview.encrypted && (
+              <>
+                {preview.invalid > 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={t('settings.importInvalidWarn', { count: preview.invalid })}
+                  />
                 )}
-              </Checkbox>
-              <Checkbox
-                checked={include.snippets}
-                onChange={(e) => toggle('snippets')(e.target.checked)}
-              >
-                {t('settings.importIncludeSnippets', { count: preview.counts.snippets })}
-              </Checkbox>
-              <Checkbox
-                checked={include.forwards}
-                onChange={(e) => toggle('forwards')(e.target.checked)}
-              >
-                {t('settings.importIncludeForwards', { count: preview.counts.forwards })}
-              </Checkbox>
-              <Checkbox
-                checked={include.knownHosts}
-                onChange={(e) => toggle('knownHosts')(e.target.checked)}
-              >
-                {t('settings.importIncludeKnownHosts', { count: preview.counts.knownHosts })}
-              </Checkbox>
-              <Checkbox
-                checked={include.settings}
-                disabled={!preview.counts.settings}
-                onChange={(e) => toggle('settings')(e.target.checked)}
-              >
-                {t('settings.importIncludeSettings')}
-              </Checkbox>
-            </div>
+                {preview.conflicts > 0 && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={t('settings.importConflictWarn', { count: preview.conflicts })}
+                  />
+                )}
 
-            {preview.includesSecrets ? (
+                <div className={styles.importSection}>{t('settings.importSelectLabel')}</div>
+                <div className={styles.importChecks}>
+                  <Checkbox
+                    checked={include.profiles}
+                    onChange={(e) => toggle('profiles')(e.target.checked)}
+                  >
+                    {t('settings.importIncludeProfiles', {
+                      profiles: preview.counts.profiles,
+                      groups: preview.counts.groups
+                    })}
+                    {/* 代理与私钥没有独立勾选项：连接引用它们，单独勾会造出指向空气的引用。
+                        这里只把条数说出来，让用户知道它们会跟着一起进来 */}
+                    {(preview.counts.proxies > 0 || preview.counts.privateKeys > 0) && (
+                      <span className={styles.rowHint}>
+                        {t('settings.importIncludeRefs', {
+                          proxies: preview.counts.proxies,
+                          keys: preview.counts.privateKeys
+                        })}
+                      </span>
+                    )}
+                  </Checkbox>
+                  <Checkbox
+                    checked={include.snippets}
+                    onChange={(e) => toggle('snippets')(e.target.checked)}
+                  >
+                    {t('settings.importIncludeSnippets', { count: preview.counts.snippets })}
+                  </Checkbox>
+                  <Checkbox
+                    checked={include.forwards}
+                    onChange={(e) => toggle('forwards')(e.target.checked)}
+                  >
+                    {t('settings.importIncludeForwards', { count: preview.counts.forwards })}
+                  </Checkbox>
+                  <Checkbox
+                    checked={include.knownHosts}
+                    onChange={(e) => toggle('knownHosts')(e.target.checked)}
+                  >
+                    {t('settings.importIncludeKnownHosts', { count: preview.counts.knownHosts })}
+                  </Checkbox>
+                  <Checkbox
+                    checked={include.settings}
+                    disabled={!preview.counts.settings}
+                    onChange={(e) => toggle('settings')(e.target.checked)}
+                  >
+                    {t('settings.importIncludeSettings')}
+                  </Checkbox>
+                </div>
+              </>
+            )}
+
+            {preview.encrypted || preview.includesSecrets ? (
               <>
                 <div className={styles.importSection}>{t('settings.importPassphraseLabel')}</div>
                 <Input.Password

@@ -613,7 +613,11 @@
     "knownHostsRevoke": "撤销",
     "knownHostsRevokeTitle": "撤销对 {{host}} 的信任？",
     "knownHostsRevokeDesc": "只是撤回这次信任决定，不影响连接配置；下次连接该主机会重新确认指纹。",
-    "openLinkFailed": "无法打开链接"
+    "openLinkFailed": "无法打开链接",
+    "changelog": "历史更新日志",
+    "exportEncryptAll": "整文件加密（连主机、用户名也加密，需导出口令）",
+    "exportEncryptAllHint": "导出文件中没有任何明文。注意：开启本地加密后，换机不能再直接拷 .db 迁移，请用加密导出/导入。",
+    "importEncryptedNote": "此文件已整体加密，输入导出口令后将导入其中全部内容。"
   },
   "shortcut": {
     "duplicateSession": "复制当前会话",
@@ -835,7 +839,9 @@
       "updatePortable": "免安装版请到 Releases 下载新版覆盖",
       "updateNotDownloaded": "更新还没下载完",
       "rdpNoHost": "这条 RDP 连接没有填写主机地址",
-      "rdpLaunchFailed": "无法启动系统远程桌面：{{error}}"
+      "rdpLaunchFailed": "无法启动系统远程桌面：{{error}}",
+      "dataKeyUnavailable": "数据密钥不可用：加密数据无法解密（可能更换了机器或系统账户）。",
+      "exportNoteEncrypted": "这是整文件加密导出：包括主机、用户名在内的全部数据都用导出口令加密（scrypt + AES-256-GCM）；口令丢失则无法恢复。"
     },
     "net": {
       "portInUse": "端口已被占用：{{addr}}:{{port}}",

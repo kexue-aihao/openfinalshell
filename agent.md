@@ -49,6 +49,16 @@ Windows PowerShell 5.1 向原生程序传参时，字符串内的 `"` 会破坏�
 - **刻意不入 i18n 的例外**：语言下拉里各语言的自称（endonym）、编辑器状态栏的语言名（专有名词）、终端预览里的 CJK 对齐样例；`releaseNotes.ts` 走 zh/en 双语通道、其余语言回退英文（更新说明属历史内容，不逐版翻 10 种）。
 - **字节预算**：语言包**不进渲染 JS bundle**（en/zh 内联、其余运行时经 IPC `i18n:bundle` 从主进程取回），所以加语言不吃 `check:bundle` 的 950KB gzip 额度；主进程持有全部语言包（不受该预算约束）。
 
+## 配置数据静态加密（at-rest，必读）
+
+**除凭据（走 Vault）外，敏感配置也在库里加密**：主机/端口/用户名/备注、分组名、代理、私钥元数据、转发、known_hosts、命令历史。密钥体系在 `src/main/store/crypto.ts`：一把 MDK（32 字节随机）由 `safeStorage`（DPAPI，OS 账户绑定）加密后存 meta，派生子钥做 AES-256-GCM / HMAC；`safeStorage` 不可用时全部**降级为明文**、不 brick。**settings（documents 表）刻意不加密**——它不含机密，且要在 app ready 前读（决定是否禁用 GPU），那时 safeStorage 尚不可用。
+
+- **新增敏感列必须走加密**：不透明载荷/标签列（`json`、`name` 等）写用 `encField`、读用 `decField`（未加密值原样透传）；`ORDER BY name` 这类改成读出解密后在 JS 里排序。
+- **等值查找/去重/主键列**（如 `known_hosts.key`、`command_history.command`）不能用非决定论 GCM：主键存 `tokenize()`（HMAC）做等值，明文另存一个 `encField` 的显示列（`host_enc`/`cmd_enc`），读时解密还原。
+- **新增敏感表/列后**：在 `src/main/store/encryptMigration.ts` 的 `encryptExistingRowsOnce` 里补上就地加密（该迁移 meta 标记守卫、整段在 `tx()` 内、崩溃可重跑），并在 `test/unit/encryptAtRest.test.ts` 加断言。
+- **导出**：at-rest 密文绑本机、不可移植；导出一律从 `decField` 出来的明文出发，v1（明文/密码块）或 v2（`encryptAll` 整文件加密）。
+- **换机取舍（务必知情）**：OS 绑定加密后，换机/换 Windows 账户则本机 `.db` 无法解密——迁移只能走「整文件加密导出 → 新机导入」，不能直接拷 `.db`。
+
 ## 项目概览
 
 开源 FinalShell —— Electron + React + ssh2 + xterm.js 的桌面 SSH 客户端（SSH 终端 + SFTP + 服务器监控 + 端口转发）。实施计划见 `C:\Users\Administrator\.claude\plans\ui-ssh-jaunty-bachman.md`。

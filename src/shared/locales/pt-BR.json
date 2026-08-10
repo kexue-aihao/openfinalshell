@@ -617,7 +617,11 @@
     "knownHostsRevoke": "Revogar",
     "knownHostsRevokeTitle": "Revogar confiança para {{host}}?",
     "knownHostsRevokeDesc": "Isso apenas retira a decisão de confiança — os perfis de conexão permanecem intactos; a próxima conexão a este host reconfirmará a impressão digital.",
-    "openLinkFailed": "Não foi possível abrir o link"
+    "openLinkFailed": "Não foi possível abrir o link",
+    "changelog": "Registro de alterações",
+    "exportEncryptAll": "Criptografar o arquivo inteiro (incluindo hosts e nomes de usuário, requer senha de exportação)",
+    "exportEncryptAllHint": "O arquivo exportado não contém texto sem criptografia. Observação: após ativar a criptografia local, não é possível migrar copiando o .db entre máquinas — use exportação/importação criptografada.",
+    "importEncryptedNote": "Este arquivo está totalmente criptografado. Digite a senha de exportação para importar todo o conteúdo."
   },
   "shortcut": {
     "duplicateSession": "Duplicar a sessão atual",
@@ -839,7 +843,9 @@
       "updatePortable": "Para a build portátil, baixe a nova versão em Releases e sobrescreva-a.",
       "updateNotDownloaded": "A atualização ainda não terminou de baixar.",
       "rdpNoHost": "Esta conexão RDP não tem endereço de host.",
-      "rdpLaunchFailed": "Falha ao iniciar a Área de Trabalho Remota do sistema: {{error}}"
+      "rdpLaunchFailed": "Falha ao iniciar a Área de Trabalho Remota do sistema: {{error}}",
+      "dataKeyUnavailable": "Chave de dados indisponível: não é possível descriptografar os dados criptografados (a máquina ou a conta do sistema pode ter mudado).",
+      "exportNoteEncrypted": "Esta é uma exportação totalmente criptografada: todos os dados (incluindo hosts e nomes de usuário) são criptografados com a senha de exportação (scrypt + AES-256-GCM). Se perder a senha, nada poderá ser recuperado."
     },
     "net": {
       "portInUse": "Porta já em uso: {{addr}}:{{port}}",

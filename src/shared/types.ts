@@ -764,6 +764,8 @@ export interface ImportPreview {
   exportedAt: number
   /** 文件里带加密的密码段：一起导入需要当初的导出口令 */
   includesSecrets: boolean
+  /** 整文件加密导出（formatVersion 2）：内容要输入导出口令后才能解密，counts 此时全为 0 */
+  encrypted?: boolean
   counts: {
     profiles: number
     groups: number

@@ -613,7 +613,11 @@
     "knownHostsRevoke": "Revoke",
     "knownHostsRevokeTitle": "Revoke trust for {{host}}?",
     "knownHostsRevokeDesc": "This only withdraws the trust decision — connection profiles are untouched; the next connection to this host will re-confirm the fingerprint.",
-    "openLinkFailed": "Could not open the link"
+    "openLinkFailed": "Could not open the link",
+    "changelog": "Changelog",
+    "exportEncryptAll": "Encrypt the entire file (hosts and usernames too, requires an export passphrase)",
+    "exportEncryptAllHint": "The exported file contains no plaintext. Note: after at-rest encryption is enabled you cannot migrate by copying the .db across machines — use encrypted export/import instead.",
+    "importEncryptedNote": "This file is fully encrypted. Enter the export passphrase to import all of its contents."
   },
   "shortcut": {
     "duplicateSession": "Duplicate current session",
@@ -835,7 +839,9 @@
       "updatePortable": "For the portable build, download the new version from Releases and overwrite it.",
       "updateNotDownloaded": "The update has not finished downloading yet.",
       "rdpNoHost": "This RDP connection has no host address.",
-      "rdpLaunchFailed": "Failed to launch the system Remote Desktop: {{error}}"
+      "rdpLaunchFailed": "Failed to launch the system Remote Desktop: {{error}}",
+      "dataKeyUnavailable": "Data key unavailable: encrypted data cannot be decrypted (the machine or system account may have changed).",
+      "exportNoteEncrypted": "This is a fully-encrypted export: all data (including hosts and usernames) is encrypted with the export passphrase (scrypt + AES-256-GCM). Lose the passphrase and nothing can be recovered."
     },
     "net": {
       "portInUse": "Port already in use: {{addr}}:{{port}}",

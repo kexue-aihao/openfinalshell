@@ -60,12 +60,14 @@ CREATE TABLE IF NOT EXISTS secrets (
   cipher BLOB NOT NULL
 );
 
--- key = "host:port:keyType"，同主机不同算法算不同记录，避免误报指纹变更
+-- key = "host:port:keyType"，同主机不同算法算不同记录，避免误报指纹变更。
+-- at-rest 加密开启后 key 存决定论 token（HMAC），host_enc 存加密后的 "host:port:keyType" 供 UI 还原。
 CREATE TABLE IF NOT EXISTS known_hosts (
   key         TEXT PRIMARY KEY,
   key_type    TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
-  added_at    INTEGER NOT NULL
+  added_at    INTEGER NOT NULL,
+  host_enc    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS snippet_groups (
@@ -111,10 +113,12 @@ CREATE TABLE IF NOT EXISTS private_keys (
 -- 一条 ls 执行一百次只占一行（use_count +1），历史列表不会被高频命令刷满。
 -- 不记 profile_id：命令是跨机器复用的（同一条 systemctl 在哪台上都想再敲一遍），
 -- 按连接切开会让列表在最需要它的时候（换了台机器要重复同一串操作）恰好是空的。
+-- at-rest 加密开启后 command 存决定论 token（HMAC）用于去重/剪枝，cmd_enc 存加密后的命令原文。
 CREATE TABLE IF NOT EXISTS command_history (
   command      TEXT PRIMARY KEY,
   last_used_at INTEGER NOT NULL,
-  use_count    INTEGER NOT NULL DEFAULT 1
+  use_count    INTEGER NOT NULL DEFAULT 1,
+  cmd_enc      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cmd_history_used ON command_history(last_used_at DESC);
 `
@@ -134,6 +138,7 @@ export function database(): DatabaseSync {
   conn.exec('PRAGMA synchronous = NORMAL')
   conn.exec('PRAGMA busy_timeout = 5000')
   conn.exec(SCHEMA)
+  ensureColumns(conn)
   const current = Number(readMeta(conn, 'schema_version') ?? '0')
   if (current === 0) writeMeta(conn, 'schema_version', String(SCHEMA_VERSION))
   db = conn
@@ -195,6 +200,24 @@ export function tx<T>(fn: (conn: DatabaseSync) => T): T {
 
 export function prepare(sql: string): StatementSync {
   return database().prepare(sql)
+}
+
+/**
+ * 老库补列：at-rest 加密新增的 known_hosts.host_enc / command_history.cmd_enc。
+ * SCHEMA 里的 CREATE 只对新库生效；老库靠这里幂等补上——`ADD COLUMN` 遇到已存在的列会抛错，
+ * try/catch 吞掉即可（SQLite 没有 `ADD COLUMN IF NOT EXISTS`）。
+ */
+function ensureColumns(conn: DatabaseSync): void {
+  for (const sql of [
+    'ALTER TABLE known_hosts ADD COLUMN host_enc TEXT',
+    'ALTER TABLE command_history ADD COLUMN cmd_enc TEXT'
+  ]) {
+    try {
+      conn.exec(sql)
+    } catch {
+      /* duplicate column name —— 列已存在，忽略 */
+    }
+  }
 }
 
 // ---------------- 旧 JSON 配置的一次性导入 ----------------

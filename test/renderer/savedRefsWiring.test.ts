@@ -163,13 +163,14 @@ describe('导出必须扫两张新表的 ref', () => {
 
   it('两类实体的写入排在 profiles 之前（连接引用它们）', () => {
     const body = stripComments(read(IMPORT))
-    const proxyWrite = body.indexOf('for (const x of parsed.proxies)')
+    // 写入循环遍历的是 resolved.*（v1 直接来自解析、v2 来自口令解密后的分区），不是 parsed.*
+    const proxyWrite = body.indexOf('for (const x of resolved.proxies)')
     /*
-     * 必须定位到**写入**那个循环（带花括号）。`for (const p of parsed.profiles)` 在文件里
+     * 必须定位到**写入**那个循环（带花括号）。`for (const p of resolved.profiles)` 在文件里
      * 出现两次，头一次是 duplicate 模式预分配 id 的单行写法 —— 按它比较会永远为假，
      * 而这条护栏就成了摆设。（这个错本条护栏自己抓到过一次。）
      */
-    const profileWrite = body.indexOf('for (const p of parsed.profiles) {')
+    const profileWrite = body.indexOf('for (const p of resolved.profiles) {')
     expect(proxyWrite).toBeGreaterThan(0)
     expect(profileWrite).toBeGreaterThan(0)
     expect(proxyWrite).toBeLessThan(profileWrite)

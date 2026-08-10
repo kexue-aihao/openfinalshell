@@ -17,6 +17,26 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.15.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '配置数据本地加密存储：除密码外，主机/端口/用户名/分组/代理/转发/已信任主机/命令历史也在数据库里加密（绑定当前系统账户），直接打开 .db 看不到明文',
+        en: 'Config data is now encrypted at rest: besides passwords, hosts/ports/usernames/groups/proxies/forwards/known-hosts/command history are encrypted in the database (bound to the current OS account) — opening the .db shows no plaintext'
+      },
+      {
+        type: 'feat',
+        zh: '新增「整文件加密导出」：给一个口令，连主机、用户名等配置一起加密，导出文件里没有任何明文（换机迁移请走加密导出→新机导入，不能直接拷数据库）',
+        en: 'New "encrypt the entire file" export: with a passphrase, hosts/usernames and all config are encrypted so the file has no plaintext (migrate via encrypted export → import; copying the .db no longer works)'
+      },
+      {
+        type: 'feat',
+        zh: '关于页新增「历史更新日志」按钮，可查看所有版本的更新说明',
+        en: 'Added a "Changelog" button on the About page to view release notes for every version'
+      }
+    ]
+  },
+  {
     version: '0.14.0',
     items: [
       {

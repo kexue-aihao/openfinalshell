@@ -29,6 +29,7 @@ import { ImportDataPanel } from './ImportDataPanel'
 import { KnownHostsPanel } from './KnownHostsPanel'
 import { SavedRefsPanel } from './SavedRefsPanel'
 import { DonateSection } from '@/features/donate/DonateSection'
+import { ChangelogModal } from '@/features/onboarding/ChangelogModal'
 import { UpdatePanel } from './UpdatePanel'
 import { TerminalPreview } from './TerminalPreview'
 import { SHORTCUTS } from './shortcuts'
@@ -54,7 +55,9 @@ export function SettingsModal(): React.JSX.Element {
   const [section, setSection] = useState<Section>('general')
   const [vaultAvailable, setVaultAvailable] = useState<boolean | null>(null)
   const [versions, setVersions] = useState<Awaited<ReturnType<typeof loadVersions>> | null>(null)
+  const [changelogOpen, setChangelogOpen] = useState(false)
   const [exportSecrets, setExportSecrets] = useState(false)
+  const [exportEncryptAll, setExportEncryptAll] = useState(false)
   const [exportPass, setExportPass] = useState('')
   const [exporting, setExporting] = useState(false)
 
@@ -89,9 +92,11 @@ export function SettingsModal(): React.JSX.Element {
   const doExport = async (): Promise<void> => {
     setExporting(true)
     try {
+      const needPass = exportSecrets || exportEncryptAll
       const r = await ofs.invoke('app:exportData', {
         includeSecrets: exportSecrets,
-        passphrase: exportSecrets ? exportPass : undefined
+        encryptAll: exportEncryptAll,
+        passphrase: needPass ? exportPass : undefined
       })
       if (!r) return // 用户取消了保存对话框
       setExportPass('')
@@ -474,7 +479,18 @@ export function SettingsModal(): React.JSX.Element {
               >
                 {t('settings.exportIncludeSecrets')}
               </Checkbox>
-              {exportSecrets && (
+              <br />
+              <Checkbox
+                checked={exportEncryptAll}
+                onChange={(e) => setExportEncryptAll(e.target.checked)}
+                style={{ marginBottom: 8 }}
+              >
+                {t('settings.exportEncryptAll')}
+              </Checkbox>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                {t('settings.exportEncryptAllHint')}
+              </Typography.Paragraph>
+              {(exportSecrets || exportEncryptAll) && (
                 <Input.Password
                   value={exportPass}
                   onChange={(e) => setExportPass(e.target.value)}
@@ -523,18 +539,24 @@ export function SettingsModal(): React.JSX.Element {
                 {t('welcome.subtitle')}
               </Typography.Paragraph>
               <UpdatePanel />
-              <Button
-                type="link"
-                onClick={() =>
-                  void ofs
-                    .invoke('app:openExternal', 'https://github.com/openfinalshell/openfinalshell')
-                    .catch(() => message.error(t('settings.openLinkFailed')))
-                }
-              >
-                GitHub
-              </Button>
+              <div>
+                <Button type="link" onClick={() => setChangelogOpen(true)}>
+                  {t('settings.changelog')}
+                </Button>
+                <Button
+                  type="link"
+                  onClick={() =>
+                    void ofs
+                      .invoke('app:openExternal', 'https://github.com/openfinalshell/openfinalshell')
+                      .catch(() => message.error(t('settings.openLinkFailed')))
+                  }
+                >
+                  GitHub
+                </Button>
+              </div>
               <div className={styles.aboutLicense}>MIT License</div>
               <DonateSection />
+              <ChangelogModal open={changelogOpen} onClose={() => setChangelogOpen(false)} />
             </div>
           )}
         </div>

@@ -617,7 +617,11 @@
     "knownHostsRevoke": "Widerrufen",
     "knownHostsRevokeTitle": "Vertrauen für {{host}} widerrufen?",
     "knownHostsRevokeDesc": "Dies zieht nur die Vertrauensentscheidung zurück — Verbindungsprofile bleiben unangetastet; die nächste Verbindung zu diesem Host bestätigt den Fingerabdruck erneut.",
-    "openLinkFailed": "Der Link konnte nicht geöffnet werden"
+    "openLinkFailed": "Der Link konnte nicht geöffnet werden",
+    "changelog": "Änderungsprotokoll",
+    "exportEncryptAll": "Gesamte Datei verschlüsseln (auch Hosts und Benutzernamen, Export-Passphrase erforderlich)",
+    "exportEncryptAllHint": "Die exportierte Datei enthält keinen Klartext. Hinweis: Nach Aktivierung der lokalen Verschlüsselung ist keine Migration durch Kopieren der .db mehr möglich – nutzen Sie verschlüsselten Export/Import.",
+    "importEncryptedNote": "Diese Datei ist vollständig verschlüsselt. Geben Sie die Export-Passphrase ein, um den gesamten Inhalt zu importieren."
   },
   "shortcut": {
     "duplicateSession": "Aktuelle Sitzung duplizieren",
@@ -839,7 +843,9 @@
       "updatePortable": "Lade bei der portablen Version die neue Version von den Releases herunter und überschreibe sie.",
       "updateNotDownloaded": "Das Update ist noch nicht fertig heruntergeladen.",
       "rdpNoHost": "Diese RDP-Verbindung hat keine Host-Adresse.",
-      "rdpLaunchFailed": "Der System-Remotedesktop konnte nicht gestartet werden: {{error}}"
+      "rdpLaunchFailed": "Der System-Remotedesktop konnte nicht gestartet werden: {{error}}",
+      "dataKeyUnavailable": "Datenschlüssel nicht verfügbar: Verschlüsselte Daten können nicht entschlüsselt werden (möglicherweise wurde der Computer oder das Systemkonto geändert).",
+      "exportNoteEncrypted": "Dies ist ein vollständig verschlüsselter Export: Alle Daten (einschließlich Hosts und Benutzernamen) werden mit der Export-Passphrase verschlüsselt (scrypt + AES-256-GCM). Geht die Passphrase verloren, ist keine Wiederherstellung möglich."
     },
     "net": {
       "portInUse": "Port bereits in Verwendung: {{addr}}:{{port}}",

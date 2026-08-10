@@ -110,6 +110,7 @@ export function registerAppIpc(): void {
     z.tuple([
       z.object({
         includeSecrets: z.boolean(),
+        encryptAll: z.boolean().optional(),
         passphrase: z.string().max(256).optional()
       })
     ])

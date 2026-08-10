@@ -10,6 +10,7 @@ import type {
   SavedProxyDraft
 } from '@shared/types'
 import { prepare, tx } from './Database'
+import { decField, encField, tryDecJson } from './crypto'
 import { vault } from './Vault'
 
 /**
@@ -39,9 +40,10 @@ import { vault } from './Vault'
 
 /** 遍历 profiles 的 JSON 列。两类实体的引用检查都要走它，所以只写一遍 */
 function allProfiles(): ConnectionProfile[] {
-  return (prepare('SELECT json FROM profiles').all() as Array<{ json: string }>).map(
-    (r) => JSON.parse(r.json) as ConnectionProfile
-  )
+  // 逐行解密、跳过解不开的行（换机 key 丢失时的引用扫描不该整个抛错）
+  return (prepare('SELECT json FROM profiles').all() as Array<{ json: string }>)
+    .map((r) => tryDecJson<ConnectionProfile>(r.json))
+    .filter((p): p is ConnectionProfile => p !== null)
 }
 
 /** 谁在用这条代理 —— 返回连接名（给确认框看的，不是 id） */
@@ -62,16 +64,19 @@ export function keyUsedBy(id: PrivateKeyId): string[] {
 // ---------------------------------------------------------------------------
 
 export function listProxies(): SavedProxy[] {
-  return (
-    prepare('SELECT json FROM proxies ORDER BY name, created_at').all() as Array<{ json: string }>
-  ).map((r) => JSON.parse(r.json) as SavedProxy)
+  // name 列可能已加密，改按 created_at 取回后在 JS 里按 name 排（name 在 json 里，解密后可得）；
+  // 逐行解密、跳过解不开的行
+  return (prepare('SELECT json FROM proxies ORDER BY created_at').all() as Array<{ json: string }>)
+    .map((r) => tryDecJson<SavedProxy>(r.json))
+    .filter((p): p is SavedProxy => p !== null)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.createdAt - b.createdAt)
 }
 
 export function getProxy(id: ProxyId): SavedProxy | undefined {
   const row = prepare('SELECT json FROM proxies WHERE id = ?').get(id) as
     | { json: string }
     | undefined
-  return row ? (JSON.parse(row.json) as SavedProxy) : undefined
+  return row ? (JSON.parse(decField(row.json)) as SavedProxy) : undefined
 }
 
 /** 导出为了给导入与迁移用：那两边不该再抄一份与表结构耦合的 SQL */
@@ -80,7 +85,7 @@ export function upsertProxy(p: SavedProxy): void {
     `INSERT INTO proxies(id, name, json, created_at, updated_at) VALUES(?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, json = excluded.json,
                                    updated_at = excluded.updated_at`
-  ).run(p.id, p.name, JSON.stringify(p), p.createdAt, p.updatedAt)
+  ).run(p.id, encField(p.name), encField(JSON.stringify(p)), p.createdAt, p.updatedAt)
 }
 
 export function saveProxy(draft: SavedProxyDraft): SavedProxy {
@@ -128,18 +133,20 @@ export function deleteProxy(id: ProxyId): DeleteRefResult {
 // ---------------------------------------------------------------------------
 
 export function listPrivateKeys(): SavedPrivateKey[] {
+  // 同 listProxies：name 列可能已加密，按 created_at 取回后在 JS 里按 name 排
   return (
-    prepare('SELECT json FROM private_keys ORDER BY name, created_at').all() as Array<{
-      json: string
-    }>
-  ).map((r) => JSON.parse(r.json) as SavedPrivateKey)
+    prepare('SELECT json FROM private_keys ORDER BY created_at').all() as Array<{ json: string }>
+  )
+    .map((r) => tryDecJson<SavedPrivateKey>(r.json))
+    .filter((k): k is SavedPrivateKey => k !== null)
+    .sort((a, b) => a.name.localeCompare(b.name) || a.createdAt - b.createdAt)
 }
 
 export function getPrivateKey(id: PrivateKeyId): SavedPrivateKey | undefined {
   const row = prepare('SELECT json FROM private_keys WHERE id = ?').get(id) as
     | { json: string }
     | undefined
-  return row ? (JSON.parse(row.json) as SavedPrivateKey) : undefined
+  return row ? (JSON.parse(decField(row.json)) as SavedPrivateKey) : undefined
 }
 
 export function upsertPrivateKey(k: SavedPrivateKey): void {
@@ -147,7 +154,7 @@ export function upsertPrivateKey(k: SavedPrivateKey): void {
     `INSERT INTO private_keys(id, name, json, created_at, updated_at) VALUES(?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, json = excluded.json,
                                    updated_at = excluded.updated_at`
-  ).run(k.id, k.name, JSON.stringify(k), k.createdAt, k.updatedAt)
+  ).run(k.id, encField(k.name), encField(JSON.stringify(k)), k.createdAt, k.updatedAt)
 }
 
 export function savePrivateKey(draft: SavedPrivateKeyDraft): SavedPrivateKey {

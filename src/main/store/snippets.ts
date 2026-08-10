@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Snippet, SnippetGroup } from '@shared/types'
 import { metaGet, metaSet, prepare, tx } from './Database'
+import { encField, tryDecField, tryDecJson } from './crypto'
 import { t } from '../services/i18n'
 
 /** 首次使用时铺一组常用命令，空面板对新用户不友好 */
@@ -11,7 +12,7 @@ function seedIfEmpty(): void {
     tx(() => {
       prepare('INSERT INTO snippet_groups(id, name, sort_order) VALUES(?, ?, ?)').run(
         'default',
-        t('err.net.snippetGroupCommon'),
+        encField(t('err.net.snippetGroupCommon')),
         0
       )
       const seed: Array<[string, string]> = [
@@ -32,7 +33,7 @@ function seedIfEmpty(): void {
         prepare('INSERT INTO snippets(id, group_id, json, sort_order) VALUES(?, ?, ?, ?)').run(
           snippet.id,
           snippet.groupId,
-          JSON.stringify(snippet),
+          encField(JSON.stringify(snippet)),
           i
         )
       })
@@ -43,16 +44,25 @@ function seedIfEmpty(): void {
 
 export function listSnippets(): { groups: SnippetGroup[]; snippets: Snippet[] } {
   seedIfEmpty()
+  // name 列可能已加密，不再 `ORDER BY name`——解密后在 JS 里按 (order, name) 排；逐行跳过解不开的
   const groups = (
-    prepare('SELECT id, name, sort_order FROM snippet_groups ORDER BY sort_order, name').all() as Array<{
+    prepare('SELECT id, name, sort_order FROM snippet_groups ORDER BY sort_order').all() as Array<{
       id: string
       name: string
       sort_order: number
     }>
-  ).map((g) => ({ id: g.id, name: g.name, order: g.sort_order }))
+  )
+    .map((g) => {
+      const name = tryDecField(g.name)
+      return name === null ? null : { id: g.id, name, order: g.sort_order }
+    })
+    .filter((g): g is SnippetGroup => g !== null)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
   const snippets = (
     prepare('SELECT json FROM snippets ORDER BY sort_order').all() as Array<{ json: string }>
-  ).map((r) => JSON.parse(r.json) as Snippet)
+  )
+    .map((r) => tryDecJson<Snippet>(r.json))
+    .filter((s): s is Snippet => s !== null)
   return { groups, snippets }
 }
 
@@ -62,7 +72,7 @@ export function saveSnippet(snippet: Snippet): void {
     `INSERT INTO snippets(id, group_id, json, sort_order) VALUES(?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET group_id = excluded.group_id, json = excluded.json,
                                    sort_order = excluded.sort_order`
-  ).run(s.id, s.groupId, JSON.stringify(s), s.order)
+  ).run(s.id, s.groupId, encField(JSON.stringify(s)), s.order)
 }
 
 export function deleteSnippet(id: string): void {
@@ -74,7 +84,7 @@ export function saveSnippetGroup(group: SnippetGroup): void {
   prepare(
     `INSERT INTO snippet_groups(id, name, sort_order) VALUES(?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, sort_order = excluded.sort_order`
-  ).run(g.id, g.name, g.order)
+  ).run(g.id, encField(g.name), g.order)
 }
 
 export function deleteSnippetGroup(id: string): void {

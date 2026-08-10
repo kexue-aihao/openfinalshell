@@ -11,6 +11,7 @@ import type {
 } from '@shared/types'
 import { t } from '../services/i18n'
 import { metaGet, metaSet, prepare, tx } from './Database'
+import { decField, encField, tryDecField, tryDecJson } from './crypto'
 import { listPrivateKeys, listProxies, upsertPrivateKey, upsertProxy } from './savedRefs'
 import { vault } from './Vault'
 
@@ -21,21 +22,31 @@ import { vault } from './Vault'
  */
 
 function rowToProfile(row: { json: string }): ConnectionProfile {
-  return JSON.parse(row.json) as ConnectionProfile
+  return JSON.parse(decField(row.json)) as ConnectionProfile
 }
 
 export function listConnections(): { profiles: ConnectionProfile[]; groups: ConnectionGroup[] } {
+  // 逐行解密：换机/换账户 key 丢失时，解不开的行跳过而不是让整份列表读取抛错、把侧栏整块打不开
   const profiles = (
     prepare('SELECT json FROM profiles ORDER BY created_at').all() as Array<{ json: string }>
-  ).map(rowToProfile)
+  )
+    .map((r) => tryDecJson<ConnectionProfile>(r.json))
+    .filter((p): p is ConnectionProfile => p !== null)
+  // name 列可能已加密，故不再 `ORDER BY name`（那会按密文排）——解密后在 JS 里按 (order, name) 排
   const groups = (
-    prepare('SELECT id, name, parent_id, sort_order FROM conn_groups ORDER BY sort_order, name').all() as Array<{
+    prepare('SELECT id, name, parent_id, sort_order FROM conn_groups ORDER BY sort_order').all() as Array<{
       id: string
       name: string
       parent_id: string | null
       sort_order: number
     }>
-  ).map((g) => ({ id: g.id, name: g.name, parentId: g.parent_id, order: g.sort_order }))
+  )
+    .map((g) => {
+      const name = tryDecField(g.name)
+      return name === null ? null : { id: g.id, name, parentId: g.parent_id, order: g.sort_order }
+    })
+    .filter((g): g is ConnectionGroup => g !== null)
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
   return { profiles, groups }
 }
 
@@ -56,9 +67,9 @@ export function upsertProfile(p: ConnectionProfile): void {
        updated_at = excluded.updated_at, last_used_at = excluded.last_used_at`
   ).run(
     p.id,
-    p.name,
+    encField(p.name),
     p.groupId,
-    JSON.stringify(p),
+    encField(JSON.stringify(p)),
     p.createdAt,
     p.updatedAt,
     p.lastUsedAt ?? null
@@ -186,7 +197,7 @@ export function saveGroup(group: ConnectionGroup): void {
     `INSERT INTO conn_groups(id, name, parent_id, sort_order) VALUES(?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_id = excluded.parent_id,
                                    sort_order = excluded.sort_order`
-  ).run(id, group.name, group.parentId, group.order)
+  ).run(id, encField(group.name), group.parentId, group.order)
 }
 
 export function deleteGroup(id: GroupId): void {

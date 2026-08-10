@@ -88,9 +88,10 @@ export interface InvokeMap {
   }
   'app:openExternal': { args: [string]; result: void }
   'app:openPath': { args: [string]; result: void }
-  /** 导出应用数据；取消保存对话框返回 null。口令只单向进 main，不回传 */
+  /** 导出应用数据；取消保存对话框返回 null。口令只单向进 main，不回传。
+   *  encryptAll=true 走整文件加密导出（连配置一起加密，formatVersion 2）。 */
   'app:exportData': {
-    args: [{ includeSecrets: boolean; passphrase?: string }]
+    args: [{ includeSecrets: boolean; encryptAll?: boolean; passphrase?: string }]
     result: { path: string; bytes: number; profiles: number; secrets: number } | null
   }
   /** 选文件并解析导出文件，返回概要供用户确认；取消对话框返回 null */

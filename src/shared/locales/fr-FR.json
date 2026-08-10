@@ -617,7 +617,11 @@
     "knownHostsRevoke": "Révoquer",
     "knownHostsRevokeTitle": "Révoquer la confiance pour {{host}} ?",
     "knownHostsRevokeDesc": "Ceci retire uniquement la décision de confiance — les profils de connexion restent intacts ; la prochaine connexion à cet hôte reconfirmera l'empreinte.",
-    "openLinkFailed": "Impossible d'ouvrir le lien"
+    "openLinkFailed": "Impossible d'ouvrir le lien",
+    "changelog": "Journal des modifications",
+    "exportEncryptAll": "Chiffrer tout le fichier (hôtes et noms d'utilisateur compris, phrase secrète requise)",
+    "exportEncryptAllHint": "Le fichier exporté ne contient aucun texte en clair. Remarque : une fois le chiffrement local activé, vous ne pouvez plus migrer en copiant le .db ; utilisez l'export/import chiffré.",
+    "importEncryptedNote": "Ce fichier est entièrement chiffré. Saisissez la phrase secrète d'export pour importer tout son contenu."
   },
   "shortcut": {
     "duplicateSession": "Dupliquer la session actuelle",
@@ -839,7 +843,9 @@
       "updatePortable": "Pour la version portable, téléchargez la nouvelle version depuis Releases et écrasez-la.",
       "updateNotDownloaded": "La mise à jour n'a pas encore fini de se télécharger.",
       "rdpNoHost": "Cette connexion RDP n'a pas d'adresse d'hôte.",
-      "rdpLaunchFailed": "Échec du lancement du bureau à distance du système : {{error}}"
+      "rdpLaunchFailed": "Échec du lancement du bureau à distance du système : {{error}}",
+      "dataKeyUnavailable": "Clé de données indisponible : impossible de déchiffrer les données chiffrées (la machine ou le compte système a peut-être changé).",
+      "exportNoteEncrypted": "Ceci est un export entièrement chiffré : toutes les données (y compris les hôtes et les noms d'utilisateur) sont chiffrées avec la phrase secrète d'export (scrypt + AES-256-GCM). En cas de perte, rien ne peut être récupéré."
     },
     "net": {
       "portInUse": "Port déjà utilisé : {{addr}}:{{port}}",

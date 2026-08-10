@@ -21,6 +21,7 @@ import { flushForwards } from './store/forwards'
 import { packTempDir, transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
 import { closeDatabase } from './store/Database'
+import { encryptExistingRowsOnce } from './store/encryptMigration'
 import { flushConnections, migrateInlineRefsOnce } from './store/connections'
 import { flushSavedRefs } from './store/savedRefs'
 import { flushSnippets } from './store/snippets'
@@ -78,6 +79,13 @@ if (!app.requestSingleInstanceLock()) {
      * 函数内部由 meta 标记挡住，重复调用无副作用。
      */
     migrateInlineRefsOnce()
+
+    /**
+     * 配置数据静态加密（at-rest）的一次性迁移：把库里现有明文行就地加密。
+     * 排在 migrateInlineRefsOnce 之后——那步可能新建代理/私钥行，这步再统一把全库扫成密文。
+     * 内部由 meta 标记挡住，且 safeStorage 不可用时直接跳过、不写标记（等可用了再跑）。
+     */
+    encryptExistingRowsOnce()
 
     registerAppIpc()
     registerSettingsIpc()

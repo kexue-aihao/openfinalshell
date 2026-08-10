@@ -127,9 +127,12 @@ const forwards = await import('../../src/main/store/forwards')
 const hostkeys = await import('../../src/main/ssh/hostkeys')
 const settings = await import('../../src/main/services/settings')
 const { exportData } = await import('../../src/main/services/exportData')
+const { encryptExistingRowsOnce } = await import('../../src/main/store/encryptMigration')
 
 beforeAll(() => {
-  database() // 触发建表 + 一次性迁移
+  database() // 触发建表 + 旧 JSON 一次性迁移
+  // 与生产启动顺序一致：把库里现有明文行就地加密（含 known_hosts 重键成 token）
+  encryptExistingRowsOnce()
 })
 
 describe('SQLite 存储：旧 JSON 配置迁移', () => {
@@ -345,19 +348,22 @@ describe('导出应用数据', () => {
 })
 
 describe('已信任主机的列出与撤销', () => {
-  it('listKnownHosts 从主键切出 host/port，IPv6 字面量的冒号不许切错', () => {
+  it('listKnownHosts 从 host_enc 还原 host/port，IPv6 字面量的冒号不许切错', () => {
     hostkeys.trustHostkey('::1', 2222, 'rsa-sha2-512', 'V6FP')
     hostkeys.trustHostkey('10.0.0.8', 22, 'ssh-ed25519', 'V4FP')
-    // 两次写入同一毫秒时 added_at 打平，排序断言会抖 —— 钉两个显式时间戳
-    prepare('UPDATE known_hosts SET added_at = ? WHERE key = ?').run(1000, '::1:2222:rsa-sha2-512')
-    prepare('UPDATE known_hosts SET added_at = ? WHERE key = ?').run(2000, '10.0.0.8:22:ssh-ed25519')
+    // 主键现在是决定论 token，改按 fingerprint（明文列）钉两个显式时间戳，避免同毫秒排序抖动
+    prepare('UPDATE known_hosts SET added_at = ? WHERE fingerprint = ?').run(1000, 'V6FP')
+    prepare('UPDATE known_hosts SET added_at = ? WHERE fingerprint = ?').run(2000, 'V4FP')
     const rows = hostkeys.listKnownHosts()
 
     const v6 = rows.find((r) => r.fingerprintSha256 === 'V6FP')!
     expect(v6.host).toBe('::1')
     expect(v6.port).toBe(2222)
     expect(v6.keyType).toBe('rsa-sha2-512')
-    expect(v6.key).toBe('::1:2222:rsa-sha2-512')
+    // key 现在是不透明 token（不再是明文 "host:port:keyType"），但必须非空、可用于删除
+    expect(typeof v6.key).toBe('string')
+    expect(v6.key.length).toBeGreaterThan(0)
+    expect(v6.key).not.toBe('::1:2222:rsa-sha2-512')
 
     const v4 = rows.find((r) => r.fingerprintSha256 === 'V4FP')!
     expect(v4.host).toBe('10.0.0.8')
@@ -369,7 +375,9 @@ describe('已信任主机的列出与撤销', () => {
 
   it('deleteKnownHost 撤销后回到 unknown —— 下次连接重新走首次确认', () => {
     expect(hostkeys.checkHostkey('10.0.0.8', 22, 'ssh-ed25519', 'V4FP')).toEqual({ status: 'match' })
-    hostkeys.deleteKnownHost('10.0.0.8:22:ssh-ed25519')
+    // 删除用 listKnownHosts 回传的不透明 token（renderer 也是这样回传的），不是明文复合键
+    const v4 = hostkeys.listKnownHosts().find((r) => r.fingerprintSha256 === 'V4FP')!
+    hostkeys.deleteKnownHost(v4.key)
     expect(hostkeys.checkHostkey('10.0.0.8', 22, 'ssh-ed25519', 'V4FP')).toEqual({
       status: 'unknown'
     })

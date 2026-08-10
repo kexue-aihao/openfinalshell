@@ -617,7 +617,11 @@
     "knownHostsRevoke": "撤銷",
     "knownHostsRevokeTitle": "要撤銷對 {{host}} 的信任嗎？",
     "knownHostsRevokeDesc": "這只會收回信任決定 — 連線設定檔不受影響；下次連到此主機時會重新確認指紋。",
-    "openLinkFailed": "無法開啟連結"
+    "openLinkFailed": "無法開啟連結",
+    "changelog": "歷史更新日誌",
+    "exportEncryptAll": "整檔加密（連主機、使用者名稱也加密，需匯出口令）",
+    "exportEncryptAllHint": "匯出檔案中沒有任何明文。注意：開啟本機加密後，換機不能再直接複製 .db 遷移，請用加密匯出／匯入。",
+    "importEncryptedNote": "此檔案已整體加密，輸入匯出口令後將匯入其中全部內容。"
   },
   "shortcut": {
     "duplicateSession": "複製目前的工作階段",
@@ -839,7 +843,9 @@
       "updatePortable": "可攜式版本請從 Releases 下載新版本並覆蓋。",
       "updateNotDownloaded": "更新尚未下載完成。",
       "rdpNoHost": "此 RDP 連線沒有主機位址。",
-      "rdpLaunchFailed": "無法啟動系統遠端桌面：{{error}}"
+      "rdpLaunchFailed": "無法啟動系統遠端桌面：{{error}}",
+      "dataKeyUnavailable": "資料金鑰不可用：加密資料無法解密（可能更換了機器或系統帳戶）。",
+      "exportNoteEncrypted": "這是整檔加密匯出：包括主機、使用者名稱在內的全部資料都以匯出口令加密（scrypt + AES-256-GCM）；口令遺失則無法復原。"
     },
     "net": {
       "portInUse": "連接埠已被占用：{{addr}}:{{port}}",

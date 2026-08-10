@@ -1,6 +1,7 @@
 import { COMMAND_HISTORY_MAX_CHARS, COMMAND_HISTORY_MAX_ROWS } from '@shared/constants'
 import type { CommandHistoryEntry } from '@shared/types'
 import { prepare, tx } from './Database'
+import { encField, tokenize, tryDecField } from './crypto'
 
 /**
  * 命令历史的存储层。表定义在 Database.ts 的 SCHEMA 里 ——
@@ -28,19 +29,23 @@ export function normalizeCommand(command: string): string | null {
 }
 
 export function listCommandHistory(): CommandHistoryEntry[] {
+  // command 列存的是 token（决定论），命令原文在 cmd_enc；老行 cmd_enc 为 NULL 时 command 本身即明文
   const rows = prepare(
-    `SELECT command, last_used_at, use_count FROM command_history
+    `SELECT command, last_used_at, use_count, cmd_enc FROM command_history
      ORDER BY last_used_at DESC LIMIT ?`
   ).all(COMMAND_HISTORY_MAX_ROWS) as Array<{
     command: string
     last_used_at: number
     use_count: number
+    cmd_enc: string | null
   }>
-  return rows.map((r) => ({
-    command: r.command,
-    lastUsedAt: r.last_used_at,
-    useCount: r.use_count
-  }))
+  // 逐行解密、跳过解不开的行（换机 key 丢失时不该让整段历史读取抛错）
+  return rows
+    .map((r) => {
+      const command = r.cmd_enc != null ? tryDecField(r.cmd_enc) : r.command
+      return command === null ? null : { command, lastUsedAt: r.last_used_at, useCount: r.use_count }
+    })
+    .filter((c): c is CommandHistoryEntry => c !== null)
 }
 
 /** 记一条（已存在则 use_count +1 并刷新时间）。返回是否真的写了 */
@@ -50,11 +55,11 @@ export function pushCommandHistory(command: string, now = Date.now()): boolean {
   tx((conn) => {
     conn
       .prepare(
-        `INSERT INTO command_history(command, last_used_at, use_count) VALUES(?, ?, 1)
+        `INSERT INTO command_history(command, last_used_at, use_count, cmd_enc) VALUES(?, ?, 1, ?)
          ON CONFLICT(command) DO UPDATE SET last_used_at = excluded.last_used_at,
                                            use_count = use_count + 1`
       )
-      .run(normalized, now)
+      .run(tokenize(normalized), now, encField(normalized))
     /*
      * 淘汰：留最近的 MAX_ROWS 条。用子查询按 last_used_at 取要留的那批，
      * 而不是 `LIMIT -1 OFFSET n` 那种写法 —— 后者依赖 SQLite 的方言细节，

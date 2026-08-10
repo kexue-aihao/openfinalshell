@@ -617,7 +617,11 @@
     "knownHostsRevoke": "取り消し",
     "knownHostsRevokeTitle": "{{host}} の信頼を取り消しますか?",
     "knownHostsRevokeDesc": "これは信頼の決定を撤回するだけです — 接続プロファイルはそのままです。このホストへの次回の接続でフィンガープリントを再確認します。",
-    "openLinkFailed": "リンクを開けませんでした"
+    "openLinkFailed": "リンクを開けませんでした",
+    "changelog": "更新履歴",
+    "exportEncryptAll": "ファイル全体を暗号化（ホスト・ユーザー名も含む、エクスポートパスフレーズが必要）",
+    "exportEncryptAllHint": "エクスポートファイルには平文が含まれません。注意：ローカル暗号化を有効にすると、.db をコピーしての移行はできません。暗号化エクスポート／インポートを使用してください。",
+    "importEncryptedNote": "このファイルはファイル全体が暗号化されています。エクスポートパスフレーズを入力すると、その全内容をインポートします。"
   },
   "shortcut": {
     "duplicateSession": "現在のセッションを複製",
@@ -839,7 +843,9 @@
       "updatePortable": "ポータブル版の場合は、Releases から新しいバージョンをダウンロードして上書きしてください。",
       "updateNotDownloaded": "更新のダウンロードがまだ完了していません。",
       "rdpNoHost": "この RDP 接続にはホストアドレスがありません。",
-      "rdpLaunchFailed": "システムのリモートデスクトップの起動に失敗しました: {{error}}"
+      "rdpLaunchFailed": "システムのリモートデスクトップの起動に失敗しました: {{error}}",
+      "dataKeyUnavailable": "データキーを利用できません：暗号化データを復号できません（マシンまたはシステムアカウントが変更された可能性があります）。",
+      "exportNoteEncrypted": "これはファイル全体を暗号化したエクスポートです：ホストやユーザー名を含むすべてのデータがエクスポートパスフレーズで暗号化されています（scrypt + AES-256-GCM）。パスフレーズを失うと復元できません。"
     },
     "net": {
       "portInUse": "ポートは既に使用中です: {{addr}}:{{port}}",

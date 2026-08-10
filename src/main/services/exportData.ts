@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs'
 import { app, dialog } from 'electron'
 import type { AppSettings, ConnectionProfile } from '@shared/types'
 import { prepare } from '../store/Database'
+import { decField } from '../store/crypto'
 import { vault } from '../store/Vault'
 import { getSettings } from './settings'
 import { t } from './i18n'
@@ -10,7 +11,12 @@ import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('export')
 
-export const EXPORT_FORMAT_VERSION = 1
+/**
+ * 导入侧能接受的最高格式版本。
+ * - v1：`data` 明文 + 可选 `secrets` 密码块（默认导出）。
+ * - v2：整个 `{data, secrets}` 用导出口令加密进 `enc` 块，文件里无任何明文（整文件加密导出）。
+ */
+export const EXPORT_FORMAT_VERSION = 2
 
 /** scrypt 参数：N=2^15 在本机约 100ms 量级，够挡离线爆破又不至于卡界面 */
 const SCRYPT_N = 32768
@@ -24,6 +30,11 @@ const SCRYPT_MAXMEM = 64 * 1024 * 1024
 export interface ExportOptions {
   /** 是否连已保存的密码一起导出（必须提供导出口令） */
   includeSecrets: boolean
+  /**
+   * 整文件加密导出：连主机/用户名等**配置**也一起加密，文件里无任何明文（formatVersion 2）。
+   * 同样必须提供导出口令（口令既解密数据、也是密码块的密钥）。
+   */
+  encryptAll?: boolean
   passphrase?: string
   /** 不弹保存对话框，直接写这个路径（测试用） */
   targetPath?: string
@@ -36,6 +47,29 @@ export interface ExportResult {
   secrets: number
 }
 
+/** scrypt + AES-256-GCM 封出来的密文块（密码块 secrets、整文件加密块 enc 同形） */
+interface SealedBlock {
+  kdf: 'scrypt'
+  n: number
+  salt: string
+  iv: string
+  tag: string
+  cipher: string
+}
+
+interface ExportData {
+  settings: AppSettings
+  groups: unknown[]
+  profiles: ConnectionProfile[]
+  snippetGroups: unknown[]
+  snippets: unknown[]
+  forwards: unknown[]
+  knownHosts: unknown[]
+  /** 可复用的代理与私钥（v0.4 起）。连接按 id 引用它们，所以必须一起导出 */
+  proxies: unknown[]
+  privateKeys: unknown[]
+}
+
 interface Envelope {
   app: 'openfinalshell'
   formatVersion: number
@@ -44,53 +78,46 @@ interface Envelope {
   includesSecrets: boolean
   /** 明确写给人看的说明，避免误以为里面有明文密码 */
   note: string
-  data: {
-    settings: AppSettings
-    groups: unknown[]
-    profiles: ConnectionProfile[]
-    snippetGroups: unknown[]
-    snippets: unknown[]
-    forwards: unknown[]
-    knownHosts: unknown[]
-    /** 可复用的代理与私钥（v0.4 起）。连接按 id 引用它们，所以必须一起导出 */
-    proxies: unknown[]
-    privateKeys: unknown[]
-  }
-  secrets?: {
-    kdf: 'scrypt'
-    n: number
-    salt: string
-    iv: string
-    tag: string
-    cipher: string
-  }
+  /** v1：明文数据；v2 用 enc 承载、这里省略 */
+  data?: ExportData
+  /** v1 的密码块 */
+  secrets?: SealedBlock
+  /** v2：整个 {data, secrets(明文 ref→plain 映射)} 加密后的块 */
+  enc?: SealedBlock
 }
 
-function collect(): Envelope['data'] {
+/**
+ * 收集全库数据。**导出内容一律解密成明文**——at-rest 的密文绑定本机 DPAPI，不可移植；
+ * 导出要么明文（v1）、要么用导出口令重新加密（v2），都从这里的明文出发（与 sealSecrets
+ * 把 Vault 密文重解成明文再封是同一条取舍）。
+ */
+function collect(): ExportData {
   const rows = <T>(sql: string): T[] => prepare(sql).all() as T[]
   const json = <T>(sql: string): T[] =>
-    (prepare(sql).all() as Array<{ json: string }>).map((r) => JSON.parse(r.json) as T)
+    (prepare(sql).all() as Array<{ json: string }>).map((r) => JSON.parse(decField(r.json)) as T)
 
   return {
     settings: getSettings(),
     groups: rows<{ id: string; name: string; parent_id: string | null; sort_order: number }>(
-      'SELECT id, name, parent_id, sort_order FROM conn_groups ORDER BY sort_order, name'
-    ).map((g) => ({ id: g.id, name: g.name, parentId: g.parent_id, order: g.sort_order })),
+      'SELECT id, name, parent_id, sort_order FROM conn_groups ORDER BY sort_order'
+    ).map((g) => ({ id: g.id, name: decField(g.name), parentId: g.parent_id, order: g.sort_order })),
     profiles: json<ConnectionProfile>('SELECT json FROM profiles ORDER BY created_at'),
     snippetGroups: rows<{ id: string; name: string; sort_order: number }>(
-      'SELECT id, name, sort_order FROM snippet_groups ORDER BY sort_order, name'
-    ).map((g) => ({ id: g.id, name: g.name, order: g.sort_order })),
+      'SELECT id, name, sort_order FROM snippet_groups ORDER BY sort_order'
+    ).map((g) => ({ id: g.id, name: decField(g.name), order: g.sort_order })),
     snippets: json('SELECT json FROM snippets ORDER BY sort_order'),
     proxies: json('SELECT json FROM proxies ORDER BY created_at'),
     privateKeys: json('SELECT json FROM private_keys ORDER BY created_at'),
     forwards: json('SELECT json FROM forwards'),
+    // key 列现在是决定论 token；导出的是可移植的明文 "host:port:keyType"（老行 host_enc 为空时回落 key）
     knownHosts: rows<{
       key: string
       key_type: string
       fingerprint: string
       added_at: number
-    }>('SELECT key, key_type, fingerprint, added_at FROM known_hosts').map((k) => ({
-      key: k.key,
+      host_enc: string | null
+    }>('SELECT key, key_type, fingerprint, added_at, host_enc FROM known_hosts').map((k) => ({
+      key: k.host_enc != null ? decField(k.host_enc) : k.key,
       keyType: k.key_type,
       fingerprintSha256: k.fingerprint,
       addedAt: k.added_at
@@ -99,17 +126,10 @@ function collect(): Envelope['data'] {
 }
 
 /**
- * 把 Vault 里的密码解出来，用导出口令重新加密成一个信封。
- *
- * 不能直接搬 vault 里的密文：那是 DPAPI 加密的，绑定当前 Windows 账户，
- * 换机或重装系统后根本解不开，搬过去等于导出了一堆废数据。
+ * 用导出口令把一段明文封成 scrypt + AES-256-GCM 密文块。
+ * 密码块（v1 的 secrets）与整文件加密块（v2 的 enc）共用它。
  */
-function sealSecrets(refs: string[], passphrase: string): Envelope['secrets'] {
-  const plain: Record<string, string> = {}
-  for (const ref of refs) {
-    const value = vault.getSecret(ref)
-    if (value !== null) plain[ref] = value
-  }
+function sealString(plaintext: string, passphrase: string): SealedBlock {
   const salt = randomBytes(16)
   const key = scryptSync(passphrase, salt, SCRYPT_KEYLEN, {
     N: SCRYPT_N,
@@ -119,10 +139,7 @@ function sealSecrets(refs: string[], passphrase: string): Envelope['secrets'] {
   })
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
-  const enc = Buffer.concat([
-    cipher.update(JSON.stringify(plain), 'utf8'),
-    cipher.final()
-  ])
+  const enc = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
   return {
     kdf: 'scrypt',
     n: SCRYPT_N,
@@ -133,8 +150,27 @@ function sealSecrets(refs: string[], passphrase: string): Envelope['secrets'] {
   }
 }
 
+/**
+ * 把 Vault 里的密码解出来成 {ref: 明文} 映射。
+ * 不能直接搬 vault 里的密文：那是 DPAPI 加密的，绑定当前 Windows 账户，
+ * 换机或重装系统后根本解不开，搬过去等于导出了一堆废数据。
+ */
+function collectSecrets(refs: string[]): Record<string, string> {
+  const plain: Record<string, string> = {}
+  for (const ref of refs) {
+    const value = vault.getSecret(ref)
+    if (value !== null) plain[ref] = value
+  }
+  return plain
+}
+
+/** v1 密码块：{ref: 明文} 用导出口令封装 */
+function sealSecrets(refs: string[], passphrase: string): SealedBlock {
+  return sealString(JSON.stringify(collectSecrets(refs)), passphrase)
+}
+
 /** 收集所有被引用到的 secret ref（只导出真正在用的，不搬孤儿条目） */
-function referencedRefs(data: Envelope['data']): string[] {
+function referencedRefs(data: ExportData): string[] {
   const refs = new Set<string>()
   for (const p of data.profiles) {
     if (p.auth.passwordRef) refs.add(p.auth.passwordRef)
@@ -163,10 +199,12 @@ function defaultFileName(): string {
 }
 
 export async function exportData(opts: ExportOptions): Promise<ExportResult | null> {
-  if (opts.includeSecrets && !opts.passphrase) {
+  // v2 整文件加密与 v1 含密码导出都需要口令
+  const needsPass = opts.includeSecrets || opts.encryptAll
+  if (needsPass && !opts.passphrase) {
     throw new Error(t('err.data.passphraseRequired'))
   }
-  if (opts.includeSecrets && (opts.passphrase ?? '').length < 8) {
+  if (needsPass && (opts.passphrase ?? '').length < 8) {
     throw new Error(t('err.data.passphraseTooShort'))
   }
 
@@ -183,17 +221,35 @@ export async function exportData(opts: ExportOptions): Promise<ExportResult | nu
 
   const data = collect()
   const refs = referencedRefs(data)
-  const envelope: Envelope = {
-    app: 'openfinalshell',
-    formatVersion: EXPORT_FORMAT_VERSION,
-    appVersion: app.getVersion(),
-    exportedAt: Date.now(),
-    includesSecrets: opts.includeSecrets,
-    note: opts.includeSecrets
-      ? t('err.data.exportNoteWithSecrets')
-      : t('err.data.exportNoteNoSecrets'),
-    data,
-    secrets: opts.includeSecrets ? sealSecrets(refs, opts.passphrase!) : undefined
+  let envelope: Envelope
+  if (opts.encryptAll) {
+    // 整个 {data, secrets(明文映射)} 一起加密——文件里除信封头外无任何明文
+    const blob = JSON.stringify({
+      data,
+      secrets: opts.includeSecrets ? collectSecrets(refs) : undefined
+    })
+    envelope = {
+      app: 'openfinalshell',
+      formatVersion: 2,
+      appVersion: app.getVersion(),
+      exportedAt: Date.now(),
+      includesSecrets: opts.includeSecrets,
+      note: t('err.data.exportNoteEncrypted'),
+      enc: sealString(blob, opts.passphrase!)
+    }
+  } else {
+    envelope = {
+      app: 'openfinalshell',
+      formatVersion: 1,
+      appVersion: app.getVersion(),
+      exportedAt: Date.now(),
+      includesSecrets: opts.includeSecrets,
+      note: opts.includeSecrets
+        ? t('err.data.exportNoteWithSecrets')
+        : t('err.data.exportNoteNoSecrets'),
+      data,
+      secrets: opts.includeSecrets ? sealSecrets(refs, opts.passphrase!) : undefined
+    }
   }
 
   const text = JSON.stringify(envelope, null, 2)

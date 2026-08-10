@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ForwardId, ForwardRule, ProfileId } from '@shared/types'
 import { prepare } from './Database'
+import { decField, encField, tryDecJson } from './crypto'
 
 export function listForwards(profileId: ProfileId | null): ForwardRule[] {
   const rows = (
@@ -8,14 +9,15 @@ export function listForwards(profileId: ProfileId | null): ForwardRule[] {
       ? prepare('SELECT json FROM forwards').all()
       : prepare('SELECT json FROM forwards WHERE profile_id = ?').all(profileId)
   ) as Array<{ json: string }>
-  return rows.map((r) => JSON.parse(r.json) as ForwardRule)
+  // 逐行解密、跳过解不开的行
+  return rows.map((r) => tryDecJson<ForwardRule>(r.json)).filter((f): f is ForwardRule => f !== null)
 }
 
 export function getForward(id: ForwardId): ForwardRule | undefined {
   const row = prepare('SELECT json FROM forwards WHERE id = ?').get(id) as
     | { json: string }
     | undefined
-  return row ? (JSON.parse(row.json) as ForwardRule) : undefined
+  return row ? (JSON.parse(decField(row.json)) as ForwardRule) : undefined
 }
 
 export function saveForward(rule: ForwardRule): ForwardRule {
@@ -23,7 +25,7 @@ export function saveForward(rule: ForwardRule): ForwardRule {
   prepare(
     `INSERT INTO forwards(id, profile_id, json) VALUES(?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET profile_id = excluded.profile_id, json = excluded.json`
-  ).run(saved.id, saved.profileId, JSON.stringify(saved))
+  ).run(saved.id, saved.profileId, encField(JSON.stringify(saved)))
   return saved
 }
 
