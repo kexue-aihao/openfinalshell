@@ -1,3 +1,5 @@
+import { t } from '../services/i18n'
+
 /**
  * 把 ssh2 的原始报错翻译成用户能懂的文案（纯函数，可单测）。
  *
@@ -21,7 +23,7 @@
 export function channelOpenError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err)
   if (/channel open failure|open failed|administratively prohibited/i.test(msg)) {
-    return '服务器拒绝新建通道（可能已达 sshd MaxSessions 上限），请关闭部分终端后重试'
+    return t('err.ssh.channelOpenRejected')
   }
   return friendlySshError(err)
 }
@@ -34,37 +36,34 @@ export function friendlySshError(err: unknown): string {
   if (err instanceof Error && err.name === 'ProxyError') return msg
 
   if (/All configured authentication methods failed/i.test(msg)) {
-    return '认证失败：用户名、密码或密钥不正确'
+    return t('err.ssh.authFailed')
   }
 
   // ---- 私钥：先判"缺口令"，再判"口令错"，最后才是"格式不支持" ----
   if (/no passphrase given/i.test(msg) || /Encrypted private .*key detected/i.test(msg)) {
-    return '私钥已加密，请在连接配置中填写私钥口令'
+    return t('err.ssh.keyEncrypted')
   }
   if (/bad passphrase/i.test(msg) || /integrity check failed/i.test(msg)) {
-    return '私钥口令错误'
+    return t('err.ssh.keyBadPassphrase')
   }
   if (/Unsupported key format/i.test(msg) || /Cannot parse privateKey/i.test(msg)) {
-    return (
-      '私钥格式不支持：请使用 OpenSSH 格式或传统 PEM（BEGIN RSA PRIVATE KEY）。' +
-      'PKCS#8（BEGIN PRIVATE KEY）可用 ssh-keygen -p -f <私钥> -m RFC4716 转换'
-    )
+    return t('err.ssh.keyUnsupportedFormat')
   }
 
   if (/no matching/i.test(msg)) {
-    return `算法协商失败（老设备可在连接设置中开启"兼容老算法"）：${msg}`
+    return t('err.ssh.noMatchingAlgo', { msg })
   }
-  if (/ECONNREFUSED/.test(msg)) return '连接被拒绝：目标主机端口未开放'
-  if (/ETIMEDOUT|Timed out/i.test(msg)) return '连接超时：主机不可达或网络受阻'
-  if (/ENOTFOUND|EAI_AGAIN/.test(msg)) return '无法解析主机名'
-  if (/ECONNRESET/.test(msg)) return '连接被重置'
+  if (/ECONNREFUSED/.test(msg)) return t('err.ssh.connRefused')
+  if (/ETIMEDOUT|Timed out/i.test(msg)) return t('err.ssh.timeout')
+  if (/ENOTFOUND|EAI_AGAIN/.test(msg)) return t('err.ssh.dnsResolveFail')
+  if (/ECONNRESET/.test(msg)) return t('err.ssh.connReset')
   // TCP 通了但 SSH 握手还没开始就断了。这不是配置错误，方向是网络/代理/服务器侧：
   //   - 走了代理但代理没起/掉线（Clash、v2ray 等本地混合端口停了最常见）
   //   - 服务器在握手前就断开（sshd 的 MaxStartups、fail2ban 限流，或防火墙 RST）
   //   - 网络中途中断
   // 原文 "Connection lost before handshake" 对用户等于没说，给个能照着排查的方向
   if (/before handshake|handshake.*(fail|lost)|Connection lost/i.test(msg)) {
-    return '握手前连接就断开了：若这条连接走了代理，先确认代理在线；否则多为服务器侧限流（sshd MaxStartups / fail2ban）或网络中断'
+    return t('err.ssh.handshakeLost')
   }
   return msg
 }

@@ -11,27 +11,29 @@ import fiat from './qr/fiat.png'
  * 赞赏码登记表。二维码是作者提供的真实收款码，已裁剪成"只剩二维码"（qr/ 下）。
  * 图片打进包、离线可用、不接任何支付接口。
  *
- * label = 收款币种；note = 该码的作用（链/网络或用途）—— 加密货币务必标清链，
- * 转错链无法找回。每个码上方会显示 `label · note`。
+ * label = 收款币种（币种/品牌代号不翻译）；noteKey = 该码作用（链/用途）的 i18n 键 ——
+ * 加密货币务必标清链，转错链无法找回。法币码的 label 也走 i18n（labelKey）。
+ * 每个码上方显示 `label · note`（见 DonateSection）。
  */
 export interface DonateMethod {
   id: string
-  /** 收款币种 / 收款方式 */
-  label: string
+  /** 币种/品牌代号（不翻译，如 USDT/BNB）；法币用 labelKey 走 i18n */
+  label?: string
+  labelKey?: string
   kind: 'crypto' | 'fiat'
-  /** 作用：链/网络（加密货币）或用途（法币扫码） */
-  note: string
+  /** 作用（链/网络或用途）的 i18n 键 */
+  noteKey: string
   /** 二维码图片（本地资源 URL） */
   img: string
 }
 
 export const DONATE_METHODS: DonateMethod[] = [
-  { id: 'usdt-trc20', label: 'USDT', kind: 'crypto', note: 'TRC20 · 波场', img: usdtTrc20 },
-  { id: 'usdt-polygon', label: 'USDT', kind: 'crypto', note: 'Polygon', img: usdtPolygon },
-  { id: 'usdt-bep20', label: 'USDT', kind: 'crypto', note: 'BEP20 · BNB Chain', img: usdtBep20 },
-  { id: 'usdt-erc20', label: 'USDT', kind: 'crypto', note: 'ERC20 · 以太坊', img: usdtErc20 },
-  { id: 'bnb', label: 'BNB', kind: 'crypto', note: 'BNB Chain', img: bnb },
-  { id: 'eth', label: 'ETH', kind: 'crypto', note: 'Ethereum', img: eth },
-  { id: 'pol', label: 'POL', kind: 'crypto', note: 'Polygon', img: pol },
-  { id: 'fiat', label: '微信 / 支付宝', kind: 'fiat', note: '扫码支付', img: fiat }
+  { id: 'usdt-trc20', label: 'USDT', kind: 'crypto', noteKey: 'donate.noteTrc20', img: usdtTrc20 },
+  { id: 'usdt-polygon', label: 'USDT', kind: 'crypto', noteKey: 'donate.notePolygon', img: usdtPolygon },
+  { id: 'usdt-bep20', label: 'USDT', kind: 'crypto', noteKey: 'donate.noteBep20', img: usdtBep20 },
+  { id: 'usdt-erc20', label: 'USDT', kind: 'crypto', noteKey: 'donate.noteErc20', img: usdtErc20 },
+  { id: 'bnb', label: 'BNB', kind: 'crypto', noteKey: 'donate.noteBnb', img: bnb },
+  { id: 'eth', label: 'ETH', kind: 'crypto', noteKey: 'donate.noteEth', img: eth },
+  { id: 'pol', label: 'POL', kind: 'crypto', noteKey: 'donate.notePolygon', img: pol },
+  { id: 'fiat', labelKey: 'donate.wechatAlipay', kind: 'fiat', noteKey: 'donate.scanToPay', img: fiat }
 ]

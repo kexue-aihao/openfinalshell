@@ -1,5 +1,6 @@
 import { createConnection, isIP, type Socket } from 'node:net'
 import type { ProxyType } from '@shared/types'
+import { t } from '../services/i18n'
 
 /**
  * 经 HTTP CONNECT / SOCKS5 代理拨号，返回可直接交给 ssh2 `config.sock` 的 socket。
@@ -31,9 +32,12 @@ const ATYP_IPV6 = 0x04
  * 否则代理的 ECONNREFUSED 会被翻成"目标主机端口未开放"，把人指到完全无关的方向。
  */
 export class ProxyError extends Error {
-  constructor(message: string) {
+  /** 内部标记，用于跨语言判定错误类别（不展示给用户） */
+  kind?: string
+  constructor(message: string, kind?: string) {
     super(message)
     this.name = 'ProxyError'
+    if (kind) this.kind = kind
   }
 }
 
@@ -51,19 +55,22 @@ export interface ProxyTarget {
   port: number
 }
 
-const SOCKS5_REPLY_TEXT: Record<number, string> = {
-  0x01: '代理内部错误',
-  0x02: '代理规则不允许该连接',
-  0x03: '网络不可达',
-  0x04: '主机不可达',
-  0x05: '目标拒绝连接',
-  0x06: 'TTL 超时',
-  0x07: '代理不支持 CONNECT 命令',
-  0x08: '代理不支持该地址类型'
+const SOCKS5_REPLY_KEY: Record<number, string> = {
+  0x01: 'err.proxy.socks5GeneralFailure',
+  0x02: 'err.proxy.socks5NotAllowed',
+  0x03: 'err.proxy.socks5NetworkUnreachable',
+  0x04: 'err.proxy.socks5HostUnreachable',
+  0x05: 'err.proxy.socks5ConnectionRefused',
+  0x06: 'err.proxy.socks5TtlExpired',
+  0x07: 'err.proxy.socks5CommandNotSupported',
+  0x08: 'err.proxy.socks5AddressTypeNotSupported'
 }
 
 export function proxyLabel(proxy: ResolvedProxy): string {
-  return `${proxy.type === 'http' ? 'HTTP' : 'SOCKS5'} 代理 ${formatHostPort(proxy.host, proxy.port)}`
+  return t('err.proxy.label', {
+    type: proxy.type === 'http' ? 'HTTP' : 'SOCKS5',
+    addr: formatHostPort(proxy.host, proxy.port)
+  })
 }
 
 function formatHostPort(host: string, port: number): string {
@@ -108,15 +115,15 @@ function openProxySocket(proxy: ResolvedProxy): Promise<Socket> {
     const onError = (err: NodeJS.ErrnoException): void => {
       const hint =
         err.code === 'ECONNREFUSED'
-          ? '（代理未启动或端口不对）'
+          ? t('err.proxy.hintRefused')
           : err.code === 'ENOTFOUND'
-            ? '（代理主机名无法解析）'
+            ? t('err.proxy.hintNotFound')
             : err.code === 'ETIMEDOUT'
-              ? '（超时）'
+              ? t('err.proxy.hintTimeout')
               : ''
-      fail(`无法连接${proxyLabel(proxy)}${hint}：${err.message}`)
+      fail(t('err.proxy.connectFailed', { label: proxyLabel(proxy), hint, message: err.message }))
     }
-    const onTimeout = (): void => fail(`连接${proxyLabel(proxy)}超时`)
+    const onTimeout = (): void => fail(t('err.proxy.connectTimeout', { label: proxyLabel(proxy) }))
 
     socket.on('connect', onConnect).on('error', onError).on('timeout', onTimeout)
   })
@@ -159,15 +166,15 @@ function readFrame(
     }
     const onError = (err: Error): void => {
       cleanup()
-      reject(new ProxyError(`代理连接出错（${stage}）：${err.message}`))
+      reject(new ProxyError(t('err.proxy.stageError', { stage, message: err.message })))
     }
     const onEnd = (): void => {
       cleanup()
-      reject(new ProxyError(`代理在${stage}阶段关闭了连接`))
+      reject(new ProxyError(t('err.proxy.stageClosed', { stage }), 'closed'))
     }
     const onTimeout = (): void => {
       cleanup()
-      reject(new ProxyError(`代理在${stage}阶段无响应（超时）`))
+      reject(new ProxyError(t('err.proxy.stageNoResponse', { stage }), 'noResponse'))
     }
 
     socket.on('data', onData).on('error', onError).on('end', onEnd).on('timeout', onTimeout)
@@ -193,11 +200,8 @@ async function httpConnect(socket: Socket, proxy: ResolvedProxy, target: ProxyTa
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     // 把 CONNECT 发给 SOCKS 端口时，对方读不懂就直接断开 —— 这是最常见的配错
-    throw new ProxyError(
-      /关闭了连接|无响应/.test(msg)
-        ? `${msg}（若该端口其实是 SOCKS5 代理，请把代理类型改成 SOCKS5）`
-        : msg
-    )
+    const closedOrSilent = err instanceof ProxyError && (err.kind === 'closed' || err.kind === 'noResponse')
+    throw new ProxyError(closedOrSilent ? t('err.proxy.httpMaybeSocks5', { message: msg }) : msg)
   }
 
   const text = head.toString('latin1')
@@ -209,19 +213,23 @@ async function httpConnect(socket: Socket, proxy: ResolvedProxy, target: ProxyTa
   const reason = status[2].trim()
   const detail = reason ? `${code} ${reason}` : String(code)
   if (code === 407) {
-    throw new ProxyError(`${proxyLabel(proxy)}要求身份验证（${detail}）：请填写代理用户名与密码`)
+    throw new ProxyError(t('err.proxy.httpAuthRequired', { label: proxyLabel(proxy), detail }))
   }
   if (code === 403 || code === 405 || code === 501) {
-    throw new ProxyError(`${proxyLabel(proxy)}拒绝建立到 ${hostport} 的隧道（${detail}）：可能未开放 CONNECT`)
+    throw new ProxyError(
+      t('err.proxy.httpTunnelRefused', { label: proxyLabel(proxy), target: hostport, detail })
+    )
   }
-  throw new ProxyError(`${proxyLabel(proxy)}无法连接 ${hostport}（HTTP ${detail}）`)
+  throw new ProxyError(
+    t('err.proxy.httpConnectFailed', { label: proxyLabel(proxy), target: hostport, detail })
+  )
 }
 
 function notHttpMessage(proxy: ResolvedProxy, head: Buffer): string {
-  return (
-    `${proxyLabel(proxy)}没有返回 HTTP 响应（开头是 0x${head.subarray(0, 2).toString('hex')}）：` +
-    '该端口可能不是 HTTP 代理，若是 SOCKS5 请改用 SOCKS5 类型'
-  )
+  return t('err.proxy.notHttp', {
+    label: proxyLabel(proxy),
+    prefix: head.subarray(0, 2).toString('hex')
+  })
 }
 
 /**
@@ -239,7 +247,7 @@ function headEndFor(proxy: ResolvedProxy): (buf: Buffer) => number | null {
     const end = crlf >= 0 && (lf < 0 || crlf < lf) ? crlf + 4 : lf >= 0 ? lf + 2 : -1
     if (end > 0) return end
     if (buf.length > MAX_HTTP_HEAD_BYTES) {
-      throw new ProxyError(`${proxyLabel(proxy)}返回的 HTTP 响应头过长，该端口可能不是 HTTP 代理`)
+      throw new ProxyError(t('err.proxy.httpHeadTooLong', { label: proxyLabel(proxy) }))
     }
     return null
   }
@@ -256,11 +264,17 @@ async function socks5Connect(
   const methods = hasCred ? [AUTH_NONE, AUTH_USERPASS] : [AUTH_NONE]
   socket.write(Buffer.from([SOCKS5_VER, methods.length, ...methods]))
 
-  const greeting = await readFrame(socket, (b) => (b.length >= 2 ? 2 : null), 'SOCKS5 协商')
+  const greeting = await readFrame(
+    socket,
+    (b) => (b.length >= 2 ? 2 : null),
+    t('err.proxy.stageSocks5Negotiate')
+  )
   if (greeting[0] !== SOCKS5_VER) {
     throw new ProxyError(
-      `${proxyLabel(proxy)}的应答不是 SOCKS5（版本字节 0x${greeting.subarray(0, 1).toString('hex')}）` +
-        '：该端口可能是 HTTP 代理，请改用 HTTP 类型'
+      t('err.proxy.notSocks5', {
+        label: proxyLabel(proxy),
+        version: greeting.subarray(0, 1).toString('hex')
+      })
     )
   }
   switch (greeting[1]) {
@@ -268,17 +282,24 @@ async function socks5Connect(
       break
     case AUTH_USERPASS:
       if (!hasCred) {
-        throw new ProxyError(`${proxyLabel(proxy)}要求用户名密码认证：请在代理设置里填写`)
+        throw new ProxyError(t('err.proxy.socks5AuthRequired', { label: proxyLabel(proxy) }))
       }
       await socks5Auth(socket, proxy)
       break
     case AUTH_UNACCEPTABLE:
       throw new ProxyError(
-        `${proxyLabel(proxy)}拒绝了所有认证方式` +
-          (hasCred ? '' : '：可能需要用户名与密码')
+        t('err.proxy.socks5NoAcceptableAuth', {
+          label: proxyLabel(proxy),
+          suffix: hasCred ? '' : t('err.proxy.socks5MaybeNeedCred')
+        })
       )
     default:
-      throw new ProxyError(`${proxyLabel(proxy)}选择了不支持的认证方式 0x${greeting[1].toString(16)}`)
+      throw new ProxyError(
+        t('err.proxy.socks5UnsupportedAuthMethod', {
+          label: proxyLabel(proxy),
+          method: greeting[1].toString(16)
+        })
+      )
   }
 
   const hostport = formatHostPort(target.host, target.port)
@@ -292,13 +313,23 @@ async function socks5Connect(
     ])
   )
 
-  const reply = await readFrame(socket, socks5ReplySize, 'SOCKS5 请求')
+  const reply = await readFrame(socket, socks5ReplySize, t('err.proxy.stageSocks5Request'))
   if (reply[0] !== SOCKS5_VER) {
-    throw new ProxyError(`${proxyLabel(proxy)}的应答版本异常（0x${reply.subarray(0, 1).toString('hex')}）`)
+    throw new ProxyError(
+      t('err.proxy.socks5BadReplyVersion', {
+        label: proxyLabel(proxy),
+        version: reply.subarray(0, 1).toString('hex')
+      })
+    )
   }
   if (reply[1] !== 0x00) {
-    const why = SOCKS5_REPLY_TEXT[reply[1]] ?? `未知错误码 0x${reply[1].toString(16)}`
-    throw new ProxyError(`${proxyLabel(proxy)}无法连接 ${hostport}：${why}`)
+    const replyKey = SOCKS5_REPLY_KEY[reply[1]]
+    const why = replyKey
+      ? t(replyKey)
+      : t('err.proxy.socks5UnknownCode', { code: reply[1].toString(16) })
+    throw new ProxyError(
+      t('err.proxy.socks5ConnectFailed', { label: proxyLabel(proxy), target: hostport, reason: why })
+    )
   }
 }
 
@@ -306,7 +337,7 @@ async function socks5Auth(socket: Socket, proxy: ResolvedProxy): Promise<void> {
   const user = Buffer.from(proxy.username ?? '', 'utf8')
   const pass = Buffer.from(proxy.password ?? '', 'utf8')
   if (user.length > 255 || pass.length > 255) {
-    throw new ProxyError('SOCKS5 的用户名与密码均不能超过 255 字节')
+    throw new ProxyError(t('err.proxy.socks5CredTooLong'))
   }
   socket.write(
     Buffer.concat([
@@ -316,10 +347,14 @@ async function socks5Auth(socket: Socket, proxy: ResolvedProxy): Promise<void> {
       pass
     ])
   )
-  const res = await readFrame(socket, (b) => (b.length >= 2 ? 2 : null), 'SOCKS5 认证')
+  const res = await readFrame(
+    socket,
+    (b) => (b.length >= 2 ? 2 : null),
+    t('err.proxy.stageSocks5Auth')
+  )
   // 子协商版本固定 0x01；状态非 0 即失败
   if (res[1] !== 0x00) {
-    throw new ProxyError(`${proxyLabel(proxy)}认证失败：用户名或密码错误`)
+    throw new ProxyError(t('err.proxy.socks5AuthFailed', { label: proxyLabel(proxy) }))
   }
 }
 
@@ -330,7 +365,7 @@ function socks5ReplySize(buf: Buffer): number | null {
   const addrLen =
     atyp === ATYP_IPV4 ? 4 : atyp === ATYP_IPV6 ? 16 : atyp === ATYP_DOMAIN ? 1 + buf[4] : null
   if (addrLen === null) {
-    throw new ProxyError(`SOCKS5 应答里的地址类型无法识别（0x${atyp.toString(16)}）`)
+    throw new ProxyError(t('err.proxy.socks5UnknownAtyp', { atyp: atyp.toString(16) }))
   }
   const total = 4 + addrLen + 2
   return buf.length >= total ? total : null
@@ -342,7 +377,7 @@ function encodeAddress(host: string): Buffer {
   if (kind === 4) return Buffer.concat([Buffer.from([ATYP_IPV4]), ipv4ToBytes(host)])
   if (kind === 6) return Buffer.concat([Buffer.from([ATYP_IPV6]), ipv6ToBytes(host)])
   const name = Buffer.from(host, 'utf8')
-  if (name.length > 255) throw new ProxyError(`目标主机名过长（${name.length} 字节，上限 255）`)
+  if (name.length > 255) throw new ProxyError(t('err.proxy.targetHostTooLong', { len: name.length }))
   return Buffer.concat([Buffer.from([ATYP_DOMAIN, name.length]), name])
 }
 

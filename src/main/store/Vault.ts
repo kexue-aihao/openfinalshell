@@ -3,6 +3,7 @@ import { safeStorage } from 'electron'
 import type { SecretRef } from '@shared/types'
 import { prepare } from './Database'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('vault')
 
@@ -19,7 +20,7 @@ export const vault = {
   /** 加密存入，返回引用 id；overwriteRef 传入时覆盖已有条目（沿用同一 ref） */
   putSecret(plaintext: string, overwriteRef?: SecretRef): SecretRef {
     if (!this.isAvailable()) {
-      throw new Error('本机无法安全保存密码（safeStorage 不可用），请改为每次连接时输入')
+      throw new Error(t('err.net.secureStoreUnavailable'))
     }
     const ref = overwriteRef ?? randomUUID()
     const cipher = safeStorage.encryptString(plaintext)

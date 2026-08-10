@@ -29,6 +29,7 @@ import {
 } from './parsers'
 import { buildFrame, buildStaticFrame, SENTINEL, splitSections } from './script'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('monitor')
 
@@ -208,7 +209,7 @@ export class MonitorCollector {
       seq
     ).then((body) => {
       if (body === null) {
-        this.onFailure('采集超时')
+        this.onFailure(t('err.net.collectTimeout'))
         return
       }
       try {
@@ -230,7 +231,7 @@ export class MonitorCollector {
     const cpu = parseProcStat(sections.get('STAT') ?? '')
     const mem = parseMeminfo(sections.get('MEM') ?? '')
     if (!cpu || !mem) {
-      this.onFailure('无法解析 /proc 输出')
+      this.onFailure(t('err.net.parseProcFailed'))
       return null
     }
 

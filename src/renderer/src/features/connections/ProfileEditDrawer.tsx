@@ -367,7 +367,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
               label: (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <RegionMarker code={r.code} />
-                  {r.label}
+                  {t(`region.${r.code}`)}
                 </span>
               )
             }))}

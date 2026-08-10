@@ -607,7 +607,7 @@ describe('导入：可复用的代理与私钥', () => {
     const preview = await inspectImport({ sourcePath: file })
     await applyImport({ token: preview!.token, conflict: 'duplicate', include: ALL })
 
-    const copy = conns.listConnections().profiles.find((x) => x.name.includes('（导入）'))!
+    const copy = conns.listConnections().profiles.find((x) => x.name.includes('(imported)'))!
     expect(copy.proxyId).toBeTruthy()
     expect(copy.proxyId).not.toBe(proxy.id)
     expect(savedRefs.listProxies()).toHaveLength(2)
@@ -661,7 +661,7 @@ describe('导入：可复用的代理与私钥', () => {
     // 抽取出来的算进结果里，并给一条说明
     expect(r.proxies).toBe(1)
     expect(r.privateKeys).toBe(1)
-    expect(r.notes.some((n) => n.includes('旧版本'))).toBe(true)
+    expect(r.notes.some((n) => n.includes('older version'))).toBe(true)
 
     const p = conns.getProfile('legacy-1')!
     expect(p.proxyId).toBeTruthy()

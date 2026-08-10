@@ -6,6 +6,7 @@ import { applyImport, inspectImport } from '../services/importData'
 import { applyFinalShellImport, scanFinalShell } from '../services/finalshellImport'
 import { getSettings } from '../services/settings'
 import { getStartupNotice } from '../services/startupNotice'
+import { getBundle, t } from '../services/i18n'
 import { applyWindowChrome } from '../window'
 import { scopedLogger } from '../utils/logger'
 
@@ -23,6 +24,9 @@ export function registerAppIpc(): void {
   }))
 
   handle('app:getStartupNotice', () => getStartupNotice())
+
+  // 懒加载语言包：渲染层活动语言若未内联（非 en/zh），启动时取回
+  handle('i18n:bundle', (tag) => getBundle(tag), z.tuple([z.string().max(20)]))
 
   handle(
     'app:pickPath',
@@ -81,11 +85,11 @@ export function registerAppIpc(): void {
       try {
         parsed = new URL(url)
       } catch {
-        throw new Error('无效的链接')
+        throw new Error(t('err.ipc.invalidUrl'))
       }
       if (!ALLOWED_PROTOCOLS.has(parsed.protocol)) {
         log.warn(`blocked openExternal for protocol ${parsed.protocol}`)
-        throw new Error(`已阻止打开 ${parsed.protocol} 链接（仅允许 http/https）`)
+        throw new Error(t('err.ipc.protocolBlocked', { protocol: parsed.protocol }))
       }
       await shell.openExternal(parsed.toString())
     },

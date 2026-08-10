@@ -5,6 +5,7 @@ import type { AppSettings, ConnectionProfile } from '@shared/types'
 import { prepare } from '../store/Database'
 import { vault } from '../store/Vault'
 import { getSettings } from './settings'
+import { t } from './i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('export')
@@ -163,16 +164,16 @@ function defaultFileName(): string {
 
 export async function exportData(opts: ExportOptions): Promise<ExportResult | null> {
   if (opts.includeSecrets && !opts.passphrase) {
-    throw new Error('导出已保存的密码必须设置导出口令')
+    throw new Error(t('err.data.passphraseRequired'))
   }
   if (opts.includeSecrets && (opts.passphrase ?? '').length < 8) {
-    throw new Error('导出口令至少 8 位')
+    throw new Error(t('err.data.passphraseTooShort'))
   }
 
   let target = opts.targetPath
   if (!target) {
     const r = await dialog.showSaveDialog({
-      title: '导出应用数据',
+      title: t('err.data.exportTitle'),
       defaultPath: defaultFileName(),
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
@@ -189,8 +190,8 @@ export async function exportData(opts: ExportOptions): Promise<ExportResult | nu
     exportedAt: Date.now(),
     includesSecrets: opts.includeSecrets,
     note: opts.includeSecrets
-      ? '密码已用导出口令加密（scrypt + AES-256-GCM）存放在 secrets 段，口令丢失无法恢复。'
-      : '本文件不含任何密码。profiles 里的 passwordRef 只是引用 id，导入后需重新填写密码。',
+      ? t('err.data.exportNoteWithSecrets')
+      : t('err.data.exportNoteNoSecrets'),
     data,
     secrets: opts.includeSecrets ? sealSecrets(refs, opts.passphrase!) : undefined
   }

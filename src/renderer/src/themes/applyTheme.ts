@@ -55,7 +55,7 @@ export function buildAntdTheme(mode: 'dark' | 'light', accent: string): ThemeCon
       borderRadius: 6,
       fontSize: 13,
       fontFamily:
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif'
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Yu Gothic UI", "Meiryo", "Malgun Gothic", sans-serif'
     }
   }
 }

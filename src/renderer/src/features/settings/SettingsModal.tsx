@@ -18,6 +18,7 @@ import {
 } from 'antd'
 import { useTranslation } from 'react-i18next'
 import { PRESET_COLORS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
+import { LOCALES } from '@shared/locales/registry'
 import type { AppSettings } from '@shared/types'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -154,10 +155,7 @@ export function SettingsModal(): React.JSX.Element {
                   value={settings.language}
                   style={{ width: 180 }}
                   onChange={(v) => set('language', v)}
-                  options={[
-                    { value: 'zh-CN', label: '简体中文' },
-                    { value: 'en-US', label: 'English' }
-                  ]}
+                  options={LOCALES.map((l) => ({ value: l.tag, label: l.nativeName }))}
                 />
               </Row>
               <Row label={t('settings.confirmOnCloseTab')} hint={t('settings.confirmOnCloseTabHint')}>

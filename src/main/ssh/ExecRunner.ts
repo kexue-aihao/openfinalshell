@@ -1,6 +1,7 @@
 import type { ClientChannel } from 'ssh2'
 import { EXEC_DEFAULT_TIMEOUT_MS, EXEC_MAX_OUTPUT_BYTES } from '@shared/constants'
 import { wrapShellScript } from './shellQuote'
+import { t } from '../services/i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('exec')
@@ -108,7 +109,7 @@ export async function execOnce(
       settled = true
       log.warn(`exec timed out after ${timeoutMs}ms, killing channel`)
       channel.close()
-      reject(new Error(`远端命令超时（${Math.round(timeoutMs / 1000)} 秒），已终止`))
+      reject(new Error(t('err.ssh.execTimeout', { seconds: Math.round(timeoutMs / 1000) })))
     }, timeoutMs)
 
     channel.on('data', (chunk: Buffer) => {

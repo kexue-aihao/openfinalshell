@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, shell } from 'electron'
 import type { ConnectionProfile } from '@shared/types'
+import { t } from './i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('rdp')
@@ -47,14 +48,14 @@ export function buildRdpContent(profile: ConnectionProfile): string {
  * 放 userData 下（可写、随卸载清理）。`shell.openPath` 成功返回空串，失败返回错误描述。
  */
 export async function launchRdp(profile: ConnectionProfile): Promise<void> {
-  if (!profile.host.trim()) throw new Error('这条 RDP 连接没有填写主机地址')
+  if (!profile.host.trim()) throw new Error(t('err.data.rdpNoHost'))
   const file = join(app.getPath('userData'), `rdp-${profile.id}.rdp`)
   await writeFile(file, buildRdpContent(profile), 'utf8')
   const err = await shell.openPath(file)
   if (err) {
     // 常见于非 Windows（没有 .rdp 处理器）或没装远程桌面客户端
     log.warn(`openPath(${file}) failed: ${err}`)
-    throw new Error(`无法启动系统远程桌面：${err}`)
+    throw new Error(t('err.data.rdpLaunchFailed', { error: err }))
   }
   log.info(`launched RDP to ${profile.host} via system handler`)
 }

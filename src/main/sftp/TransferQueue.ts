@@ -33,6 +33,7 @@ import {
 } from './remotePath'
 import { runTransfer, TransferAborted, type WorkerHandle } from './TransferWorker'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 /**
  * 打包用的本地临时目录。放在 app.getPath('temp') 下的固定子目录，
@@ -340,7 +341,7 @@ class TransferQueue {
      */
     const stat = await fs.lstat(longPath(task.localPath)).catch(() => null)
     if (!stat) {
-      task.error = `本地文件不存在：${task.localPath}`
+      task.error = t('err.sftp.localFileNotFound', { path: task.localPath })
       this.setState(entry, 'error')
       return
     }
@@ -364,12 +365,12 @@ class TransferQueue {
     task.size = 0
     entry.classified = true
     if (entry.depth >= EXPAND_MAX_DEPTH) {
-      task.error = `目录层级超过 ${EXPAND_MAX_DEPTH} 层，已停止展开（可能有循环链接）`
+      task.error = t('err.sftp.dirTooDeepCycle', { max: EXPAND_MAX_DEPTH })
       this.setState(entry, 'error')
       return
     }
     if (this.entries.size >= EXPAND_MAX_TASKS) {
-      task.error = `队列已达 ${EXPAND_MAX_TASKS} 条上限，已停止展开`
+      task.error = t('err.sftp.queueLimitReached', { max: EXPAND_MAX_TASKS })
       this.setState(entry, 'error')
       return
     }
@@ -380,7 +381,7 @@ class TransferQueue {
       .readdir(longPath(task.localPath), { withFileTypes: true })
       .catch(() => null)
     if (!children) {
-      task.error = `无法读取目录：${task.localPath}`
+      task.error = t('err.sftp.cannotReadDir', { path: task.localPath })
       task.phase = undefined
       this.setState(entry, 'error')
       return
@@ -452,7 +453,7 @@ class TransferQueue {
     }
     const failed = task.childFailed ?? 0
     if (failed > 0) {
-      task.error = `${failed} 个文件失败`
+      task.error = t('err.sftp.filesFailed', { count: failed })
       this.setState(entry, 'error')
     } else {
       this.setState(entry, 'done')
@@ -533,7 +534,7 @@ class TransferQueue {
       if (err instanceof TransferAborted) {
         const next =
           err.kind === 'paused' ? 'paused' : err.kind === 'skipped' ? 'skipped' : 'canceled'
-        if (next === 'skipped') task.notice = '远端已存在同名项，已按你的选择跳过'
+        if (next === 'skipped') task.notice = t('err.sftp.skippedExisting')
         this.setState(entry, next)
       } else {
         task.error = err instanceof Error ? err.message : String(err)
@@ -571,7 +572,7 @@ class TransferQueue {
 
     const remote = toRemotePath(task.remotePath)
     const info = await statSize(sftp, remote)
-    if (!info.exists) throw new Error(`远端文件不存在：${remote}`)
+    if (!info.exists) throw new Error(t('err.sftp.fileNotFound', { path: remote }))
     if (!info.isDir) return false
 
     this.setPhase(entry, 'scanning')
@@ -584,7 +585,7 @@ class TransferQueue {
     }).catch((err: unknown) => {
       // 判定本身出错绝不能把传输带下去 —— 退回逐文件，把原因说出来
       log.warn(`pack decision failed: ${err instanceof Error ? err.message : String(err)}`)
-      return { pack: false, reason: '打包判定未完成，已改用逐文件传输' } as PackDecision
+      return { pack: false, reason: t('err.sftp.packDecisionIncomplete') } as PackDecision
     })
 
     if (!decision.pack) {
@@ -632,13 +633,13 @@ class TransferQueue {
     if (task.kind !== 'download') return false
     const remote = toRemotePath(task.remotePath)
     const info = await statSize(sftp, remote)
-    if (!info.exists) throw new Error(`远端文件不存在：${remote}`)
+    if (!info.exists) throw new Error(t('err.sftp.fileNotFound', { path: remote }))
     if (!info.isDir) {
       this.setLeafSize(entry, info.size)
       return false
     }
     if (entry.depth >= EXPAND_MAX_DEPTH) {
-      throw new Error(`目录层级超过 ${EXPAND_MAX_DEPTH} 层，已停止展开`)
+      throw new Error(t('err.sftp.dirTooDeep', { max: EXPAND_MAX_DEPTH }))
     }
     task.isGroup = true
     task.size = 0

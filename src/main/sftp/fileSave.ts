@@ -5,6 +5,7 @@ import { resolveRemoteTarget } from './remoteTextFile'
 import { saveRemoteText } from './remoteTextWrite'
 import { encodeFidelity, encodeRemoteText, type Eol } from './textCodec'
 import { sshManager } from '../ssh/SshConnectionManager'
+import { t } from '../services/i18n'
 
 /**
  * 内置编辑器的保存：编码 → 三道硬拒 → `saveRemoteText`。
@@ -53,9 +54,7 @@ export async function saveRemoteTextFile(args: SaveTextArgs): Promise<RemoteFile
    */
   const baseline = getBaseline(sessionId, path)
   if (!baseline) {
-    throw new Error(
-      `该文件的打开状态已失效（会话可能重连或关闭过），请关掉这个标签重新打开后再保存：${path}`
-    )
+    throw new Error(t('err.sftp.saveBaselineLost', { path }))
   }
 
   /**
@@ -67,10 +66,7 @@ export async function saveRemoteTextFile(args: SaveTextArgs): Promise<RemoteFile
    * （状态栏上就能切），或者干脆别用文本编辑器编辑它。
    */
   if (!baseline.lossless) {
-    throw new Error(
-      `这个文件用 ${baseline.charset} 解不干净（含非法字节序列），保存会永久改写那些字节。` +
-        `请在状态栏换一个编码重新打开，确认内容正常后再编辑：${path}`
-    )
+    throw new Error(t('err.sftp.saveNotLossless', { charset: baseline.charset, path }))
   }
 
   /**
@@ -80,9 +76,9 @@ export async function saveRemoteTextFile(args: SaveTextArgs): Promise<RemoteFile
   const fidelity = encodeFidelity(text, charset)
   if (!fidelity.ok) {
     const listed = fidelity.chars.join(' ')
+    const chars = listed ? `（${listed}）` : ''
     throw new Error(
-      `有 ${fidelity.distinct} 种字符无法用 ${charset} 表示，保存会把它们变成问号` +
-        `${listed ? `（${listed}）` : ''}。请删掉它们，或在状态栏把编码切成 utf8 后再保存。`
+      t('err.sftp.saveEncodingLossy', { distinct: fidelity.distinct, charset, chars })
     )
   }
 
@@ -95,7 +91,7 @@ export async function saveRemoteTextFile(args: SaveTextArgs): Promise<RemoteFile
    */
   if (buf.length > MAX_EDIT_BYTES) {
     throw new Error(
-      `内容已超过上限，拒绝保存：${buf.length} 字节 > ${MAX_EDIT_BYTES} 字节（${path}）`
+      t('err.sftp.saveTooLarge', { size: buf.length, max: MAX_EDIT_BYTES, path })
     )
   }
 
@@ -114,7 +110,7 @@ export async function saveRemoteTextFile(args: SaveTextArgs): Promise<RemoteFile
    */
   const key = `${sessionId}::${path}`
   if (inFlight.has(key)) {
-    throw new Error(`上一次保存还在进行中，请稍候：${path}`)
+    throw new Error(t('err.sftp.saveInProgress', { path }))
   }
   inFlight.add(key)
   try {
@@ -131,8 +127,11 @@ export async function saveRemoteTextFile(args: SaveTextArgs): Promise<RemoteFile
     const resolvedPath = await resolveRemoteTarget(sftp, path)
     if (resolvedPath !== baseline.resolvedPath) {
       throw new Error(
-        `这条路径现在指向的是另一个文件（打开时是 ${baseline.resolvedPath}，` +
-          `现在是 ${resolvedPath}），已停止保存。请重新打开后确认内容再存：${path}`
+        t('err.sftp.saveSymlinkRetargeted', {
+          was: baseline.resolvedPath,
+          now: resolvedPath,
+          path
+        })
       )
     }
 

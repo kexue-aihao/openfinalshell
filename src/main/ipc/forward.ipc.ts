@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { handle } from './registry'
+import { t } from '../services/i18n'
 import { deleteForward, getForward, listForwards, saveForward } from '../store/forwards'
 import { forwardManager } from '../forward/ForwardManager'
 
@@ -45,7 +46,7 @@ export function registerForwardIpc(): void {
         return
       }
       const rule = getForward(forwardId)
-      if (!rule) throw new Error('转发规则不存在')
+      if (!rule) throw new Error(t('err.ipc.forwardRuleNotFound'))
       await forwardManager.start(rule, sessionId)
     },
     z.tuple([

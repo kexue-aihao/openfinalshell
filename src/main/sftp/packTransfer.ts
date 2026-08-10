@@ -24,6 +24,7 @@ import { sftpUnlink } from './sftpLowLevel'
 import { statSize } from './SftpManager'
 import { runTransfer, TransferAborted, type WorkerHandle } from './TransferWorker'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('pack')
 
@@ -152,13 +153,13 @@ export function shouldPack(
   opts: { targetExists: boolean; conflictPolicy: string; remoteDir: RemotePath; topName: string }
 ): PackDecision {
   if (probe.tarFlavor === 'unknown') {
-    return { pack: false, reason: '远端未找到可用的 tar，已改用逐文件传输' }
+    return { pack: false, reason: t('err.sftp.noRemoteTar') }
   }
   if (!probe.hasMktemp) {
-    return { pack: false, reason: '远端没有 mktemp，无法安全地建临时文件，已改用逐文件传输' }
+    return { pack: false, reason: t('err.sftp.noRemoteMktemp') }
   }
   if (probe.entryCount < PACK_MIN_FILES) {
-    return { pack: false, reason: `目录里只有 ${probe.entryCount} 项，打包省不出往返，已逐文件传输` }
+    return { pack: false, reason: t('err.sftp.tooFewEntries', { count: probe.entryCount }) }
   }
   /*
    * 与冲突策略联动。tar 解包天生是覆盖语义：`-k` 能表达 skip 但会让 GNU tar
@@ -166,7 +167,7 @@ export function shouldPack(
    * 一律不打包 —— 一条规则胜过一堆开关，而且绝不悄悄违反用户选的语义。
    */
   if (opts.targetExists && opts.conflictPolicy !== 'overwrite') {
-    return { pack: false, reason: '本地已存在同名目录，为遵守冲突策略改用逐文件传输' }
+    return { pack: false, reason: t('err.sftp.targetExistsConflict') }
   }
   /*
    * 顶层名必须原样落得了地。打包下载**没有** sanitizeLocalName 那一步（tar 里的成员名
@@ -174,7 +175,7 @@ export function shouldPack(
    * （"在文件夹中显示"会指到一个不存在的路径）。中文名过这条检查是原样通过的。
    */
   if (sanitizeLocalName(opts.topName) !== opts.topName) {
-    return { pack: false, reason: '目录名在本机需要改写，已改用逐文件传输' }
+    return { pack: false, reason: t('err.sftp.nameNeedsRewrite') }
   }
   const needKb = Math.ceil(probe.sizeKb * PACK_FREE_MARGIN) + PACK_FREE_SLACK_KB
   // 探不到可用空间时**不打包**：在远端 /tmp 上赌一把的代价是把生产服务器塞满
@@ -184,12 +185,12 @@ export function shouldPack(
     // TMPDIR 是远端环境变量，内容不受我们控制 —— 它要进 shell 命令，必须过守卫
     const tmp = safePath(probe.tmpDir)
     if (tmp) return { pack: true, tmpBase: tmp }
-    return { pack: false, reason: '远端 TMPDIR 不是一个可用的绝对路径，已改用逐文件传输' }
+    return { pack: false, reason: t('err.sftp.badRemoteTmpdir') }
   }
   if (srcOk) return { pack: true, tmpBase: remoteDirname(opts.remoteDir) }
   return {
     pack: false,
-    reason: '远端临时目录与源目录所在分区都放不下打包文件，已改用逐文件传输'
+    reason: t('err.sftp.noSpaceForPack')
   }
 }
 
@@ -272,8 +273,8 @@ export async function planPackedDownload(deps: PlanDeps): Promise<PackDecision> 
       pack: false,
       reason:
         process.platform === 'win32'
-          ? '本机找不到 tar.exe（需要 Windows 10 1803 或更高），已改用逐文件传输'
-          : '本机找不到 tar，已改用逐文件传输'
+          ? t('err.sftp.noLocalTarExe')
+          : t('err.sftp.noLocalTarReason')
     }
   }
   const dir = assertSafeRemotePath(deps.dir, '打包目录')
@@ -286,7 +287,7 @@ export async function planPackedDownload(deps: PlanDeps): Promise<PackDecision> 
   } catch (err) {
     // 探测失败（超时、通道开不出来）一律退回逐文件：它是"锦上添花"的路，不该拖垮传输
     log.warn(`probe failed: ${err instanceof Error ? err.message : String(err)}`)
-    return { pack: false, reason: '远端探测未完成，已改用逐文件传输' }
+    return { pack: false, reason: t('err.sftp.probeIncomplete') }
   }
 
   const cached = staticCache.get(deps.sessionId)
@@ -363,7 +364,7 @@ export function runPackedDownload(deps: PackedDownloadDeps): {
 
   const promise = (async (): Promise<void> => {
     const localTar = findLocalTar()
-    if (!localTar) throw new Error('本机找不到 tar')
+    if (!localTar) throw new Error(t('err.sftp.localTarMissing'))
     const dir = assertSafeRemotePath(toRemotePath(task.remotePath), '打包目录')
     const top = remoteBasename(dir)
     let remoteTar: RemotePath | null = null
@@ -376,20 +377,20 @@ export function runPackedDownload(deps: PackedDownloadDeps): {
       const packed = await execOnce(conn, buildPackCommand(dir, tmpBase), {
         timeoutMs: tarTimeoutMs(sizeKb * 1024)
       })
-      if (packed.code === 90) throw new Error('远端 mktemp 失败，无法建立打包用的临时文件')
-      if (packed.code === 91) throw new Error(`远端打包失败：${firstLine(packed.stderr)}`)
-      if (packed.code !== 0) throw new Error(`远端打包未完成（退出码 ${packed.code}）`)
+      if (packed.code === 90) throw new Error(t('err.sftp.mktempFailed'))
+      if (packed.code === 91) throw new Error(t('err.sftp.packFailed', { detail: firstLine(packed.stderr) }))
+      if (packed.code !== 0) throw new Error(t('err.sftp.packExitCode', { code: packed.code }))
       const { path: tarPath, tarRc } = parsePackOutput(packed.stdout)
-      if (!tarPath) throw new Error('远端打包没有回报临时文件路径')
+      if (!tarPath) throw new Error(t('err.sftp.noTarPath'))
       // mktemp 给回来的路径要再过一遍守卫才能进下一条命令 / SFTP 请求
       remoteTar = assertSafeRemotePath(tarPath, '打包临时文件')
       if (tarRc === 1) {
-        onPhase('packing', '打包过程中有文件被修改，归档内容可能不是同一时刻的快照')
+        onPhase('packing', t('err.sftp.fileChangedDuringPack'))
       }
 
       // ---- 量一下它该有多大（解包前就知道，这正是不走流式的理由） ----
       const info = await statSize(sftp, remoteTar)
-      if (!info.exists || info.size <= 0) throw new Error('远端打包文件不存在或为空')
+      if (!info.exists || info.size <= 0) throw new Error(t('err.sftp.packEmpty'))
       task.size = info.size
 
       // ---- 传输 ----
@@ -415,22 +416,25 @@ export function runPackedDownload(deps: PackedDownloadDeps): {
       const timeout = tarTimeoutMs(info.size)
       const listed = await listTarEntries(localTar, localArchive, timeout)
       if (!listed.ok) {
-        throw new Error(`归档校验失败（可能已损坏或被截断）：${firstLine(listed.stderr)}`)
+        throw new Error(t('err.sftp.archiveVerifyFailed', { detail: firstLine(listed.stderr) }))
       }
       const check = checkTarEntries(listed.names, top)
       if (check.unsafe.length > 0) {
         throw new Error(
-          `归档里有 ${check.unsafe.length} 条成员越出目标目录，已放弃解包：${check.unsafe
-            .slice(0, 3)
-            .join(', ')}`
+          t('err.sftp.archiveEscapes', {
+            count: check.unsafe.length,
+            samples: check.unsafe.slice(0, 3).join(', ')
+          })
         )
       }
       const destDir = dirname(task.localPath)
       await fs.mkdir(longPath(destDir), { recursive: true })
       const outcome = await extractTar(localTar, localArchive, destDir, timeout)
-      if (!outcome.ok) throw new Error(`解包失败：${outcome.fatal.slice(0, 2).join(' | ')}`)
+      if (!outcome.ok) {
+        throw new Error(t('err.sftp.extractFailed', { detail: outcome.fatal.slice(0, 2).join(' | ') }))
+      }
       if (outcome.skippedSymlinks > 0) {
-        onPhase('extracting', `解包完成，跳过 ${outcome.skippedSymlinks} 个符号链接（Windows 无法创建）`)
+        onPhase('extracting', t('err.sftp.extractSkippedSymlinks', { count: outcome.skippedSymlinks }))
       }
     } finally {
       // ---- 清场：无论成败都要做，否则远端 /tmp 与本机 %TEMP% 各留一份 ----

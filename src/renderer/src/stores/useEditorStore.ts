@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import i18n from '@/i18n'
 import type { RemoteCharset } from '@shared/constants'
 import type { RemoteFileSaveResult, RemoteFileView, RemoteSaveGates, SessionId } from '@shared/types'
 import { ofs } from '@/ipc/api'
@@ -98,7 +99,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       return
     }
     if (get().files.length >= MAX_OPEN_VIEWS) {
-      throw new Error(`同时打开的文件不能超过 ${MAX_OPEN_VIEWS} 个，请先关掉一些`)
+      throw new Error(i18n.t('editor.tooManyOpen', { max: MAX_OPEN_VIEWS }))
     }
 
     set((s) => ({
@@ -174,8 +175,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   save: async (key, gates, text) => {
     const target = get().files.find((f) => f.key === key)
-    if (!target) throw new Error('这个文件已经关掉了')
-    if (!target.view) throw new Error('文件还没读完，稍后再存')
+    if (!target) throw new Error(i18n.t('editor.alreadyClosed'))
+    if (!target.view) throw new Error(i18n.t('editor.notLoadedYet'))
 
     const patch = (next: Partial<OpenFile>): void => {
       set((s) => ({ files: s.files.map((f) => (f.key === key ? { ...f, ...next } : f)) }))

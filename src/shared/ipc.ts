@@ -61,6 +61,8 @@ import type { RemoteCharset } from './constants'
 // ① renderer → main，请求/响应
 // ---------------------------------------------------------------------------
 export interface InvokeMap {
+  // --- 国际化：懒加载语言包（en/zh 已随渲染 bundle 内联，其余按需取回） ---
+  'i18n:bundle': { args: [string]; result: Record<string, unknown> }
   // --- 应用 ---
   'app:getVersions': { args: []; result: AppVersions }
   // 开机弹窗判定：首次调用会把当前版本记为"已见"，之后同版本返回 'none'
@@ -349,6 +351,7 @@ export interface EventMap {
 // ---------------------------------------------------------------------------
 export const CHANNEL_PREFIXES = [
   'app:',
+  'i18n:',
   'settings:',
   'vault:',
   'conn:',

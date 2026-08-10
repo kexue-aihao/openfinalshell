@@ -10,6 +10,7 @@ import type {
   ProfileDraft
 } from '@shared/types'
 import { listConnections, saveGroup, saveProfile } from '../store/connections'
+import { t } from './i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('fsimport')
@@ -311,7 +312,7 @@ export async function scanFinalShell(opts: { dir?: string } = {}): Promise<Final
   let dir = opts.dir
   if (!dir) {
     const r = await dialog.showOpenDialog({
-      title: '选择 FinalShell 数据目录（含 conn 子目录）',
+      title: t('err.data.finalshellDirTitle'),
       properties: ['openDirectory']
     })
     if (r.canceled || r.filePaths.length === 0) return null
@@ -320,12 +321,16 @@ export async function scanFinalShell(opts: { dir?: string } = {}): Promise<Final
 
   const { records, files } = await readRecords(dir)
   if (files === 0) {
-    throw new Error('这个目录里没有找到任何 .json 配置文件，请选择 FinalShell 的数据目录（里面应有 conn 子目录）')
+    throw new Error(t('err.data.noJsonFiles'))
   }
   const parsed = classifyFinalShellRecords(records)
   if (parsed.connections.length === 0) {
     throw new Error(
-      `读到 ${files} 个 JSON 文件，但里面没有可导入的 SSH 连接（跳过 ${parsed.invalid} 条结构不完整、${parsed.notSsh} 条非 SSH）`
+      t('err.data.noSshConnections', {
+        files,
+        invalid: parsed.invalid,
+        notSsh: parsed.notSsh
+      })
     )
   }
 
@@ -336,24 +341,20 @@ export async function scanFinalShell(opts: { dir?: string } = {}): Promise<Final
 
   const notes: string[] = []
   if (locked > 0) {
-    notes.push(
-      `${locked} 条连接在 FinalShell 里存了密码。那些密码用 FinalShell 自己的密钥加密，本项目不猜它的密钥，所以不会跟过来 —— 首次连接时输入一次并勾选"记住密码"，即由本机密钥库加密保存。`
-    )
+    notes.push(t('err.data.finalshellLockedPasswords', { count: locked }))
   }
   if (withKey > 0) {
-    notes.push(
-      `${withKey} 条连接用的是密钥认证。私钥存在 FinalShell 自己的密钥库里，导入后请在连接编辑里指定私钥文件。`
-    )
+    notes.push(t('err.data.finalshellKeyAuth', { count: withKey }))
   }
   if (withProxy > 0) {
-    notes.push(`${withProxy} 条连接配了代理，代理配置需要在本项目里重新填一次。`)
+    notes.push(t('err.data.finalshellProxy', { count: withProxy }))
   }
   if (forwards > 0) {
-    notes.push(`${forwards} 条端口转发规则未导入（FinalShell 的转发格式本项目没有样本可对照）。`)
+    notes.push(t('err.data.finalshellForwards', { count: forwards }))
   }
   if (parsed.unknownCharsets.size > 0) {
     notes.push(
-      `以下终端编码本项目认不出来，已按 UTF-8 导入：${[...parsed.unknownCharsets].join('、')}`
+      t('err.data.unknownCharsets', { list: [...parsed.unknownCharsets].join('、') })
     )
   }
 
@@ -393,9 +394,9 @@ function sameTarget(a: ConnectionProfile, host: string, port: number, username: 
 
 export function applyFinalShellImport(opts: FinalShellImportOptions): FinalShellImportResult {
   if (!pending || pending.token !== opts.token) {
-    throw new Error('导入会话已失效，请重新选择目录')
+    throw new Error(t('err.data.importSessionExpiredDir'))
   }
-  if (applying) throw new Error('上一次导入还在进行中')
+  if (applying) throw new Error(t('err.data.importInProgress'))
 
   const { parsed } = pending
   const result: FinalShellImportResult = {
@@ -477,16 +478,14 @@ export function applyFinalShellImport(opts: FinalShellImportOptions): FinalShell
 
     if (orphanGroups + orphanConnections > 0) {
       result.notes.push(
-        `${orphanGroups + orphanConnections} 条记录的上级分组不在所选目录里，已放到根目录下。`
+        t('err.data.orphanGroups', { count: orphanGroups + orphanConnections })
       )
     }
     if (parsed.connections.some((c) => c.lockedPassword)) {
-      result.notes.push(
-        '导入的连接没有密码：FinalShell 的密码用它自己的密钥加密，本项目不猜那个密钥。首次连接时输入并勾选"记住密码"，密码就由本机密钥库加密保存。'
-      )
+      result.notes.push(t('err.data.finalshellLockedPasswordsResult'))
     }
     if (parsed.notSsh > 0) {
-      result.notes.push(`跳过 ${parsed.notSsh} 条非 SSH 连接（本项目只做 SSH）。`)
+      result.notes.push(t('err.data.skippedNonSsh', { count: parsed.notSsh }))
     }
     log.info(
       `finalshell import: ${result.profiles} profiles, ${result.groups} groups, skipped=${result.skipped}`

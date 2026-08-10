@@ -8,6 +8,7 @@ import { sftpClose, sftpOpen, sftpRead, sftpWrite } from './sftpLowLevel'
 import { effectiveAction } from './conflictPlan'
 import { getSettings } from '../services/settings'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('transfer')
 
@@ -189,7 +190,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
       if (!(await statSize(s, full)).exists) return full
       taken.add(candidate)
     }
-    throw new Error(`远端已有太多同名文件，放弃重命名：${target}`)
+    throw new Error(t('err.sftp.tooManyDuplicates', { path: target }))
   }
 
   async function download(): Promise<void> {
@@ -199,7 +200,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
     await fs.mkdir(dirname(finalLocal), { recursive: true })
 
     const info = await statSize(sftp, remote)
-    if (!info.exists) throw new Error(`远端文件不存在：${remote}`)
+    if (!info.exists) throw new Error(t('err.sftp.fileNotFound', { path: remote }))
     const total = info.size
 
     let offset = 0

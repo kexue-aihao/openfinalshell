@@ -9,6 +9,7 @@ import { clearProbeCache } from '../sftp/packTransfer'
 import { monitorManager } from '../monitor/MonitorManager'
 import { forwardManager } from '../forward/ForwardManager'
 import { autoStartRules } from '../store/forwards'
+import { t } from '../services/i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('ssh-mgr')
@@ -25,7 +26,7 @@ class SshConnectionManager {
 
   async open(profileId: ProfileId): Promise<{ sessionId: SessionId }> {
     const profile = getProfile(profileId)
-    if (!profile) throw new Error('连接配置不存在')
+    if (!profile) throw new Error(t('err.ssh.profileNotFound'))
 
     // 进门就记一行：此前只在 ready 之后才写日志，卡在握手/等待确认时日志里一片空白，
     // 事后完全无从判断停在了哪一步
@@ -81,7 +82,7 @@ class SshConnectionManager {
 
   get(sessionId: SessionId): SshConnection {
     const conn = this.sessions.get(sessionId)
-    if (!conn) throw new Error('会话不存在或已关闭')
+    if (!conn) throw new Error(t('err.ssh.sessionNotFound'))
     return conn
   }
 

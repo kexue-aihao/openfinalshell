@@ -16,11 +16,11 @@ export function DonateSection(): React.JSX.Element {
           <div key={m.id} className={styles.tile}>
             {/* 币种 + 作用（链/用途）显示在二维码上方 */}
             <div className={styles.label}>
-              <span className={styles.coin}>{m.label}</span>
-              <span className={styles.note}>{m.note}</span>
+              <span className={styles.coin}>{m.labelKey ? t(m.labelKey) : m.label}</span>
+              <span className={styles.note}>{t(m.noteKey)}</span>
             </div>
             <div className={styles.qr}>
-              <img src={m.img} alt={`${m.label} ${m.note}`} draggable={false} />
+              <img src={m.img} alt={`${m.labelKey ? t(m.labelKey) : m.label} ${t(m.noteKey)}`} draggable={false} />
             </div>
           </div>
         ))}

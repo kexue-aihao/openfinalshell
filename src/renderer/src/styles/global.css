@@ -22,8 +22,11 @@ body,
 }
 
 body {
+  /* 多语种字体回退：Latin/Cyrillic 走 Segoe UI；中文 YaHei/PingFang；
+     日文 Yu Gothic UI、韩文 Malgun Gothic（Windows 自带），避免 JA/KO 缺字回退方框 */
   font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Yu Gothic UI', 'Meiryo', 'Malgun Gothic', sans-serif;
   font-size: 13px;
   color: var(--ofs-text-1);
   background: var(--ofs-bg-base);

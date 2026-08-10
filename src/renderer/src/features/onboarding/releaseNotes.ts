@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.14.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '全球多语种支持：新增 繁体中文/日语/韩语/俄语/西班牙语/法语/德语/葡萄牙语，共 10 种语言，设置里可切换（非中英为机器翻译，欢迎在 GitHub 反馈校对）',
+        en: 'Global localization: added Traditional Chinese, Japanese, Korean, Russian, Spanish, French, German, and Portuguese — 10 languages total, switch in Settings (non-CN/EN are machine-translated; corrections welcome on GitHub)'
+      },
+      {
+        type: 'feat',
+        zh: '主进程的报错提示也随语言翻译（认证、连接、代理、传输等）',
+        en: 'Main-process error messages are localized too (auth, connection, proxy, transfer, and more)'
+      }
+    ]
+  },
+  {
     version: '0.13.0',
     items: [
       {

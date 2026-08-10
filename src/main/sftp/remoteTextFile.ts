@@ -4,6 +4,7 @@ import { looksBinary } from './editGuards'
 import { typeFromMode } from './entryParse'
 import { toRemotePath, type RemotePath } from './remotePath'
 import { readRemoteFile, sftpLstat, sftpRealpath, sftpStat } from './sftpLowLevel'
+import { t } from '../services/i18n'
 
 /**
  * "把一个远端路径当文本文件读出来"：软链解析 + 三道门（类型 / 尺寸 / 二进制）+ 整文件读。
@@ -57,20 +58,24 @@ export async function readRemoteTextFile(
   const resolvedPath = await resolveRemoteTarget(sftp, remotePath)
 
   const stat = await sftpStat(sftp, resolvedPath)
-  if (!stat) throw new Error(`远端文件不可读（不存在、无权限或断链）：${resolvedPath}`)
+  if (!stat) throw new Error(t('err.sftp.fileUnreadable', { path: resolvedPath }))
   const type = typeFromMode(stat.mode)
-  if (type === 'dir') throw new Error(`这是目录，不能作为文本打开：${resolvedPath}`)
+  if (type === 'dir') throw new Error(t('err.sftp.isDirectoryNotText', { path: resolvedPath }))
   // 设备/管道/socket 读起来会挂住整条 SFTP 通道，宁可在门口拒掉
-  if (type !== 'file') throw new Error(`不是普通文件，不能作为文本打开：${resolvedPath}`)
+  if (type !== 'file') throw new Error(t('err.sftp.notRegularFile', { path: resolvedPath }))
   if (stat.size > MAX_EDIT_BYTES) {
     throw new Error(
-      `文件太大，请下载后再打开：${resolvedPath}（${stat.size} 字节，上限 ${MAX_EDIT_BYTES} 字节）`
+      t('err.sftp.fileTooLargeToEdit', {
+        path: resolvedPath,
+        size: stat.size,
+        max: MAX_EDIT_BYTES
+      })
     )
   }
 
   const buf = await readRemoteFile(sftp, resolvedPath, MAX_EDIT_BYTES)
   // NUL 字节即拒：这类内容进文本编辑器再存回来，往返一次文件就毁了（UTF-16 也在其中）
-  if (looksBinary(buf)) throw new Error(`二进制文件不能用文本编辑器打开：${resolvedPath}`)
+  if (looksBinary(buf)) throw new Error(t('err.sftp.binaryNotText', { path: resolvedPath }))
 
   return { resolvedPath, buf, stat }
 }

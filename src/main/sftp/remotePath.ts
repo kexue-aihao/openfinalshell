@@ -1,4 +1,5 @@
 import { posix } from 'node:path'
+import { t } from '../services/i18n'
 
 /**
  * 远端路径域隔离：branded type 强制所有远端路径操作走本模块（内部一律 path.posix），
@@ -66,13 +67,15 @@ const REMOTE_PATH_MAX = 4096
  * 刻意**不**拒通配元字符：真实文件名里可以有 `*`、`?`、`[`，而我们全程单引号包着、
  * 它们就是字面量。拒掉只会让用户删不掉自己的文件。
  */
-export function assertSafeRemotePath(p: string, what = '远端路径'): RemotePath {
-  if (p.trim() === '') throw new Error(`${what}不能为空`)
-  if (/[\0\n\r]/.test(p)) throw new Error(`${what}含换行或 NUL 字符，不能用于远端命令：${JSON.stringify(p)}`)
-  if (p.length > REMOTE_PATH_MAX) throw new Error(`${what}超过 ${REMOTE_PATH_MAX} 字符`)
-  if (!p.startsWith('/')) throw new Error(`${what}必须是绝对路径：${p}`)
+export function assertSafeRemotePath(p: string, what = t('err.sftp.remotePathLabel')): RemotePath {
+  if (p.trim() === '') throw new Error(t('err.sftp.pathEmpty', { what }))
+  if (/[\0\n\r]/.test(p))
+    throw new Error(t('err.sftp.pathControlChar', { what, path: JSON.stringify(p) }))
+  if (p.length > REMOTE_PATH_MAX)
+    throw new Error(t('err.sftp.pathTooLong', { what, max: REMOTE_PATH_MAX }))
+  if (!p.startsWith('/')) throw new Error(t('err.sftp.pathNotAbsolute', { what, path: p }))
   for (const seg of p.split('/')) {
-    if (seg === '.' || seg === '..') throw new Error(`${what}不能含 . 或 .. 路径段：${p}`)
+    if (seg === '.' || seg === '..') throw new Error(t('err.sftp.pathDotSegment', { what, path: p }))
   }
   return p as RemotePath
 }

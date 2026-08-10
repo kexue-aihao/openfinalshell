@@ -6,6 +6,7 @@ import { vault } from '../store/Vault'
 import { rememberPassword } from '../store/connections'
 import { getPrivateKey, getProxy } from '../store/savedRefs'
 import { getSettings } from '../services/settings'
+import { t } from '../services/i18n'
 import { expandPath } from '../utils/expandPath'
 import { promptBroker } from './PromptBroker'
 import { dialThroughProxy, ProxyError, type ResolvedProxy } from './proxyDial'
@@ -59,12 +60,10 @@ export function resolveProxy(
   if (!proxyId) return null
   const p = getProxy(proxyId)
   if (!p) {
-    throw new ProxyError(
-      '这条连接引用的代理已不存在，请在"设置 → 代理与私钥"里重新指定，或把代理改成直连'
-    )
+    throw new ProxyError(t('err.ssh.proxyNotFound'))
   }
   if (!p.host.trim()) {
-    throw new ProxyError(`代理「${p.name}」没有填写地址，请在"设置 → 代理与私钥"里补全`)
+    throw new ProxyError(t('err.ssh.proxyNoHost', { name: p.name }))
   }
   return {
     type: p.type,
@@ -113,7 +112,7 @@ export async function buildConnectConfig(
         const payload: PasswordPromptPayload = { username: profile.username, host: profile.host }
         const reply = await promptBroker.request(sessionId, 'password', payload)
         if (!reply.ok || !reply.answers?.[0]) {
-          throw new Error('已取消输入密码')
+          throw new Error(t('err.ssh.passwordCancelled'))
         }
         password = reply.answers[0]
         if (reply.remember && vault.isAvailable()) {
@@ -125,12 +124,10 @@ export async function buildConnectConfig(
     }
     case 'privateKey': {
       const keyId = profile.auth.privateKeyId
-      if (!keyId) throw new Error('未指定私钥，请在连接设置里选一条已保存的私钥')
+      if (!keyId) throw new Error(t('err.ssh.noPrivateKeySelected'))
       const key = getPrivateKey(keyId)
       if (!key) {
-        throw new Error(
-          '这条连接引用的私钥已不存在，请在"设置 → 代理与私钥"里重新指定'
-        )
+        throw new Error(t('err.ssh.privateKeyNotFound'))
       }
       // 展开只在读取时做，savedRefs 里保留用户的原始输入（~/.ssh/xxx 跨机器导入才有意义）
       const keyPath = expandPath(key.path)
@@ -138,7 +135,7 @@ export async function buildConnectConfig(
         config.privateKey = await readFile(keyPath)
       } catch {
         // 报错要指名是哪一条保存的私钥 —— 只报路径的话，用户得自己回想哪台机器用的是它
-        throw new Error(`读不到私钥「${key.name}」的文件：${keyPath}`)
+        throw new Error(t('err.ssh.privateKeyReadFail', { name: key.name, path: keyPath }))
       }
       if (key.passphraseRef) {
         config.passphrase = vault.getSecret(key.passphraseRef) ?? undefined
@@ -148,7 +145,7 @@ export async function buildConnectConfig(
     case 'agent': {
       const agent = detectAgent()
       if (!agent) {
-        throw new Error('未检测到 SSH agent（请启用 ssh-agent 服务或设置 SSH_AUTH_SOCK）')
+        throw new Error(t('err.ssh.noAgent'))
       }
       config.agent = agent
       break

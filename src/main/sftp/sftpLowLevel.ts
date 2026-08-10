@@ -1,5 +1,6 @@
 import type { OpenMode, SFTPWrapper, Stats } from 'ssh2'
 import { toRemotePath, type RemotePath } from './remotePath'
+import { t } from '../services/i18n'
 
 /**
  * ssh2 低阶 SFTP 操作的 Promise 包装。
@@ -368,5 +369,5 @@ export async function writeRemoteFile(
 }
 
 function tooLarge(path: RemotePath, size: number, maxBytes: number): Error {
-  return new Error(`远端文件太大：${path}（${size} 字节，上限 ${maxBytes} 字节）`)
+  return new Error(t('err.sftp.fileTooLarge', { path, size, max: maxBytes }))
 }

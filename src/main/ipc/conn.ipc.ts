@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { handle } from './registry'
+import { t } from '../services/i18n'
 import {
   deleteGroup,
   deleteProfile,
@@ -69,7 +70,7 @@ export function registerConnIpc(): void {
     'conn:launchRdp',
     async (id) => {
       const profile = getProfile(id)
-      if (!profile) throw new Error('连接不存在')
+      if (!profile) throw new Error(t('err.ipc.connectionNotFound'))
       await launchRdp(profile)
     },
     z.tuple([z.string()])

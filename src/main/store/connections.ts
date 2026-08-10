@@ -9,6 +9,7 @@ import type {
   SavedPrivateKey,
   SavedProxy
 } from '@shared/types'
+import { t } from '../services/i18n'
 import { metaGet, metaSet, prepare, tx } from './Database'
 import { listPrivateKeys, listProxies, upsertPrivateKey, upsertProxy } from './savedRefs'
 import { vault } from './Vault'
@@ -132,7 +133,7 @@ export function deleteProfile(id: ProfileId): void {
 
 export function duplicateProfile(id: ProfileId): ConnectionProfile {
   const src = getProfile(id)
-  if (!src) throw new Error('连接不存在')
+  if (!src) throw new Error(t('err.store.profileNotFound'))
   return tx(() => {
     /*
      * 只复制**这条连接独占的**那份密码。理由与 deleteProfile 那段是同一条：

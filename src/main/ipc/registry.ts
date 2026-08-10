@@ -2,6 +2,7 @@ import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent
 import type { ZodType } from 'zod'
 import type { EventMap, InvokeMap, SendMap } from '@shared/ipc'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('ipc')
 
@@ -37,10 +38,10 @@ export function handle<K extends keyof InvokeMap>(
         // 但绝不回显收到的值 —— args 里可能有明文密码。
         const where = parsed.error.issues
           .slice(0, 4)
-          .map((i) => `${i.path.slice(1).join('.') || '(根)'}=${i.code}`)
+          .map((i) => `${i.path.slice(1).join('.') || t('err.ipc.paramRoot')}=${i.code}`)
           .join('; ')
         log.warn(`invalid args for ${channel}: ${parsed.error.message}`)
-        throw new Error(`参数校验失败 ${channel} → ${where}`)
+        throw new Error(t('err.ipc.validationFailed', { channel, where }))
       }
       // 用校验后的数据而不是原始 args：zod 会剥掉未声明的字段，
       // 否则 renderer 塞进来的多余键会一路穿到处理器（例如让导出写到任意路径）

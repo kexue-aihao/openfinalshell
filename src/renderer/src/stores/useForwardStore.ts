@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import i18n from '@/i18n'
 import type { ForwardId, ForwardRule, ForwardRuntime, ProfileId, SessionId } from '@shared/types'
 import { ofs } from '@/ipc/api'
 
@@ -60,5 +61,5 @@ export function describeRule(rule: ForwardRule): string {
   if (rule.type === 'local') {
     return `${rule.bindAddr}:${rule.bindPort} → ${rule.dstHost}:${rule.dstPort}`
   }
-  return `远端 ${rule.bindAddr}:${rule.bindPort} → ${rule.dstHost}:${rule.dstPort}`
+  return `${i18n.t('forward.remotePrefix')} ${rule.bindAddr}:${rule.bindPort} → ${rule.dstHost}:${rule.dstPort}`
 }

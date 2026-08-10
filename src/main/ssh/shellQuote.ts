@@ -1,5 +1,7 @@
+import { t } from '../services/i18n'
+
 /**
- * POSIX shell 参数转义 —— 纯函数、**零 import**。
+ * POSIX shell 参数转义。
  *
  * 本模块不认识路径、也不认识 SSH，它只回答一个问题：怎么把一个任意字符串塞进
  * `sh` 的命令行里、让它被当成**恰好一个字面参数**。反过来，路径的合法性归
@@ -40,7 +42,7 @@ export class UnsafeArgError extends Error {
  */
 export function shQuote(arg: string): string {
   if (arg.includes('\0')) {
-    throw new UnsafeArgError('参数含 NUL 字节，无法作为 shell 参数传递')
+    throw new UnsafeArgError(t('err.ssh.nulByteInArg'))
   }
   return `'${arg.replace(/'/g, "'\\''")}'`
 }

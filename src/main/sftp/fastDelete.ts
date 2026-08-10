@@ -9,6 +9,7 @@ import { execOnce } from '../ssh/ExecRunner'
 import { shQuote } from '../ssh/shellQuote'
 import { sshManager } from '../ssh/SshConnectionManager'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('fast-delete')
 
@@ -50,8 +51,11 @@ export function assertDeletable(raw: string): RemotePath {
   const segments = p.split('/').filter(Boolean)
   if (segments.length < FAST_DELETE_MIN_SEGMENTS) {
     throw new Error(
-      `快速删除拒绝层级过浅的路径（至少 ${FAST_DELETE_MIN_SEGMENTS} 级，这条只有 ${segments.length} 级）：${p}\n` +
-        '这类路径请改用普通删除。'
+      t('err.sftp.pathTooShallow', {
+        min: FAST_DELETE_MIN_SEGMENTS,
+        actual: segments.length,
+        path: p
+      })
     )
   }
   return p
@@ -73,13 +77,13 @@ export function assertDeletable(raw: string): RemotePath {
  *  - `[ -e ] || [ -L ]`：`-e` 对断掉的软链是假的，而断链也算"还在"。
  */
 export function buildFastDeleteCommand(rawPaths: string[]): string {
-  if (rawPaths.length === 0) throw new Error('没有要删除的路径')
+  if (rawPaths.length === 0) throw new Error(t('err.sftp.noPathsToDelete'))
   if (rawPaths.length > FAST_DELETE_BATCH) {
-    throw new Error(`一批最多 ${FAST_DELETE_BATCH} 条路径（收到 ${rawPaths.length} 条）`)
+    throw new Error(t('err.sftp.tooManyPaths', { max: FAST_DELETE_BATCH, actual: rawPaths.length }))
   }
   const list = rawPaths.map((p) => shQuote(assertDeletable(p))).join(' ')
   if (list.length > FAST_DELETE_MAX_COMMAND_CHARS) {
-    throw new Error(`命令过长（${list.length} 字符），请分批删除`)
+    throw new Error(t('err.sftp.commandTooLong', { chars: list.length }))
   }
   return [
     `rm -rf -- ${list}`,
@@ -149,7 +153,7 @@ export interface FastDeletePreview {
  */
 export function fastDeletePreview(paths: string[]): FastDeletePreview {
   const batches = chunkDeletePaths(paths)
-  if (batches.length === 0) throw new Error('没有要删除的路径')
+  if (batches.length === 0) throw new Error(t('err.sftp.noPathsToDelete'))
   return {
     command: buildFastDeleteCommand(batches[0]),
     count: paths.length,
@@ -176,7 +180,7 @@ export interface FastDeleteResult {
 export async function fastDelete(sessionId: SessionId, paths: string[]): Promise<FastDeleteResult> {
   const conn = sshManager.get(sessionId)
   const batches = chunkDeletePaths(paths)
-  if (batches.length === 0) throw new Error('没有要删除的路径')
+  if (batches.length === 0) throw new Error(t('err.sftp.noPathsToDelete'))
 
   const leftover: string[] = []
   let stderr = ''

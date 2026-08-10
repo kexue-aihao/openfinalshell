@@ -109,7 +109,9 @@ describe('拨号侧', () => {
 
   it('私钥按 id 查表，报错要指名是哪一条', () => {
     expect(src).toContain('getPrivateKey(keyId)')
-    expect(src).toContain('读不到私钥「${key.name}」的文件')
+    // 文案已入 i18n：报错走 err.ssh.privateKeyReadFail，并把是哪条私钥（key.name）带进插值
+    expect(src).toContain('err.ssh.privateKeyReadFail')
+    expect(src).toContain('name: key.name')
   })
 
   it('proxyDial 仍然不认识引用、也不碰 Vault', () => {

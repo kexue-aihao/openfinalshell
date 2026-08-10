@@ -7,6 +7,7 @@ import type {
 } from '@shared/types'
 import { emit } from '../ipc/registry'
 import { getSettings } from './settings'
+import { t } from './i18n'
 import { decideInstall } from './updateGate'
 import { transferQueue } from '../sftp/TransferQueue'
 import { monitorManager } from '../monitor/MonitorManager'
@@ -159,9 +160,9 @@ export function installUpdate(force: boolean): UpdateInstallResult {
   if (decision.kind === 'reject') {
     return {
       error: {
-        notPackaged: '开发模式下不能安装更新',
-        portable: '免安装版请到 Releases 下载新版覆盖',
-        notDownloaded: '更新还没下载完'
+        notPackaged: t('err.data.updateDevMode'),
+        portable: t('err.data.updatePortable'),
+        notDownloaded: t('err.data.updateNotDownloaded')
       }[decision.reason]
     }
   }

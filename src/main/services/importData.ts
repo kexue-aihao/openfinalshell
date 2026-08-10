@@ -24,6 +24,7 @@ import { saveForward } from '../store/forwards'
 import { saveSnippet, saveSnippetGroup } from '../store/snippets'
 import { getSettings, patchSettings, stripMainOnlyPaths } from './settings'
 import { EXPORT_FORMAT_VERSION } from './exportData'
+import { t } from './i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('import')
@@ -186,7 +187,7 @@ const savedKeySchema = z.object({
 const envelopeSchema = z.object({
   app: z.literal('openfinalshell'),
   formatVersion: z.number().int().min(1),
-  appVersion: z.string().max(60).default('未知'),
+  appVersion: z.string().max(60).default(() => t('err.data.unknownVersion')),
   exportedAt: z.number().default(0),
   includesSecrets: z.boolean().default(false),
   data: z.object({
@@ -251,20 +252,23 @@ function parseEnvelope(text: string): ParsedImport {
   try {
     raw = JSON.parse(text)
   } catch {
-    throw new Error('这个文件不是合法的 JSON，请确认选的是 OpenFinalShell 导出的文件')
+    throw new Error(t('err.data.invalidJson'))
   }
   const head = raw as { app?: unknown; formatVersion?: unknown }
   if (head?.app !== 'openfinalshell') {
-    throw new Error('这不是 OpenFinalShell 导出的数据文件')
+    throw new Error(t('err.data.notOfsExport'))
   }
   if (typeof head.formatVersion === 'number' && head.formatVersion > EXPORT_FORMAT_VERSION) {
     throw new Error(
-      `该文件由更新版本导出（格式 v${head.formatVersion}，本机支持 v${EXPORT_FORMAT_VERSION}），请先升级 OpenFinalShell`
+      t('err.data.newerFormat', {
+        fileVersion: head.formatVersion,
+        supportedVersion: EXPORT_FORMAT_VERSION
+      })
     )
   }
   const env = envelopeSchema.safeParse(raw)
   if (!env.success) {
-    throw new Error('导出文件的结构不完整或已损坏，无法导入')
+    throw new Error(t('err.data.corruptEnvelope'))
   }
 
   const d = env.data.data
@@ -321,7 +325,7 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
   let source = opts.sourcePath
   if (!source) {
     const r = await dialog.showOpenDialog({
-      title: '导入应用数据',
+      title: t('err.data.importTitle'),
       filters: [{ name: 'JSON', extensions: ['json'] }],
       properties: ['openFile']
     })
@@ -331,7 +335,7 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
 
   const info = await stat(source)
   if (info.size > MAX_IMPORT_BYTES) {
-    throw new Error(`文件太大（${Math.round(info.size / 1024 / 1024)}MB），不像是导出的配置文件`)
+    throw new Error(t('err.data.fileTooLarge', { size: Math.round(info.size / 1024 / 1024) }))
   }
   const parsed = parseEnvelope(await readFile(source, 'utf8'))
 
@@ -383,10 +387,10 @@ function openSecrets(sealed: SealedSecrets, passphrase: string): Record<string, 
     ]).toString('utf8')
   } catch {
     // GCM 校验失败：口令不对，或文件被改过 —— 两者无法区分，一起说
-    throw new Error('导出口令不正确，或文件的密码段已损坏')
+    throw new Error(t('err.data.wrongPassphrase'))
   }
   const parsed = z.record(z.string(), z.string()).safeParse(JSON.parse(json))
-  if (!parsed.success) throw new Error('文件的密码段格式异常')
+  if (!parsed.success) throw new Error(t('err.data.badSecretsFormat'))
   return parsed.data
 }
 
@@ -427,12 +431,12 @@ function sanitizeSettings(raw: Record<string, unknown>): {
     if (value === null || typeof value !== typeof defaults[key]) continue
     patch[key] = value
   }
-  if ('window' in raw) notes.push('窗口尺寸与最大化状态属于本机状态，未随导入改变')
+  if ('window' in raw) notes.push(t('err.data.windowStateKept'))
 
   const sftp = patch.sftp as Record<string, unknown> | undefined
   if (sftp && typeof sftp.downloadDir === 'string' && sftp.downloadDir !== '') {
     if (!existsSync(sftp.downloadDir)) {
-      notes.push(`导入的下载目录 ${sftp.downloadDir} 在本机不存在，已保留原设置`)
+      notes.push(t('err.data.downloadDirMissing', { dir: sftp.downloadDir }))
       const copy = { ...sftp }
       delete copy.downloadDir
       patch.sftp = copy
@@ -448,7 +452,7 @@ function sanitizeSettings(raw: Record<string, unknown>): {
    */
   const guarded = stripMainOnlyPaths(patch as Partial<AppSettings>, getSettings())
   if (guarded.stripped.length > 0) {
-    notes.push(`出于安全，以下设置未随文件导入，请在设置里重新指定：${guarded.stripped.join('、')}`)
+    notes.push(t('err.data.settingsStripped', { keys: guarded.stripped.join('、') }))
   }
   return { patch: guarded.patch, notes }
 }
@@ -463,9 +467,9 @@ function rowExists(table: string, column: string, value: string): boolean {
 
 export async function applyImport(opts: ImportApplyOptions): Promise<ImportResult> {
   if (!pending || pending.token !== opts.token) {
-    throw new Error('导入会话已失效，请重新选择文件')
+    throw new Error(t('err.data.importSessionExpiredFile'))
   }
-  if (applying) throw new Error('上一次导入还在进行中')
+  if (applying) throw new Error(t('err.data.importInProgress'))
 
   const { parsed } = pending
   const dup = opts.conflict === 'duplicate'
@@ -476,12 +480,12 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
   if (parsed.secrets && opts.passphrase) {
     secretMap = openSecrets(parsed.secrets, opts.passphrase)
   } else if (parsed.secrets && opts.include.profiles) {
-    notes.push('未提供导出口令，连接已导入但密码为空，首次连接时会提示输入')
+    notes.push(t('err.data.noPassphraseSecrets'))
   }
 
   const vaultOk = Object.keys(secretMap).length === 0 || vault.isAvailable()
   if (!vaultOk) {
-    notes.push('本机无法安全保存密码（safeStorage 不可用），密码未写入，连接时会提示输入')
+    notes.push(t('err.data.vaultUnavailable'))
   }
 
   const result: ImportResult = {
@@ -528,7 +532,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           }
           saveGroup({
             id,
-            name: dup ? `${g.name}（导入）` : g.name,
+            name: dup ? t('err.data.importedNameSuffix', { name: g.name }) : g.name,
             parentId: mapId(groupIds, g.parentId),
             order: g.order
           })
@@ -563,7 +567,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           upsertProxy({
             ...x,
             id,
-            name: dup ? `${x.name}（导入）` : x.name,
+            name: dup ? t('err.data.importedNameSuffix', { name: x.name }) : x.name,
             passwordRef: takeRef(x.passwordRef)
           })
           result.proxies++
@@ -577,7 +581,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           upsertPrivateKey({
             ...k,
             id,
-            name: dup ? `${k.name}（导入）` : k.name,
+            name: dup ? t('err.data.importedNameSuffix', { name: k.name }) : k.name,
             passphraseRef: takeRef(k.passphraseRef)
           })
           result.privateKeys++
@@ -594,7 +598,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           }
           const profile: ConnectionProfile = {
             id,
-            name: dup ? `${p.name}（导入）` : p.name,
+            name: dup ? t('err.data.importedNameSuffix', { name: p.name }) : p.name,
             groupId: mapId(groupIds, p.groupId),
             color: p.color,
             flag: p.flag,
@@ -658,7 +662,10 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
         result.privateKeys += extracted.keys
         if (extracted.proxies > 0 || extracted.keys > 0) {
           notes.push(
-            `这个文件来自旧版本：已把其中内联的代理与私钥抽成可复用的记录（代理 ${extracted.proxies} 条、私钥 ${extracted.keys} 条），在"设置 → 代理与私钥"里可以改名。`
+            t('err.data.inlineRefsExtracted', {
+              proxies: extracted.proxies,
+              keys: extracted.keys
+            })
           )
         }
       }
@@ -670,7 +677,11 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
             result.skipped++
             continue
           }
-          saveSnippetGroup({ id, name: dup ? `${g.name}（导入）` : g.name, order: g.order })
+          saveSnippetGroup({
+            id,
+            name: dup ? t('err.data.importedNameSuffix', { name: g.name }) : g.name,
+            order: g.order
+          })
         }
         for (const s of parsed.snippets) {
           const id = dup ? randomUUID() : s.id
@@ -725,9 +736,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
           result.knownHosts++
         }
         if (clashes > 0) {
-          notes.push(
-            `${clashes} 台主机的指纹与本机记录不一致，已保留本机记录（不覆盖，以免掩盖中间人告警）`
-          )
+          notes.push(t('err.data.hostKeyClashes', { count: clashes }))
         }
       }
     })

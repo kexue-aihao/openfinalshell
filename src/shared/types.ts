@@ -8,6 +8,7 @@
 // 编码那张表必须住在 constants.ts：它是个值（zod 校验与下拉框都要遍历它），
 // 而这里要的只是从它派生出来的联合类型 —— 两处各写一遍才是真的会漂。
 import type { RemoteCharset } from './constants'
+import type { LocaleTag } from './locales/registry'
 
 // ---------- ID 体系 ----------
 export type ProfileId = string // 连接配置（持久化）
@@ -608,7 +609,7 @@ export type SidebarView = 'connections' | 'snippets' | 'forwards' | 'transfers'
 
 export interface AppSettings {
   version: 1
-  language: 'zh-CN' | 'en-US'
+  language: LocaleTag
   themeMode: ThemeMode
   /** 强调色（8 色预置之一） */
   accent: string

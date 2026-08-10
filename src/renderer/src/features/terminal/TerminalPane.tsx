@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Spin } from 'antd'
 import { Activity, Eraser, FolderTree, History, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import i18n from '@/i18n'
 import { DEFAULT_SETTINGS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
 import { ofs } from '@/ipc/api'
 import { useHistoryStore } from '@/stores/useHistoryStore'
@@ -293,7 +294,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         registerTerm(termId, bundle.term)
         bindTerm(tab.id, termId)
         if (tab.shellEpoch > 0) {
-          bundle.term.write('\r\n\x1b[2m—— 连接已恢复 ——\x1b[0m\r\n')
+          bundle.term.write(`\r\n\x1b[2m—— ${i18n.t('terminal.reconnected')} ——\x1b[0m\r\n`)
         }
         if (active) bundle.term.focus()
       })

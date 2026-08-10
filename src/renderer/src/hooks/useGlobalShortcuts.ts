@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import i18n from '@/i18n'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -63,7 +64,8 @@ export function useGlobalShortcuts(): void {
         const settings = useSettingsStore.getState().settings
         const tab = tabs.find((t) => t.id === activeTabId)
         if (settings?.confirmOnCloseTab && tab?.state === 'ready') {
-          if (!window.confirm(`关闭标签「${tab.customTitle ?? tab.title}」？`)) return
+          if (!window.confirm(i18n.t('tab.closeConfirm', { title: tab.customTitle ?? tab.title })))
+            return
         }
         void closeTab(activeTabId)
       }

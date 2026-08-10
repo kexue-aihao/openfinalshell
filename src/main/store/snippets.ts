@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Snippet, SnippetGroup } from '@shared/types'
 import { metaGet, metaSet, prepare, tx } from './Database'
+import { t } from '../services/i18n'
 
 /** 首次使用时铺一组常用命令，空面板对新用户不友好 */
 function seedIfEmpty(): void {
@@ -10,14 +11,14 @@ function seedIfEmpty(): void {
     tx(() => {
       prepare('INSERT INTO snippet_groups(id, name, sort_order) VALUES(?, ?, ?)').run(
         'default',
-        '常用',
+        t('err.net.snippetGroupCommon'),
         0
       )
       const seed: Array<[string, string]> = [
-        ['磁盘占用', 'df -h'],
-        ['内存', 'free -h'],
-        ['占用最高的进程', 'ps aux --sort=-%cpu | head -n 11'],
-        ['监听端口', 'ss -tulnp']
+        [t('err.net.snippetDiskUsage'), 'df -h'],
+        [t('err.net.snippetMemory'), 'free -h'],
+        [t('err.net.snippetTopProcs'), 'ps aux --sort=-%cpu | head -n 11'],
+        [t('err.net.snippetListeningPorts'), 'ss -tulnp']
       ]
       seed.forEach(([name, command], i) => {
         const snippet: Snippet = {

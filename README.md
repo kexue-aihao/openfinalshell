@@ -183,6 +183,7 @@ Electron 43 + React 18 + TypeScript · [ssh2](https://github.com/mscdex/ssh2) ·
 - **渲染进程是纯视图**。`contextIsolation` + `sandbox` 全开，ssh2 / fs 只在主进程；能力经 preload 白名单暴露，IPC 入参一律 zod 校验。CSP 是 `script-src 'self'`（无 `unsafe-eval`、无 `blob:`）—— 这也是内置编辑器选 CodeMirror 而不是 Monaco 的决定性原因。
 - **凭据引用（credentialRef）模式**。明文密码只在保存表单时单向进主进程，加密落盘后仅返回一个引用；渲染进程从来拿不到明文，也拿不到冲突检测用的文件基线。
 - **IPC 契约唯一事实来源**是 `src/shared/ipc.ts`，main / preload / renderer 三层都只从那里取 channel 名与类型。
+- **全球多语种**。所有用户可见文案（含主进程报错）走 i18n；语言唯一来源 `src/shared/locales/*.json`，加一门语言 = 注册表加一条 + 加一份 json。中/英人工权威，其余为 AI 初翻待母语校对。详见 `agent.md` 的 i18n 段。语言包不进渲染 JS bundle（不吃字节预算）。
 
 代码结构：
 
@@ -205,7 +206,7 @@ npm run dev
 | `npm run dev` | 开发模式（主进程改动自动重启） |
 | `npm run build` | 三层生产构建 |
 | `npm run typecheck` | 主进程 + 渲染层类型检查 |
-| `npm run check:i18n` | 中英文案键对齐校验 |
+| `npm run check:i18n` | 多语种文案键对齐校验（N 种语言键全等 + 覆盖 + 无游离） |
 | `npm test` | 单元 + 集成测试（自动起本地测试 SSH 服务器） |
 | `npm run check:bundle` | 渲染进程产物的字节预算（需先 `build`） |
 | `npm run package` | 打 Windows 安装包（NSIS + portable） |

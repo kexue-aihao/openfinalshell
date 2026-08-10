@@ -300,7 +300,7 @@ describe('导出应用数据', () => {
     expect(env.secrets).toBeUndefined()
     expect(env.data.profiles.some((p: { id: string }) => p.id === LEGACY_PROFILE_ID)).toBe(true)
     // 引用 id 可以留（它不是秘密），但必须说清楚导入后要重填密码
-    expect(env.note).toMatch(/不含任何密码/)
+    expect(env.note).toMatch(/no passwords/i)
   })
 
   it('勾选含密码时用导出口令加密，口令正确才解得开', async () => {
@@ -336,11 +336,11 @@ describe('导出应用数据', () => {
 
   it('含密码导出必须给口令，且口令太短要拦下', async () => {
     await expect(exportData({ includeSecrets: true, targetPath: 'x' })).rejects.toThrow(
-      /必须设置导出口令/
+      /export passphrase/i
     )
     await expect(
       exportData({ includeSecrets: true, passphrase: 'short', targetPath: 'x' })
-    ).rejects.toThrow(/至少 8 位/)
+    ).rejects.toThrow(/at least 8 characters/i)
   })
 })
 

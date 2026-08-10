@@ -10,6 +10,8 @@ import { read, stripComments } from '../sourceGuard'
 const manifest = stripComments(read('src/renderer/src/features/donate/donations.ts'))
 const section = stripComments(read('src/renderer/src/features/donate/DonateSection.tsx'))
 const settings = stripComments(read('src/renderer/src/features/settings/SettingsModal.tsx'))
+const enLocale = read('src/shared/locales/en-US.json')
+const zhLocale = read('src/shared/locales/zh-CN.json')
 
 describe('赞赏码登记表', () => {
   it('八个收款码齐全（USDT×4 链 + BNB + ETH + POL + 微信/支付宝），一个不多一个不少', () => {
@@ -33,11 +35,15 @@ describe('赞赏码登记表', () => {
     expect(manifest.match(/from '\.\/qr\/[a-z0-9-]+\.png'/g)).toHaveLength(8)
     expect(manifest).not.toContain('placeholder')
   })
-  it('每个码都标了链/用途（note 必填，加密货币转错链无法找回）', () => {
-    expect(manifest).toContain('note: string')
-    // 四条 USDT 各自标了不同的链
-    for (const chain of ['TRC20', 'Polygon', 'BEP20', 'ERC20']) {
-      expect(manifest, `USDT 缺少 ${chain} 标注`).toContain(chain)
+  it('每个码都标了链/用途的 i18n 键（加密货币转错链无法找回）', () => {
+    expect(manifest).toContain('noteKey: string')
+    for (const key of ['donate.noteTrc20', 'donate.noteBep20', 'donate.noteErc20', 'donate.scanToPay']) {
+      expect(manifest, `缺少 ${key}`).toContain(key)
+    }
+    // 链标注的文案落在 locales 里（中英都要有，加密货币标错链会丢币）
+    for (const chain of ['TRC20', 'BEP20', 'ERC20']) {
+      expect(enLocale, `en 缺 ${chain}`).toContain(chain)
+      expect(zhLocale, `zh 缺 ${chain}`).toContain(chain)
     }
   })
 })

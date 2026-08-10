@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { z } from 'zod'
 import { MAX_EDIT_BYTES, REMOTE_CHARSETS } from '@shared/constants'
 import { handle } from './registry'
+import { t } from '../services/i18n'
 import { applyConflictPlan, probeConflicts } from '../sftp/conflictProbe'
 import { fastDelete, fastDeletePreview } from '../sftp/fastDelete'
 import { saveRemoteTextFile } from '../sftp/fileSave'
@@ -41,7 +42,7 @@ const remoteBaseName = z
   .max(255)
   .refine(
     (n) => !n.includes('/') && !n.includes('\\') && n !== '.' && n !== '..',
-    '必须是单个文件名'
+    t('err.ipc.mustBeSingleFileName')
   )
 
 export function registerSftpIpc(): void {
@@ -79,7 +80,7 @@ export function registerSftpIpc(): void {
     async ({ sessionId, path }) => {
       const sftp = await sshManager.get(sessionId).browseSftpSession()
       const target = toRemotePath(path)
-      if (await sftpStat(sftp, target)) throw new Error(`同名文件或目录已存在：${target}`)
+      if (await sftpStat(sftp, target)) throw new Error(t('err.ipc.fileOrDirExists', { target }))
       // 0o644 与传输侧新建文件的权限一致，免得"新建"出来的文件和"上传"出来的不一样
       const fd = await sftpOpen(sftp, target, 'wx', 0o644)
       await sftpClose(sftp, fd)

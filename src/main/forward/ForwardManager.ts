@@ -5,6 +5,7 @@ import { emit } from '../ipc/registry'
 import { sshManager } from '../ssh/SshConnectionManager'
 import { buildReply, REPLY, Socks5Session } from './socks5'
 import { scopedLogger } from '../utils/logger'
+import { t } from '../services/i18n'
 
 const log = scopedLogger('forward')
 
@@ -17,9 +18,9 @@ interface ActiveForward {
 }
 
 function friendlyListenError(err: NodeJS.ErrnoException, addr: string, port: number): string {
-  if (err.code === 'EADDRINUSE') return `端口已被占用：${addr}:${port}`
-  if (err.code === 'EACCES') return `没有权限监听 ${addr}:${port}（1024 以下端口需要管理员）`
-  if (err.code === 'EADDRNOTAVAIL') return `监听地址不可用：${addr}`
+  if (err.code === 'EADDRINUSE') return t('err.net.portInUse', { addr, port })
+  if (err.code === 'EACCES') return t('err.net.listenPermission', { addr, port })
+  if (err.code === 'EADDRNOTAVAIL') return t('err.net.listenAddrUnavailable', { addr })
   return err.message
 }
 
@@ -249,7 +250,7 @@ class ForwardManager {
       lost.push(entry.rule)
       this.cleanup(entry)
       entry.runtime.state = 'error'
-      entry.runtime.error = '会话已断开'
+      entry.runtime.error = t('err.net.sessionDisconnected')
       entry.runtime.activeConns = 0
       this.publish(entry)
       this.active.delete(entry.rule.id)

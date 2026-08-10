@@ -10,30 +10,31 @@
 
 export interface Region {
   code: string
-  /** 中文名，选择器里显示 */
-  label: string
 }
 
-/** 选择器里给的常见服务器所在地（不追求全，够用即可；用户按物理位置手选） */
+/**
+ * 选择器里给的常见服务器所在地（不追求全，够用即可；用户按物理位置手选）。
+ * 显示名走 i18n：`t(`region.${code}`)`（键在 locales 里，动态前缀 region. 已在 checkI18n 白名单）。
+ */
 export const REGIONS: Region[] = [
-  { code: 'lan', label: '局域网' },
-  { code: 'CN', label: '中国大陆' },
-  { code: 'HK', label: '香港' },
-  { code: 'TW', label: '台湾' },
-  { code: 'JP', label: '日本' },
-  { code: 'KR', label: '韩国' },
-  { code: 'SG', label: '新加坡' },
-  { code: 'US', label: '美国' },
-  { code: 'CA', label: '加拿大' },
-  { code: 'GB', label: '英国' },
-  { code: 'DE', label: '德国' },
-  { code: 'FR', label: '法国' },
-  { code: 'NL', label: '荷兰' },
-  { code: 'RU', label: '俄罗斯' },
-  { code: 'IN', label: '印度' },
-  { code: 'AU', label: '澳大利亚' },
-  { code: 'BR', label: '巴西' },
-  { code: 'globe', label: '其它/公网' }
+  { code: 'lan' },
+  { code: 'CN' },
+  { code: 'HK' },
+  { code: 'TW' },
+  { code: 'JP' },
+  { code: 'KR' },
+  { code: 'SG' },
+  { code: 'US' },
+  { code: 'CA' },
+  { code: 'GB' },
+  { code: 'DE' },
+  { code: 'FR' },
+  { code: 'NL' },
+  { code: 'RU' },
+  { code: 'IN' },
+  { code: 'AU' },
+  { code: 'BR' },
+  { code: 'globe' }
 ]
 
 /**

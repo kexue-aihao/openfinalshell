@@ -1,5 +1,6 @@
 import { MAIN_ONLY_SETTINGS_PATHS, type EventMap, type OfsApi } from '@shared/ipc'
 import { DEFAULT_SETTINGS, TRANSFER_FINAL_STATES } from '@shared/constants'
+import enUSLocale from '@shared/locales/en-US.json'
 import type {
   CommandHistoryEntry,
   ConnectionGroup,
@@ -493,6 +494,8 @@ export function createMockOfs(): OfsApi {
     'app:getVersions': () => ({ app: '0.1.0-mock', electron: 'browser', node: '-', chrome: '-' }),
     // 浏览器 mock 里默认当"更新到当前版本"，方便直接预览更新弹窗
     'app:getStartupNotice': () => ({ kind: 'update', fromVersion: '0.11.0', toVersion: '0.12.0' }),
+    // 浏览器 mock 没有主进程语言包，任何语言都回 en-US（UI 调试足够）
+    'i18n:bundle': () => enUSLocale as unknown as Record<string, unknown>,
     // 浏览器里没有原生对话框，返回假路径让传输流程可走通
     'app:pickPath': (arg: never) => {
       const { mode } = arg as unknown as { mode: string }

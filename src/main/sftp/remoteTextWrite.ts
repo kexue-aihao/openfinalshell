@@ -12,6 +12,7 @@ import {
   sftpUnlink,
   writeRemoteFile
 } from './sftpLowLevel'
+import { t } from '../services/i18n'
 
 /**
  * 把一份文本写回远端。**无状态**：没有注册表、没有 id、没有排队，一次调用要么写成、
@@ -112,9 +113,9 @@ export async function saveRemoteText(
 
   if (!gates.overwriteRemoteChanges) {
     // 目标没了（被删/被改名）也算冲突：盲目重建会把用户"我删了这个文件"的动作抹掉
-    if (!stat) return { kind: 'conflict', reason: '远端文件已不存在（可能被删除或改名）' }
+    if (!stat) return { kind: 'conflict', reason: t('err.sftp.saveConflictGone') }
     if (await remoteChangedSince(sftp, target, baseline, stat)) {
-      return { kind: 'conflict', reason: '远端文件在你编辑期间被改动过' }
+      return { kind: 'conflict', reason: t('err.sftp.saveConflictChanged') }
     }
   }
 
@@ -184,7 +185,9 @@ export async function saveRemoteText(
   try {
     await sftpChmod(sftp, target, mode)
   } catch (err) {
-    warning = `已保存，但权限位未能恢复（${err instanceof Error ? err.message : String(err)}）`
+    warning = t('err.sftp.saveChmodFailed', {
+      detail: err instanceof Error ? err.message : String(err)
+    })
   }
 
   const after = await sftpStat(sftp, target)
@@ -269,8 +272,10 @@ export async function writeRemoteTemp(
   // SFTP v3 没有 EEXIST，服务器对 EXCL 冲突和"目录不可写"一律回 SSH_FX_FAILURE，
   // 底层那句 "Failure" 摆给用户看等于什么都没说
   throw new Error(
-    `无法在 ${remoteDirname(target)} 下创建临时文件（目录可能不可写）：` +
-      `${last instanceof Error ? last.message : String(last)}`
+    t('err.sftp.saveTempCreateFailed', {
+      dir: remoteDirname(target),
+      detail: last instanceof Error ? last.message : String(last)
+    })
   )
 }
 

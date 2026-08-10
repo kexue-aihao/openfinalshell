@@ -15,6 +15,7 @@ import { checkHostkey, fingerprintSha256, parseKeyType, trustHostkey } from './h
 import { promptBroker } from './PromptBroker'
 import { ShellSession } from './ShellSession'
 import { vault } from '../store/Vault'
+import { t } from '../services/i18n'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('ssh')
@@ -177,7 +178,7 @@ export class SshConnection extends EventEmitter {
     }
 
     if (!canRetry) {
-      this.setState('closed', '连接已断开')
+      this.setState('closed', t('err.ssh.disconnected'))
       return
     }
     this.scheduleReconnect()
@@ -189,7 +190,11 @@ export class SshConnection extends EventEmitter {
     this.reconnectAttempt += 1
     this.setState(
       'reconnecting',
-      `连接已断开，${delaySec} 秒后重连（第 ${this.reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS} 次）`
+      t('err.ssh.reconnecting', {
+        seconds: delaySec,
+        attempt: this.reconnectAttempt,
+        max: MAX_RECONNECT_ATTEMPTS
+      })
     )
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
@@ -202,7 +207,7 @@ export class SshConnection extends EventEmitter {
           log.warn(`reconnect ${this.reconnectAttempt} failed: ${err.message}`)
           if (this.intentionalClose) return
           if (this.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
-            this.setState('closed', `重连失败：${err.message}`)
+            this.setState('closed', t('err.ssh.reconnectFailed', { msg: err.message }))
           } else {
             this.scheduleReconnect()
           }
@@ -284,7 +289,7 @@ export class SshConnection extends EventEmitter {
 
   async openShell(cols: number, rows: number): Promise<ShellSession> {
     const client = this.client
-    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+    if (!client || this.state !== 'ready') throw new Error(t('err.ssh.sessionNotReady'))
     const termId = randomUUID()
     const channel = await new Promise<ClientChannel>((resolve, reject) => {
       client.shell(
@@ -320,7 +325,7 @@ export class SshConnection extends EventEmitter {
     cb: (err: Error | undefined, stream?: ClientChannel) => void
   ): void {
     if (!this.client || this.state !== 'ready') {
-      cb(new Error('会话未就绪'))
+      cb(new Error(t('err.ssh.sessionNotReady')))
       return
     }
     this.client.forwardOut(srcHost, srcPort, dstHost, dstPort, (err, stream) =>
@@ -338,7 +343,7 @@ export class SshConnection extends EventEmitter {
     handler: (info: { destIP: string; destPort: number }, accept: () => ClientChannel) => void
   ): Promise<void> {
     const client = this.client
-    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+    if (!client || this.state !== 'ready') throw new Error(t('err.ssh.sessionNotReady'))
 
     const key = `${bindAddr}:${bindPort}`
     this.remoteHandlers.set(key, handler)
@@ -364,7 +369,7 @@ export class SshConnection extends EventEmitter {
           reject(
             new Error(
               /administratively prohibited/i.test(err.message)
-                ? `远端拒绝监听 ${bindAddr}:${bindPort}（非 127.0.0.1 需服务器开启 GatewayPorts）`
+                ? t('err.ssh.forwardInRejected', { addr: bindAddr, port: bindPort })
                 : friendlySshError(err)
             )
           )
@@ -386,10 +391,10 @@ export class SshConnection extends EventEmitter {
    */
   async openMonitorChannel(): Promise<ClientChannel> {
     const client = this.client
-    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+    if (!client || this.state !== 'ready') throw new Error(t('err.ssh.sessionNotReady'))
     return new Promise<ClientChannel>((resolve, reject) => {
       client.exec('env LANG=C LC_ALL=C sh', (err, stream) => {
-        if (err) reject(new Error(`打开监控通道失败：${channelOpenError(err)}`))
+        if (err) reject(new Error(t('err.ssh.openMonitorChannelFail', { reason: channelOpenError(err) })))
         else resolve(stream)
       })
     })
@@ -412,10 +417,10 @@ export class SshConnection extends EventEmitter {
    * 归属变得不清楚，而它管着"60 秒空闲就关掉第二条连接"。
    */
   async execChannel(command: string, on: 'primary' | 'transfer' = 'primary'): Promise<ClientChannel> {
-    if (this.state !== 'ready') throw new Error('会话未就绪')
+    if (this.state !== 'ready') throw new Error(t('err.ssh.sessionNotReady'))
     const client = on === 'transfer' ? this.transferClient : this.client
     if (!client) {
-      throw new Error(on === 'transfer' ? '传输连接未就绪' : '会话未就绪')
+      throw new Error(on === 'transfer' ? t('err.ssh.transferClientNotReady') : t('err.ssh.sessionNotReady'))
     }
     return new Promise<ClientChannel>((resolve, reject) => {
       client.exec(command, (err, stream) => {
@@ -437,12 +442,12 @@ export class SshConnection extends EventEmitter {
     if (this.browseSftp) return this.browseSftp
     if (this.browseSftpPromise) return this.browseSftpPromise
     const client = this.client
-    if (!client || this.state !== 'ready') throw new Error('会话未就绪')
+    if (!client || this.state !== 'ready') throw new Error(t('err.ssh.sessionNotReady'))
     this.browseSftpPromise = new Promise<SFTPWrapper>((resolve, reject) => {
       client.sftp((err, sftp) => {
         if (err) {
           this.browseSftpPromise = null
-          reject(new Error(`打开 SFTP 失败：${channelOpenError(err)}`))
+          reject(new Error(t('err.ssh.openSftpFail', { reason: channelOpenError(err) })))
           return
         }
         sftp.on('close', () => {
@@ -470,7 +475,7 @@ export class SshConnection extends EventEmitter {
       const client = await this.ensureTransferClient()
       this.transferSftp = await new Promise<SFTPWrapper>((resolve, reject) => {
         client.sftp((err, sftp) => {
-          if (err) reject(new Error(`打开传输通道失败：${channelOpenError(err)}`))
+          if (err) reject(new Error(t('err.ssh.openTransferChannelFail', { reason: channelOpenError(err) })))
           else resolve(sftp)
         })
       })
@@ -494,7 +499,7 @@ export class SshConnection extends EventEmitter {
   private async ensureTransferClient(): Promise<Client> {
     if (this.transferClient) return this.transferClient
     if (this.transferClientPromise) return this.transferClientPromise
-    if (this.state !== 'ready') throw new Error('会话未就绪')
+    if (this.state !== 'ready') throw new Error(t('err.ssh.sessionNotReady'))
 
     this.transferClientPromise = (async () => {
       const config = await buildConnectConfig(this.profile, this.sessionId)
