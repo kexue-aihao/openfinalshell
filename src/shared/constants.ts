@@ -257,6 +257,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
     width: 1280,
     height: 800,
     // 默认最大化打开。用户拖成浮窗后 persistBounds 会记住，下次按记住的来
-    maximized: true
+    maximized: true,
+    // 独立编辑器窗口的记忆尺寸（新键：老用户的存量设置经 deepMerge 自动补上默认）
+    editor: {
+      width: 1100,
+      height: 740,
+      maximized: false
+    }
   }
 }

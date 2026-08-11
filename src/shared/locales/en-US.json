@@ -202,7 +202,7 @@
     "followFailed": "Could not follow to {{path}}: {{reason}}"
   },
   "editor": {
-    "emptyHint": "Right-click a file in the list below and choose “View in built-in editor”",
+    "emptyHint": "Right-click a file in the SFTP list of the main window and choose “View in built-in editor”",
     "reload": "Re-read from the server",
     "readOnly": "Read-only",
     "readOnlyHint": "This file cannot be edited right now: still loading, or the read failed",
@@ -228,7 +228,6 @@
     "discardTitle": "Discard unsaved changes?",
     "discardDesc": "This file has changes that have not been written back. Continuing throws them away for good.",
     "discardOk": "Discard changes",
-    "closeSessionDirty": "This session still has unsaved files. Closing it will throw those changes away. Close anyway?",
     "bomHint": "The file starts with a UTF-8 BOM (EF BB BF)",
     "modeHint": "Remote permission bits (octal)",
     "lossless": "Charset may be wrong",
@@ -237,7 +236,11 @@
     "mixedEolHint": "This file mixes LF and CRLF. The editor shows everything as LF, so line numbers and content are correct; but **saving normalises line endings across the whole file** (to whichever one the status bar shows), so a save can never be byte-identical to the original.",
     "tooManyOpen": "You can’t open more than {{max}} files at once — close some first",
     "alreadyClosed": "This file is already closed",
-    "notLoadedYet": "The file hasn’t finished loading; try saving again in a moment"
+    "notLoadedYet": "The file hasn’t finished loading; try saving again in a moment",
+    "windowTitle": "OpenFinalShell Editor",
+    "sessionDead": "The session for “{{origin}}” is disconnected: saving and reloading are unavailable for now; the content can still be edited and copied. Resumes automatically after the session reconnects",
+    "closeWindowDirtyTitle": "{{count}} file(s) have unsaved changes",
+    "closeWindowDirtyDesc": "Closing the editor window will discard these changes. This cannot be undone."
   },
   "forward": {
     "new": "New forwarding rule",

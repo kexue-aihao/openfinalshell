@@ -59,6 +59,7 @@ function seed(patch: Partial<ReturnType<typeof useEditorStore.getState>['files']
         key: KEY,
         sessionId: SID,
         path: P,
+        origin: 'srv-1',
         status: 'ready',
         view: { ...VIEW },
         charset: 'gbk',
@@ -67,7 +68,7 @@ function seed(patch: Partial<ReturnType<typeof useEditorStore.getState>['files']
         ...patch
       }
     ],
-    activeKey: { [SID]: KEY }
+    active: KEY
   })
 }
 
@@ -78,7 +79,7 @@ beforeEach(() => {
   calls.length = 0
   saveThrows = null
   saveResult = { kind: 'saved', bytes: 10, mode: 0o644 }
-  useEditorStore.setState({ files: [], activeKey: {} })
+  useEditorStore.setState({ files: [], active: undefined })
 })
 
 describe('保存发出去的那一份参数', () => {
@@ -249,30 +250,55 @@ describe('脏标记', () => {
     expect(useEditorStore.getState().files[0].dirty).toBe(false)
   })
 
-  it('hasDirty 只看本会话', () => {
+  it('hasDirty 看全窗口（编辑器窗口关闭裁决用它）', () => {
     useEditorStore.setState({
       files: [
-        { key: 'a::1', sessionId: 'a', path: '/1', status: 'ready', charset: 'utf8', dirty: true, saving: false },
-        { key: 'b::2', sessionId: 'b', path: '/2', status: 'ready', charset: 'utf8', dirty: false, saving: false }
+        { key: 'a::1', sessionId: 'a', path: '/1', origin: 'A', status: 'ready', charset: 'utf8', dirty: false, saving: false },
+        { key: 'b::2', sessionId: 'b', path: '/2', origin: 'B', status: 'ready', charset: 'utf8', dirty: true, saving: false }
       ],
-      activeKey: {}
+      active: undefined
     })
-    expect(useEditorStore.getState().hasDirty('a')).toBe(true)
-    expect(useEditorStore.getState().hasDirty('b')).toBe(false)
-    expect(useEditorStore.getState().hasDirty('c')).toBe(false)
+    expect(useEditorStore.getState().hasDirty()).toBe(true)
+    useEditorStore.getState().setDirty('b::2', false)
+    expect(useEditorStore.getState().hasDirty()).toBe(false)
   })
 
   it('新打开的文件是干净的', async () => {
-    await useEditorStore.getState().open(SID, P)
+    await useEditorStore.getState().open(SID, P, 'srv-1')
     const f = useEditorStore.getState().files[0]
     expect(f.dirty).toBe(false)
     expect(f.saving).toBe(false)
+    expect(f.origin).toBe('srv-1')
+  })
+
+  it('关掉激活标签 → 焦点落到右边邻居（没有就左边）', async () => {
+    useEditorStore.setState({
+      files: ['1', '2', '3'].map((n) => ({
+        key: `s::/${n}`,
+        sessionId: 's',
+        path: `/${n}`,
+        origin: 'A',
+        status: 'ready' as const,
+        charset: 'utf8' as const,
+        dirty: false,
+        saving: false
+      })),
+      active: 's::/2'
+    })
+    useEditorStore.getState().close('s::/2')
+    expect(useEditorStore.getState().active).toBe('s::/3')
+    useEditorStore.getState().close('s::/3')
+    expect(useEditorStore.getState().active).toBe('s::/1')
+    // 关非激活项不动焦点
+    useEditorStore.setState({ active: 's::/1' })
+    useEditorStore.getState().close('nope')
+    expect(useEditorStore.getState().active).toBe('s::/1')
   })
 })
 
 // ---------------- 接线护栏 ----------------
 
-const HOST = 'src/renderer/src/features/editor/EditorHost.tsx'
+const HOST = 'src/renderer/src/features/editor/EditorWindowShell.tsx'
 const EDITOR = 'src/renderer/src/features/editor/CodeEditor.tsx'
 const CM_SETUP = 'src/renderer/src/features/editor/cmSetup.ts'
 const SESSION_STORE = 'src/renderer/src/stores/useSessionStore.ts'
@@ -288,7 +314,7 @@ describe('一条确认只打开一个闸门', () => {
   const src = stripComments(read(HOST))
 
   it('三种闸门各自映射到不同的一个开关', () => {
-    const table = flat(src.slice(src.indexOf('const GATE_OF'), src.indexOf('会话内第三格')))
+    const table = flat(src.slice(src.indexOf('const GATE_OF'), src.indexOf('export function EditorWindowShell')))
     for (const [kind, gate] of [
       ['conflict', 'overwriteRemoteChanges'],
       ['nonAtomic', 'allowNonAtomic'],
@@ -312,7 +338,7 @@ describe('一条确认只打开一个闸门', () => {
   })
 
   it('两个危险分支不给默认焦点（顺手一个回车不该等于覆盖别人的改动）', () => {
-    const table = flat(src.slice(src.indexOf('const GATE_OF'), src.indexOf('会话内第三格')))
+    const table = flat(src.slice(src.indexOf('const GATE_OF'), src.indexOf('export function EditorWindowShell')))
     // conflict 会盖掉别人的改动、shrink 会把文件截短 —— 这两个是 danger
     expect(table.slice(table.indexOf('conflict:'), table.indexOf('nonAtomic:'))).toContain(
       'danger: true'
@@ -340,22 +366,20 @@ describe('破坏性操作先问一句', () => {
   })
 
   /**
-   * 关会话要问，而且**不看 confirmOnCloseTab 那个设置**：那个开关管的是"关一条连接
-   * 要不要确认"，而这里拦的是丢掉用户亲手打的字。一个把确认关掉的人想要的是
-   * "别拿连接烦我"，不是"删我改的东西也别问"。
+   * 关会话**不再**碰编辑器：编辑器是独立窗口，文件的生死只归它自己的关闭链路管。
+   * 嵌入式时代 closeTab 要先问脏、再 closeSession 清光 —— 那两步现在都不该存在，
+   * 残留任何一步都会把另一个窗口里用户正改着的文件突然抽掉。
    */
-  it('closeTab 在清掉编辑器文件之前先问一句', () => {
-    const body = blockAfter(stripComments(read(SESSION_STORE)), 'closeTab: async (id)')
-    const flatBody = flat(body)
-    expect(flatBody).toContain('hasDirty(tab.sessionId)')
-    const ask = flatBody.indexOf('hasDirty(tab.sessionId)')
-    const clear = flatBody.indexOf('closeSession(tab.sessionId)')
-    expect(clear).toBeGreaterThan(ask)
-    // 与那个设置无关
-    expect(
-      flatBody.slice(ask, clear),
-      '脏文件的确认被 confirmOnCloseTab 那个设置管住了'
-    ).not.toContain('confirmOnCloseTab')
+  it('closeTab 不碰编辑器 store（脏裁决在编辑器窗口自己的关闭链路上）', () => {
+    const store = stripComments(read(SESSION_STORE))
+    expect(store, 'useSessionStore 又 import 编辑器 store 了').not.toContain('useEditorStore')
+    // 编辑器窗口的关闭链路：closeRequest → hasDirty 裁决 → closeNow
+    const shell = flat(stripComments(read(HOST)))
+    const at = shell.indexOf("ofs.on('editor:closeRequest'")
+    expect(at, '编辑器窗口没接 closeRequest').toBeGreaterThan(0)
+    const handler = shell.slice(at, at + 700)
+    expect(handler).toContain('hasDirty()')
+    expect(handler).toContain("invoke('editor:closeNow')")
   })
 })
 

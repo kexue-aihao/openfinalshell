@@ -7,9 +7,15 @@ import { t } from '../services/i18n'
 const log = scopedLogger('ipc')
 
 let mainWindow: BrowserWindow | null = null
+let editorWindow: BrowserWindow | null = null
 
 export function bindMainWindow(win: BrowserWindow): void {
   mainWindow = win
+}
+
+/** 编辑器窗口创建/销毁时由 editorWindow.ts 绑定与解绑（null = 已关闭） */
+export function bindEditorWindow(win: BrowserWindow | null): void {
+  editorWindow = win
 }
 
 /** 只接受本应用页面发来的 IPC（dev server 或打包后的 file://） */
@@ -63,4 +69,20 @@ export function onSend<K extends keyof SendMap>(channel: K, fn: (payload: SendMa
 export function emit<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send(channel, payload)
+}
+
+/** 向编辑器窗口推事件；窗口不存在/已销毁时静默丢弃 */
+export function emitEditor<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
+  if (!editorWindow || editorWindow.isDestroyed()) return
+  editorWindow.webContents.send(channel, payload)
+}
+
+/**
+ * 两个窗口都要知道的事件（settings:changed 的主题/语言热更、session:state 的
+ * 断连横幅）。**只许低频事件走这条** —— term:data 这类字节流广播过去就是
+ * 每个数据块多一次结构化克隆，编辑器窗口根本不消费它们。
+ */
+export function broadcast<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
+  emit(channel, payload)
+  emitEditor(channel, payload)
 }

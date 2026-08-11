@@ -14,6 +14,7 @@ import type {
   ConnectionGroup,
   ConnectionProfile,
   DeleteRefResult,
+  EditorOpenRequest,
   PrivateKeyId,
   ProxyId,
   SavedPrivateKey,
@@ -111,6 +112,23 @@ export interface InvokeMap {
   // --- 设置 ---
   'settings:get': { args: []; result: AppSettings }
   'settings:set': { args: [Partial<AppSettings>]; result: AppSettings }
+
+  // --- 独立编辑器窗口 ---
+  /**
+   * 在编辑器窗口里打开一个远端文件（主窗口的 SFTP 面板发起）。
+   * 窗口不存在则创建、存在则聚焦；文件以 editor:open 事件送达那个窗口。
+   * 这条 invoke 只负责"送到"，打开失败（如超过同时打开上限）在编辑器窗口里就地提示 ——
+   * 那一刻用户的注意力已经在那边了。
+   */
+  'editor:openFile': { args: [EditorOpenRequest]; result: void }
+  /**
+   * 编辑器窗口的 renderer 就绪信号，换回它错过的排队请求。
+   * 窗口刚创建时 renderer 还没订阅 editor:open，直接发事件必丢 —— 主进程先排队，
+   * renderer 订阅完成后调这条取走。返回后主进程转为直发事件。
+   */
+  'editor:ready': { args: []; result: EditorOpenRequest[] }
+  /** 编辑器窗口确认真正关闭（脏文件裁决完成后调用，见 editor:closeRequest） */
+  'editor:closeNow': { args: []; result: void }
 
   // --- Vault ---
   'vault:isAvailable': { args: []; result: boolean }
@@ -345,6 +363,13 @@ export interface EventMap {
   'settings:changed': AppSettings
   /** 更新器状态（checking / available / downloading 进度 / downloaded / error） */
   'update:state': UpdateState
+  /** 主进程 → 编辑器窗口：打开一个文件（见 editor:openFile / editor:ready 的排队约定） */
+  'editor:open': EditorOpenRequest
+  /**
+   * 主进程拦下了编辑器窗口的关闭：请 renderer 检查脏文件并裁决。
+   * 无脏（或用户确认丢弃）→ invoke editor:closeNow；用户取消 → 什么都不做，窗口留着。
+   */
+  'editor:closeRequest': null
 }
 
 // ---------------------------------------------------------------------------
@@ -368,7 +393,8 @@ export const CHANNEL_PREFIXES = [
   'key:',
   'update:',
   'snippet:',
-  'snippetGroup:'
+  'snippetGroup:',
+  'editor:'
 ] as const
 
 /**

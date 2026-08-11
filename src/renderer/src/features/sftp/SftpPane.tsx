@@ -28,7 +28,6 @@ import { useTranslation } from 'react-i18next'
 import type { SessionId, SftpEntry, TransferConflictAction } from '@shared/types'
 import { TRANSFER_FINAL_STATES } from '@shared/constants'
 import { ofs } from '@/ipc/api'
-import { useEditorStore } from '@/stores/useEditorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useTransferStore } from '@/stores/useTransferStore'
 import type { SessionTab } from '@/stores/useSessionStore'
@@ -285,14 +284,12 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   }
 
   /**
-   * 在内置编辑器里打开。
+   * 在内置编辑器里打开 —— 编辑器是**独立窗口**（所有会话共用、多标签），这里只负责
+   * 把请求交给主进程：窗口不存在则创建、存在则聚焦，文件在那边多开一个标签。
    *
-   * 远端**零副作用、本机零文件**：读一次字节、解一次码，失败就是失败、重试就是再读一次。
-   * （上一版这里还得跟 startEdit 划清界限 —— 那条路会下载到本机临时目录、起一个外部
-   * 进程、挂文件监视、并在整个编辑期间持有一个 8 态状态机。它已经被删掉了。）
-   *
-   * 到上限（同时 10 个）时 open 会抛，这里把那句人话显示出来 —— 静默不响应
-   * 会让用户以为是这个文件打不开。
+   * 打开失败（比如超过同时打开上限）在**编辑器窗口里**提示，不在这里 ——
+   * invoke 一返回用户的注意力已经在那边了。这里只兜 IPC 本身的错。
+   * origin 传 tab.title：编辑器窗口聚合所有机器的文件，标签上靠它区分来源。
    */
   const openInEditor = async (entry: SftpEntry): Promise<void> => {
     if (!tab.sessionId) {
@@ -304,7 +301,11 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       return
     }
     try {
-      await useEditorStore.getState().open(tab.sessionId, entry.path)
+      await ofs.invoke('editor:openFile', {
+        sessionId: tab.sessionId,
+        path: entry.path,
+        origin: tab.customTitle ?? tab.title
+      })
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err))
     }

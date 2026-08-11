@@ -642,6 +642,17 @@ export function createMockOfs(): OfsApi {
     },
 
     /**
+     * 独立编辑器窗口的三条通道。浏览器 mock 里没有第二个窗口：
+     * openFile 走缺省的"不支持"报错（那正是这条能力在浏览器里的真话）；
+     * 但直接打开 `#/editor` 调试编辑器窗口的 UI 时，ready 回一个样例文件 ——
+     * 配合下面的 fileView，一打开就是一个成型的编辑器（标签/状态条/着色全活）。
+     */
+    'editor:ready': () => [
+      { sessionId: 's1' as never, path: '/etc/nginx/nginx.conf', origin: 'mock-server' }
+    ],
+    'editor:closeNow': () => undefined,
+
+    /**
      * 内置编辑器的只读打开。mock 里回一段**够把语法着色与状态条都验到**的假内容：
      * 有注释、有键值、有中文、有全角空格（那个要被 highlightSpecialChars 标出来）。
      * 编码/行尾/BOM 一律报最常见的组合 —— 这里的目的只是让界面能走完一遍，

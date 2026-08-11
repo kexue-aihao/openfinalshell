@@ -1,6 +1,6 @@
 import { app, dialog, shell } from 'electron'
 import { z } from 'zod'
-import { emit, handle } from './registry'
+import { broadcast, handle } from './registry'
 import { exportData } from '../services/exportData'
 import { applyImport, inspectImport } from '../services/importData'
 import { applyFinalShellImport, scanFinalShell } from '../services/finalshellImport'
@@ -8,6 +8,7 @@ import { getSettings } from '../services/settings'
 import { getStartupNotice } from '../services/startupNotice'
 import { getBundle, t } from '../services/i18n'
 import { applyWindowChrome } from '../window'
+import { applyEditorWindowChrome } from '../editorWindow'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('app')
@@ -127,7 +128,8 @@ export function registerAppIpc(): void {
       if (result.settingsApplied) {
         const next = getSettings()
         applyWindowChrome(next)
-        emit('settings:changed', next)
+        applyEditorWindowChrome(next)
+        broadcast('settings:changed', next)
       }
       return result
     },

@@ -206,7 +206,7 @@
     "followFailed": "No se pudo seguir a {{path}}: {{reason}}"
   },
   "editor": {
-    "emptyHint": "Haz clic derecho en un archivo de la lista de abajo y elige «Ver en el editor integrado»",
+    "emptyHint": "Haz clic derecho en un archivo de la lista SFTP de la ventana principal y elige «Ver en el editor integrado»",
     "reload": "Volver a leer del servidor",
     "readOnly": "Solo lectura",
     "readOnlyHint": "Este archivo no se puede editar ahora mismo: aún se está cargando o la lectura falló",
@@ -232,7 +232,6 @@
     "discardTitle": "¿Descartar los cambios sin guardar?",
     "discardDesc": "Este archivo tiene cambios que no se han escrito. Continuar los descartará para siempre.",
     "discardOk": "Descartar cambios",
-    "closeSessionDirty": "Esta sesión aún tiene archivos sin guardar. Cerrarla descartará esos cambios. ¿Cerrar de todos modos?",
     "bomHint": "El archivo comienza con una marca de orden de bytes UTF-8 (EF BB BF)",
     "modeHint": "Bits de permisos remotos (octal)",
     "lossless": "El juego de caracteres puede ser incorrecto",
@@ -241,7 +240,11 @@
     "mixedEolHint": "Este archivo mezcla LF y CRLF. El editor lo muestra todo como LF, así que los números de línea y el contenido son correctos; pero **al guardar se normalizan los fines de línea en todo el archivo** (al que muestre la barra de estado), por lo que un guardado nunca puede ser idéntico byte a byte al original.",
     "tooManyOpen": "No puedes abrir más de {{max}} archivos a la vez — cierra algunos primero",
     "alreadyClosed": "Este archivo ya está cerrado",
-    "notLoadedYet": "El archivo aún no ha terminado de cargarse; prueba a guardar de nuevo en un momento"
+    "notLoadedYet": "El archivo aún no ha terminado de cargarse; prueba a guardar de nuevo en un momento",
+    "windowTitle": "Editor de OpenFinalShell",
+    "sessionDead": "La sesión de «{{origin}}» está desconectada: guardar y recargar no están disponibles por ahora; el contenido aún se puede editar y copiar. Se reanuda automáticamente al reconectar",
+    "closeWindowDirtyTitle": "{{count}} archivo(s) sin guardar",
+    "closeWindowDirtyDesc": "Cerrar la ventana del editor descartará estos cambios de forma irreversible."
   },
   "forward": {
     "new": "Nueva regla de reenvío",

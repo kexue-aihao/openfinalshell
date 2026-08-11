@@ -13,6 +13,8 @@ import { registerSftpIpc } from './ipc/sftp.ipc'
 import { registerMonitorIpc } from './ipc/monitor.ipc'
 import { registerForwardIpc } from './ipc/forward.ipc'
 import { registerHistoryIpc } from './ipc/history.ipc'
+import { registerEditorIpc } from './ipc/editor.ipc'
+import { closeEditorWindowIfOpen } from './editorWindow'
 import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { registerUpdateIpc } from './ipc/update.ipc'
 import { monitorManager } from './monitor/MonitorManager'
@@ -99,6 +101,7 @@ if (!app.requestSingleInstanceLock()) {
     registerHistoryIpc()
     registerSavedRefsIpc()
     registerUpdateIpc()
+    registerEditorIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
@@ -118,6 +121,9 @@ if (!app.requestSingleInstanceLock()) {
 
     const win = createMainWindow()
     bindMainWindow(win)
+    // 主窗口关了就把编辑器窗口也带走（走同一条脏文件裁决链路，不硬杀）；
+    // 全部窗口收尾后 window-all-closed 才让应用退出
+    win.on('closed', () => closeEditorWindowIfOpen())
 
     // 更新检查排在建窗之后：它要往窗口推状态事件，而且延迟 10 秒才真的查
     startUpdateChecks()

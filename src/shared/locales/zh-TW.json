@@ -206,7 +206,7 @@
     "followFailed": "無法跟隨到 {{path}}：{{reason}}"
   },
   "editor": {
-    "emptyHint": "在下方清單中對檔案按右鍵，選擇「在內建編輯器中檢視」",
+    "emptyHint": "在主視窗的 SFTP 檔案清單裡右鍵一個檔案，選「內建編輯器檢視」",
     "reload": "從伺服器重新讀取",
     "readOnly": "唯讀",
     "readOnlyHint": "此檔案目前無法編輯：仍在載入中，或讀取失敗",
@@ -232,7 +232,6 @@
     "discardTitle": "要捨棄未儲存的變更嗎？",
     "discardDesc": "此檔案有尚未寫回的變更。繼續將永久丟棄它們。",
     "discardOk": "捨棄變更",
-    "closeSessionDirty": "此工作階段仍有未儲存的檔案。關閉將丟棄那些變更。仍要關閉嗎？",
     "bomHint": "此檔案以 UTF-8 BOM（EF BB BF）開頭",
     "modeHint": "遠端權限位元（八進位）",
     "lossless": "字元集可能有誤",
@@ -241,7 +240,11 @@
     "mixedEolHint": "此檔案混用了 LF 與 CRLF。編輯器會全部以 LF 顯示，因此行號與內容都正確；但**儲存會將整份檔案的換行字元正規化**（統一為狀態列顯示的那一種），所以儲存永遠無法與原檔位元組完全一致。",
     "tooManyOpen": "一次最多只能開啟 {{max}} 個檔案 — 請先關閉一些",
     "alreadyClosed": "此檔案已關閉",
-    "notLoadedYet": "檔案尚未載入完成；請稍後再試著儲存"
+    "notLoadedYet": "檔案尚未載入完成；請稍後再試著儲存",
+    "windowTitle": "OpenFinalShell 編輯器",
+    "sessionDead": "「{{origin}}」的工作階段已中斷：暫時無法儲存或重新載入，內容仍可編輯與複製。重新連線後自動恢復",
+    "closeWindowDirtyTitle": "有 {{count}} 個檔案未儲存",
+    "closeWindowDirtyDesc": "關閉編輯器視窗將捨棄這些變更，且無法復原。"
   },
   "forward": {
     "new": "新增轉發規則",

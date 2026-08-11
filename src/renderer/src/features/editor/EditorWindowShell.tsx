@@ -1,19 +1,15 @@
-import { useCallback, useMemo, useRef } from 'react'
-import { App as AntdApp, Button, Empty, Spin, Tooltip, Typography } from 'antd'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Alert, App as AntdApp, Button, Empty, Spin, Tooltip, Typography } from 'antd'
 import { RefreshCw, Save, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { RemoteCharset } from '@shared/constants'
-import type { RemoteFileSaveResult, RemoteSaveGates } from '@shared/types'
-import { filesOfSession, NO_GATES, useEditorStore } from '@/stores/useEditorStore'
-import type { SessionTab } from '@/stores/useSessionStore'
+import type { RemoteFileSaveResult, RemoteSaveGates, SessionId } from '@shared/types'
+import { NO_GATES, useEditorStore } from '@/stores/useEditorStore'
+import { ofs } from '@/ipc/api'
 import { CodeEditor } from './CodeEditor'
 import { EditorStatusStrip } from './EditorStatusStrip'
 import { resolveLanguage } from './editorPolicy'
-import styles from './EditorHost.module.css'
-
-interface Props {
-  tab: SessionTab
-}
+import styles from './EditorWindowShell.module.css'
 
 /**
  * 三个闸门各自的文案与要打开的那个开关。
@@ -50,37 +46,90 @@ const GATE_OF: Record<
 }
 
 /**
- * 会话内第三格：内置编辑器。
+ * 独立编辑器窗口的整个内容：一条**跨会话**的全局标签条 + 代码区 + 状态条。
  *
- * 与 SFTP 面板并列而不是塞进它：一个文件被打开之后，用户接着要做的事是**在文件之间切**、
- * 而不是回到目录树 —— 把编辑器做成 SFTP 面板里的一个模式会让"看着 nginx.conf 顺手
- * 去翻旁边的 sites-enabled"变成来回切换。
+ * 与旧的嵌入式 EditorHost 的三个不同：
+ *  - 标签条是全局的，标签上带来源会话名（origin）—— 两台机器上的同名 nginx.conf
+ *    只有靠它区分；
+ *  - 会话断开**不关标签**：挂横幅、禁保存，内容留着让用户复制走。嵌入式时代
+ *    "关会话 = 清掉它的文件"，因为编辑器格子就活在那个会话面板里；现在窗口
+ *    独立于会话，文件的生死只归用户的关闭按钮管；
+ *  - 窗口关闭要过脏文件裁决（main 拦下 close 发 editor:closeRequest 过来）。
  *
- * 只有真的打开过文件才占版面（SessionView 里按 files.length 决定这一格在不在）。
- *
- * **保存的编排在这里，不在 store**：三个确认框需要 antd 的 modal 上下文与 i18n，
- * 而 store 要能在 jsdom 里直接测。store 只负责发出去、把结果与新状态记下来。
+ * 保存的编排仍在这里、不在 store（三个确认框需要 antd 的 modal 上下文与 i18n，
+ * store 要能在 node 环境里直接测）。
  */
-export function EditorHost({ tab }: Props): React.JSX.Element {
+export function EditorWindowShell(): React.JSX.Element {
   const { t } = useTranslation()
   const { message, modal } = AntdApp.useApp()
   const files = useEditorStore((s) => s.files)
-  const activeKey = useEditorStore((s) => s.activeKey[tab.sessionId ?? ''])
+  const activeKey = useEditorStore((s) => s.active)
   const setActive = useEditorStore((s) => s.setActive)
   const closeFile = useEditorStore((s) => s.close)
   const reload = useEditorStore((s) => s.reload)
   const setDirty = useEditorStore((s) => s.setDirty)
   const save = useEditorStore((s) => s.save)
 
+  /** 已断开的会话：这些文件禁保存/禁重读，标签挂横幅（状态来自 session:state 广播） */
+  const [deadSessions, setDeadSessions] = useState<ReadonlySet<SessionId>>(new Set())
+
   /** CodeEditor 填进来的"取当前正文"。正文不进 store，见 CodeEditor 里那段 */
   const docRef = useRef<(() => string) | null>(null)
 
-  const mine = useMemo(() => filesOfSession(files, tab.sessionId ?? ''), [files, tab.sessionId])
-  const active = mine.find((f) => f.key === activeKey) ?? mine[0]
+  const active = files.find((f) => f.key === activeKey) ?? files[0]
+
+  // ---- 与主进程的接线：打开请求、会话状态、关窗裁决 ----
+  useEffect(() => {
+    const openRequest = (req: { sessionId: SessionId; path: string; origin: string }): void => {
+      useEditorStore
+        .getState()
+        .open(req.sessionId, req.path, req.origin)
+        .catch((err: unknown) => {
+          // 上限（同时 10 个）等打开失败在**这个**窗口里提示 —— 用户的注意力已经在这边了
+          message.error(err instanceof Error ? err.message : String(err))
+        })
+    }
+    const offOpen = ofs.on('editor:open', openRequest)
+    const offState = ofs.on('session:state', ({ sessionId, state }) => {
+      setDeadSessions((prev) => {
+        const dead = state === 'closed'
+        if (dead === prev.has(sessionId)) return prev
+        const next = new Set(prev)
+        if (dead) next.add(sessionId)
+        else next.delete(sessionId)
+        return next
+      })
+    })
+    const offClose = ofs.on('editor:closeRequest', () => {
+      if (!useEditorStore.getState().hasDirty()) {
+        void ofs.invoke('editor:closeNow')
+        return
+      }
+      const count = useEditorStore.getState().files.filter((f) => f.dirty).length
+      modal.confirm({
+        title: t('editor.closeWindowDirtyTitle', { count }),
+        width: 460,
+        okText: t('editor.discardOk'),
+        okType: 'danger',
+        cancelText: t('common.cancel'),
+        autoFocusButton: null,
+        content: t('editor.closeWindowDirtyDesc'),
+        onOk: () => void ofs.invoke('editor:closeNow')
+      })
+    })
+    // 订阅都挂好了才领排队的请求（窗口创建早于 renderer 就绪，早到的请求在 main 排着）
+    void ofs.invoke('editor:ready').then((queued) => queued.forEach(openRequest))
+    return () => {
+      offOpen()
+      offState()
+      offClose()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** CodeEditor 的 fileKey：编码也进去，换编码 = 同一个文件的另一份解码结果 */
   const fileKeyOf = (f: { key: string; charset: RemoteCharset }): string => `${f.key}::${f.charset}`
-  const openKeys = useMemo(() => mine.map(fileKeyOf), [mine])
+  const openKeys = useMemo(() => files.map(fileKeyOf), [files])
 
   // 语言按**路径 + 首行**判，首行从已经读到的正文里切，不额外发请求
   const language = useMemo(
@@ -111,7 +160,6 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
          * 路径指向变了）。**没有任何确认能越过它们**，所以这里只报不问。
          * 用 modal.error 而不是 message.error：这些原话有具体的下一步动作
          * （"删掉这些字符""换个编码重新打开"），一闪而过的 toast 读不完。
-         * （原话是 main 侧硬编码的中文，沿用既有约定，不进 t()）
          */
         modal.error({
           title: t('editor.saveFailed'),
@@ -162,9 +210,6 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
           <div className={styles.decision}>
             <Typography.Text code>{file.path}</Typography.Text>
             <span>{t(spec.desc)}</span>
-            {/* main 给的实数与原话：conflict 分"远端没了"和"被改过"两种，
-                shrink 那句里带着"从 X 字节变成 Y 字节" —— 都是用户裁决真正要看的东西
-                （main 侧硬编码中文，沿用既有约定不进 t()） */}
             {result.kind === 'conflict' && (
               <Typography.Text type="secondary">{result.reason}</Typography.Text>
             )}
@@ -250,9 +295,11 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
     [reload, confirmDiscard]
   )
 
-  if (mine.length === 0 || !active) {
+  if (files.length === 0 || !active) {
     return (
       <div className={styles.host}>
+        {/* 空窗口也要一条可拖拽的标题区，否则窗口挪不动 */}
+        <div className={styles.tabs} role="tablist" />
         <div className={styles.empty}>
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('editor.emptyHint')} />
         </div>
@@ -260,25 +307,28 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
     )
   }
 
+  const sessionDead = deadSessions.has(active.sessionId)
   /**
    * 什么时候仍然只读：
    *  - 还没读完 / 读失败（没有内容可改）；
    *  - `lossless` 为假 —— 当前编码解不干净，保存必然改写用户从没看见过的字节。
-   *    main 那侧本来就会硬拒，但界面**不能**让用户先改二十分钟再被拒。
+   *
+   * 会话断开**不**置只读：用户可能正改到一半，锁死编辑等于把他没保存的思路也冻住；
+   * 禁掉的是保存与重读（两个都要走那条已经死了的会话）。
    */
   const readOnly = active.status !== 'ready' || !active.view || !active.view.lossless
-  const canSave = !readOnly && !active.saving
+  const canSave = !readOnly && !active.saving && !sessionDead
 
   return (
     <div className={styles.host}>
       <div className={styles.tabs} role="tablist">
-        {mine.map((f) => (
+        {files.map((f) => (
           <div
             key={f.key}
             role="tab"
             aria-selected={f.key === active.key}
             className={`${styles.tab} ${f.key === active.key ? styles.tabActive : ''}`}
-            onClick={() => tab.sessionId && setActive(tab.sessionId, f.key)}
+            onClick={() => setActive(f.key)}
             // 中键关闭：这是标签条的通用手感，缺了会显得这个标签条是半成品
             onAuxClick={(e) => {
               if (e.button === 1) {
@@ -287,11 +337,13 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
               }
             }}
           >
-            <Tooltip title={f.path}>
-              <span className={styles.tabName}>{f.path.split('/').pop() || f.path}</span>
+            <Tooltip title={`${f.origin}: ${f.path}`}>
+              <span className={styles.tabName}>
+                {/* 来源会话名做前缀：这条标签条聚合所有机器的文件 */}
+                <span className={styles.tabOrigin}>{f.origin}</span>
+                {f.path.split('/').pop() || f.path}
+              </span>
             </Tooltip>
-            {/* 未保存的点。放在名字后面而不是替掉关闭按钮：那种做法要用户先 hover
-                才知道能不能关，而"有没有改动"是他随时都该看得见的一件事 */}
             {f.dirty && (
               <Tooltip title={t('editor.dirtyHint')}>
                 <span className={styles.tabDirty} data-ofs-dirty="1" />
@@ -314,6 +366,7 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
           <Button
             size="small"
             type="text"
+            className={styles.toolBtn}
             disabled={!canSave}
             loading={active.saving}
             icon={<Save size={13} strokeWidth={1.75} />}
@@ -325,11 +378,21 @@ export function EditorHost({ tab }: Props): React.JSX.Element {
           <Button
             size="small"
             type="text"
+            className={styles.toolBtn}
+            disabled={sessionDead}
             icon={<RefreshCw size={13} strokeWidth={1.75} />}
             onClick={() => tryReload(active.key)}
           />
         </Tooltip>
       </div>
+
+      {sessionDead && (
+        <Alert
+          type="warning"
+          banner
+          message={t('editor.sessionDead', { origin: active.origin })}
+        />
+      )}
 
       <div className={styles.body}>
         {active.status === 'error' ? (

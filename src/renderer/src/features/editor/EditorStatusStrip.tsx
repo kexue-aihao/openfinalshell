@@ -4,12 +4,12 @@ import { REMOTE_CHARSETS, type RemoteCharset } from '@shared/constants'
 import { formatBytes, modeToOctal } from '@/utils/format'
 import { languageLabel, type LanguageId } from './editorPolicy'
 import type { OpenFile } from '@/stores/useEditorStore'
-import styles from './EditorHost.module.css'
+import styles from './EditorWindowShell.module.css'
 
 interface Props {
   file: OpenFile
   language: LanguageId
-  /** 由 EditorHost 判定（读没读完 + lossless），这里只负责把**为什么**说清楚 */
+  /** 由 EditorWindowShell 判定（读没读完 + lossless），这里只负责把**为什么**说清楚 */
   readOnly: boolean
   onCharset: (charset: RemoteCharset) => void
 }

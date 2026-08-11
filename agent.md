@@ -59,6 +59,23 @@ Windows PowerShell 5.1 向原生程序传参时，字符串内的 `"` 会破坏�
 - **导出**：at-rest 密文绑本机、不可移植；导出一律从 `decField` 出来的明文出发，v1（明文/密码块）或 v2（`encryptAll` 整文件加密）。
 - **换机取舍（务必知情）**：OS 绑定加密后，换机/换 Windows 账户则本机 `.db` 无法解密——迁移只能走「整文件加密导出 → 新机导入」，不能直接拷 `.db`。
 
+## 多窗口（独立编辑器窗口）
+
+应用现在有**两个** BrowserWindow：主窗口 + 独立编辑器窗口（单例，所有会话的「内置编辑器查看」
+汇到它做多标签）。两窗口共用同一份 renderer bundle，按 URL hash `#/editor` 在 main.tsx 分流。
+
+- **事件出口分三档**（`ipc/registry.ts`）：`emit` 只发主窗口；`emitEditor` 只发编辑器窗口；
+  `broadcast` 两个都发。**broadcast 只许低频事件**（settings:changed、session:state）——
+  term:data 这类字节流广播过去就是每块白克隆一次。
+- **给编辑器窗口发事件要考虑就绪竞态**：窗口刚创建时 renderer 还没订阅，直接 send 必丢且不报错。
+  editor:open 的解法是 main 排队 + renderer 就绪后 invoke `editor:ready` 领取（editorWindow.ts）。
+  新增"主窗口 → 编辑器窗口"的推送时照这个模式来。
+- **窗口壳逻辑只有一份**：主题/语言/缩放在 `hooks/useWindowShell.ts`，两个 App 根共用 ——
+  别在任一侧另写一份，两个窗口一深一浅不会报错。
+- **编辑器窗口的关闭要过脏裁决**：main 拦 close → `editor:closeRequest` → renderer 检查
+  `hasDirty()` →（确认后）`editor:closeNow` 放行。绕过这条链路直接 destroy 会丢用户没保存的输入。
+- 编辑器窗口**不接**会话/传输/监控那些 wire*：它只消费 sftp:fileView/fileSave 与上面两条广播。
+
 ## 渲染层组件测试（jsdom）
 
 测试分四层：`test/unit` + `test/integration`（node 环境）、`test/renderer`（**读源码**的 grep 护栏）、

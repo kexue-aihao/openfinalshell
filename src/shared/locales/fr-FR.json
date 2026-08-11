@@ -206,7 +206,7 @@
     "followFailed": "Impossible de suivre vers {{path}} : {{reason}}"
   },
   "editor": {
-    "emptyHint": "Faites un clic droit sur un fichier dans la liste ci-dessous et choisissez « Afficher dans l'éditeur intégré »",
+    "emptyHint": "Faites un clic droit sur un fichier dans la liste SFTP de la fenêtre principale et choisissez « Afficher dans l'éditeur intégré »",
     "reload": "Relire depuis le serveur",
     "readOnly": "Lecture seule",
     "readOnlyHint": "Ce fichier ne peut pas être édité pour l'instant : chargement en cours ou échec de la lecture",
@@ -232,7 +232,6 @@
     "discardTitle": "Abandonner les modifications non enregistrées ?",
     "discardDesc": "Ce fichier comporte des modifications qui n'ont pas été réécrites. Continuer les supprime définitivement.",
     "discardOk": "Abandonner les modifications",
-    "closeSessionDirty": "Cette session comporte encore des fichiers non enregistrés. La fermer abandonnera ces modifications. Fermer quand même ?",
     "bomHint": "Le fichier commence par une marque d'ordre d'octets UTF-8 (BOM : EF BB BF)",
     "modeHint": "Bits de permission distants (octal)",
     "lossless": "Le jeu de caractères est peut-être incorrect",
@@ -241,7 +240,11 @@
     "mixedEolHint": "Ce fichier mélange LF et CRLF. L'éditeur affiche tout en LF, donc les numéros de ligne et le contenu sont corrects ; mais **l'enregistrement normalise les fins de ligne sur l'ensemble du fichier** (vers celle indiquée dans la barre d'état), si bien qu'un enregistrement ne peut jamais être identique octet pour octet à l'original.",
     "tooManyOpen": "Vous ne pouvez pas ouvrir plus de {{max}} fichiers à la fois — fermez-en d'abord quelques-uns",
     "alreadyClosed": "Ce fichier est déjà fermé",
-    "notLoadedYet": "Le fichier n'a pas fini de charger ; réessayez d'enregistrer dans un instant"
+    "notLoadedYet": "Le fichier n'a pas fini de charger ; réessayez d'enregistrer dans un instant",
+    "windowTitle": "Éditeur OpenFinalShell",
+    "sessionDead": "La session de « {{origin}} » est déconnectée : enregistrement et rechargement indisponibles pour le moment ; le contenu reste modifiable et copiable. Reprend automatiquement après reconnexion",
+    "closeWindowDirtyTitle": "{{count}} fichier(s) non enregistré(s)",
+    "closeWindowDirtyDesc": "Fermer la fenêtre de l'éditeur abandonnera ces modifications, sans retour possible."
   },
   "forward": {
     "new": "Nouvelle règle de redirection",

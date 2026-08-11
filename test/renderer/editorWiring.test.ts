@@ -84,44 +84,126 @@ describe('契约与 IPC 边界', () => {
   })
 })
 
-describe('三格布局', () => {
+describe('会话面板布局（编辑器已迁去独立窗口）', () => {
   /**
    * 尺寸持久化不许按位置取值。
    *
    * 原来是 PanelGroup 的 `onLayout={(sizes) => … sizes[1]}`，而 sizes[1] 是"第二格"——
-   * 编辑器那一格插进来之后，第二格从 SFTP 变成了编辑器，于是拖编辑器的分隔条
-   * 会静默写进 sftpPaneHeightPct。这种错不报警、不抛异常，只是把用户的布局越拖越歪。
+   * 面板增删一次它就指错一次。这种错不报警、不抛异常，只是把用户的布局越拖越歪。
    */
   it('用每个 Panel 自己的 onResize，不用 onLayout 按下标取值', () => {
     const src = stripComments(read(SESSION_VIEW))
     expect(src, '又回到按位置取 sizes[n] 了').not.toMatch(/sizes\[\d\]/)
     expect(src).not.toContain('onLayout')
-    // 两格各有自己的 onResize，各写自己那个键
-    expect(src).toContain('editorPaneHeightPct: size')
     expect(src).toContain('sftpPaneHeightPct: size')
   })
 
-  it('三格顺序是 终端 1 / 编辑器 2 / SFTP 3', () => {
+  /**
+   * 嵌入式编辑器那一格删净了没有。半删是最坏的状态：会话面板里残留一格
+   * 没人喂数据的编辑器，与独立窗口各显示一份、迟早内容对不上。
+   */
+  it('会话面板里没有编辑器那一格', () => {
     const src = flat(stripComments(read(SESSION_VIEW)))
-    const term = src.indexOf('id="term" order={1}')
-    const editor = src.indexOf('id="editor" order={2}')
-    const sftp = src.indexOf('id="sftp" order={3}')
-    expect(term).toBeGreaterThan(0)
-    expect(editor).toBeGreaterThan(term)
-    expect(sftp).toBeGreaterThan(editor)
+    expect(src).not.toContain('EditorHost')
+    expect(src).not.toContain('id="editor"')
+    expect(src).not.toContain('useEditorStore')
+    // 该在的两格还在
+    expect(src).toContain('id="term" order={1}')
+    expect(src).toContain('id="sftp"')
   })
 })
 
-describe('不泄漏', () => {
+describe('独立编辑器窗口的接线', () => {
+  const MAIN_ENTRY = 'src/renderer/src/main.tsx'
+  const EDITOR_WINDOW = 'src/main/editorWindow.ts'
+  const SHELL = 'src/renderer/src/features/editor/EditorWindowShell.tsx'
+  const SFTP_PANE = 'src/renderer/src/features/sftp/SftpPane.tsx'
+
+  it('editor: 前缀在 preload 白名单里，三条 invoke + 两条事件都在契约里', () => {
+    const src = stripComments(read(IPC))
+    const at = src.indexOf('export const CHANNEL_PREFIXES')
+    expect(src.slice(at, src.indexOf('] as const', at))).toContain("'editor:'")
+    const invoke = channelsOf('InvokeMap')
+    for (const ch of ['editor:openFile', 'editor:ready', 'editor:closeNow']) {
+      expect(invoke).toContain(ch)
+    }
+    const events = channelsOf('EventMap')
+    expect(events).toContain('editor:open')
+    expect(events).toContain('editor:closeRequest')
+  })
+
+  it('renderer 入口按 #/editor 分流；主进程两种加载方式都带上它', () => {
+    const entry = stripComments(read(MAIN_ENTRY))
+    expect(entry).toContain("window.location.hash.startsWith('#/editor')")
+    expect(entry).toContain('EditorWindowApp')
+    const win = stripComments(read(EDITOR_WINDOW))
+    // dev 是 URL 拼接、打包走 loadFile 的 hash 选项 —— 少一个的症状是那种模式下
+    // 编辑器窗口渲染出**整个主界面**（分流条件不成立就落到 App）
+    expect(win).toContain('#/editor')
+    expect(flat(win)).toContain("loadFile(join(import.meta.dirname, '../renderer/index.html'), { hash: '/editor' })")
+  })
+
   /**
-   * 会话关掉要连它的文件一起清。这一条与 useMonitorStore.clear 那个泄漏是同一类，
-   * 而且更贵：每份正文最多 2MB，JS 字符串是 UTF-16，十份就是 40MB 常驻。
-   * 断言必须在 closeTab 的**函数体内**找到调用 —— 只在整份文件里搜字符串的话，
-   * 写在别处（甚至写在一段永不执行的代码里）也算过。
+   * **打开请求要排队。** 窗口刚创建时 renderer 还没订阅 editor:open，直接 send 必丢
+   * （发进虚空、不报错）—— 症状是"第一次点『内置编辑器查看』只出来一个空窗口"。
+   * renderer 侧则必须先挂订阅再 invoke editor:ready 领队列，顺序反了同样丢。
    */
-  it('closeTab 里清掉该会话的编辑器文件', () => {
+  it('renderer 就绪前的请求进队列，就绪后由 editor:ready 取走', () => {
+    const win = flat(stripComments(read(EDITOR_WINDOW)))
+    expect(win).toContain('pending.push(req)')
+    expect(win).toContain('rendererReady')
+    const shell = stripComments(read(SHELL))
+    const sub = shell.indexOf("ofs.on('editor:open'")
+    const ready = shell.indexOf("invoke('editor:ready')")
+    expect(sub).toBeGreaterThan(0)
+    expect(ready, '没有领取排队请求的 editor:ready').toBeGreaterThan(sub)
+  })
+
+  /**
+   * 窗口关闭必须过 renderer 的脏裁决：close 拦下来发 closeRequest，
+   * 收到 closeNow 才放行。少了拦截，未保存的改动随手一个 × 就没了。
+   */
+  it('close 被拦下交给 renderer 裁决，closeNow 才放行', () => {
+    const win = flat(stripComments(read(EDITOR_WINDOW)))
+    expect(win).toContain('e.preventDefault()')
+    expect(win).toContain("emitEditor('editor:closeRequest', null)")
+    expect(win).toContain('allowClose = true')
+  })
+
+  it('SftpPane 的「内置编辑器查看」走 editor:openFile，不再直摸编辑器 store', () => {
+    const src = stripComments(read(SFTP_PANE))
+    expect(flat(src)).toContain("invoke('editor:openFile'")
+    expect(src, 'SftpPane 又直接 import 编辑器 store 了').not.toContain('useEditorStore')
+  })
+
+  /**
+   * 两个窗口都要收到的低频事件必须走 broadcast：settings:changed（编辑器窗口的
+   * 主题/语言热更）与 session:state（断连横幅）。只发主窗口的症状是编辑器窗口
+   * 主题切不动、会话断了也不知道 —— 都不报错。
+   */
+  it('settings:changed 与 session:state 走 broadcast', () => {
+    expect(
+      flat(stripComments(read('src/main/ipc/settings.ipc.ts')))
+    ).toContain("broadcast('settings:changed', next)")
+    expect(
+      flat(stripComments(read('src/main/ssh/SshConnectionManager.ts')))
+    ).toContain("broadcast('session:state'")
+  })
+
+  /** term:data 这类高频字节流不许广播：编辑器窗口不消费它，广播就是每块白克隆一次 */
+  it('broadcast 只用于低频事件，term:data 仍然只发主窗口', () => {
+    const src = flat(stripComments(read('src/main/ssh/ShellSession.ts')))
+    expect(src).toContain("emit('term:data'")
+    expect(src, 'term:data 被广播出去了').not.toContain("broadcast('term:data'")
+  })
+
+  /**
+   * 会话面板关掉 tab 时**不动**编辑器 store：编辑器文件活在另一个窗口里，
+   * 这边一动就是把用户正改着的文件突然抽掉（closeTab 里那段注释是完整理由）。
+   */
+  it('useSessionStore 不 import 编辑器 store', () => {
     const body = blockAfter(stripComments(read(SESSION_STORE)), 'closeTab: async (id)')
-    expect(flat(body)).toContain('useEditorStore.getState().closeSession(tab.sessionId)')
+    expect(flat(body)).not.toContain('useEditorStore')
   })
 })
 

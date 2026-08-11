@@ -715,7 +715,26 @@ export interface AppSettings {
     width: number
     height: number
     maximized: boolean
+    /** 独立编辑器窗口的记忆尺寸 */
+    editor: {
+      width: number
+      height: number
+      maximized: boolean
+    }
   }
+}
+
+/**
+ * 「在编辑器窗口打开这个远端文件」的请求体。
+ *
+ * 主窗口发起（SFTP 右键/双击）、主进程转交给编辑器窗口。`origin` 是来源会话的
+ * 显示名（主机/标签标题）——编辑器窗口聚合**所有**会话的文件，标签上没有它
+ * 就分不清两台机器上的同名 nginx.conf。
+ */
+export interface EditorOpenRequest {
+  sessionId: SessionId
+  path: string
+  origin: string
 }
 
 export interface AppVersions {

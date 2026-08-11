@@ -206,7 +206,7 @@
     "followFailed": "Konnte nicht zu {{path}} wechseln: {{reason}}"
   },
   "editor": {
-    "emptyHint": "Rechtsklicke unten in der Liste auf eine Datei und wähle „Im integrierten Editor anzeigen“",
+    "emptyHint": "Klicken Sie in der SFTP-Dateiliste des Hauptfensters mit der rechten Maustaste auf eine Datei und wählen Sie „Im integrierten Editor ansehen“",
     "reload": "Erneut vom Server lesen",
     "readOnly": "Schreibgeschützt",
     "readOnlyHint": "Diese Datei kann gerade nicht bearbeitet werden: sie wird noch geladen oder das Lesen ist fehlgeschlagen",
@@ -232,7 +232,6 @@
     "discardTitle": "Nicht gespeicherte Änderungen verwerfen?",
     "discardDesc": "Diese Datei hat Änderungen, die noch nicht zurückgeschrieben wurden. Beim Fortfahren werden sie endgültig verworfen.",
     "discardOk": "Änderungen verwerfen",
-    "closeSessionDirty": "Diese Sitzung hat noch nicht gespeicherte Dateien. Beim Schließen werden diese Änderungen verworfen. Trotzdem schließen?",
     "bomHint": "Die Datei beginnt mit einem UTF-8-BOM (EF BB BF)",
     "modeHint": "Entfernte Berechtigungsbits (oktal)",
     "lossless": "Zeichensatz könnte falsch sein",
@@ -241,7 +240,11 @@
     "mixedEolHint": "Diese Datei mischt LF und CRLF. Der Editor zeigt alles als LF, daher sind Zeilennummern und Inhalt korrekt; aber **beim Speichern werden die Zeilenenden der gesamten Datei vereinheitlicht** (auf das in der Statusleiste angezeigte), sodass ein Speichern nie byte-identisch mit dem Original sein kann.",
     "tooManyOpen": "Du kannst nicht mehr als {{max}} Dateien gleichzeitig öffnen — schließe zuerst einige",
     "alreadyClosed": "Diese Datei ist bereits geschlossen",
-    "notLoadedYet": "Die Datei ist noch nicht fertig geladen; versuche gleich noch einmal zu speichern"
+    "notLoadedYet": "Die Datei ist noch nicht fertig geladen; versuche gleich noch einmal zu speichern",
+    "windowTitle": "OpenFinalShell-Editor",
+    "sessionDead": "Die Sitzung für „{{origin}}“ ist getrennt: Speichern und Neuladen sind vorerst nicht möglich; der Inhalt kann weiterhin bearbeitet und kopiert werden. Wird nach dem Wiederverbinden automatisch fortgesetzt",
+    "closeWindowDirtyTitle": "{{count}} Datei(en) mit ungespeicherten Änderungen",
+    "closeWindowDirtyDesc": "Beim Schließen des Editorfensters gehen diese Änderungen unwiderruflich verloren."
   },
   "forward": {
     "new": "Neue Weiterleitungsregel",

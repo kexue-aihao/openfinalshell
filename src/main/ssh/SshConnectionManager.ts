@@ -2,7 +2,7 @@ import type { ForwardRule, ProfileId, SessionId, TermId } from '@shared/types'
 import { SshConnection, type ShellExitInfo } from './SshConnection'
 import type { ShellSession } from './ShellSession'
 import { getProfile, touchProfile } from '../store/connections'
-import { emit } from '../ipc/registry'
+import { broadcast, emit } from '../ipc/registry'
 import { transferQueue } from '../sftp/TransferQueue'
 import { forgetSessionBaselines } from '../sftp/editBaselines'
 import { clearProbeCache } from '../sftp/packTransfer'
@@ -35,7 +35,8 @@ class SshConnectionManager {
     this.sessions.set(conn.sessionId, conn)
 
     conn.on('state', (state, error) => {
-      emit('session:state', { sessionId: conn.sessionId, state, error })
+      // 广播：编辑器窗口靠它给断连会话的标签挂"无法保存"横幅
+      broadcast('session:state', { sessionId: conn.sessionId, state, error })
       // 断线：转发规则转 error 待恢复（重连成功后由 reestablished 重建）
       if (state === 'reconnecting' || state === 'closed') {
         const lost = forwardManager.onSessionLost(conn.sessionId)

@@ -448,7 +448,9 @@ describe('导入：安全与完整性边界', () => {
 
   it('设置导入：窗口状态与本机不存在的下载目录不跟着走', async () => {
     seed()
-    patchSettings({ window: { width: 1000, height: 700, maximized: false } })
+    patchSettings({
+      window: { width: 1000, height: 700, maximized: false, editor: { width: 1100, height: 740, maximized: false } }
+    })
     const file = writeEnvelope('settings.json', {
       data: {
         settings: {

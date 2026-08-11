@@ -19,6 +19,11 @@ function resolveMode(settings: AppSettings): 'dark' | 'light' {
   return settings.themeMode
 }
 
+/** 按当前设置解析窗口 chrome 配色（编辑器窗口与主窗口共用同一张表） */
+export function resolveChrome(settings: AppSettings): { bg: string; overlayBg: string; symbol: string } {
+  return CHROME[resolveMode(settings)]
+}
+
 let mainWindow: BrowserWindow | null = null
 
 export function getMainWindow(): BrowserWindow | null {
@@ -106,7 +111,7 @@ export function createMainWindow(): BrowserWindow {
     const patch: Partial<AppSettings> = { window: { ...getSettings().window, maximized } }
     if (!maximized && !win.isMinimized()) {
       const b = win.getBounds()
-      patch.window = { width: b.width, height: b.height, maximized }
+      patch.window = { ...getSettings().window, width: b.width, height: b.height, maximized }
     }
     patchSettings(patch)
   }

@@ -206,7 +206,7 @@
     "followFailed": "Não foi possível seguir para {{path}}: {{reason}}"
   },
   "editor": {
-    "emptyHint": "Clique com o botão direito em um arquivo na lista abaixo e escolha “Ver no editor interno”",
+    "emptyHint": "Clique com o botão direito em um arquivo na lista SFTP da janela principal e escolha “Ver no editor integrado”",
     "reload": "Reler do servidor",
     "readOnly": "Somente leitura",
     "readOnlyHint": "Este arquivo não pode ser editado agora: ainda carregando, ou a leitura falhou",
@@ -232,7 +232,6 @@
     "discardTitle": "Descartar mudanças não salvas?",
     "discardDesc": "Este arquivo tem mudanças que ainda não foram gravadas. Continuar as descarta para sempre.",
     "discardOk": "Descartar mudanças",
-    "closeSessionDirty": "Esta sessão ainda tem arquivos não salvos. Fechá-la descartará essas mudanças. Fechar mesmo assim?",
     "bomHint": "O arquivo começa com um BOM UTF-8 (EF BB BF)",
     "modeHint": "Bits de permissão remotos (octal)",
     "lossless": "O charset pode estar errado",
@@ -241,7 +240,11 @@
     "mixedEolHint": "Este arquivo mistura LF e CRLF. O editor mostra tudo como LF, então os números de linha e o conteúdo estão corretos; mas **salvar normaliza os fins de linha em todo o arquivo** (para aquele que a barra de status mostra), então um salvamento nunca pode ser byte a byte idêntico ao original.",
     "tooManyOpen": "Você não pode abrir mais de {{max}} arquivos ao mesmo tempo — feche alguns primeiro",
     "alreadyClosed": "Este arquivo já está fechado",
-    "notLoadedYet": "O arquivo ainda não terminou de carregar; tente salvar novamente em um instante"
+    "notLoadedYet": "O arquivo ainda não terminou de carregar; tente salvar novamente em um instante",
+    "windowTitle": "Editor do OpenFinalShell",
+    "sessionDead": "A sessão de “{{origin}}” foi desconectada: salvar e recarregar estão indisponíveis no momento; o conteúdo ainda pode ser editado e copiado. Retoma automaticamente após reconectar",
+    "closeWindowDirtyTitle": "{{count}} arquivo(s) com alterações não salvas",
+    "closeWindowDirtyDesc": "Fechar a janela do editor descartará essas alterações, sem como recuperá-las."
   },
   "forward": {
     "new": "Nova regra de encaminhamento",

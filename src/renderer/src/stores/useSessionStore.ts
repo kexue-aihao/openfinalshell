@@ -1,11 +1,9 @@
 import { create } from 'zustand'
 import type { ConnectionProfile, SessionId, SessionState, TermId } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
-import i18n from '@/i18n'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from './useSettingsStore'
 import { useMonitorStore } from './useMonitorStore'
-import { useEditorStore } from './useEditorStore'
 
 export interface SessionTab {
   id: string
@@ -157,18 +155,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   closeTab: async (id) => {
     const tab = get().tabs.find((t) => t.id === id)
     /**
-     * 这个会话下有未保存的编辑就先问一句，而且**不看 confirmOnCloseTab 那个设置**：
-     * 那个开关管的是"关一条连接要不要确认"，而这里要拦的是丢掉用户亲手打的字。
-     * 一个把确认关掉的人想要的是"别拿连接烦我"，不是"删我改的东西也别问"。
-     *
-     * 用 window.confirm 而不是 antd 的 modal：这是个 store，没有 App 的上下文，
-     * 而调进来的地方有四个（标签的 X、关闭其他、关闭右侧、Ctrl+W）——
-     * 把确认放在每个调用点上迟早会漏掉一个。同一个理由下 useGlobalShortcuts
-     * 里那句 confirmOnCloseTab 也是 window.confirm，形状一致。
+     * 编辑器里的未保存改动**不再拦这里**：编辑器是独立窗口，关会话不清它的标签 ——
+     * 断开的会话在那边挂横幅、内容留着（脏内容的最终裁决在编辑器窗口自己的关闭链路上）。
+     * 上一版"关会话先问编辑器脏不脏、然后 closeSession 清光"是嵌入式时代的规则，
+     * 那时编辑器格子就活在这个会话面板里，会话一关格子必然消失。
      */
-    if (tab?.sessionId && useEditorStore.getState().hasDirty(tab.sessionId)) {
-      if (!window.confirm(i18n.t('editor.closeSessionDirty'))) return
-    }
     set((s) => {
       const tabs = s.tabs.filter((t) => t.id !== id)
       const activeTabId =
@@ -176,11 +167,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       return { tabs, activeTabId }
     })
     if (tab?.sessionId) {
-      // 不 clear 的话，关掉的会话在 useMonitorStore 里的快照与 60 点历史永不释放
+      // 不 clear 的话，关掉的会话在 useMonitorStore 里的快照与 60 点历史永不释放。
+      // （编辑器的文件不在这里清 —— 它们活在另一个窗口里，见上面那段）
       useMonitorStore.getState().clear(tab.sessionId)
-      // 内置编辑器同理，而且更贵：每份正文最多 2MB（UTF-16 字符串就是 4MB），
-      // 会话都关了还留着十份是纯粹的泄漏
-      useEditorStore.getState().closeSession(tab.sessionId)
       await ofs.invoke('session:close', tab.sessionId).catch(() => {})
     }
   },

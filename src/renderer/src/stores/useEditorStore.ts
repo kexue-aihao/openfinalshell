@@ -26,6 +26,11 @@ export interface OpenFile {
   sessionId: SessionId
   /** 用户点开的那条路径（软链就是软链本身），标签与去重都用它 */
   path: string
+  /**
+   * 来源会话的显示名（主机/标签标题）。编辑器窗口聚合所有会话的文件，
+   * 没有它就分不清两台机器上的同名 nginx.conf
+   */
+  origin: string
   status: 'loading' | 'ready' | 'error'
   view?: RemoteFileView
   error?: string
@@ -62,13 +67,15 @@ const keyOf = (sessionId: SessionId, path: string): string => `${sessionId}::${p
 
 interface EditorStore {
   files: OpenFile[]
-  /** 每个会话各自记住自己激活的是哪个文件 —— 切会话标签不该改变另一个会话的选择 */
-  activeKey: Record<SessionId, string | undefined>
-  open: (sessionId: SessionId, path: string) => Promise<void>
-  setActive: (sessionId: SessionId, key: string) => void
+  /**
+   * 当前激活的标签（全局唯一）。
+   * 上一版是 Record<SessionId, key>：编辑器嵌在每个会话面板里、各自一条标签条。
+   * 现在编辑器是独立窗口、所有会话共用一条标签条，激活项自然只有一个。
+   */
+  active: string | undefined
+  open: (sessionId: SessionId, path: string, origin: string) => Promise<void>
+  setActive: (key: string) => void
   close: (key: string) => void
-  /** 会话关闭时清掉它的全部文件。没有这一步就是 useMonitorStore.clear 那个泄漏的翻版 */
-  closeSession: (sessionId: SessionId) => void
   reload: (key: string, charset?: RemoteCharset) => Promise<void>
   /** CodeEditor 比出来的脏状态。只改这一个字段，不碰正文 */
   setDirty: (key: string, dirty: boolean) => void
@@ -76,26 +83,26 @@ interface EditorStore {
    * 保存。`gates` 由调用方逐个叠加 —— 每一个都必须对应一次用户确认过的风险。
    *
    * 返回 main 侧那四种结果原样交给调用方：**这一层不弹任何对话框**。
-   * 弹框归 EditorHost（它才有 antd 的 modal 上下文与 i18n），store 只管
+   * 弹框归 EditorWindowShell（它才有 antd 的 modal 上下文与 i18n），store 只管
    * "把内容发出去、把结果和新状态记下来"。这样 store 可以在 jsdom 里直接测，
    * 而不需要去 mock 一个 Modal。
    */
   save: (key: string, gates: RemoteSaveGates, text: string) => Promise<RemoteFileSaveResult>
-  /** 某个会话下有没有未保存的改动（关会话前要问一句） */
-  hasDirty: (sessionId: SessionId) => boolean
+  /** 有没有未保存的改动（编辑器窗口关闭前要问一句） */
+  hasDirty: () => boolean
 }
 
 export const useEditorStore = create<EditorStore>((set, get) => ({
   files: [],
-  activeKey: {},
+  active: undefined,
 
-  open: async (sessionId, path) => {
+  open: async (sessionId, path, origin) => {
     const key = keyOf(sessionId, path)
     const existing = get().files.find((f) => f.key === key)
     // 已经开着就只是切过去。**不重读** —— 重读会把用户已经滚到的位置和折叠状态白扔掉，
     // 而"我想看看它变没变"有明确的入口（重新加载）
     if (existing) {
-      set((s) => ({ activeKey: { ...s.activeKey, [sessionId]: key } }))
+      set({ active: key })
       return
     }
     if (get().files.length >= MAX_OPEN_VIEWS) {
@@ -105,35 +112,26 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set((s) => ({
       files: [
         ...s.files,
-        { key, sessionId, path, status: 'loading', charset: 'utf8', dirty: false, saving: false }
+        { key, sessionId, path, origin, status: 'loading', charset: 'utf8', dirty: false, saving: false }
       ],
-      activeKey: { ...s.activeKey, [sessionId]: key }
+      active: key
     }))
     await get().reload(key)
   },
 
-  setActive: (sessionId, key) => {
-    set((s) => ({ activeKey: { ...s.activeKey, [sessionId]: key } }))
+  setActive: (key) => {
+    set({ active: key })
   },
 
   close: (key) => {
     set((s) => {
+      const idx = s.files.findIndex((f) => f.key === key)
       const files = s.files.filter((f) => f.key !== key)
-      const activeKey = { ...s.activeKey }
-      for (const [sid, active] of Object.entries(activeKey)) {
-        // 关掉的正好是激活项 → 落到同一会话里剩下的最后一个（没有就置空）
-        if (active !== key) continue
-        activeKey[sid] = files.filter((f) => f.sessionId === sid).at(-1)?.key
-      }
-      return { files, activeKey }
-    })
-  },
-
-  closeSession: (sessionId) => {
-    set((s) => {
-      const activeKey = { ...s.activeKey }
-      delete activeKey[sessionId]
-      return { files: s.files.filter((f) => f.sessionId !== sessionId), activeKey }
+      if (s.active !== key) return { files, active: s.active }
+      // 关掉的正好是激活项 → 落到右边邻居（没有就左边；全空就置空）——
+      // 这是标签条的通用手感：连续点 X 能顺着一排关下去，焦点不乱跳
+      const next = files[Math.min(idx, files.length - 1)]?.key
+      return { files, active: next }
     })
   },
 
@@ -233,10 +231,5 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }
   },
 
-  hasDirty: (sessionId) => get().files.some((f) => f.sessionId === sessionId && f.dirty)
+  hasDirty: () => get().files.some((f) => f.dirty)
 }))
-
-/** 某个会话打开着的文件（顺序即标签顺序） */
-export function filesOfSession(files: OpenFile[], sessionId: SessionId): OpenFile[] {
-  return files.filter((f) => f.sessionId === sessionId)
-}

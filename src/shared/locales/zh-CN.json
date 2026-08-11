@@ -202,7 +202,7 @@
     "followFailed": "无法跟随到 {{path}}：{{reason}}"
   },
   "editor": {
-    "emptyHint": "在下方文件列表里右键一个文件，选「内置编辑器查看」",
+    "emptyHint": "在主窗口的 SFTP 文件列表里右键一个文件，选「内置编辑器查看」",
     "reload": "重新从远端读一次",
     "readOnly": "只读",
     "readOnlyHint": "这个文件现在改不动：还没读完，或者读的时候出错了",
@@ -228,7 +228,6 @@
     "discardTitle": "放弃未保存的改动？",
     "discardDesc": "这个文件有改动还没写回远端。继续会把它们丢掉，找不回来。",
     "discardOk": "丢掉改动",
-    "closeSessionDirty": "这条会话里还有文件没保存。关掉会话会把那些改动丢掉，确定关吗？",
     "bomHint": "文件开头有 UTF-8 BOM（EF BB BF）",
     "modeHint": "远端权限位（八进制）",
     "lossless": "编码可能不对",
@@ -237,7 +236,11 @@
     "mixedEolHint": "这个文件里 LF 与 CRLF 混着用。编辑器内部统一按 LF 显示，所以行号与内容都是对的；但**保存会把整个文件的行尾统一掉**（统一成状态条上显示的那一种），所以存回去不可能与原文件逐字节相同。",
     "tooManyOpen": "同时打开的文件不能超过 {{max}} 个，请先关掉一些",
     "alreadyClosed": "这个文件已经关掉了",
-    "notLoadedYet": "文件还没读完，稍后再存"
+    "notLoadedYet": "文件还没读完，稍后再存",
+    "windowTitle": "OpenFinalShell 编辑器",
+    "sessionDead": "「{{origin}}」的会话已断开：暂时无法保存或重新加载，内容仍可编辑与复制。重新连接该会话后自动恢复",
+    "closeWindowDirtyTitle": "有 {{count}} 个文件未保存",
+    "closeWindowDirtyDesc": "关闭编辑器窗口会丢弃这些改动，且无法找回。"
   },
   "forward": {
     "new": "新建转发规则",

@@ -1,22 +1,26 @@
 .host {
   position: relative;
-  height: 100%;
+  height: 100vh;
   min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--ofs-bg-panel);
-  border-top: 1px solid var(--ofs-border);
 }
 
-/* ---- 文件标签条 ---- */
+/* ---- 文件标签条（兼作窗口标题栏：titleBarStyle hidden，拖拽区就是它） ---- */
 
 .tabs {
   flex: none;
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   gap: 2px;
-  padding: 3px 6px 0;
+  min-height: var(--ofs-titlebar-height);
+  padding: 6px 6px 0;
   border-bottom: 1px solid var(--ofs-border);
+  /* 整条默认可拖拽窗口；标签与按钮单独 no-drag */
+  -webkit-app-region: drag;
+  /* 右侧给原生窗口按钮（titleBarOverlay）留位 */
+  padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 4px);
   /* 打开十个文件时横向滚动，而不是把每个标签挤成两个字 */
   overflow-x: auto;
   overflow-y: hidden;
@@ -33,7 +37,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 200px;
+  max-width: 240px;
   padding: 4px 8px;
   border: 1px solid transparent;
   border-bottom: none;
@@ -42,6 +46,7 @@
   color: var(--ofs-text-2);
   cursor: pointer;
   user-select: none;
+  -webkit-app-region: no-drag;
 }
 .tab:hover {
   background: var(--ofs-bg-hover);
@@ -61,6 +66,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 来源会话名前缀：所有机器的文件都在这一条标签条上，同名文件只有靠它区分 */
+.tabOrigin {
+  color: var(--ofs-text-3);
+  margin-right: 5px;
+}
+.tabOrigin::after {
+  content: '›';
+  margin-left: 5px;
 }
 
 .tabSpin {
@@ -87,6 +102,11 @@
 .tabClose:hover {
   opacity: 1;
   color: var(--ofs-error);
+}
+
+.toolBtn {
+  -webkit-app-region: no-drag;
+  align-self: center;
 }
 
 /* ---- 代码区 ---- */

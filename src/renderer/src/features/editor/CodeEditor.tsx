@@ -10,7 +10,7 @@ import {
 } from './cmSetup'
 import { planDraftSwap } from './draftSwap'
 import type { LanguageId } from './editorPolicy'
-import styles from './EditorHost.module.css'
+import styles from './EditorWindowShell.module.css'
 
 interface Props {
   /** 换 key = 换文件（或换编码重读） */
@@ -23,7 +23,7 @@ interface Props {
   openKeys: string[]
   /** 内容与 `text` 是否不一致。每次文档变化、以及换文件之后各报一次 */
   onDirty: (fileKey: string, dirty: boolean) => void
-  /** Ctrl+S。真正的保存流程在 EditorHost（要弹确认框），这里只负责把按键接出去 */
+  /** Ctrl+S。真正的保存流程在 EditorWindowShell（要弹确认框），这里只负责把按键接出去 */
   onSave: (fileKey: string) => void
   /** 保存时从这里取当前正文。填的是一个 getter，不把正文推上去 —— 见下面那段 */
   docRef: MutableRefObject<(() => string) | null>

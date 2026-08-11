@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { safeStorage } from 'electron'
-import { emit, handle } from './registry'
+import { broadcast, handle } from './registry'
 import { getSettings, patchSettings, stripMainOnlyPaths } from '../services/settings'
 import { applyWindowChrome } from '../window'
+import { applyEditorWindowChrome } from '../editorWindow'
 
 export function registerSettingsIpc(): void {
   handle('settings:get', () => getSettings())
@@ -26,7 +27,9 @@ export function registerSettingsIpc(): void {
       const guarded = stripMainOnlyPaths(patch, getSettings())
       const next = patchSettings(guarded.patch)
       applyWindowChrome(next)
-      emit('settings:changed', next)
+      applyEditorWindowChrome(next)
+      // 广播而不是只发主窗口：编辑器窗口的主题/语言也要跟着热更
+      broadcast('settings:changed', next)
       return next
     },
     z.tuple([z.record(z.string(), z.unknown())])
