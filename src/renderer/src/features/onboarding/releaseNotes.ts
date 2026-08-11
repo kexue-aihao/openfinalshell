@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.15.4',
+    items: [
+      {
+        type: 'fix',
+        zh: '修好了 cd 跟随的真正原因：命令在采集时会被截断。终端里的字是服务器回显回来的，而我们在回车那一刻就去读屏，你最后几个字符（尤其是按 Tab 让服务器补全的部分）还没回来 —— 于是 cd /etc/v2node 被读成 cd /etc/v2n，跟随去读一个不存在的目录。现在改为等命令行回显完整后再采集',
+        en: 'Fixed the real cause of cd-following failures: the command was captured truncated. Terminal text arrives as server echo, but capture happened the instant Enter was pressed — the last characters (especially a Tab completion) had not arrived yet, so "cd /etc/v2node" was read as "cd /etc/v2n". Capture now waits until the echoed command line is complete'
+      },
+      {
+        type: 'fix',
+        zh: '同一原因也让命令历史记进被截断的命令（Ctrl+Shift+H 里那些看着不对的条目）。新记录已正常，旧的可在 设置 → 安全与数据 里清空历史',
+        en: 'The same cause recorded truncated commands into history (the odd-looking entries under Ctrl+Shift+H). New entries are correct; old ones can be cleared via Settings → Security & Data'
+      }
+    ]
+  },
+  {
     version: '0.15.3',
     items: [
       {

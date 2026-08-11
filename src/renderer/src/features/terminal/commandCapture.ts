@@ -8,8 +8,18 @@ import { COMMAND_HISTORY_MAX_CHARS } from '@shared/constants'
  * **为什么不从 `term:input` 的按键流里拼？** 因为按键流不等于命令。用户按退格、按 ↑
  * 从 shell 自己的历史里翻出一条、按 Tab 让 shell 补全、粘贴一段（bracketed paste）——
  * 这几种里没有一种能靠累加按键还原出最终那一行。而**屏幕上的那一行**是 shell 自己回显的，
- * 它就是真相。所以采集的输入是 xterm 的缓冲，时机是 Enter 的 keydown（此刻 shell
- * 还没处理回车，那一行还在）。
+ * 它就是真相。所以采集的输入是 xterm 的缓冲。
+ *
+ * **时机是"换行回来的那一刻"，不是 Enter 的 keydown。** 这一条是踩出来的：
+ * 屏幕上的字全靠**服务器回显**，本地不回显。在 keydown 那一刻去读屏，最后几个字符
+ * 可能还在路上 —— 尤其是按 Tab 让服务器补全（`cd /etc/v2n` + Tab → `/etc/v2node`），
+ * 补全结果更是必然还没回来。于是采到的是被**截断**的命令：真实事故是
+ * `cd /etc/v2node` 被采成 `cd /etc/v2n`，SFTP 跟随据此去读一个不存在的目录，
+ * 命令历史也一并被截断污染，且两者都不报错（跟随那条路是静默的）。
+ *
+ * 服务器处理输入是**有序**的：先回显剩下的字符（含补全结果），再回显命令行的换行。
+ * 所以"第一个换行到达"时，那一行必然已经完整。于是分两步：Enter 的 keydown 只
+ * 快照提示符列（见 PromptTracker.snapshot），换行到达时才真正读那一行（captureSubmitted）。
  *
  * **怎么把提示符从命令里切开** —— 两条路，按可靠性排序：
  *
@@ -75,7 +85,11 @@ function logicalStartRow(buf: BufferLike): number {
  * 少掉那些补满行宽的空格，后面的列号全部错位（promptCol 就是列号）。只在最后统一去尾。
  */
 export function readLogicalLine(buf: BufferLike): string {
-  const start = logicalStartRow(buf)
+  return readLogicalLineFrom(buf, logicalStartRow(buf))
+}
+
+/** 从给定的起始屏行往下拼，直到不再是折行 */
+function readLogicalLineFrom(buf: BufferLike, start: number): string {
   let text = ''
   for (let y = start; y < start + MAX_WRAP_ROWS; y++) {
     const line = buf.getLine(y)
@@ -84,6 +98,17 @@ export function readLogicalLine(buf: BufferLike): string {
     text += line.translateToString(false)
   }
   return text.replace(/\s+$/, '')
+}
+
+/**
+ * 读**结束于 endRow** 的那条逻辑行（先往上找起点，再往下拼）。
+ * 提交之后的采集要用它：那时光标已经在下一行，要读的是它上面那一条。
+ */
+export function readLogicalLineEndingAt(buf: BufferLike, endRow: number): string {
+  let start = endRow
+  let guard = MAX_WRAP_ROWS
+  while (start > 0 && guard-- > 0 && buf.getLine(start)?.isWrapped) start--
+  return readLogicalLineFrom(buf, start)
 }
 
 /**
@@ -189,6 +214,22 @@ export class PromptTracker {
     // 否则宁可返回 null 退回启发式，也不按一个已经不成立的列号硬切
     return readLogicalLine(buf).startsWith(this.prompt) ? this.col : null
   }
+
+  /**
+   * 回车那一刻把"提示符在第几列"带走。**刻意不带行号**：
+   * 从回车到换行回来这段时间里缓冲可能滚动，而缓冲满了之后行是环形复用的，
+   * 绝对行号会漂。列号与提示符文本都不会漂，凭这两样就够认出那一行。
+   */
+  snapshot(): PromptSnapshot {
+    return { col: this.col, trusted: this.trusted && this.row !== null, prompt: this.prompt }
+  }
+}
+
+/** 回车那一刻的提示符信息，交给换行到达时的采集用 */
+export interface PromptSnapshot {
+  col: number
+  trusted: boolean
+  prompt: string
 }
 
 /**
@@ -198,14 +239,19 @@ export class PromptTracker {
  * 都会被当成一条命令记下来，历史会被 vim 里的正文塞满 —— 而那些正文恰恰是
  * 用户最不想被存进一张持久化表里的东西（他正在编辑的文件内容）。
  */
-export function captureCommand(buf: BufferLike, tracker: PromptTracker): string | null {
+export function captureSubmitted(buf: BufferLike, snap: PromptSnapshot): string | null {
   if (buf.type === 'alternate') return null
-  const command = extractCommand(readLogicalLine(buf), tracker.promptColFor(buf))
+  // 光标已经在提交后的新行上，要读的是它**上面**那一条逻辑行
+  const endRow = buf.baseY + buf.cursorY - 1
+  if (endRow < 0) return null
+  const line = readLogicalLineEndingAt(buf, endRow)
   /*
-   * 采集发生在回车按下的那一刻，也就是这一行**提交**的那一刻 —— 量到的列号到此为止。
-   * 不清掉的话，xterm 把新提示符复用回同一个绝对行号时（scrollback 满 / clear），
-   * 上一条命令那一列会被当成新提示符的列继续用（详见 PromptTracker.noteKeystroke）。
+   * 认这个列号的条件：快照可信，且那段提示符**还在这一行的开头**。
+   * 后一条是必需的 —— 万一第一个到达的换行不是命令行的回显（比如 stty -echo，
+   * 或者服务器先吐了别的东西），内容比对会对不上，于是退回启发式而不是按一个
+   * 不相干的列号硬切出一段假命令。
    */
-  tracker.noteSubmit()
-  return command
+  const promptCol =
+    snap.trusted && snap.prompt !== '' && line.startsWith(snap.prompt) ? snap.col : null
+  return extractCommand(line, promptCol)
 }

@@ -10,7 +10,7 @@ import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
-import { captureCommand } from './commandCapture'
+import { captureSubmitted, type PromptSnapshot } from './commandCapture'
 import { emitShellCommand } from './commandEvents'
 import { createTerminal, type TerminalBundle } from './createTerminal'
 import { noteProgrammaticWrite, registerTerm, trackerFor, unregisterTerm } from './termRegistry'
@@ -24,6 +24,12 @@ interface Props {
   active: boolean
   uiMode: 'dark' | 'light'
 }
+
+/**
+ * 回车之后等多久还没见到换行就放弃采集这一条。
+ * 给得比一次往返宽裕（跨洋链路也够），但又不能长到让它跨到下一条命令上去。
+ */
+const SUBMIT_CAPTURE_WINDOW_MS = 3000
 
 /**
  * 终端面板：一个 tab 一个常驻 xterm 实例（重连时复用，缓冲不丢）。
@@ -46,6 +52,11 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const mountRef = useRef<HTMLDivElement>(null)
   const bundleRef = useRef<TerminalBundle | null>(null)
   const termIdRef = useRef<string | null>(null)
+  /**
+   * 回车已按下、等换行回来采集的那一条。null = 此刻没有待采集的提交。
+   * （为什么要等换行：见 commandCapture.ts 文件头）
+   */
+  const pendingSubmitRef = useRef<{ snap: PromptSnapshot; expiresAt: number } | null>(null)
   const openingRef = useRef(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -185,25 +196,27 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         }
       }
       /*
-       * 命令历史采集的第二半：回车**按下**的这一刻，shell 还没处理它，
-       * 屏幕上那一行就是即将执行的命令。切法与三道守卫都在 commandCapture.ts。
+       * 命令采集的第二半：回车**按下**的这一刻只做两件轻活 —— 把"提示符在第几列"
+       * 快照下来，并让追踪器认为这一行已提交。**不在这里读屏**：屏幕上的字全靠
+       * 服务器回显，此刻用户敲的最后几个字符（以及 Tab 补全的结果）可能还在路上，
+       * 读到的会是被截断的命令（详见 commandCapture.ts 文件头那段事故记录）。
+       * 真正的采集在下面 onLineFeed 里。
        *
        * 一律 `return true` —— 采集不许影响回车本身。真出了异常也只是这一条没记上，
        * 绝不能让终端吞掉一次回车（那是"这个软件坏了"级别的表现）。
        */
       if (ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey) {
         try {
-          // 采集一次、两处消费。「记录命令历史」的开关只管历史那一份 ——
-          // SFTP 的 cd 跟随不归它管：关掉历史的用户不该连目录跟随一起失去
           const termId = termIdRef.current
-          const command = termId
-            ? captureCommand(bundle.term.buffer.active, trackerFor(termId))
-            : null
-          if (command) {
-            if (useSettingsStore.getState().settings?.terminal.saveCommandHistory) {
-              useHistoryStore.getState().push(command)
+          if (termId) {
+            const tracker = trackerFor(termId)
+            pendingSubmitRef.current = {
+              snap: tracker.snapshot(),
+              // 只等这一小会儿：换行迟迟不来（比如 stty -echo 的口令提问）就放弃这一条，
+              // 也免得它挂在那里，被后面某条无关输出的换行当成命令采走
+              expiresAt: Date.now() + SUBMIT_CAPTURE_WINDOW_MS
             }
-            emitShellCommand(tab.id, command)
+            tracker.noteSubmit()
           }
         } catch {
           /* 采集永不阻断按键 */
@@ -211,6 +224,29 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
         return true
       }
       return true
+    })
+
+    /*
+     * 提交后的采集。服务器处理输入是有序的：先回显剩下的字符（含 Tab 补全结果），
+     * 再回显命令行那个换行。所以**第一个换行到达**时，那一行必然已经完整。
+     */
+    bundle.term.onLineFeed(() => {
+      const pending = pendingSubmitRef.current
+      if (!pending) return
+      pendingSubmitRef.current = null
+      if (Date.now() > pending.expiresAt) return
+      try {
+        const command = captureSubmitted(bundle.term.buffer.active, pending.snap)
+        if (!command) return
+        // 采集一次、两处消费。「记录命令历史」的开关只管历史那一份 ——
+        // SFTP 的 cd 跟随不归它管：关掉历史的用户不该连目录跟随一起失去
+        if (useSettingsStore.getState().settings?.terminal.saveCommandHistory) {
+          useHistoryStore.getState().push(command)
+        }
+        emitShellCommand(tab.id, command)
+      } catch {
+        /* 采集失败只是少记一条，绝不影响终端 */
+      }
     })
 
     // Ctrl+滚轮调字号。capture 阶段接：xterm 自己的 viewport wheel 监听在后代节点上，

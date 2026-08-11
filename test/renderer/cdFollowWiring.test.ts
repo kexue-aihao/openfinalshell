@@ -22,8 +22,8 @@ describe('cd 跟随：TerminalPane 侧', () => {
   })
 
   it('采集只做一次，两个消费方共用同一份 command', () => {
-    // captureCommand 在 TerminalPane 里只许出现一个调用点（import 行不算调用）
-    expect(pane.match(/captureCommand\(/g)).toHaveLength(1)
+    // captureSubmitted 在 TerminalPane 里只许出现一个调用点（import 行不算调用）
+    expect(pane.match(/captureSubmitted\(/g)).toHaveLength(1)
     expect(pane).toContain('emitShellCommand(tab.id, command)')
   })
 })

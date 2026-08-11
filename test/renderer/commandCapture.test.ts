@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { COMMAND_HISTORY_MAX_CHARS } from '@shared/constants'
 import {
-  captureCommand,
+  captureSubmitted,
   extractCommand,
   PromptTracker,
   readLogicalLine,
@@ -41,6 +41,24 @@ function fakeBuffer(
       }
     }
   }
+}
+
+/**
+ * 回车之后的缓冲：命令行**留在原处**，光标落到它下面一行。
+ * 这就是 onLineFeed 触发那一刻的真实形态（shell 回显完命令、再回显换行）。
+ */
+function afterEnter(buf: BufferLike): BufferLike {
+  return { ...buf, cursorX: 0, cursorY: buf.cursorY + 1 }
+}
+
+/**
+ * 完整走一遍生产里的三步：回车时快照提示符列 → 追踪器复位 → 换行到达时采集。
+ * 测试都经它，才不会写成"用一个生产里不存在的时机去断言"。
+ */
+function submitAndCapture(tracker: PromptTracker, buf: BufferLike): string | null {
+  const snap = tracker.snapshot()
+  tracker.noteSubmit()
+  return captureSubmitted(afterEnter(buf), snap)
 }
 
 describe('提示符末尾列（promptCol）这条路', () => {
@@ -193,7 +211,7 @@ describe('折行的命令要当成一行', () => {
     const tracker = new PromptTracker()
     // 用户在第一行敲下第一个键时（光标在提示符末尾）
     tracker.noteKeystroke(fakeBuffer(rows, { cursorX: 'root@h:~# '.length, cursorY: 0 }))
-    const command = captureCommand(buf, tracker)
+    const command = submitAndCapture(tracker, buf)
     expect(command?.startsWith('for i in 1 2 3;')).toBe(true)
     expect(command?.endsWith('0 && date')).toBe(true)
   })
@@ -208,9 +226,9 @@ describe('全屏程序里一律不采集', () => {
     })
     const tracker = new PromptTracker()
     tracker.noteKeystroke(buf)
-    expect(captureCommand(buf, tracker)).toBeNull()
+    expect(submitAndCapture(tracker, buf)).toBeNull()
     // 同一行在普通缓冲里是记得下的 —— 证明上面那条 null 真的来自这道守卫
-    expect(captureCommand(fakeBuffer(['root@h:~# ls'], { cursorX: 12, cursorY: 0 }), tracker)).toBe(
+    expect(submitAndCapture(tracker, fakeBuffer(['root@h:~# ls'], { cursorX: 12, cursorY: 0 }))).toBe(
       'ls'
     )
   })
@@ -245,7 +263,7 @@ describe('PromptTracker', () => {
     tracker.noteKeystroke(fakeBuffer(rows, { cursorX: 15, cursorY: 0 }))
     expect(tracker.promptColFor(fakeBuffer(rows, { cursorX: 20, cursorY: 0 }))).toBeNull()
     // 退回启发式之后拿到的是**整条**命令，而不是用户后补的那截
-    expect(captureCommand(fakeBuffer(rows, { cursorX: 20, cursorY: 0 }), tracker)).toBe('df -h --si')
+    expect(submitAndCapture(tracker, fakeBuffer(rows, { cursorX: 20, cursorY: 0 }))).toBe('df -h --si')
   })
 
   it('还没见过任何按键时给 null（这一行第一个键就是回车）', () => {
@@ -264,6 +282,84 @@ describe('PromptTracker', () => {
  *
  * 现有的 74 条护栏一条都没抓到它，因为**没有一条构造过"同一个绝对行号上的两个不同提示符"**。
  */
+/**
+ * **回显赛跑** —— 这一组守的是线上真事故：用户敲 `cd /etc/v2node`，SFTP 却去读
+ * `/etc/v2n`，服务器回 "No such file"，界面只闪一下就弹回去。
+ *
+ * 原因是采集时机：屏幕上的字全靠服务器回显，本地不回显。在回车 keydown 那一刻读屏，
+ * 最后几个字符还在路上；按 Tab 让服务器补全时更是必然还没回来。
+ * 所以采集必须等到**换行到达**——服务器按序回显：先补完字符，再回显换行。
+ */
+describe('回车与回显赛跑：必须等换行到达才采集', () => {
+  it('回车那刻屏幕还差几个字符，换行到达后采到的是完整命令', () => {
+    const tracker = new PromptTracker()
+    const PROMPT = 'root@host:/etc# '
+    // 用户敲第一个键时量到提示符列
+    tracker.noteKeystroke(fakeBuffer([PROMPT], { cursorX: PROMPT.length, cursorY: 0 }))
+    const snap = tracker.snapshot()
+
+    // 回车那一刻：服务器只回显到 v2n（尾巴 "ode" 还在路上，或 Tab 补全还没回来）
+    const atKeydown = fakeBuffer([`${PROMPT}cd /etc/v2n`], { cursorX: 27, cursorY: 0 })
+    // 旧做法在这一刻读屏 —— 会采到被截断的命令（这正是事故现场）
+    expect(extractCommand(readLogicalLine(atKeydown), snap.col)).toBe('cd /etc/v2n')
+
+    // 换行到达时：剩下的字符已经回显完，光标落到下一行
+    const atLineFeed = fakeBuffer([`${PROMPT}cd /etc/v2node`], { cursorX: 0, cursorY: 1 })
+    expect(captureSubmitted(atLineFeed, snap)).toBe('cd /etc/v2node')
+  })
+
+  it('Tab 补全把整行都改了，也照样采到补全后的样子', () => {
+    const tracker = new PromptTracker()
+    const PROMPT = 'root@host:~# '
+    tracker.noteKeystroke(fakeBuffer([PROMPT], { cursorX: PROMPT.length, cursorY: 0 }))
+    const snap = tracker.snapshot()
+    const atLineFeed = fakeBuffer([`${PROMPT}systemctl restart nginx.service`], {
+      cursorX: 0,
+      cursorY: 1
+    })
+    expect(captureSubmitted(atLineFeed, snap)).toBe('systemctl restart nginx.service')
+  })
+
+  it('提交后的折行命令：从光标上方那一行往上收，整条都要', () => {
+    const rows = [
+      { text: 'root@h:~# for i in 1 2 3; do echo "第 $i 遍"; done && echo 完事了 && sleep 1', wrapped: false },
+      { text: '0 && date', wrapped: true }
+    ]
+    const tracker = new PromptTracker()
+    tracker.noteKeystroke(fakeBuffer(rows, { cursorX: 'root@h:~# '.length, cursorY: 0 }))
+    const snap = tracker.snapshot()
+    // 换行到达：光标在折行的下一行（第 2 行）
+    const command = captureSubmitted(fakeBuffer(rows, { cursorX: 0, cursorY: 2 }), snap)
+    expect(command?.startsWith('for i in 1 2 3;')).toBe(true)
+    expect(command?.endsWith('0 && date')).toBe(true)
+  })
+
+  /**
+   * 第一个到达的换行不一定是命令行的回显（`stty -echo`、口令提问、服务器先吐别的东西）。
+   * 此时快照里的提示符与读到的那一行对不上 —— 必须退回启发式，
+   * 而不是按一个不相干的列号硬切出一段假命令塞进历史。
+   */
+  it('换行来自别处（内容对不上快照的提示符）时退回启发式，不硬切', () => {
+    const tracker = new PromptTracker()
+    tracker.noteKeystroke(fakeBuffer(['root@host:~# '], { cursorX: 13, cursorY: 0 }))
+    const snap = tracker.snapshot()
+    // 读到的是一行毫不相干的输出，且不含 $ / # / % → 如实不记
+    const other = fakeBuffer(['Reading package lists...'], { cursorX: 0, cursorY: 1 })
+    expect(captureSubmitted(other, snap)).toBeNull()
+  })
+
+  it('光标还在第一行（没有上一行可读）时不采集', () => {
+    const snap = new PromptTracker().snapshot()
+    expect(captureSubmitted(fakeBuffer(['root@h:~# ls'], { cursorX: 0, cursorY: 0 }), snap)).toBeNull()
+  })
+
+  it('全屏程序（vim）里换行照旧不采集', () => {
+    const tracker = new PromptTracker()
+    const buf = fakeBuffer(['root@h:~# 看着像命令'], { cursorX: 0, cursorY: 1, type: 'alternate' })
+    expect(captureSubmitted(buf, tracker.snapshot())).toBeNull()
+  })
+})
+
 describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 归零）', () => {
   /**
    * 把一行放在**指定的绝对行号**上。
@@ -300,12 +396,12 @@ describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 
     const tracker = new PromptTracker()
     // 第一条：~ 下执行 cd /tmp（提示符 13 列）
     tracker.noteKeystroke(bufAt(SATURATED_ROW, 'root@host:~# cd /tmp', 13))
-    expect(captureCommand(bufAt(SATURATED_ROW, 'root@host:~# cd /tmp', 20), tracker)).toBe('cd /tmp')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, 'root@host:~# cd /tmp', 20))).toBe('cd /tmp')
 
     // 第二条：cd 之后提示符变长（16 列），但缓冲已饱和 → 绝对行号与上面**完全相同**
     const second = 'root@host:/tmp# cd /var/log'
     tracker.noteKeystroke(bufAt(SATURATED_ROW, second, 16))
-    const command = captureCommand(bufAt(SATURATED_ROW, second, 27), tracker)
+    const command = submitAndCapture(tracker, bufAt(SATURATED_ROW, second, 27))
     expect(command).toBe('cd /var/log')
     // 缺陷版本用冻结的第 13 列去切 16 列的提示符 → 'p# cd /var/log'
     expect(command).not.toContain('#')
@@ -314,21 +410,21 @@ describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 
   it('提示符没有 $ / # / % 时更致命：残片连启发式都救不回来', () => {
     const tracker = new PromptTracker()
     tracker.noteKeystroke(bufAt(SATURATED_ROW, '~ ❯ cd /tmp', 4))
-    expect(captureCommand(bufAt(SATURATED_ROW, '~ ❯ cd /tmp', 11), tracker)).toBe('cd /tmp')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, '~ ❯ cd /tmp', 11))).toBe('cd /tmp')
 
     const second = '/tmp ❯ cd /var/log'
     tracker.noteKeystroke(bufAt(SATURATED_ROW, second, 7))
-    expect(captureCommand(bufAt(SATURATED_ROW, second, 18), tracker)).toBe('cd /var/log')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, second, 18))).toBe('cd /var/log')
   })
 
   it('提示符变短（cd 回上层）也照样重新测量', () => {
     const tracker = new PromptTracker()
     tracker.noteKeystroke(bufAt(SATURATED_ROW, 'root@host:/var/log# cd /', 20))
-    expect(captureCommand(bufAt(SATURATED_ROW, 'root@host:/var/log# cd /', 24), tracker)).toBe('cd /')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, 'root@host:/var/log# cd /', 24))).toBe('cd /')
 
     const shallow = 'root@host:/# ls -al'
     tracker.noteKeystroke(bufAt(SATURATED_ROW, shallow, 12))
-    expect(captureCommand(bufAt(SATURATED_ROW, shallow, 19), tracker)).toBe('ls -al')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, shallow, 19))).toBe('ls -al')
   })
 
   it('clear() 把行号归零 → 两次 clear 之间 cd 过，第二条照样不许沿用旧列', () => {
@@ -340,11 +436,11 @@ describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 
     const tracker = new PromptTracker()
     // 第一次 clear 之后：在 ~ 下敲一条
     tracker.noteKeystroke(bufAt(0, 'root@host:~# ls', 13, 0))
-    expect(captureCommand(bufAt(0, 'root@host:~# ls', 15, 0), tracker)).toBe('ls')
+    expect(submitAndCapture(tracker, bufAt(0, 'root@host:~# ls', 15, 0))).toBe('ls')
     // cd 过、又 clear 了一次 → 还是绝对行 0，但提示符更长
     const after = 'root@host:/etc/nginx# nginx -t'
     tracker.noteKeystroke(bufAt(0, after, 22, 0))
-    const command = captureCommand(bufAt(0, after, 30, 0), tracker)
+    const command = submitAndCapture(tracker, bufAt(0, after, 30, 0))
     expect(command).toBe('nginx -t')
     expect(command).not.toContain('#')
   })
@@ -362,7 +458,7 @@ describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 
     const tracker = new PromptTracker()
     const rows = 'root@host:~# pwd'
     tracker.noteKeystroke(bufAt(SATURATED_ROW, rows, 13))
-    expect(captureCommand(bufAt(SATURATED_ROW, rows, 16), tracker)).toBe('pwd')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, rows, 16))).toBe('pwd')
     // 采集完就该忘掉 —— 哪怕下一行落在同一个绝对行号上
     expect(tracker.promptColFor(bufAt(SATURATED_ROW, rows, 16))).toBeNull()
   })
@@ -374,7 +470,7 @@ describe('提示符列不许跨行泄漏（行号被 xterm 环形复用 / clear 
     const filled = 'root@host:~# df -h'
     // 同一行：闩闩着 → 主路让位，退回启发式拿整条命令
     expect(tracker.promptColFor(bufAt(SATURATED_ROW, filled, 18))).toBeNull()
-    expect(captureCommand(bufAt(SATURATED_ROW, filled, 18), tracker)).toBe('df -h')
+    expect(submitAndCapture(tracker, bufAt(SATURATED_ROW, filled, 18))).toBe('df -h')
     // 复用出的新提示符（cd 过，更长）：重新测量、恢复可信，主路照样切得对
     const next = 'root@host:/opt# systemctl status nginx'
     tracker.noteKeystroke(bufAt(SATURATED_ROW, next, 16))

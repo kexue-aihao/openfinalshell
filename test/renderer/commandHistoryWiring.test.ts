@@ -91,7 +91,7 @@ describe('采集：三道守卫都在 commandCapture 里，面板不另写一份
   const pane = stripComments(read(PANE))
 
   it('全屏程序（alternate buffer）不采集', () => {
-    expect(flat(blockAfter(capture, 'export function captureCommand'))).toContain(
+    expect(flat(blockAfter(capture, 'export function captureSubmitted'))).toContain(
       "buf.type === 'alternate'"
     )
   })
@@ -102,11 +102,29 @@ describe('采集：三道守卫都在 commandCapture 里，面板不另写一份
     expect(pattern.slice(0, 60)).not.toContain('>')
   })
 
-  it('终端面板经 captureCommand 采集，自己不切提示符', () => {
-    expect(pane).toContain('captureCommand(')
+  it('终端面板经 captureSubmitted 采集，自己不切提示符', () => {
+    expect(pane).toContain('captureSubmitted(')
     // 第二份切法的特征：面板里出现取行/切提示符的动作
     expect(pane).not.toContain('translateToString')
     expect(pane).not.toContain('PROMPT_END')
+  })
+
+  /**
+   * **采集不许发生在回车的 keydown 分支里。** 这条是线上事故换来的：
+   * 屏幕上的字全靠服务器回显，keydown 那一刻用户最后几个字符（以及 Tab 补全的结果）
+   * 可能还没回来，读到的是截断的命令 —— 真实表现是 `cd /etc/v2node` 被采成
+   * `cd /etc/v2n`，SFTP 跟随去读一个不存在的目录，命令历史也一并被截断。
+   * keydown 只许快照提示符列，真正读屏必须等换行到达。
+   */
+  it('回车分支只快照，采集在 onLineFeed 里（否则会和回显赛跑采到截断的命令）', () => {
+    const enterBranch = flat(blockAfter(pane, "if (ev.key === 'Enter'"))
+    expect(enterBranch, 'keydown 分支不许读屏采集').not.toContain('captureSubmitted(')
+    expect(enterBranch, 'keydown 分支该做的是快照提示符列').toContain('snapshot()')
+
+    const lineFeed = flat(blockAfter(pane, 'bundle.term.onLineFeed('))
+    expect(lineFeed, '采集必须在换行到达时做').toContain('captureSubmitted(')
+    // 换行迟迟不来（stty -echo 的口令提问）时要放弃，不能挂着被后面的输出换行采走
+    expect(lineFeed).toContain('expiresAt')
   })
 
   it('回车那条分支恒 return true，且采集包在 try 里 —— 永不吞掉一次回车', () => {
@@ -116,8 +134,8 @@ describe('采集：三道守卫都在 commandCapture 里，面板不另写一份
     expect(branch).toContain('return true')
   })
 
-  it('受设置开关约束', () => {
-    expect(flat(blockAfter(pane, "if (ev.key === 'Enter'"))).toContain(
+  it('受设置开关约束（开关跟着采集一起挪到了 onLineFeed 里）', () => {
+    expect(flat(blockAfter(pane, 'bundle.term.onLineFeed('))).toContain(
       "useSettingsStore.getState().settings?.terminal.saveCommandHistory"
     )
     expect(DEFAULT_SETTINGS.terminal.saveCommandHistory).toBe(true)
