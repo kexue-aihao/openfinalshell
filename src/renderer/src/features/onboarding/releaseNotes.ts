@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.16.1',
+    items: [
+      {
+        type: 'feat',
+        zh: '目录读取提速回归：0.15.3 出于谨慎撤回的分页读取，已查明与当时的问题无关（真凶是 0.15.4 修掉的命令采集截断），现原样取回 —— 一次切目录少两个网络往返，/etc、/usr/bin 这类软链接多的目录最明显',
+        en: 'The directory-listing speedup is back: the paged reader cautiously reverted in 0.15.3 was proven unrelated to that bug (the real cause was the command truncation fixed in 0.15.4) — switching directories is two round-trips faster again, most noticeable in symlink-heavy directories like /etc and /usr/bin'
+      },
+      {
+        type: 'feat',
+        zh: '给 cd 跟随这一整片补上了组件级回归测试（8 条，覆盖这轮修过的全部四个问题），并逐条验证过它们在旧版缺陷代码上会失败 —— 同类问题今后在发版前就会被拦住',
+        en: 'The cd-following area now has component-level regression tests (8 cases covering all four recently fixed issues), each verified to fail on the old buggy code — regressions of this kind will now be caught before release'
+      }
+    ]
+  },
+  {
     version: '0.16.0',
     items: [
       {
