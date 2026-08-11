@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.17.1',
+    items: [
+      {
+        type: 'fix',
+        zh: '快捷命令（以及命令编辑器）执行的 cd 现在也会让 SFTP 面板跟着切目录了 —— 之前跟随只认手敲回车的命令，点快捷命令执行时命令照跑、历史照记，唯独目录跟随一声不吭地不动',
+        en: 'A cd run from a saved snippet (or the command editor) now makes the SFTP panel follow along — following used to work only for commands typed by hand, so snippet-launched commands ran fine and were recorded in history, but the directory silently never followed'
+      }
+    ]
+  },
+  {
     version: '0.17.0',
     items: [
       {
