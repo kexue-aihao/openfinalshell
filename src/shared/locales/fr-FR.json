@@ -625,7 +625,8 @@
     "changelog": "Journal des modifications",
     "exportEncryptAll": "Chiffrer tout le fichier (hôtes et noms d'utilisateur compris, phrase secrète requise)",
     "exportEncryptAllHint": "Le fichier exporté ne contient aucun texte en clair. Remarque : une fois le chiffrement local activé, vous ne pouvez plus migrer en copiant le .db ; utilisez l'export/import chiffré.",
-    "importEncryptedNote": "Ce fichier est entièrement chiffré. Saisissez la phrase secrète d'export pour importer tout son contenu."
+    "importEncryptedNote": "Ce fichier est entièrement chiffré. Saisissez la phrase secrète d'export pour importer tout son contenu.",
+    "section_lanSync": "LAN Sync"
   },
   "shortcut": {
     "duplicateSession": "Dupliquer la session actuelle",
@@ -879,6 +880,52 @@
     },
     "store": {
       "profileNotFound": "Connexion introuvable"
+    },
+    "sync": {
+      "busy": "The other device is pairing with someone else; please try again shortly",
+      "timeout": "Timed out waiting for a response",
+      "protocol": "Protocol mismatch (the other side may be a different version)",
+      "codeMismatch": "Incorrect pairing code; that code has been invalidated — use the new one on the other screen",
+      "connectFailed": "Could not connect to the target device",
+      "sendInProgress": "A send is already in progress",
+      "remoteError": "The other device reported an error ({{code}})"
     }
+  },
+  "sync": {
+    "title": "LAN Sync",
+    "desc": "Send connections, snippets and other data to another device on the same LAN. This sends a one-time copy (not two-way sync) — the other side merges it the way you choose after confirming.",
+    "receiveTitle": "Receive",
+    "receiveDesc": "Entering receive mode shows a pairing code; just read it out to the sender.",
+    "receiveStart": "Start receiving",
+    "receiveStop": "Stop receiving",
+    "codeLabel": "Pairing code",
+    "waitingHint": "Waiting for a sender to connect…",
+    "receivingHint": "Receiving data from {{name}}…",
+    "addressLabel": "This device (the other side can also type it manually)",
+    "firewallHint": "If the other device cannot find this one, allow this app on private networks in the system firewall, or have them type the address above manually.",
+    "sendTitle": "Send",
+    "sendDesc": "Scan for devices in receive mode on the same LAN, or type the address manually.",
+    "scan": "Scan for devices",
+    "scanning": "Scanning…",
+    "noDevices": "No devices found. Make sure the other side pressed “Start receiving”, or type the address manually.",
+    "manualLabel": "Enter address manually",
+    "manualPlaceholder": "e.g. 192.168.1.20:52133",
+    "codeInputLabel": "The other device's pairing code",
+    "codePlaceholder": "6 digits",
+    "includeSecrets": "Include saved passwords",
+    "sendButton": "Send",
+    "cancel": "Cancel",
+    "invalidTarget": "Address must be in the form IP:port",
+    "codeRequired": "Enter the 6-digit pairing code shown on the other screen",
+    "statusConnecting": "Connecting…",
+    "statusConfirming": "Pairing…",
+    "statusSending": "Sending…",
+    "statusDelivered": "Delivered to {{name}}; waiting for them to confirm the import",
+    "appliedSummary": "They imported {{profiles}} connections and {{secrets}} passwords ({{skipped}} skipped)",
+    "rejectedByPeer": "The other device declined",
+    "incomingTitle": "Incoming data",
+    "incomingFrom": "From {{name}} ({{address}})",
+    "applyButton": "Import",
+    "rejectButton": "Decline"
   }
 }

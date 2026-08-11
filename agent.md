@@ -76,6 +76,35 @@ Windows PowerShell 5.1 向原生程序传参时，字符串内的 `"` 会破坏�
   `hasDirty()` →（确认后）`editor:closeNow` 放行。绕过这条链路直接 destroy 会丢用户没保存的输入。
 - 编辑器窗口**不接**会话/传输/监控那些 wire*：它只消费 sftp:fileView/fileSave 与上面两条广播。
 
+## 局域网同步（LanSync，必读）
+
+同一局域网内两台设备之间**手动收发**应用数据（`src/main/lansync/`）。刻意**不是**自动双向同步——
+现有 `applyImport` 的合并是按 id upsert、无时间戳裁决、无删除墓碑，自动双向会让"A 删掉的连接被 B 推回来复活"成为日常。
+心智是"发一份副本"，接收端确认后走既有的 skip/overwrite/duplicate 三策略合并。
+
+- **载荷就是标准 v2 加密信封**：发送侧 `buildExportEnvelope({ encryptAll: true, passphrase: 通道密钥 })`，
+  接收侧 `inspectImportFromText(text, { passphrase })` → 原样 `applyImport`。线上除信封头元数据（版本/时间/设备名）外**无明文**。
+  **绝不改成明文发送**（`encryptAll: true` 有护栏钉着）；接收端复用 `applyImport` 意味着自动继承 `sanitizeSettings` +
+  `stripMainOnlyPaths`（导入是第二个不可信入口，历史上被植入过 exe 路径）——新增导入旁路时务必保持这条。
+- **配对码只做认证、不做密钥**：`pairKey = scrypt(6位码, HKDF(X25519共享秘密, salt, transcript))`（`pairing.ts`）。
+  scrypt 的盐折进了 ECDH 秘密，被动嗅探者没有暴力起点；transcript 绑双方公钥+salt+sessionId 挡 MITM/重放。
+  **码证明必须过 scrypt 不是裸 HMAC**（否则离线爆破从数十核时塌成瞬间，护栏钉着）；比较用 `timingSafeEqual`。
+- **未认证网络路径上的重活必须异步 + 幂等**：`derivePairKey` 用 `scrypt`（异步、走线程池）而非
+  `scryptSync`——它跑在收到未认证 `hello` 帧的路径上（早于任何码校验），同步版会让局域网对端用
+  重复 hello 把主进程事件循环连续占满（界面 + 所有 SSH 会话冻结）。配套每连接"只处理首个 hello"
+  的幂等守卫（`senderPub` 同步置位挡住后续），未认证对端至多触发一次线程池 scrypt。握手期帧用
+  `HANDSHAKE_MAX_FRAME_BYTES`（64KiB）小上限，confirm 成功后才升到 64MiB 收 payload。
+  教训：**任何在鉴权之前响应网络输入的地方，别放同步 CPU 重活，也别让单连接无上限重复触发它**。
+- **烧码规则**：错码或 confirm 后失败 → `rotateCode()` 换新码（每会话=一次在线猜测，10⁻⁶）；
+  **confirm 之前的异常断开不烧码**（端口扫描器/半开连接不该逼用户重读码）。单飞行握手：第二条连入回 `error{busy}`。
+- **发现只用 node:dgram**（组播 239.255.77.88:52133 + 广播兜底），传输只用 node:net，配对只用 node:crypto——
+  零 native 红线内。发现是尽力而为，**手输 IP:端口 是一等公民兜底**（组播常被企业网隔离、防火墙可能拦监听）。
+- **状态推送走 `emit` 到主窗口**（面板在主窗口，低频，不用 broadcast）；store 照 useUpdateStore 的"订阅缓存不乐观更新"。
+- **生命周期**：`before-quit` 里 `lanSyncManager.stopAll()` 必须**先于** `closeDatabase()`；接收态 10 分钟空转自停（不留开放端口）。
+  发送 Promise 每条结算路径都要释放 `sendSession`（error 路径同步释放，别只等 'close' 事件——调用方常在 await 抛出后立刻重试）。
+- 测试：纯函数（protocol/pairing）单测 + 真 TCP 端到端（`test/integration/lansync.test.ts`，同进程收发）+ 安全护栏
+  （`test/renderer/lanSyncWiring.test.ts`，钉 encryptAll/scrypt/confirm 顺序）。
+
 ## 渲染层组件测试（jsdom）
 
 测试分四层：`test/unit` + `test/integration`（node 环境）、`test/renderer`（**读源码**的 grep 护栏）、

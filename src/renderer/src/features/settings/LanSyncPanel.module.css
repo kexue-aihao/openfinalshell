@@ -1,0 +1,113 @@
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.card {
+  border: 1px solid var(--ofs-border);
+  border-radius: 8px;
+  padding: 16px;
+  min-height: 220px;
+}
+
+.cardTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.codeBox {
+  margin: 8px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--ofs-bg-elevated, rgba(127, 127, 127, 0.08));
+  text-align: center;
+}
+
+.codeLabel {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  line-height: 1.2;
+}
+
+.waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.subLabel {
+  font-size: 12px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+.addrBlock {
+  margin: 8px 0;
+}
+
+.addr {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+}
+
+.devices {
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.noDevices {
+  font-size: 12px;
+  opacity: 0.6;
+  padding: 8px 0;
+}
+
+.device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--ofs-border);
+  border-radius: 6px;
+}
+
+.deviceMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.deviceName {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deviceAddr {
+  font-size: 11px;
+  opacity: 0.6;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.sendStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}

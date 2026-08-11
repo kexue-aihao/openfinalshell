@@ -653,6 +653,26 @@ export function createMockOfs(): OfsApi {
     'editor:closeNow': () => undefined,
 
     /**
+     * 局域网同步：浏览器 mock 里没有真网络。接收回一个"等待中"的假状态（好让面板
+     * 把配对码/地址那套 UI 画出来调样式），扫描回两台假设备，发送/应用一律 no-op。
+     */
+    'sync:receiveStart': () => ({
+      phase: 'waiting',
+      code: '284917',
+      tcpPort: 52133,
+      addresses: ['192.168.1.23', '10.8.0.2']
+    }),
+    'sync:receiveStop': () => undefined,
+    'sync:receiveStatus': () => ({ phase: 'idle' }),
+    'sync:scan': () => [
+      { deviceId: 'dev-2', deviceName: 'MacBook-Pro', appVersion: '0.17.1', address: '192.168.1.31', tcpPort: 52140 },
+      { deviceId: 'dev-3', deviceName: 'ThinkPad-X1', appVersion: '0.17.1', address: '192.168.1.44', tcpPort: 52155 }
+    ],
+    'sync:send': () => undefined,
+    'sync:sendCancel': () => undefined,
+    'sync:dismiss': () => undefined,
+
+    /**
      * 内置编辑器的只读打开。mock 里回一段**够把语法着色与状态条都验到**的假内容：
      * 有注释、有键值、有中文、有全角空格（那个要被 highlightSpecialChars 标出来）。
      * 编码/行尾/BOM 一律报最常见的组合 —— 这里的目的只是让界面能走完一遍，

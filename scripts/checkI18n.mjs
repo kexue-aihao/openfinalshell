@@ -23,7 +23,10 @@ const DYNAMIC_PREFIXES = [
   'settings.section_',
   'sftp.perm_',
   'shortcut.',
-  'region.'
+  'region.',
+  // 局域网同步的错误码跨线传输：一端把 err.sync.* 当作 code 字段发出，另一端用
+  // safeTranslate(frame.code) 在运行时解析 —— 键名是变量，静态扫不到，属动态命名空间
+  'err.sync.'
 ]
 
 // ---- 读取并展平各语言 json 的叶子 key ----

@@ -17,8 +17,10 @@ import { registerEditorIpc } from './ipc/editor.ipc'
 import { closeEditorWindowIfOpen } from './editorWindow'
 import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { registerUpdateIpc } from './ipc/update.ipc'
+import { registerSyncIpc } from './ipc/sync.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { forwardManager } from './forward/ForwardManager'
+import { lanSyncManager } from './lansync/LanSyncManager'
 import { flushForwards } from './store/forwards'
 import { packTempDir, transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
@@ -102,6 +104,7 @@ if (!app.requestSingleInstanceLock()) {
     registerSavedRefsIpc()
     registerUpdateIpc()
     registerEditorIpc()
+    registerSyncIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
@@ -144,6 +147,8 @@ if (!app.requestSingleInstanceLock()) {
     transferQueue.cancelAll()
     monitorManager.stopAll()
     forwardManager.stopAll()
+    // 局域网同步：关监听 + 停发现应答 + 销毁连接。必须先于 closeDatabase()
+    lanSyncManager.stopAll()
     /**
      * 停掉每条编辑并删掉本进程那个临时根 —— 不清就是把远端文件的明文副本留在 %TEMP% 里。
      * 它是 async 而 before-quit 是同步钩子：和下面几个 flush 一样按 best-effort 处理

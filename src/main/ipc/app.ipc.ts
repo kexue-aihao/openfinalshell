@@ -1,5 +1,6 @@
 import { app, dialog, shell } from 'electron'
 import { z } from 'zod'
+import type { ImportResult } from '@shared/types'
 import { broadcast, handle } from './registry'
 import { exportData } from '../services/exportData'
 import { applyImport, inspectImport } from '../services/importData'
@@ -15,6 +16,19 @@ const log = scopedLogger('app')
 
 /** 终端/renderer 提供的 URL 属不可信内容，只放行 http/https */
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
+
+/**
+ * 一次导入落库后的界面收尾：设置是唯一会立刻改变界面的部分，导入后要主动推给两个窗口
+ * 并重算窗口色。文件导入（app:importData）与局域网接收（sync:apply）共用这一份 ——
+ * 各写一遍的话，两条导入路迟早在"导入后主题没跟着变"这种地方分叉。
+ */
+export function finishImportSideEffects(result: ImportResult): void {
+  if (!result.settingsApplied) return
+  const next = getSettings()
+  applyWindowChrome(next)
+  applyEditorWindowChrome(next)
+  broadcast('settings:changed', next)
+}
 
 export function registerAppIpc(): void {
   handle('app:getVersions', () => ({
@@ -124,13 +138,7 @@ export function registerAppIpc(): void {
     'app:importData',
     async (opts) => {
       const result = await applyImport(opts)
-      // 设置是唯一会立刻改变界面的部分，导入后要主动推给 renderer 并重算窗口色
-      if (result.settingsApplied) {
-        const next = getSettings()
-        applyWindowChrome(next)
-        applyEditorWindowChrome(next)
-        broadcast('settings:changed', next)
-      }
+      finishImportSideEffects(result)
       return result
     },
     z.tuple([

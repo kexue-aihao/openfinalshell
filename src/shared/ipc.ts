@@ -33,6 +33,9 @@ import type {
   ImportApplyOptions,
   ImportPreview,
   ImportResult,
+  LanSyncDevice,
+  LanSyncReceiveState,
+  LanSyncSendState,
   MonitorSnapshot,
   MonitorState,
   MonitorStaticInfo,
@@ -325,6 +328,29 @@ export interface InvokeMap {
   'snippet:delete': { args: [string]; result: void }
   'snippetGroup:save': { args: [SnippetGroup]; result: void }
   'snippetGroup:delete': { args: [string]; result: void }
+
+  // --- 局域网同步（手动收发；状态经 sync:receiveState / sync:sendState 事件推送） ---
+  /** 进入接收模式：生成一次性配对码 + 临时 TCP 监听 + UDP 发现应答。幂等（已在接收态返回现状） */
+  'sync:receiveStart': { args: []; result: LanSyncReceiveState }
+  'sync:receiveStop': { args: []; result: void }
+  /** 面板挂载时对齐现状（防止错过事件）。任何阶段都可调，只读不改 */
+  'sync:receiveStatus': { args: []; result: LanSyncReceiveState }
+  /** 扫描局域网内处于接收模式的设备（约 2.5s 窗口，组播 + 广播兜底） */
+  'sync:scan': { args: []; result: LanSyncDevice[] }
+  /**
+   * 向目标设备发送一份数据副本。resolve 的时机是**送达**（对方收到并确认解析），
+   * 对方是否导入随后经 sync:sendState 的 applied/rejected 推回来。
+   * 配对码只单向进 main，不回传（与导出口令同一条规矩）。
+   */
+  'sync:send': {
+    args: [{ target: { host: string; port: number }; code: string; includeSecrets: boolean }]
+    result: void
+  }
+  'sync:sendCancel': { args: []; result: void }
+  /** 接收端用户确认导入（token 来自 receiveState.preview）。收尾语义与 app:importData 一致 */
+  'sync:apply': { args: [ImportApplyOptions]; result: ImportResult }
+  /** 接收端用户拒绝这份数据：回知发送方并丢弃暂存 */
+  'sync:dismiss': { args: [{ token: string }]; result: void }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +396,10 @@ export interface EventMap {
    * 无脏（或用户确认丢弃）→ invoke editor:closeNow；用户取消 → 什么都不做，窗口留着。
    */
   'editor:closeRequest': null
+  /** 局域网同步：接收端状态（低频，只发主窗口——设置面板在那里） */
+  'sync:receiveState': LanSyncReceiveState
+  /** 局域网同步：发送端状态 */
+  'sync:sendState': LanSyncSendState
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +424,8 @@ export const CHANNEL_PREFIXES = [
   'update:',
   'snippet:',
   'snippetGroup:',
-  'editor:'
+  'editor:',
+  'sync:'
 ] as const
 
 /**

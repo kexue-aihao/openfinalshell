@@ -26,6 +26,7 @@ import { useUiStore } from '@/stores/useUiStore'
 import { terminalThemes } from '@/themes/terminal'
 import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
+import { LanSyncPanel } from './LanSyncPanel'
 import { KnownHostsPanel } from './KnownHostsPanel'
 import { SavedRefsPanel } from './SavedRefsPanel'
 import { DonateSection } from '@/features/donate/DonateSection'
@@ -42,6 +43,7 @@ type Section =
   | 'sftp'
   | 'savedRef'
   | 'security'
+  | 'lanSync'
   | 'shortcuts'
   | 'about'
 
@@ -141,6 +143,7 @@ export function SettingsModal(): React.JSX.Element {
               'sftp',
               'savedRef',
               'security',
+              'lanSync',
               'shortcuts',
               'about'
             ] as Section[]
@@ -510,6 +513,8 @@ export function SettingsModal(): React.JSX.Element {
               <KnownHostsPanel />
             </>
           )}
+
+          {section === 'lanSync' && <LanSyncPanel />}
 
           {section === 'shortcuts' && (
             <table className={styles.shortcutTable}>

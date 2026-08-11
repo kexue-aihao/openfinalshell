@@ -778,6 +778,8 @@ export interface ImportPreview {
    * 这样 renderer 永远不需要（也不能）向 main 递一个任意文件路径。
    */
   token: string
+  /** 来源：本地文件（默认）或局域网同步接收。界面按它选文案 */
+  source?: 'file' | 'lan'
   path: string
   appVersion: string
   exportedAt: number
@@ -824,6 +826,59 @@ export interface ImportResult {
   invalid: number
   /** 需要让用户知道的额外情况（未覆盖的主机指纹、未导入的本机字段等） */
   notes: string[]
+}
+
+// ---------- 局域网同步（手动收发，见 src/main/lansync/） ----------
+
+/** 扫描发现的可接收设备（对方处于接收模式时才应答） */
+export interface LanSyncDevice {
+  deviceId: string
+  deviceName: string
+  appVersion: string
+  address: string
+  tcpPort: number
+}
+
+/**
+ * 接收端状态（main 是唯一事实来源，renderer 只订阅显示）。
+ *
+ * phase 走单向流：idle → waiting（亮码等待）→ handshake → receiving →
+ * incoming（弹确认，preview 就绪）→ applying → done。
+ * 握手失败/对方中途断开会回落 waiting（可能换了新码）；接收侧的错误（协议不符、解析
+ * 失败、导入异常）不进一个持久 error 态，而是回落 waiting 或经 invoke 拒绝弹 toast ——
+ * 所以这里**没有** error 相位（发送侧才有，见 LanSyncSendState）。
+ */
+export interface LanSyncReceiveState {
+  phase: 'idle' | 'waiting' | 'handshake' | 'receiving' | 'incoming' | 'applying' | 'done'
+  /** 一次性配对码（仅 waiting/handshake 阶段有意义；烧码换新后随事件更新） */
+  code?: string
+  tcpPort?: number
+  /** 本机非回环 IPv4 列表，供「手输 IP:端口」路径展示 */
+  addresses?: string[]
+  /** 正在/刚刚与我们交互的发送方 */
+  from?: { deviceName: string; address: string }
+  /** incoming 阶段：已解密的导入概要（计数为真实值），确认框直接用 */
+  preview?: ImportPreview
+  /** done 阶段：本次导入结果 */
+  result?: ImportResult
+}
+
+/** 发送端状态（同上，main 推事件） */
+export interface LanSyncSendState {
+  phase: 'idle' | 'connecting' | 'confirming' | 'sending' | 'delivered' | 'applied' | 'rejected' | 'error'
+  peer?: { deviceName: string; address: string }
+  sentBytes?: number
+  totalBytes?: number
+  /** applied 阶段：对方回报的落库计数 */
+  remoteResult?: {
+    profiles: number
+    snippets: number
+    forwards: number
+    knownHosts: number
+    secrets: number
+    skipped: number
+  }
+  error?: string
 }
 
 // ---------- 从 FinalShell 导入 ----------

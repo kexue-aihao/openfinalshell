@@ -621,7 +621,8 @@
     "changelog": "历史更新日志",
     "exportEncryptAll": "整文件加密（连主机、用户名也加密，需导出口令）",
     "exportEncryptAllHint": "导出文件中没有任何明文。注意：开启本地加密后，换机不能再直接拷 .db 迁移，请用加密导出/导入。",
-    "importEncryptedNote": "此文件已整体加密，输入导出口令后将导入其中全部内容。"
+    "importEncryptedNote": "此文件已整体加密，输入导出口令后将导入其中全部内容。",
+    "section_lanSync": "局域网同步"
   },
   "shortcut": {
     "duplicateSession": "复制当前会话",
@@ -875,6 +876,52 @@
     },
     "store": {
       "profileNotFound": "连接不存在"
+    },
+    "sync": {
+      "busy": "对方正在与另一台设备配对，请稍后再试",
+      "timeout": "等待响应超时",
+      "protocol": "协议不匹配（对方版本可能不同）",
+      "codeMismatch": "配对码不正确；该码已作废，请使用对方屏幕上的新码",
+      "connectFailed": "无法连接到目标设备",
+      "sendInProgress": "已有一个发送正在进行",
+      "remoteError": "对方报告了一个错误（{{code}}）"
     }
+  },
+  "sync": {
+    "title": "局域网同步",
+    "desc": "把连接、快捷命令等数据发送到同一局域网内的另一台设备。一次发送一份副本（不是双向同步）——对方确认后按你选择的方式合并。",
+    "receiveTitle": "接收",
+    "receiveDesc": "进入接收模式后会显示一个配对码，把它告诉发送方即可。",
+    "receiveStart": "开始接收",
+    "receiveStop": "停止接收",
+    "codeLabel": "配对码",
+    "waitingHint": "等待发送方连接…",
+    "receivingHint": "正在接收来自 {{name}} 的数据…",
+    "addressLabel": "本机地址（对方也可手动输入）",
+    "firewallHint": "若对方搜索不到本机，请在系统防火墙里允许本程序使用专用网络，或让对方手动输入上面的地址。",
+    "sendTitle": "发送",
+    "sendDesc": "扫描同一局域网内处于接收模式的设备，或手动输入对方地址。",
+    "scan": "扫描设备",
+    "scanning": "扫描中…",
+    "noDevices": "没有发现设备。请确认对方已点“开始接收”，或改用手动输入地址。",
+    "manualLabel": "手动输入地址",
+    "manualPlaceholder": "例如 192.168.1.20:52133",
+    "codeInputLabel": "对方的配对码",
+    "codePlaceholder": "6 位数字",
+    "includeSecrets": "连同已保存的密码一起发送",
+    "sendButton": "发送",
+    "cancel": "取消",
+    "invalidTarget": "地址格式不对，应为 IP:端口",
+    "codeRequired": "请输入对方屏幕上的 6 位配对码",
+    "statusConnecting": "正在连接…",
+    "statusConfirming": "正在配对…",
+    "statusSending": "正在发送…",
+    "statusDelivered": "已送达 {{name}}，等待对方确认导入",
+    "appliedSummary": "对方已导入：{{profiles}} 个连接、{{secrets}} 条密码（跳过 {{skipped}} 条）",
+    "rejectedByPeer": "对方拒绝了本次接收",
+    "incomingTitle": "收到一份数据",
+    "incomingFrom": "来自 {{name}}（{{address}}）",
+    "applyButton": "导入",
+    "rejectButton": "拒绝"
   }
 }

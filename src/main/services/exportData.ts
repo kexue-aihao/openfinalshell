@@ -198,27 +198,23 @@ function defaultFileName(): string {
   return `openfinalshell-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`
 }
 
-export async function exportData(opts: ExportOptions): Promise<ExportResult | null> {
-  // v2 整文件加密与 v1 含密码导出都需要口令
-  const needsPass = opts.includeSecrets || opts.encryptAll
-  if (needsPass && !opts.passphrase) {
+/**
+ * 构造一份完整的导出信封（JSON 文本）。**不落盘、不弹对话框** ——
+ * 文件导出与局域网同步共用这一份构造：同步线上传的就是标准 v2 信封，
+ * 只是 seal 口令换成配对派生密钥（见 lansync/pairing.channelPass）。
+ * 两条路各写一遍的话，"文件里的"与"线上发的"迟早不是同一种文件。
+ *
+ * 口令的**长度**校验留在 exportData()（那是对用户输入的要求；派生密钥恒 43 字符），
+ * 这里只保留"需要口令却没给"的防御性断言。
+ */
+export function buildExportEnvelope(opts: {
+  includeSecrets: boolean
+  encryptAll?: boolean
+  passphrase?: string
+}): { text: string; bytes: number; profiles: number; secrets: number } {
+  if ((opts.includeSecrets || opts.encryptAll) && !opts.passphrase) {
     throw new Error(t('err.data.passphraseRequired'))
   }
-  if (needsPass && (opts.passphrase ?? '').length < 8) {
-    throw new Error(t('err.data.passphraseTooShort'))
-  }
-
-  let target = opts.targetPath
-  if (!target) {
-    const r = await dialog.showSaveDialog({
-      title: t('err.data.exportTitle'),
-      defaultPath: defaultFileName(),
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    })
-    if (r.canceled || !r.filePath) return null
-    target = r.filePath
-  }
-
   const data = collect()
   const refs = referencedRefs(data)
   let envelope: Envelope
@@ -251,16 +247,40 @@ export async function exportData(opts: ExportOptions): Promise<ExportResult | nu
       secrets: opts.includeSecrets ? sealSecrets(refs, opts.passphrase!) : undefined
     }
   }
-
   const text = JSON.stringify(envelope, null, 2)
-  await fs.writeFile(target, text, 'utf8')
-  log.info(
-    `exported ${data.profiles.length} profiles to ${target} (secrets: ${opts.includeSecrets ? refs.length : 'none'})`
-  )
   return {
-    path: target,
+    text,
     bytes: Buffer.byteLength(text, 'utf8'),
     profiles: data.profiles.length,
     secrets: opts.includeSecrets ? refs.length : 0
   }
+}
+
+export async function exportData(opts: ExportOptions): Promise<ExportResult | null> {
+  // v2 整文件加密与 v1 含密码导出都需要口令
+  const needsPass = opts.includeSecrets || opts.encryptAll
+  if (needsPass && !opts.passphrase) {
+    throw new Error(t('err.data.passphraseRequired'))
+  }
+  if (needsPass && (opts.passphrase ?? '').length < 8) {
+    throw new Error(t('err.data.passphraseTooShort'))
+  }
+
+  let target = opts.targetPath
+  if (!target) {
+    const r = await dialog.showSaveDialog({
+      title: t('err.data.exportTitle'),
+      defaultPath: defaultFileName(),
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (r.canceled || !r.filePath) return null
+    target = r.filePath
+  }
+
+  const built = buildExportEnvelope(opts)
+  await fs.writeFile(target, built.text, 'utf8')
+  log.info(
+    `exported ${built.profiles} profiles to ${target} (secrets: ${opts.includeSecrets ? built.secrets : 'none'})`
+  )
+  return { path: target, bytes: built.bytes, profiles: built.profiles, secrets: built.secrets }
 }

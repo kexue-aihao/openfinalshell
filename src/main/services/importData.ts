@@ -372,6 +372,11 @@ interface Pending {
   token: string
   path: string
   parsed: ParsedImport
+  /**
+   * 已解出的密码明文映射（局域网接收路径：收到那一刻就持有通道密钥，当场解密）。
+   * 存在时 applyImport 直接采用、不再要求口令。文件导入路径恒为 undefined。
+   */
+  secretMap?: Record<string, string>
 }
 
 /** 单槽暂存：renderer 只持有 token，不接触文件路径，也不会重复读盘（避免 TOCTOU） */
@@ -454,6 +459,96 @@ function openSecrets(sealed: SealedBlock, passphrase: string): Record<string, st
   const parsed = z.record(z.string(), z.string()).safeParse(JSON.parse(openSealedString(sealed, passphrase)))
   if (!parsed.success) throw new Error(t('err.data.badSecretsFormat'))
   return parsed.data
+}
+
+/**
+ * 解开 v2 整文件加密块：口令 → {分区后的领域数据, 密码明文映射}。
+ * 两个调用方：applyImport（文件导入，apply 时才拿到用户口令）与
+ * inspectImportFromText（局域网接收，收到那一刻就持有通道密钥）——
+ * 各写一遍的话，解密与结构校验的语义迟早分叉（extractInlineRefs 同哲学）。
+ */
+function openEncryptedEnvelope(
+  enc: SealedBlock,
+  passphrase: string
+): { resolved: Partitioned; secretMap: Record<string, string> } {
+  let obj: unknown
+  try {
+    obj = JSON.parse(openSealedString(enc, passphrase))
+  } catch (err) {
+    // openSealedString 的 wrongPassphrase 直接抛；JSON.parse 失败也归为文件损坏/口令错
+    if (err instanceof Error && err.message === t('err.data.wrongPassphrase')) throw err
+    throw new Error(t('err.data.corruptEnvelope'))
+  }
+  const shape = z
+    .object({ data: dataSchema, secrets: z.record(z.string(), z.string()).optional() })
+    .safeParse(obj)
+  if (!shape.success) throw new Error(t('err.data.corruptEnvelope'))
+  return { resolved: partitionData(shape.data.data), secretMap: shape.data.secrets ?? {} }
+}
+
+/**
+ * 从内存文本进入导入预览（局域网同步接收专用；文件导入走 inspectImport）。
+ *
+ * 与文件路径的两点不同：
+ * - **就地解密**：调用方（LanSyncManager）此刻就持有配对派生的通道密钥，立即解出
+ *   真实计数给确认框 —— 文件导入的 v2 要等用户输口令，所以那边 counts 先报 0。
+ * - 解出的密码明文映射存进 pending.secretMap，apply 时直接采用、不再要求口令。
+ *
+ * ⚠️ pending 是**单槽**：这里写入会顶掉进行中的文件导入预览（反之亦然）。旧 token 的
+ * apply 会落在 importSessionExpiredFile 上 —— 安全，只是体验上"预览过期"。共用一槽是
+ * 刻意的：两个导入流本就不该并行，第二个槽只会让"哪份数据正要进库"变得说不清。
+ * applying 期间一律拒绝换底（apply 读的就是 pending，中途换底等于换掉正在写的数据源）。
+ */
+export function inspectImportFromText(
+  text: string,
+  opts: { source: string; passphrase?: string }
+): ImportPreview {
+  if (applying) throw new Error(t('err.data.importInProgress'))
+  const bytes = Buffer.byteLength(text, 'utf8')
+  // 帧层已按 MAX_FRAME_BYTES 挡过一次，这里是第二道（两个常量对齐，防有人只改一处）
+  if (bytes > MAX_IMPORT_BYTES) {
+    throw new Error(t('err.data.fileTooLarge', { size: Math.round(bytes / 1024 / 1024) }))
+  }
+  let parsed = parseEnvelope(text)
+  let secretMap: Record<string, string> | undefined
+  if (parsed.encrypted && opts.passphrase) {
+    const opened = openEncryptedEnvelope(parsed.enc!, opts.passphrase)
+    secretMap = opened.secretMap
+    // 换成解密后的分区数据；encrypted 归 false —— 对 applyImport 而言它已经是明文了
+    parsed = {
+      ...opened.resolved,
+      appVersion: parsed.appVersion,
+      exportedAt: parsed.exportedAt,
+      includesSecrets: parsed.includesSecrets,
+      encrypted: false
+    }
+  }
+  const conflicts = parsed.profiles.filter((p) => getProfile(p.id) !== undefined).length
+  pending = { token: randomUUID(), path: opts.source, parsed, secretMap }
+  log.info(
+    `lan import preview from ${opts.source}: ${parsed.profiles.length} profiles, invalid=${parsed.invalid}`
+  )
+  return {
+    token: pending.token,
+    source: 'lan',
+    path: opts.source,
+    appVersion: parsed.appVersion,
+    exportedAt: parsed.exportedAt,
+    includesSecrets: parsed.includesSecrets,
+    encrypted: parsed.encrypted,
+    counts: {
+      profiles: parsed.profiles.length,
+      groups: parsed.groups.length,
+      proxies: parsed.proxies.length,
+      privateKeys: parsed.privateKeys.length,
+      snippets: parsed.snippets.length,
+      forwards: parsed.forwards.length,
+      knownHosts: parsed.knownHosts.length,
+      settings: parsed.settings !== undefined
+    },
+    invalid: parsed.invalid,
+    conflicts
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -539,24 +634,14 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
 
   // 口令先验证再动库：口令输错是最常见的失败，不该让用户重新选一遍文件
   let resolved: Partitioned = parsed
-  let secretMap: Record<string, string> = {}
+  // 局域网接收路径在 inspect 时已解密，密码映射躺在 pending 里，不再要求口令
+  let secretMap: Record<string, string> = pending.secretMap ?? {}
   if (parsed.encrypted) {
     // v2 整文件加密：口令既解密整包、也带出密码明文映射
     if (!opts.passphrase) throw new Error(t('err.data.passphraseRequired'))
-    let obj: unknown
-    try {
-      obj = JSON.parse(openSealedString(parsed.enc!, opts.passphrase))
-    } catch (err) {
-      // openSealedString 的 wrongPassphrase 直接抛；JSON.parse 失败也归为文件损坏/口令错
-      if (err instanceof Error && err.message === t('err.data.wrongPassphrase')) throw err
-      throw new Error(t('err.data.corruptEnvelope'))
-    }
-    const shape = z
-      .object({ data: dataSchema, secrets: z.record(z.string(), z.string()).optional() })
-      .safeParse(obj)
-    if (!shape.success) throw new Error(t('err.data.corruptEnvelope'))
-    resolved = partitionData(shape.data.data)
-    secretMap = shape.data.secrets ?? {}
+    const opened = openEncryptedEnvelope(parsed.enc!, opts.passphrase)
+    resolved = opened.resolved
+    secretMap = opened.secretMap
   } else if (parsed.secrets && opts.passphrase) {
     secretMap = openSecrets(parsed.secrets, opts.passphrase)
   } else if (parsed.secrets && opts.include.profiles) {

@@ -10,8 +10,13 @@ import * as hostkeys from '../../src/main/ssh/hostkeys'
 import * as savedRefs from '../../src/main/store/savedRefs'
 import { vault } from '../../src/main/store/Vault'
 import { getSettings, patchSettings } from '../../src/main/services/settings'
-import { exportData } from '../../src/main/services/exportData'
-import { applyImport, inspectImport, resetPendingImport } from '../../src/main/services/importData'
+import { buildExportEnvelope, exportData } from '../../src/main/services/exportData'
+import {
+  applyImport,
+  inspectImport,
+  inspectImportFromText,
+  resetPendingImport
+} from '../../src/main/services/importData'
 import type { ImportSelection } from '../../src/shared/types'
 
 /**
@@ -711,5 +716,59 @@ describe('导入：可复用的代理与私钥', () => {
       await applyImport({ token: preview!.token, conflict: 'overwrite', include: ALL })
     }
     expect(savedRefs.listProxies()).toHaveLength(1)
+  })
+})
+
+describe('导入：局域网接收（从内存文本进入，无文件）', () => {
+  const CHANNEL_PASS = 'K'.repeat(43) // 通道密钥的替身：任意 ≥8 位串都能走 seal/open
+
+  // 固定语言：main 侧 t() 读 getSettings().language，而前面有用例把它导成了 en-US，
+  // 会污染这里的中文断言。钉成 zh-CN，让这一组不受运行顺序影响
+  beforeEach(() => {
+    patchSettings({ language: 'zh-CN' })
+  })
+
+  it('build → inspectFromText → apply 全链：计数即时可见、密码经 Vault 还原', async () => {
+    // 发送侧：加密整包（连密码）——线上传的就是这段文本
+    seed()
+    const built = buildExportEnvelope({ includeSecrets: true, encryptAll: true, passphrase: CHANNEL_PASS })
+    wipe()
+    expect(conns.getProfile(PROFILE_ID)).toBeUndefined()
+
+    // 接收侧：inspect 时就持有通道密钥 → 当场解密 → 计数是真实值（不像文件 v2 先报 0）
+    const preview = inspectImportFromText(built.text, { source: 'PC-A (10.0.0.7)', passphrase: CHANNEL_PASS })
+    expect(preview.source).toBe('lan')
+    expect(preview.encrypted).toBe(false) // 对 apply 而言已是明文
+    expect(preview.counts).toMatchObject({ profiles: 1, groups: 1, snippets: 1, forwards: 1, knownHosts: 1 })
+
+    // apply **不带口令**：密码映射已在 inspect 时解出、躺在 pending 里
+    const r = await applyImport({ token: preview.token, conflict: 'skip', include: ALL })
+    expect(r).toMatchObject({ profiles: 1, groups: 1, snippets: 1, forwards: 1, knownHosts: 1, secrets: 1 })
+    expect(vault.getSecret(conns.getProfile(PROFILE_ID)!.auth.passwordRef!)).toBe(PLAIN_PASSWORD)
+  })
+
+  it('通道密钥不对 → 当场解密就抛口令错（坏帧进不到确认框）', () => {
+    seed()
+    const built = buildExportEnvelope({ includeSecrets: true, encryptAll: true, passphrase: CHANNEL_PASS })
+    expect(() => inspectImportFromText(built.text, { source: 'x', passphrase: 'K'.repeat(42) + 'X' })).toThrow(
+      /口令不正确/
+    )
+  })
+
+  it('超长文本在解析前就拒（帧层之外的第二道闸）', () => {
+    const huge = '{"app":"openfinalshell","x":"' + 'a'.repeat(65 * 1024 * 1024) + '"}'
+    expect(() => inspectImportFromText(huge, { source: 'x' })).toThrow(/过大|大/)
+  })
+
+  it('局域网预览顶掉进行中的文件预览：旧 token 的 apply 落在会话失效上', async () => {
+    seed()
+    const file = await exportSeed('preempt.json', false)
+    const filePreview = await inspectImport({ sourcePath: file })
+    // 局域网这份把单槽顶掉
+    const built = buildExportEnvelope({ includeSecrets: false, encryptAll: true, passphrase: CHANNEL_PASS })
+    inspectImportFromText(built.text, { source: 'PC-B', passphrase: CHANNEL_PASS })
+    await expect(
+      applyImport({ token: filePreview!.token, conflict: 'skip', include: ALL })
+    ).rejects.toThrow(/会话已失效/)
   })
 })

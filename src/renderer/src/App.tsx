@@ -16,6 +16,7 @@ import { useTransferStore, wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
 import { wireUpdateEvents } from '@/stores/useUpdateStore'
+import { wireLanSyncEvents } from '@/stores/useLanSyncStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 export default function App(): React.JSX.Element {
@@ -34,6 +35,7 @@ export default function App(): React.JSX.Element {
     wireMonitorEvents()
     wireForwardEvents()
     wireUpdateEvents()
+    wireLanSyncEvents()
   }, [init])
 
   // 主题 / 语言 / 缩放：与独立编辑器窗口共用同一份实现（见 useWindowShell.ts）
