@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.16.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '里程碑版本：终端 cd 与 SFTP 面板的目录跟随已确认稳定（0.15.1～0.15.4 连续修掉了采集截断、提示符列冻结、快速连续切目录跳错、失败无声这几个问题）。代码与 0.15.4 相同',
+        en: 'Milestone release: terminal cd → SFTP directory following is confirmed stable (0.15.1–0.15.4 fixed command truncation, a frozen prompt column, landing in the wrong directory when switching quickly, and silent failures). Code is identical to 0.15.4'
+      }
+    ]
+  },
+  {
     version: '0.15.4',
     items: [
       {
