@@ -27,6 +27,6 @@
     "src/shared/**/*",
     "test/**/*.ts"
   ],
-  // renderer 侧的测试归 tsconfig.web（要 DOM lib 与 @/* 别名）
-  "exclude": ["test/renderer/**/*"]
+  // renderer 侧与组件测试归 tsconfig.web（要 DOM lib、JSX 与 @/* 别名）
+  "exclude": ["test/renderer/**/*", "test/component/**/*"]
 }

@@ -16,9 +16,17 @@ export default defineConfig({
     include: [
       'test/unit/**/*.test.ts',
       'test/integration/**/*.test.ts',
-      'test/renderer/**/*.test.ts'
+      'test/renderer/**/*.test.ts',
+      // 组件测试：文件头用 `@vitest-environment jsdom` 按文件切环境，默认仍是 node
+      'test/component/**/*.test.tsx'
     ],
     environment: 'node',
+    // 对 node 环境的文件是受 typeof window 守卫的 no-op
+    setupFiles: ['./test/component/setup.ts'],
+    environmentOptions: {
+      // rc-motion / antd message 依赖 requestAnimationFrame
+      jsdom: { pretendToBeVisual: true }
+    },
     testTimeout: 30000
   }
 })

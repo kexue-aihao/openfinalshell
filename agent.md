@@ -59,6 +59,26 @@ Windows PowerShell 5.1 向原生程序传参时，字符串内的 `"` 会破坏�
 - **导出**：at-rest 密文绑本机、不可移植；导出一律从 `decField` 出来的明文出发，v1（明文/密码块）或 v2（`encryptAll` 整文件加密）。
 - **换机取舍（务必知情）**：OS 绑定加密后，换机/换 Windows 账户则本机 `.db` 无法解密——迁移只能走「整文件加密导出 → 新机导入」，不能直接拷 `.db`。
 
+## 渲染层组件测试（jsdom）
+
+测试分四层：`test/unit` + `test/integration`（node 环境）、`test/renderer`（**读源码**的 grep 护栏）、
+`test/component`（**jsdom 里真渲染组件**）。前三层测不到运行时时序 —— cd 跟随连着两个线上 bug
+（0.15.2 的过期回包、0.15.4 的回显赛跑）都是"编译过、护栏绿、真跑起来才错"，组件层就是为这类行为立的。
+
+- **何时写组件测试**：行为依赖**异步交错**（并发回包谁先回、失败之后再成功、事件到达早于/晚于状态）时。
+  纯逻辑仍然下放纯函数单测；"代码长什么样"的约束仍然归 grep 护栏。
+- **底座**：文件放 `test/component/*.test.tsx`，文件头一行 `// @vitest-environment jsdom`（默认环境仍是 node）。
+  `test/component/setup.ts` 经 setupFiles 在测试文件求值前安装 `window.ofs`（`fakeOfs`）与 DOM 垫片 ——
+  时机是硬要求：`@/ipc/api` 在模块求值时就把 `window.ofs` 捕获成常量，晚一步只能拿到 DEV mock。
+- **fakeOfs 是控制面**：每条 invoke 的回包时机测试自己握（`deferred()`），并发交错就是这么摆出来的；
+  未注册的 channel 一律 reject，逼测试显式声明依赖。
+- **真 xterm 不 `open()` 也可用**：解析器/缓冲/onData/onLineFeed 全是活的（jsdom 缺的只是渲染器度量），
+  终端类测试用 `vi.mock` 替换 `createTerminal`、给实例打 `open`/`focus` 两个 no-op 补丁即可，见
+  `terminalCaptureTiming.test.tsx`。
+- **回归测试必须自证有牙**：新写的用例先 `git checkout <坏版本> -- <文件>` 换回旧实现跑一遍、确认变红再收
+  （fakeBuffer 那批"首跑全绿"的测试曾经全是摆设）。tsconfig 归属：`test/component` 归 web（要 DOM/JSX），
+  已从 node 侧 exclude。
+
 ## 项目概览
 
 开源 FinalShell —— Electron + React + ssh2 + xterm.js 的桌面 SSH 客户端（SSH 终端 + SFTP + 服务器监控 + 端口转发）。实施计划见 `C:\Users\Administrator\.claude\plans\ui-ssh-jaunty-bachman.md`。
