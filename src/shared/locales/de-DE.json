@@ -801,7 +801,9 @@
       "pathControlChar": "{{what}} enthält einen Zeilenumbruch oder ein NUL-Zeichen und kann nicht in einem entfernten Befehl verwendet werden: {{path}}",
       "pathTooLong": "{{what}} überschreitet {{max}} Zeichen",
       "pathNotAbsolute": "{{what}} muss ein absoluter Pfad sein: {{path}}",
-      "pathDotSegment": "{{what}} darf keine . oder .. Pfadsegmente enthalten: {{path}}"
+      "pathDotSegment": "{{what}} darf keine . oder .. Pfadsegmente enthalten: {{path}}",
+      "readdirTimeout": "Zeitüberschreitung beim Lesen des Verzeichnisses: {{path}}",
+      "readdirTooManyPages": "Zu viele Einträge, oder der Server hat kein Verzeichnisende gemeldet; Lesen abgebrochen: {{path}}"
     },
     "data": {
       "unknownVersion": "Unbekannt",

@@ -801,7 +801,9 @@
       "pathControlChar": "{{what}}含有換行或 NUL 字元，無法用於遠端命令：{{path}}",
       "pathTooLong": "{{what}}超過 {{max}} 個字元",
       "pathNotAbsolute": "{{what}}必須是絕對路徑：{{path}}",
-      "pathDotSegment": "{{what}}不能包含 . 或 .. 路徑片段：{{path}}"
+      "pathDotSegment": "{{what}}不能包含 . 或 .. 路徑片段：{{path}}",
+      "readdirTimeout": "讀取目錄逾時：{{path}}",
+      "readdirTooManyPages": "目錄項目過多或伺服器未回傳結束標記，已放棄讀取：{{path}}"
     },
     "data": {
       "unknownVersion": "未知",

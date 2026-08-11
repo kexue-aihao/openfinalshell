@@ -801,7 +801,9 @@
       "pathControlChar": "{{what}} に改行または NUL 文字が含まれており、リモートコマンドで使用できません: {{path}}",
       "pathTooLong": "{{what}} が {{max}} 文字を超えています",
       "pathNotAbsolute": "{{what}} は絶対パスである必要があります: {{path}}",
-      "pathDotSegment": "{{what}} に . または .. のパスセグメントを含めることはできません: {{path}}"
+      "pathDotSegment": "{{what}} に . または .. のパスセグメントを含めることはできません: {{path}}",
+      "readdirTimeout": "ディレクトリの読み取りがタイムアウトしました：{{path}}",
+      "readdirTooManyPages": "エントリが多すぎる、またはサーバーが終端を返さないため読み取りを中止しました：{{path}}"
     },
     "data": {
       "unknownVersion": "不明",

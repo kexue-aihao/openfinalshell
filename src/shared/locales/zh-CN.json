@@ -797,7 +797,9 @@
       "pathControlChar": "{{what}}含换行或 NUL 字符，不能用于远端命令：{{path}}",
       "pathTooLong": "{{what}}超过 {{max}} 字符",
       "pathNotAbsolute": "{{what}}必须是绝对路径：{{path}}",
-      "pathDotSegment": "{{what}}不能含 . 或 .. 路径段：{{path}}"
+      "pathDotSegment": "{{what}}不能含 . 或 .. 路径段：{{path}}",
+      "readdirTimeout": "读取目录超时：{{path}}",
+      "readdirTooManyPages": "目录条目过多或服务器未返回结束标记，已放弃读取：{{path}}"
     },
     "data": {
       "unknownVersion": "未知",
