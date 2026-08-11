@@ -3,6 +3,7 @@ import { App as AntdApp, Button, Input, Modal, Segmented, Switch, Tooltip, Typog
 import { Send, Star } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
+import { emitExecutedCommands } from '@/features/terminal/commandEvents'
 import { noteProgrammaticWrite } from '@/features/terminal/termRegistry'
 import { useCommandEditorStore } from '@/stores/useCommandEditorStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
@@ -80,6 +81,8 @@ export function CommandEditorModal(): React.JSX.Element {
         // 这一行是程序写进去的，提示符列不再可信（见 features/terminal/commandCapture.ts）
         noteProgrammaticWrite(tab.termId!)
         void ofs.invoke('term:exec', { termId: tab.termId!, command: body })
+        // 程序化执行没有 Enter 采集，SFTP 的 cd 跟随全靠这一句宣告（见 emitExecutedCommands）
+        if (autoEnter) emitExecutedCommands(tab.id, tab.termId!, body)
         /*
          * 只有真的执行了（autoEnter）才记历史，记的是**展开后**发出去的那一段 ——
          * 判据与理由都在 historyEntryFor 里，这里不重复判。

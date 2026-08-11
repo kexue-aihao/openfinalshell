@@ -175,9 +175,12 @@ describe('列表里的命令只回填、不执行', () => {
     expect(refill).not.toContain('\\n')
   })
 
-  it('快捷命令那条路只在真的执行了（autoEnter）时记历史', () => {
+  it('快捷命令那条路只在真的执行了（autoEnter）时记历史、发跟随宣告', () => {
     const send = flat(blockAfter(stripComments(read(SNIPPET_PANEL)), 'const send ='))
-    expect(send).toContain('if (autoEnter) pushHistory(text)')
+    // 记历史与 cd 跟随宣告都必须关在 autoEnter 里 —— 没执行的命令既不进历史也不许让面板跳
+    expect(send).toContain(
+      'if (autoEnter) { pushHistory(text) emitExecutedCommands(tab.id, tab.termId!, text) }'
+    )
   })
 })
 

@@ -4,6 +4,7 @@ import { Pencil, Plus, Send, SquarePen, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Snippet } from '@shared/types'
 import { ofs } from '@/ipc/api'
+import { emitExecutedCommands } from '@/features/terminal/commandEvents'
 import { noteProgrammaticWrite } from '@/features/terminal/termRegistry'
 import { useCommandEditorStore } from '@/stores/useCommandEditorStore'
 import { useHistoryStore } from '@/stores/useHistoryStore'
@@ -68,8 +69,14 @@ export function SnippetPanel(): React.JSX.Element {
        * 历史是"执行过什么"，不是"点过什么"，所以 {{host}} 那类占位符要按当时那台机器展开。
        * autoEnter=false 时命令只是躺在命令行上等用户按回车，那一下由终端那侧的采集记，
        * 在这里再记一遍就成了"没执行也进历史"。
+       *
+       * 宣告同理：程序化执行没有 Enter keydown，读屏采集整条不启动，
+       * SFTP 的 cd 跟随全靠这一句（语义与守卫见 emitExecutedCommands）。
        */
-      if (autoEnter) pushHistory(text)
+      if (autoEnter) {
+        pushHistory(text)
+        emitExecutedCommands(tab.id, tab.termId!, text)
+      }
     }
   }
 
