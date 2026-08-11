@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.17.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '内置编辑器改为独立窗口：所有 SSH 会话的「内置编辑器查看」都汇到同一个窗口里做多标签，标签带来源主机名 —— 两台机器上的同名 nginx.conf 一眼分得开；窗口尺寸有记忆',
+        en: 'The built-in editor is now a separate window: every session\'s "View in built-in editor" goes into one shared multi-tab window, with the source host on each tab — same-named nginx.conf from two machines stay distinguishable; window size is remembered'
+      },
+      {
+        type: 'feat',
+        zh: '编辑中的内容更难丢了：会话断开只是挂一条「无法保存」的横幅，内容仍可编辑复制、重连后自动恢复保存；关编辑器窗口（或主窗口）时有未保存的文件会先确认。注意：会话面板里嵌入的编辑器格子已移除，编辑一律在独立窗口',
+        en: 'Your edits are harder to lose: a disconnected session only banners the tab as "cannot save" — content stays editable and copyable, and saving resumes after reconnect; closing the editor window (or the main window) asks first if files are unsaved. Note: the editor pane embedded in the session view is gone — editing now always happens in the separate window'
+      }
+    ]
+  },
+  {
     version: '0.16.1',
     items: [
       {
