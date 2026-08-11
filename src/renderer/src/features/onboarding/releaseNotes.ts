@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.18.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '新增「局域网同步」（设置 → 局域网同步）：把连接、快捷命令等数据直接发到同一局域网内的另一台电脑，免去导出文件再传。一台点「开始接收」显示 6 位配对码，另一台扫描或手输地址、输码即发，对方确认后按跳过/覆盖/复制合并。全程加密（配对码经椭圆曲线密钥交换派生会话密钥，线上除设备名外无明文），是发一份副本、不是双向同步。组播搜不到设备时手输 IP:端口 即可',
+        en: 'New "LAN Sync" (Settings → LAN Sync): send connections, snippets and more straight to another computer on the same LAN — no export file to shuttle around. One side taps "Start receiving" to show a 6-digit pairing code; the other scans or types the address, enters the code, and sends; the receiver confirms and merges with skip/overwrite/duplicate. Fully encrypted (the pairing code derives a session key via elliptic-curve key exchange; nothing but the device name is in the clear), and it sends a one-time copy — not two-way sync. If discovery finds nothing, just type IP:port'
+      }
+    ]
+  },
+  {
     version: '0.17.1',
     items: [
       {
