@@ -234,7 +234,7 @@ jobs:
               sleep 0.25
               [ "$i" -lt 40 ] || { cat /tmp/ofs-ssh-fixture.log; exit 1; }
             done
-            dbus-run-session -- xvfb-run -a node test/fixtures/packagedSmoke.mjs \
+            OFS_SMOKE_NO_SANDBOX=1 dbus-run-session -- xvfb-run -a node test/fixtures/packagedSmoke.mjs \
               /opt/OpenFinalShell/openfinalshell 2270 9333
           '
 

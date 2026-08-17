@@ -90,6 +90,8 @@ async function main() {
   const appArgs = [`--remote-debugging-port=${cdpPort}`, `--user-data-dir=${dataDir}`]
   // CI 没有交互式 keyring；basic_text 必须被生产安全守卫判为不可用，且不能弹 KWallet。
   if (process.platform === 'linux') appArgs.push('--password-store=basic')
+  // GitHub Actions 的 Docker job 禁止创建 PID namespace；仅测试进程显式选择时关闭 Chromium sandbox。
+  if (process.env.OFS_SMOKE_NO_SANDBOX === '1') appArgs.push('--no-sandbox')
   app = spawn(exePath, appArgs, {
     stdio: ['ignore', 'pipe', 'pipe']
   })
