@@ -186,7 +186,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git tar xz-utils dpkg-dev openssl passwd util-linux python3 build-essential \
+            ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential \
             xvfb xauth dbus-x11 procps
 
       - uses: actions/setup-node@v4

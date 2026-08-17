@@ -58,7 +58,8 @@ jobs:
       - name: 安装构建依赖
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends ca-certificates git tar xz-utils dpkg-dev python3 build-essential
+          # openssh-client 提供私钥格式测试使用的 ssh-keygen。
+          apt-get install -y --no-install-recommends ca-certificates git tar xz-utils dpkg-dev openssh-client python3 build-essential
 
       - uses: actions/setup-node@v4
         with:
