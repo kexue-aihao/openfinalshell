@@ -219,7 +219,7 @@ jobs:
         run: |
           apt-get install -y ./release/*.deb
           useradd --create-home --shell /bin/bash ofs-ci
-          runuser -u ofs-ci -- bash -lc '
+          runuser -u ofs-ci -- env HOME=/home/ofs-ci PATH="$PATH" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" bash -c '
             runtime=/tmp/ofs-runtime-$(id -u)
             mkdir -p "$runtime"
             chmod 700 "$runtime"
