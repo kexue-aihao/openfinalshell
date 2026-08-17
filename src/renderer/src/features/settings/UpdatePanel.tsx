@@ -4,6 +4,8 @@ import { RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useUpdateStore } from '@/stores/useUpdateStore'
 
+const RELEASES_URL = 'https://github.com/kexue-aihao/openfinalshell/releases'
+
 /**
  * 设置 → 关于里的更新那一段。
  *
@@ -27,6 +29,7 @@ export function UpdatePanel(): React.JSX.Element {
   }, [])
 
   const status = state?.status ?? 'idle'
+  const manual = state?.capability === 'manual'
   const checking = status === 'checking'
   const downloading = status === 'downloading'
 
@@ -44,7 +47,11 @@ export function UpdatePanel(): React.JSX.Element {
         ) : status === 'downloaded' ? (
           <Tag color="green">{t('update.readyTag', { version: state?.version ?? '' })}</Tag>
         ) : status === 'available' ? (
-          <Tag color="blue">{t('update.availableTag', { version: state?.version ?? '' })}</Tag>
+          <Tag color="blue">
+            {manual
+              ? t('update.manualAvailableTag', { version: state?.version ?? '' })
+              : t('update.availableTag', { version: state?.version ?? '' })}
+          </Tag>
         ) : status === 'none' ? (
           <Typography.Text type="secondary">{t('update.upToDate')}</Typography.Text>
         ) : status === 'error' ? (
@@ -65,7 +72,18 @@ export function UpdatePanel(): React.JSX.Element {
             {t('update.check')}
           </Button>
         )}
-        {status === 'downloaded' && (
+        {status === 'available' && manual && (
+          <Button
+            type="primary"
+            size="small"
+            onClick={() =>
+              void window.ofs.invoke('app:openExternal', RELEASES_URL)
+            }
+          >
+            {t('update.openReleases')}
+          </Button>
+        )}
+        {status === 'downloaded' && state?.capability === 'install' && (
           <Button type="primary" size="small" onClick={() => void doInstall(false)}>
             {t('update.install')}
           </Button>
@@ -88,7 +106,7 @@ export function UpdatePanel(): React.JSX.Element {
       )}
 
       <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginTop: 8 }}>
-        {t('update.note')}
+        {manual ? t('update.manualNote') : t('update.note')}
       </Typography.Paragraph>
 
       <Modal

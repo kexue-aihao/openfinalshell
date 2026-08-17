@@ -89,7 +89,7 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
       passwordRef = undefined
     }
     if (draft.auth.password !== undefined && draft.auth.password !== '') {
-      passwordRef = vault.putSecret(draft.auth.password, passwordRef)
+      passwordRef = vault.putSecretIfAvailable(draft.auth.password, passwordRef)
     }
 
     const profile: ConnectionProfile = {

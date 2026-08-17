@@ -1,4 +1,4 @@
-import type { UpdateActivity } from '@shared/types'
+import type { UpdateActivity, UpdateCapability } from '@shared/types'
 
 /**
  * 安装更新前那一道闸门 —— **这个文件刻意不 import electron-updater**。
@@ -21,6 +21,24 @@ import type { UpdateActivity } from '@shared/types'
  * 判据是**三者任一 > 0**，而不是"会话数 > 0"：一个没有终端会话、但正在跑一个
  * 4GB 传输的窗口同样不该被静默重启。转发也算 —— 别人可能正通过那条隧道连着数据库。
  */
+/** GitHub Release 的三段 semver 比较；支持当前版本带预发布后缀，异常 tag 返回 false。 */
+export function isNewerRelease(current: string, candidateTag: string): boolean {
+  const parse = (value: string): { core: [number, number, number]; prerelease: boolean } | null => {
+    const match = value.trim().replace(/^v/, '').match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/)
+    return match
+      ? { core: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: Boolean(match[4]) }
+      : null
+  }
+  const a = parse(current)
+  const b = parse(candidateTag)
+  if (!a || !b) return false
+  for (let i = 0; i < 3; i++) {
+    if (b.core[i] !== a.core[i]) return b.core[i] > a.core[i]
+  }
+  // 同一核心版本下，正式版高于任意预发布；latest API 本身只返回正式 Release。
+  return a.prerelease && !b.prerelease
+}
+
 export function hasLiveWork(activity: UpdateActivity): boolean {
   return activity.sessions > 0 || activity.transfers > 0 || activity.forwards > 0
 }
@@ -34,17 +52,29 @@ export function hasLiveWork(activity: UpdateActivity): boolean {
 export type InstallDecision =
   | { kind: 'install' }
   | { kind: 'confirm'; activity: UpdateActivity }
-  | { kind: 'reject'; reason: 'notPackaged' | 'portable' | 'notDownloaded' }
+  | { kind: 'reject'; reason: 'notPackaged' | 'portable' | 'manual' | 'notDownloaded' }
+
+/** 平台与分发形态只在 main 侧判定，renderer 只能按返回的能力展示。 */
+export function resolveUpdateCapability(input: {
+  packaged: boolean
+  portable: boolean
+  platform: NodeJS.Platform
+}): UpdateCapability {
+  if (!input.packaged || input.portable) return 'unsupported'
+  if (input.platform === 'linux') return 'manual'
+  return 'install'
+}
 
 export function decideInstall(input: {
   packaged: boolean
-  portable: boolean
+  capability: UpdateCapability
   downloaded: boolean
   force: boolean
   activity: UpdateActivity
 }): InstallDecision {
   if (!input.packaged) return { kind: 'reject', reason: 'notPackaged' }
-  if (input.portable) return { kind: 'reject', reason: 'portable' }
+  if (input.capability === 'unsupported') return { kind: 'reject', reason: 'portable' }
+  if (input.capability === 'manual') return { kind: 'reject', reason: 'manual' }
   if (!input.downloaded) return { kind: 'reject', reason: 'notDownloaded' }
   // force 只越过"要不要问"这一道，越不过上面三条 —— 那三条不是用户确认能解决的
   if (!input.force && hasLiveWork(input.activity)) {

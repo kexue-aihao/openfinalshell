@@ -1,14 +1,14 @@
 # OpenFinalShell
 
-开源的 FinalShell 替代品 —— 一个 Windows 桌面 SSH 客户端，把**终端、文件管理、服务器监控**放进同一个窗口：连上一台机器，上面是终端、中间是远端文件的编辑器、下面是文件列表，旁边是这台机器的 CPU / 内存 / 网络实时曲线。再加上端口转发、快捷命令与加密的凭据存储。
+开源的 FinalShell 替代品 —— 一个 Windows / Debian 桌面 SSH 客户端，把**终端、文件管理、服务器监控**放进同一个窗口：连上一台机器，上面是终端、中间是远端文件的编辑器、下面是文件列表，旁边是这台机器的 CPU / 内存 / 网络实时曲线。再加上端口转发、快捷命令与加密的凭据存储。
 
 - 一次连接，三件事同时做：**终端 + SFTP + 监控**共用同一条 SSH 连接，不用为了看一眼负载再开一个窗口
 - **改远端配置文件不用下载**：右键打开、语法高亮、`Ctrl+S` 存回去，写回是原子替换并保留权限位
 - **零 native 依赖**：数据库用 Node 内置的 `node:sqlite`、凭据用 Electron 内置的 `safeStorage`，所以 32 位（x86）也有正式安装包
 - **界面层拿不到明文密码**：渲染进程全程 `contextIsolation` + `sandbox`，密码只在保存表单时单向进主进程，之后只剩一个引用
-- **不用卸载、也不用下整包**：应用内自动更新，后台只下变化的部分；**但装不装由你点** —— 这软件里跑着活的 SSH 会话，装更新要退出应用，那一下不该由软件替你决定
+- **Windows 安装版不用卸载、也不用下整包**：应用内自动更新，后台只下变化的部分；**但装不装由你点** —— 这软件里跑着活的 SSH 会话，装更新要退出应用，那一下不该由软件替你决定
 
-MIT 许可 · Windows x64 / ia32 · 简体中文与 English
+MIT 许可 · Windows x64 / ia32 · Debian 13 amd64 · 简体中文与 English
 
 ---
 
@@ -135,9 +135,9 @@ MIT 许可 · Windows x64 / ia32 · 简体中文与 English
 
 ### 数据安全与迁移
 
-- 密码与私钥口令经系统密钥库加密（Windows 走 DPAPI）后存进本机数据库，**已保存的密码永不回传界面层**，日志里的敏感字段自动脱敏
-- **配置也在库里加密（at-rest）**：除密码外，主机 / 端口 / 用户名 / 备注 / 分组名 / 代理 / 转发 / 已信任主机 / 命令历史也用一把受 `safeStorage`（DPAPI）保护的主密钥加密落盘（AES-256-GCM，等值查找列用 HMAC token）——直接用 SQLite 工具打开 `.db` 看不到明文；`safeStorage` 不可用的环境自动降级为明文、不影响使用（界面设置本身不含机密，仍明文存）
-- 数据落**单文件 SQLite**（`%APPDATA%\OpenFinalShell\config\openfinalshell.db`，WAL）：改一条连接不重写整个文件，多实例同时运行也不会互相覆盖
+- 密码与私钥口令经系统密钥库加密（Windows 走 DPAPI，Debian 桌面走 Secret Service）后存进本机数据库，**已保存的密码永不回传界面层**，日志里的敏感字段自动脱敏
+- **配置也在库里加密（at-rest）**：除密码外，主机 / 端口 / 用户名 / 备注 / 分组名 / 代理 / 转发 / 已信任主机 / 命令历史也用一把受 `safeStorage`（Windows DPAPI / Linux Secret Service）保护的主密钥加密落盘（AES-256-GCM，等值查找列用 HMAC token）——直接用 SQLite 工具打开 `.db` 看不到明文；`safeStorage` 不可用的环境自动降级为明文、不影响使用（界面设置本身不含机密，仍明文存）
+- 数据落**单文件 SQLite**（Windows 为 `%APPDATA%\OpenFinalShell\config\openfinalshell.db`，Debian 为 `~/.config/OpenFinalShell/config/openfinalshell.db`，WAL）：改一条连接不重写整个文件，多实例同时运行也不会互相覆盖
 - **导出 / 导入**（设置 → 安全与数据）：连接、分组、快捷命令、转发规则、已信任主机、界面设置导出为一个 JSON。勾选"含已保存的密码"时用你给的导出口令重新加密（scrypt + AES-256-GCM），不勾则文件里没有任何密码；再勾**"整文件加密"**则连主机 / 用户名等配置也一起加密（formatVersion 2），文件里没有任何明文
 - 导入可逐项勾选，同名数据可选跳过 / 覆盖 / 另存为副本；**已信任的主机指纹不会被文件覆盖**（覆盖等于替你吞掉中间人告警）
 - **从 FinalShell 导入**（设置 → 安全与数据）：选它的数据目录（含 `conn` 子目录），把连接与分组搬过来 ——
@@ -145,13 +145,13 @@ MIT 许可 · Windows x64 / ia32 · 简体中文与 English
   首次连接时输入一次并勾"记住密码"，那一下就由本机密钥库加密保存
 - **命令历史刻意不进导出文件**：导出文件是拿来换机、发给同事的，而命令行上偶尔真的带口令（`mysql -pxxx`、`curl -u a:b`）
 - **局域网同步**（设置 → 局域网同步）：把连接等数据直接发到同一局域网内的另一台设备，免去"导出文件再传过去"。一台点「接收」亮出 6 位配对码，另一台扫描或手输地址、输码即发；对方确认后按跳过 / 覆盖 / 另存为副本合并。传输全程加密（配对码经 X25519+scrypt 派生会话密钥，线上是与导出同构的整文件加密信封，除设备名等元数据外无明文），**发一份副本、不是双向同步**（删除不会传播）。组播搜不到设备时手输 `IP:端口` 即可
-- ⚠️ **卸载会清空本机数据**（`deleteAppDataOnUninstall`），卸载前请先导出。换机也走导出/导入或局域网同步这条路 —— 主密钥（连同它保护的全部配置与密码）绑定当前系统用户，换机 / 换账户后直接拷数据库整份都解不开，必须用"导出 → 新机导入"或"局域网同步"
+- ⚠️ Windows NSIS **卸载会清空本机数据**（`deleteAppDataOnUninstall`），卸载前请先导出；Debian 的覆盖升级和卸载保留 `~/.config/OpenFinalShell`。换机仍应走导出/导入或局域网同步 —— 主密钥（连同它保护的全部配置与密码）绑定当前系统用户，换机 / 换账户后直接拷数据库整份都解不开，必须用"导出 → 新机导入"或"局域网同步"
 
 ---
 
 ## 安装
 
-到 [Releases](https://github.com/kexue-aihao/openfinalshell/releases) 下 Windows 安装包，每个版本 4 个文件：
+到 [Releases](https://github.com/kexue-aihao/openfinalshell/releases) 下载安装包。每个版本提供 4 个 Windows 文件和 1 个 Debian 13 文件：
 
 | 文件 | 说明 |
 |---|---|
@@ -159,10 +159,17 @@ MIT 许可 · Windows x64 / ia32 · 简体中文与 English
 | `OpenFinalShell-<版本>-setup-ia32.exe` | 32 位安装版 |
 | `OpenFinalShell-<版本>-x64.exe` | 64 位免安装版 |
 | `OpenFinalShell-<版本>-ia32.exe` | 32 位免安装版 |
+| `OpenFinalShell-<版本>-debian13-amd64.deb` | Debian 13 amd64 安装包 |
 
-同目录的 `SHA256SUMS.txt` 可校验（另有 `latest-*.yml` 与 `*.blockmap`，那是自动更新用的元数据，不用手工下载）。安装包暂未做代码签名，首次运行可能出现 SmartScreen 提示。macOS / Linux 的构建目标在配置里，但**尚未发布**。
+同目录的 `SHA256SUMS.txt` 可校验（另有 `latest-*.yml` 与 `*.blockmap`，那是更新检查元数据，不用手工下载）。Windows 安装包暂未做代码签名，首次运行可能出现 SmartScreen 提示。macOS 及 Debian 13 以外的 Linux 发行版尚未发布。
 
-**升级不用卸载。** 两条路：
+Debian 13 安装或覆盖升级：
+
+```bash
+sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb
+```
+
+**升级不用卸载。** Windows 有两条路：
 
 - **应用内自动更新**（安装版）：启动后与之后每 6 小时查一次，发现新版就在后台下载
   （NSIS 差量包，通常只下变化的几 MB），下完在设置 → 关于与状态栏亮一个标记。
@@ -171,7 +178,7 @@ MIT 许可 · Windows x64 / ia32 · 简体中文与 English
 - **直接盖装**：下新版安装包双击即可，不必先卸载，数据也不会丢
   （安装器升级时会给旧卸载器传 `--updated`，`deleteAppDataOnUninstall` 那条清理被跳过）。
 
-⚠️ 免安装版**不支持应用内更新**（它没有安装器，装 NSIS 包等于把它变成安装版），只提示去下载。
+⚠️ Windows 免安装版**不支持应用内更新**（它没有安装器，装 NSIS 包等于把它变成安装版），只提示去下载。Debian 版会检查新版本并打开 Releases，但不会在应用内调用 `sudo`、`dpkg` 或 `apt`；下载新版 `.deb` 后用上面的 APT 命令覆盖安装。
 
 ## 技术栈
 
@@ -212,9 +219,13 @@ npm run dev
 | `npm test` | 单元 + 集成测试（自动起本地测试 SSH 服务器） |
 | `npm run check:bundle` | 渲染进程产物的字节预算（需先 `build`） |
 | `npm run package` | 打 Windows 安装包（NSIS + portable） |
+| `npm run package:deb` | 在 Linux 上打 Debian 13 amd64 安装包 |
+| `npm run check:deb` | 检查 deb 元数据、依赖、desktop entry 与安装路径 |
 | `npm run package:dir` | 只打免安装目录，用于快速验证 |
 | `npm run smoke:packaged` | 驱动打包产物跑端到端冒烟 |
 | `npm run icon` | 重新生成应用图标 |
+
+跨平台构建不能复用 `node_modules`；在 Debian 13 上先运行干净的 `npm ci`，再执行 `npm run package:deb`。
 
 浏览器调试：`npm run dev` 后直接打开 <http://localhost:5173>，渲染层在缺少 preload 时会启用 mock IPC（含模拟终端、假 SFTP 目录树、周期监控数据），便于纯 UI 迭代。
 

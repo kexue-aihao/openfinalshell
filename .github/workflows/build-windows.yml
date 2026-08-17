@@ -174,15 +174,87 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-debian:
+    name: 打包 Debian 13 amd64
+    needs: verify
+    runs-on: ubuntu-latest
+    container: debian:13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Debian 构建与 GUI 冒烟依赖
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git tar xz-utils dpkg-dev openssl passwd util-linux python3 build-essential \
+            xvfb xauth dbus-x11 procps
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check:i18n
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:bundle
+      - run: npx electron-builder --linux deb --x64 --publish never
+      - run: npm run check:deb
+
+      - name: 断言 Debian 更新 feed
+        run: |
+          cd release
+          deb="OpenFinalShell-$(node -p "require('../package.json').version")-debian13-amd64.deb"
+          test -f latest-x64-linux.yml || { echo "::error::缺 latest-x64-linux.yml"; exit 1; }
+          grep -q "url: $deb" latest-x64-linux.yml || {
+            echo "::error::Linux feed 没指向 $deb"; cat latest-x64-linux.yml; exit 1;
+          }
+          want=$(grep -m1 'sha512:' latest-x64-linux.yml | sed 's/.*sha512: //')
+          got=$(openssl dgst -sha512 -binary "$deb" | openssl base64 -A)
+          [ "$want" = "$got" ] || { echo "::error::Linux feed sha512 不匹配"; exit 1; }
+
+      - name: 用 APT 安装并运行打包产物冒烟
+        run: |
+          apt-get install -y ./release/*.deb
+          useradd --create-home --shell /bin/bash ofs-ci
+          runuser -u ofs-ci -- bash -lc '
+            runtime=/tmp/ofs-runtime-$(id -u)
+            mkdir -p "$runtime"
+            chmod 700 "$runtime"
+            export XDG_RUNTIME_DIR="$runtime"
+            cd "$GITHUB_WORKSPACE"
+            node test/fixtures/testSshServer.mjs 2270 > /tmp/ofs-ssh-fixture.log 2>&1 &
+            fixture=$!
+            trap "kill $fixture 2>/dev/null || true" EXIT
+            for i in $(seq 1 40); do
+              kill -0 $fixture 2>/dev/null || { cat /tmp/ofs-ssh-fixture.log; exit 1; }
+              node -e "const s=require(\"node:net\").connect(2270,\"127.0.0.1\",()=>{s.end();process.exit(0)});s.on(\"error\",()=>process.exit(1))" && break
+              sleep 0.25
+              [ "$i" -lt 40 ] || { cat /tmp/ofs-ssh-fixture.log; exit 1; }
+            done
+            dbus-run-session -- xvfb-run -a node test/fixtures/packagedSmoke.mjs \
+              /opt/OpenFinalShell/openfinalshell 2270 9333
+          '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-amd64
+          path: |
+            release/*.deb
+            release/latest-x64-linux.yml
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: 发布 Release
-    needs: build
+    needs: [build, build-debian]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: windows-*
           merge-multiple: true
           path: dist
 
@@ -194,6 +266,8 @@ jobs:
           ls -l
           [ "$(ls *.exe | wc -l)" -eq 4 ] || { echo "::error::期望 4 个 exe"; exit 1; }
           [ "$(ls *.exe.blockmap | wc -l)" -eq 2 ] || { echo "::error::期望 2 个 blockmap"; exit 1; }
+          [ "$(ls *.deb | wc -l)" -eq 1 ] || { echo "::error::期望 1 个 Debian 包"; exit 1; }
+          test -f latest-x64-linux.yml || { echo "::error::缺 latest-x64-linux.yml"; exit 1; }
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
           test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
           if [ -e latest.yml ]; then
@@ -202,13 +276,14 @@ jobs:
           # 两份 feed 必须各自指向自己的架构，交叉了就是 32 位用户装 64 位包
           grep -q 'setup-x64.exe' latest-x64.yml || { echo "::error::latest-x64.yml 没指向 x64 包"; exit 1; }
           grep -q 'setup-ia32.exe' latest-ia32.yml || { echo "::error::latest-ia32.yml 没指向 ia32 包"; exit 1; }
+          grep -q 'debian13-amd64.deb' latest-x64-linux.yml || { echo "::error::Linux feed 没指向 Debian 13 包"; exit 1; }
           grep -H 'url:' latest-*.yml
 
       # 安装包没有代码签名，校验和是用户确认完整性的唯一手段
       - name: 生成校验和
         run: |
           cd dist
-          sha256sum *.exe | tee SHA256SUMS.txt
+          sha256sum *.exe *.deb | tee SHA256SUMS.txt
           ls -lh
 
       - name: 创建 Release 并上传
@@ -224,10 +299,14 @@ jobs:
           | `*-setup-ia32.exe` | 32 位（x86）安装版 |
           | `*-portable-x64.exe` | 64 位免安装 |
           | `*-portable-ia32.exe` | 32 位（x86）免安装 |
+          | `*-debian13-amd64.deb` | Debian 13 amd64 安装包 |
 
-          安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
+          Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
 
-          > `latest-*.yml` 与 `*.blockmap` 是**应用内自动更新**用的元数据，不用手工下载。
+          Debian 13 使用 `sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb` 安装或覆盖升级。
+          Debian 版只提示新版本，不在应用内提权安装。
+
+          > `latest-*.yml` 与 `*.blockmap` 是更新检查元数据，不用手工下载。
           > 其中 blockmap 让下一版只下载变化的部分，所以历史版本的这两个文件不会删。
 
           > 安装包**未做代码签名**，首次运行 Windows SmartScreen 可能提示"未知发布者"，
@@ -235,7 +314,8 @@ jobs:
 
           ### 升级前请注意
 
-          > **卸载现在会清空本机数据。** 卸载前请先用「设置 → 安全与数据 → 导出」备份。
+          > **Windows 安装版卸载会清空本机数据。** 卸载前请先用「设置 → 安全与数据 → 导出」备份。
+          > Debian 覆盖升级和卸载会保留 `~/.config/OpenFinalShell`。
 
           > **首次启动会把旧的 JSON 配置迁进 SQLite**（`userData/config/openfinalshell.db`），
           > 原文件改名 `*.migrated` 保留不删，映射有偏差还能人工找回。
@@ -255,7 +335,7 @@ jobs:
           # v0.1.0-rc1 这类带后缀的 tag 视为预发布
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/*.exe dist/*.exe.blockmap dist/latest-*.yml dist/SHA256SUMS.txt \
+            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/latest-*.yml dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "OpenFinalShell $GITHUB_REF_NAME" \
             --notes-file notes.md \

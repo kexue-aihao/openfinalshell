@@ -4,6 +4,7 @@ import type { SecretRef } from '@shared/types'
 import { prepare } from './Database'
 import { scopedLogger } from '../utils/logger'
 import { t } from '../services/i18n'
+import { secureStorageAvailable } from './secureStorage'
 
 const log = scopedLogger('vault')
 
@@ -14,7 +15,7 @@ const log = scopedLogger('vault')
  */
 export const vault = {
   isAvailable(): boolean {
-    return safeStorage.isEncryptionAvailable()
+    return secureStorageAvailable()
   },
 
   /** 加密存入，返回引用 id；overwriteRef 传入时覆盖已有条目（沿用同一 ref） */
@@ -28,6 +29,16 @@ export const vault = {
       'INSERT INTO secrets(ref, cipher) VALUES(?, ?) ON CONFLICT(ref) DO UPDATE SET cipher = ?'
     ).run(ref, cipher, cipher)
     return ref
+  },
+
+  /** 密钥库不可用时不保存，调用方仍可落实体并在使用时重新询问。 */
+  putSecretIfAvailable(plaintext: string, overwriteRef?: SecretRef): SecretRef | undefined {
+    if (!this.isAvailable()) {
+      // 用户输入了替代值但无法安全保存：旧值不能继续冒充保存成功的新值。
+      this.deleteSecret(overwriteRef)
+      return undefined
+    }
+    return this.putSecret(plaintext, overwriteRef)
   },
 
   /** 仅 main 内部调用 */

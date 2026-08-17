@@ -22,6 +22,7 @@ export const app = {
 
 export const safeStorage = {
   isEncryptionAvailable: (): boolean => true,
+  getSelectedStorageBackend: (): 'gnome_libsecret' => 'gnome_libsecret',
   encryptString: (plain: string): Buffer => {
     const iv = randomBytes(12)
     const cipher = createCipheriv('aes-256-gcm', KEY, iv)

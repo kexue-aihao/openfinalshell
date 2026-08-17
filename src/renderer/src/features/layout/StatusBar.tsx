@@ -24,7 +24,8 @@ export function StatusBar(): React.JSX.Element {
   const [versions, setVersions] = useState<AppVersions | null>(null)
   const update = useUpdateStore((s) => s.state)
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
-  const ready = update?.status === 'downloaded'
+  const manualAvailable = update?.status === 'available' && update.capability === 'manual'
+  const ready = update?.status === 'downloaded' || manualAvailable
 
   useEffect(() => {
     void ofs.invoke('app:getVersions').then(setVersions)
@@ -73,7 +74,13 @@ export function StatusBar(): React.JSX.Element {
         <span
           className={`${styles.item} tabular-nums ${ready ? styles.clickable : ''}`}
           onClick={ready ? () => setSettingsOpen(true) : undefined}
-          title={ready ? t('update.readyTag', { version: update?.version ?? '' }) : undefined}
+          title={
+            ready
+              ? manualAvailable
+                ? t('update.manualAvailableTag', { version: update?.version ?? '' })
+                : t('update.readyTag', { version: update?.version ?? '' })
+              : undefined
+          }
         >
           {ready && <span className={styles.updateDot} />}
           {t('status.version')} {versions.app}

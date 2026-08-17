@@ -3,6 +3,7 @@ import { safeStorage } from 'electron'
 import { metaGet, metaSet } from './Database'
 import { t } from '../services/i18n'
 import { scopedLogger } from '../utils/logger'
+import { secureStorageAvailable } from './secureStorage'
 
 const log = scopedLogger('crypto')
 
@@ -44,7 +45,7 @@ function loadOrCreateKey(): Buffer | null {
   // safeStorage 必须在 app ready 之后才可用（ready 前 isEncryptionAvailable 可能为 false）。
   // 此时返回 null、且 keys() 不缓存它——否则启动早期（app ready 前）的一次读取
   // 会把整个会话的加密永久关掉。
-  if (!safeStorage.isEncryptionAvailable()) return null
+  if (!secureStorageAvailable()) return null
   const stored = metaGet(MDK_META_KEY)
   if (stored) {
     try {

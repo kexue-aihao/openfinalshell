@@ -46,3 +46,30 @@ jobs:
       # check:bundle 读 out/ 的产物算 gzip，必须先 build
       - run: npm run build
       - run: npm run check:bundle
+
+
+  debian:
+    name: Debian 13（测试 / 构建 / deb）
+    runs-on: ubuntu-latest
+    container: debian:13
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装构建依赖
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git tar xz-utils dpkg-dev python3 build-essential
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check:i18n
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:bundle
+      - run: npx electron-builder --linux deb --x64 --publish never
+      - run: npm run check:deb

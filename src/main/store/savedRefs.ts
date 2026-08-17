@@ -99,7 +99,7 @@ export function saveProxy(draft: SavedProxyDraft): SavedProxy {
       passwordRef = undefined
     }
     if (draft.password !== undefined && draft.password !== '') {
-      passwordRef = vault.putSecret(draft.password, passwordRef)
+      passwordRef = vault.putSecretIfAvailable(draft.password, passwordRef)
     }
 
     const proxy: SavedProxy = {
@@ -168,7 +168,7 @@ export function savePrivateKey(draft: SavedPrivateKeyDraft): SavedPrivateKey {
       passphraseRef = undefined
     }
     if (draft.passphrase !== undefined && draft.passphrase !== '') {
-      passphraseRef = vault.putSecret(draft.passphrase, passphraseRef)
+      passphraseRef = vault.putSecretIfAvailable(draft.passphrase, passphraseRef)
     }
 
     const key: SavedPrivateKey = {

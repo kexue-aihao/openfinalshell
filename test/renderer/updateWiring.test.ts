@@ -80,11 +80,18 @@ describe('绝不自己重启', () => {
 describe('两道短路', () => {
   const src = stripComments(read(UPDATER))
 
-  it('免安装版：判据是 PORTABLE_EXECUTABLE_DIR，三个入口都短路', () => {
+  it('免安装与 Debian 都由 capability 统一分流', () => {
     expect(src).toContain('process.env.PORTABLE_EXECUTABLE_DIR')
-    for (const fn of ['export async function checkForUpdate', 'export function startUpdateChecks']) {
-      expect(flat(blockAfter(src, fn))).toContain('isPortable()')
-    }
+    expect(src).toContain('resolveUpdateCapability({')
+    expect(flat(blockAfter(src, 'function wire'))).toContain(
+      "autoUpdater.autoDownload = capability === 'install'"
+    )
+    expect(flat(blockAfter(src, 'export async function downloadUpdate'))).toContain(
+      "capability !== 'install'"
+    )
+    const check = flat(blockAfter(src, 'export async function checkForUpdate'))
+    expect(check).toContain("capability === 'manual'")
+    expect(check).toContain('checkLatestRelease(app.getVersion())')
   })
 
   it('dev 里整个短路（app.isPackaged）', () => {
@@ -137,7 +144,8 @@ describe('发布侧', () => {
 describe('文案', () => {
   const keys = [
     'idle', 'check', 'checking', 'upToDate', 'availableTag', 'readyTag', 'install',
-    'failed', 'portable', 'note', 'confirmTitle', 'confirmBody', 'confirmTail', 'confirmOk'
+    'failed', 'portable', 'manualAvailableTag', 'openReleases', 'manualNote', 'note',
+    'confirmTitle', 'confirmBody', 'confirmTail', 'confirmOk'
   ] as const
 
   it('update.* 两边都齐', () => {

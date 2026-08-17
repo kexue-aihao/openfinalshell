@@ -762,7 +762,7 @@ export function createMockOfs(): OfsApi {
     },
 
     // 浏览器调试模式没有 autoUpdater，恒定报"已是最新" —— 免安装那条分支要真产物才验得到
-    'update:check': () => ({ status: 'none' as const, current: '0.1.0-mock' }),
+    'update:check': () => ({ status: 'none' as const, capability: 'install' as const, current: '0.1.0-mock' }),
     'update:download': () => {},
     'update:install': () => ({ error: '浏览器调试模式不支持安装更新' }),
 

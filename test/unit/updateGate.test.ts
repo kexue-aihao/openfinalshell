@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { decideInstall, hasLiveWork } from '../../src/main/services/updateGate'
+import {
+  decideInstall,
+  hasLiveWork,
+  isNewerRelease,
+  resolveUpdateCapability
+} from '../../src/main/services/updateGate'
 
 /**
  * 安装更新前那道闸门。
@@ -10,7 +15,28 @@ import { decideInstall, hasLiveWork } from '../../src/main/services/updateGate'
  */
 
 const none = { sessions: 0, transfers: 0, forwards: 0 }
-const base = { packaged: true, portable: false, downloaded: true, force: false }
+const base = { packaged: true, capability: 'install' as const, downloaded: true, force: false }
+
+describe('Release 版本比较', () => {
+  it('比较三段版本，并允许预发布升级到正式版', () => {
+    expect(isNewerRelease('0.18.0', 'v0.19.0')).toBe(true)
+    expect(isNewerRelease('0.18.0', 'v0.18.1')).toBe(true)
+    expect(isNewerRelease('0.18.0', 'v0.18.0')).toBe(false)
+    expect(isNewerRelease('0.18.0', 'v0.17.9')).toBe(false)
+    expect(isNewerRelease('0.18.0-rc1', 'v0.18.0')).toBe(true)
+    expect(isNewerRelease('0.18.0-rc1', 'v0.19.0')).toBe(true)
+    expect(isNewerRelease('0.18.0', 'nightly')).toBe(false)
+  })
+})
+
+describe('更新能力', () => {
+  it('Windows 安装版可内装，portable 与开发模式不支持，Linux 手工安装', () => {
+    expect(resolveUpdateCapability({ packaged: true, portable: false, platform: 'win32' })).toBe('install')
+    expect(resolveUpdateCapability({ packaged: true, portable: true, platform: 'win32' })).toBe('unsupported')
+    expect(resolveUpdateCapability({ packaged: false, portable: false, platform: 'linux' })).toBe('unsupported')
+    expect(resolveUpdateCapability({ packaged: true, portable: false, platform: 'linux' })).toBe('manual')
+  })
+})
 
 describe('有没有会被打断的东西', () => {
   it('三者任一 > 0 都算', () => {
@@ -45,9 +71,13 @@ describe('三条硬拒（force 越不过）', () => {
       kind: 'reject',
       reason: 'notPackaged'
     })
-    expect(decideInstall({ ...base, portable: true, force: true, activity: none })).toEqual({
+    expect(decideInstall({ ...base, capability: 'unsupported', force: true, activity: none })).toEqual({
       kind: 'reject',
       reason: 'portable'
+    })
+    expect(decideInstall({ ...base, capability: 'manual', force: true, activity: none })).toEqual({
+      kind: 'reject',
+      reason: 'manual'
     })
     expect(decideInstall({ ...base, downloaded: false, force: true, activity: none })).toEqual({
       kind: 'reject',

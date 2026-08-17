@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import { safeStorage } from 'electron'
 import { broadcast, handle } from './registry'
 import { getSettings, patchSettings, stripMainOnlyPaths } from '../services/settings'
 import { applyWindowChrome } from '../window'
 import { applyEditorWindowChrome } from '../editorWindow'
+import { secureStorageAvailable } from '../store/secureStorage'
 
 export function registerSettingsIpc(): void {
   handle('settings:get', () => getSettings())
@@ -35,5 +35,5 @@ export function registerSettingsIpc(): void {
     z.tuple([z.record(z.string(), z.unknown())])
   )
 
-  handle('vault:isAvailable', () => safeStorage.isEncryptionAvailable())
+  handle('vault:isAvailable', () => secureStorageAvailable())
 }

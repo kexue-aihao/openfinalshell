@@ -1,7 +1,8 @@
 {
   "name": "openfinalshell",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "开源 FinalShell —— SSH 终端 + SFTP + 服务器监控三合一的桌面客户端",
+  "desktopName": "openfinalshell.desktop",
   "type": "module",
   "main": "./out/main/index.js",
   "author": "openfinalshell contributors",
@@ -18,10 +19,12 @@
     "test": "vitest run",
     "icon": "node scripts/generateIcon.mjs",
     "package": "electron-vite build && electron-builder --win",
+    "package:deb": "electron-vite build && electron-builder --linux deb --x64 --publish never",
     "package:dir": "electron-vite build && electron-builder --win --dir",
     "smoke:packaged": "node test/fixtures/packagedSmoke.mjs",
     "postinstall": "electron-builder install-app-deps",
-    "check:bundle": "node scripts/checkBundleBudget.mjs"
+    "check:bundle": "node scripts/checkBundleBudget.mjs",
+    "check:deb": "node scripts/checkDeb.mjs"
   },
   "dependencies": {
     "electron-log": "^5.4.4",

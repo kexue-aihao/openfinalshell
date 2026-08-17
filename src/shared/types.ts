@@ -927,8 +927,11 @@ export interface FinalShellImportResult {
 }
 
 // ---------- 自动更新 ----------
+/** 当前包能怎样处理新版本：安装版可内装、Debian 手工覆盖、portable 完全不支持。 */
+export type UpdateCapability = 'install' | 'manual' | 'unsupported'
+
 /**
- * 更新器的状态。`unsupported` 专门给**免安装版**：它的 resources 里也带着
+ * 更新器的状态。`unsupported` 专门给 Windows 免安装版：它的 resources 里也带着
  * `app-update.yml`（nsis 与 portable 共享同一个 win-unpacked），如果不拦住，
  * 免安装用户会被下载一个 NSIS 安装包并装到 `%LOCALAPPDATA%` —— 等于把他悄悄变成安装版。
  */
@@ -944,6 +947,7 @@ export type UpdateStatus =
 
 export interface UpdateState {
   status: UpdateStatus
+  capability: UpdateCapability
   /** 当前版本，界面一处显示 */
   current: string
   /** 新版本号（available / downloading / downloaded 时有） */

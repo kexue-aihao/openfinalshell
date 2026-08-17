@@ -272,8 +272,9 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
 
     // MSYS 的 GNU tar 只认 /c/... 形式的路径（`C:\x` 会被它当成远端主机名，
     // 报 "Cannot connect to C: resolve failed" —— 这正是不许走 PATH 找 tar 的理由）
-    const msys = (p: string): string => `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}`
-    execFileSync(gnuTar, ['-c', '-f', msys(archive), '-C', msys(base), '--', 'app'])
+    const tarPath = (p: string): string =>
+      process.platform === 'win32' ? `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}` : p
+    execFileSync(gnuTar, ['-c', '-f', tarPath(archive), '-C', tarPath(base), '--', 'app'])
 
     const listed = await listTarEntries(tar, archive, 30_000)
     expect(listed.ok).toBe(true)
@@ -295,7 +296,8 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     const archive = buildArchive('trunc-src', 'app')
     const full = readFileSync(archive)
     const half = join(root as string, 'half.tar')
-    writeFileSync(half, full.subarray(0, Math.floor(full.length / 2)))
+    // GNU tar 的尾部是 0 block，砍一半可能只去掉冗余尾部；截到 header 中间才必坏。
+    writeFileSync(half, full.subarray(0, Math.min(256, full.length)))
     const listed = await listTarEntries(tar, half, 30_000)
     expect(listed.ok).toBe(false)
   })
@@ -314,9 +316,9 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     const empty = join(root as string, 'empty.tar')
     writeFileSync(empty, '')
     const listed = await listTarEntries(tar, empty, 30_000)
-    expect(listed.ok).toBe(true)
+    // bsdtar 对空文件退 0，GNU tar 退非 0；两者都不得进入解包。
     expect(listed.names).toEqual([])
-    expect(checkTarEntries(listed.names, 'app').unsafe).toHaveLength(1)
+    if (listed.ok) expect(checkTarEntries(listed.names, 'app').unsafe).toHaveLength(1)
   })
 
   /**
@@ -367,7 +369,8 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     // 第一道：判越界 → 调用方不会去解包
     expect(checkTarEntries(listed.names, 'app').unsafe).toHaveLength(1)
 
-    // 第二道：真解一次，确认 libarchive 自己也不放它出去
+    // 第二道是 Windows bsdtar 行为；GNU tar 把反斜杠当普通文件名字符。
+    if (process.platform !== 'win32') return
     const deep = join(root as string, 'trav-out', 'a', 'b')
     mkdirSync(deep, { recursive: true })
     const outcome = await extractTar(tar, archive, deep, 30_000)

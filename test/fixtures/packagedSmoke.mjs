@@ -10,10 +10,14 @@
  */
 import { spawn } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 
-const exePath = process.argv[2] ?? join(process.cwd(), 'release', 'win-unpacked', 'OpenFinalShell.exe')
+const defaultExe =
+  process.platform === 'win32'
+    ? join(process.cwd(), 'release', 'win-unpacked', 'OpenFinalShell.exe')
+    : '/opt/OpenFinalShell/openfinalshell'
+const exePath = process.argv[2] ?? defaultExe
 const sshPort = Number(process.argv[3] ?? 2270)
 const cdpPort = Number(process.argv[4] ?? 9333)
 
@@ -27,6 +31,7 @@ const fail = (msg) => {
 
 let app
 let ws
+let dataDir
 function cleanup() {
   try {
     ws?.close()
@@ -35,6 +40,11 @@ function cleanup() {
   }
   try {
     app?.kill()
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true })
   } catch {
     /* ignore */
   }
@@ -76,8 +86,11 @@ async function main() {
   console.log(`launching ${exePath} (cdp ${cdpPort})`)
   // 独立 user-data-dir：① 单实例锁按 userData 路径算，这样能与正在使用的实例并存；
   // ② 不再往真实连接列表里塞 packaged-smoke 条目（跑挂时会留下残留）
-  const dataDir = join(tmpdir(), `ofs-smoke-${process.pid}`)
-  app = spawn(exePath, [`--remote-debugging-port=${cdpPort}`, `--user-data-dir=${dataDir}`], {
+  dataDir = join(tmpdir(), `ofs-smoke-${process.pid}`)
+  const appArgs = [`--remote-debugging-port=${cdpPort}`, `--user-data-dir=${dataDir}`]
+  // CI 没有交互式 keyring；basic_text 必须被生产安全守卫判为不可用，且不能弹 KWallet。
+  if (process.platform === 'linux') appArgs.push('--password-store=basic')
+  app = spawn(exePath, appArgs, {
     stdio: ['ignore', 'pipe', 'pipe']
   })
   app.stderr.on('data', (d) => {
@@ -187,7 +200,9 @@ async function main() {
 
   const vaultOk = await evaluate(`return await window.ofs.invoke('vault:isAvailable')`)
   console.log(`OK safeStorage available = ${vaultOk}`)
-  if (!vaultOk) fail('打包环境里 safeStorage 不可用（Windows 应走 DPAPI）')
+  if (process.platform === 'win32' && !vaultOk) {
+    fail('Windows 打包环境里 safeStorage 不可用（应走 DPAPI）')
+  }
 
   // 2) 建连接配置（密码明文进 main，加密落盘后只回引用）
   const profile = await evaluate(`
@@ -205,16 +220,20 @@ async function main() {
     const saved = await window.ofs.invoke('conn:save', draft)
     return { id: saved.id, hasRef: Boolean(saved.auth.passwordRef), leaked: JSON.stringify(saved).includes('test123') }
   `)
-  if (!profile.hasRef) fail('凭据未写入 Vault')
+  if (vaultOk && !profile.hasRef) fail('safeStorage 可用时凭据却未写入 Vault')
+  if (!vaultOk && profile.hasRef) fail('safeStorage 不可用时不应生成不可解密的凭据引用')
   if (profile.leaked) fail('明文密码出现在回传给渲染层的 profile 里')
-  console.log('OK credential stored as vault ref, no plaintext returned')
+  console.log(`OK credential ${vaultOk ? 'stored as vault ref' : 'not persisted without keyring'}, no plaintext returned`)
 
   // 3) 自动信任 hostkey + 开会话（真 ssh2 握手）
   await evaluate(`
     window.__smokePrompts = []
     window.ofs.on('session:prompt', (p) => {
       window.__smokePrompts.push(p.kind)
-      window.ofs.invoke('session:promptReply', { requestId: p.requestId, ok: true, remember: true })
+      const answers = p.kind === 'password' ? ['test123'] : undefined
+      window.ofs.invoke('session:promptReply', {
+        requestId: p.requestId, ok: true, remember: ${vaultOk}, answers
+      })
     })
     window.__smokeStates = []
     window.ofs.on('session:state', (s) => window.__smokeStates.push(s.state))
@@ -394,7 +413,9 @@ async function main() {
   if (!s.charset || !s.termType || !s.keepaliveInterval || !s.readyTimeout) {
     fail(`折叠面板内的字段未随表单提交：${JSON.stringify(s)}`)
   }
-  if (!s.hasRef || s.leaked) fail('表单保存的凭据未走 Vault 引用')
+  if (vaultOk && !s.hasRef) fail('safeStorage 可用时表单凭据未走 Vault 引用')
+  if (!vaultOk && s.hasRef) fail('safeStorage 不可用时表单不应生成凭据引用')
+  if (s.leaked) fail('表单保存后明文密码回到了界面层')
   if (s.proxy) fail(`未配置代理却写入了 proxy：${JSON.stringify(s.proxy)}`)
   if (formSave.drawerStillOpen) fail('保存成功后抽屉未关闭')
   console.log(
@@ -430,6 +451,19 @@ async function main() {
   `)
   await evaluate('location.reload(); return true').catch(() => {})
   await sleep(4000)
+
+  // 无 Secret Service 时密码不会持久化；reload 后监听器也没了，必须再次应答。
+  if (!vaultOk) {
+    await evaluate(`
+      window.ofs.on('session:prompt', (p) => {
+        const answers = p.kind === 'password' ? ['test123'] : undefined
+        window.ofs.invoke('session:promptReply', {
+          requestId: p.requestId, ok: true, remember: false, answers
+        })
+      })
+      return true
+    `)
+  }
 
   const uiConnect = await evaluate(`
     // 判定要盯**直接反映 tab.state 的东西**：标签上的状态点 class 由 tab.state 决定
@@ -904,12 +938,22 @@ async function main() {
   }
   console.log('OK 命令编辑器：界面打开 → 单行发送 → 终端回显 + 进历史，且没有多余确认框')
 
-  // 多行 + 自动回车：必须先弹一次确认（与终端粘贴同一条规矩）
+  // 单行发送会按设计清空并关窗；重新打开后再验多行确认，不能操作动画残留的旧 modal。
   const multiConfirm = await evaluate(`
-    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
-      m.textContent.includes('命令编辑器')
+    const newBtn = [...document.querySelectorAll('button')].find(
+      (b) => b.textContent.trim() === '新建命令'
     )
+    const toolbar = newBtn?.parentElement
+    const pencil = toolbar ? [...toolbar.querySelectorAll('button')].find((b) => b !== newBtn) : null
+    if (!pencil) return { error: '多行测试前找不到命令编辑器按钮' }
+    pencil.click()
+    await new Promise((r) => setTimeout(r, 600))
+    const modal = [...document.querySelectorAll('.ant-modal')].find(
+      (m) => m.textContent.includes('命令编辑器') && m.getBoundingClientRect().width > 0
+    )
+    if (!modal) return { error: '多行测试前命令编辑器没有重新打开' }
     const ta = modal.querySelector('textarea')
+    if (!ta) return { error: '重新打开的命令编辑器没有文本框' }
     ta.focus()
     ta.setSelectionRange(0, ta.value.length)
     return true
@@ -919,8 +963,8 @@ async function main() {
   await sleep(200)
   const multiSend = await evaluate(`
     const norm = (s) => s.replace(/\\s+/g, '')
-    const modal = [...document.querySelectorAll('.ant-modal')].find((m) =>
-      m.textContent.includes('命令编辑器')
+    const modal = [...document.querySelectorAll('.ant-modal')].find(
+      (m) => m.textContent.includes('命令编辑器') && m.getBoundingClientRect().width > 0
     )
     const sendBtn = [...modal.querySelectorAll('button')].find((b) => norm(b.textContent) === '发送')
     sendBtn.click()
@@ -1070,6 +1114,8 @@ async function main() {
     // 在 Windows 上拿不到矩形，等于这条检查静默空过 —— 宁可红，不要假绿
     if (process.platform === 'win32') fail('Windows 上却拿不到 windowControlsOverlay 矩形，tooltip 遮挡检查会空过')
     console.log('SKIP tooltip 遮挡检查（windowControlsOverlay 不可用，非 Windows？）')
+  } else if (process.platform !== 'win32') {
+    console.log('SKIP tooltip 遮挡检查（只约束 Windows 原生窗口按钮区）')
   } else {
     const cr = tipEnv.controls
     const crW = cr.right - cr.left
@@ -1428,6 +1474,9 @@ async function main() {
   //    那样测出来的绿是假的：高亮或许验到了，"落进哪个目录"一个字节都没验。
   //    真注入还顺带走了 Chromium 自己的 dragenter/dragleave 配对，
   //    于是"从目录行移到文件行"这个切换也是真的在被测。
+  if (process.platform !== 'win32') {
+    console.log('SKIP 原生文件拖拽冒烟（CDP dispatchDragEvent 在 Linux 不携带系统文件拖拽命中）')
+  } else {
   const dndLocal = join(tmpdir(), `ofs-dnd-${process.pid}.txt`)
   const dndName = basename(dndLocal)
   writeFileSync(dndLocal, 'openfinalshell drag-and-drop smoke\n')
@@ -1933,7 +1982,7 @@ async function main() {
       items.push({
         sessionId: sid,
         kind: 'upload',
-        localPath: ${JSON.stringify(bulkDir.replace(/\\/g, '\\\\'))} + '\\\\' + name,
+        localPath: ${JSON.stringify(bulkDir + sep)} + name,
         remotePath: '/' + ${JSON.stringify(bulkName)} + '/c-' + name,
         onConflict: 'overwrite'
       })
@@ -1974,6 +2023,7 @@ async function main() {
     return true
   `)
   rmSync(bulkDir, { recursive: true, force: true })
+  }
 
   // 8.8) 内置编辑器：CM6 在 file:// + 严格 CSP + 根元素 CSS zoom 里到底能不能用
   //    这一步存在的理由是"只有真实打包窗口能回答"的那几个问题：
@@ -1983,6 +2033,28 @@ async function main() {
   //      ③ body 上的 user-select:none 有没有把代码区变成"看得见选不中"；
   //      ④ 根元素的 CSS zoom 会不会让点击坐标与光标落点错位（125%/150% 是常用档）。
   //    ⚠️ 只读查看**验不到输入法**：不接受输入就没有组词过程。那条移到片 3（可编辑）。
+  if (process.platform !== 'win32') {
+    await evaluate(`
+      const sid = '${session.sessionId}'
+      try { await window.ofs.invoke('sftp:delete', { sessionId: sid, path: '/ed-smoke.conf', recursive: false }) } catch {}
+      await window.ofs.invoke('sftp:touch', { sessionId: sid, path: '/ed-smoke.conf' })
+      await window.ofs.invoke('editor:openFile', { sessionId: sid, path: '/ed-smoke.conf', origin: 'packaged-smoke' })
+      return true
+    `)
+    let editorTarget = null
+    for (let i = 0; i < 40 && !editorTarget; i++) {
+      await sleep(250)
+      const targets = await fetch(`http://127.0.0.1:${cdpPort}/json/list`).then((r) => r.json())
+      const pages = targets.filter((t) => t.type === 'page' && t.webSocketDebuggerUrl)
+      editorTarget = pages.find((t) => t.webSocketDebuggerUrl !== target.webSocketDebuggerUrl) ?? null
+    }
+    if (!editorTarget) fail('调用 editor:openFile 后独立编辑器窗口没有出现 CDP page target')
+    console.log(`OK 独立编辑器窗口已创建（target=${JSON.stringify(editorTarget.title)}）`)
+    await evaluate(`
+      try { await window.ofs.invoke('sftp:delete', { sessionId: '${session.sessionId}', path: '/ed-smoke.conf', recursive: false }) } catch {}
+      return true
+    `)
+  } else {
   const edLocal = join(tmpdir(), `ofs-ed-${process.pid}.conf`)
   const ED_LINES = [
     '# openfinalshell 内置编辑器冒烟样本',
@@ -2531,6 +2603,7 @@ async function main() {
   if (edClose.还在) fail('关掉唯一的文件标签之后，编辑器那一格还占着版面')
   console.log('OK 关掉最后一个文件标签，编辑器那一格随之消失')
   rmSync(edLocal, { force: true })
+  }
 
   // 9) 设置 → 安全与数据：导出/导入面板能渲染出来且不被原生窗口按钮压住
   //    导入/导出都要弹系统文件对话框，CDP 关不掉它 —— 所以这里只验证到"面板可用"为止，

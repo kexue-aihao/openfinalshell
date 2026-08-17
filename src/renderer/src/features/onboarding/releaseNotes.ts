@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.18.1',
+    items: [
+      {
+        type: 'feat',
+        zh: '新增 Debian 13 amd64 正式安装包：可用 APT 安装和覆盖升级，SSH、终端、SFTP、监控与独立编辑器均通过安装后冒烟验证。Debian 版会提示新版本并打开 Releases，但不会自行提权安装；凭据使用 Secret Service/KWallet，缺少安全密钥库时不会把密码保存成明文',
+        en: 'Added an official Debian 13 amd64 package: install or upgrade it with APT. SSH, terminal, SFTP, monitoring and the separate editor all pass an installed-package smoke test. The Debian build notifies you about releases but never elevates privileges to install them; credentials use Secret Service/KWallet and are not persisted in plaintext when no secure keyring is available'
+      }
+    ]
+  },
+  {
     version: '0.18.0',
     items: [
       {

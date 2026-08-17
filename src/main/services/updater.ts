@@ -8,13 +8,14 @@ import type {
 import { emit } from '../ipc/registry'
 import { getSettings } from './settings'
 import { t } from './i18n'
-import { decideInstall } from './updateGate'
+import { decideInstall, resolveUpdateCapability } from './updateGate'
 import { transferQueue } from '../sftp/TransferQueue'
 import { monitorManager } from '../monitor/MonitorManager'
 import { forwardManager } from '../forward/ForwardManager'
 import { sshManager } from '../ssh/SshConnectionManager'
 import { closeDatabase } from '../store/Database'
 import { scopedLogger } from '../utils/logger'
+import { checkLatestRelease } from './manualUpdateCheck'
 
 const log = scopedLogger('updater')
 
@@ -41,15 +42,21 @@ const log = scopedLogger('updater')
  * 自己按顺序停掉、并**同步**关库（closeDatabase 本来就是同步的），再交给安装器。
  */
 
-// electron-updater 是 CJS，默认导出上挂着 autoUpdater
-const { autoUpdater } = electronUpdater
+// electron-updater 是 CJS；延迟读取 getter，Debian manual 模式不构造 AppImageUpdater。
+let autoUpdater: typeof electronUpdater.autoUpdater | null = null
 
 /** 免安装版：portable 启动器会注入这个环境变量 */
 function isPortable(): boolean {
   return Boolean(process.env.PORTABLE_EXECUTABLE_DIR)
 }
 
-let state: UpdateState = { status: 'idle', current: app.getVersion() }
+const capability = resolveUpdateCapability({
+  packaged: app.isPackaged,
+  portable: isPortable(),
+  platform: process.platform
+})
+
+let state: UpdateState = { status: 'idle', capability, current: app.getVersion() }
 let timer: NodeJS.Timeout | null = null
 let wired = false
 
@@ -72,8 +79,10 @@ export function updateActivity(): UpdateActivity {
   }
 }
 
-function wire(): void {
-  if (wired) return
+function wire(): NonNullable<typeof autoUpdater> {
+  if (wired && autoUpdater) return autoUpdater
+  const updater = electronUpdater.autoUpdater
+  autoUpdater = updater
   wired = true
 
   // 日志接到 electron-log：差量到底走没走、省了多少，只有这里看得见
@@ -83,7 +92,8 @@ function wire(): void {
     error: (m: unknown) => log.error(String(m)),
     debug: (m: unknown) => log.debug(String(m))
   }
-  autoUpdater.autoDownload = true
+  // Debian 只检查版本并引导用户下载；绝不在后台下载一个应用不能自行安装的包。
+  autoUpdater.autoDownload = capability === 'install'
   // ⚠️ 绝不在退出时偷偷装 —— 见文件头第 1 条
   autoUpdater.autoInstallOnAppQuit = false
 
@@ -108,6 +118,7 @@ function wire(): void {
     log.warn(`update error: ${err.message}`)
     publish({ status: 'error', error: err.message })
   })
+  return autoUpdater
 }
 
 /**
@@ -116,13 +127,29 @@ function wire(): void {
  */
 export async function checkForUpdate(silent = false): Promise<UpdateState> {
   if (!app.isPackaged) return state
-  if (isPortable()) {
+  if (capability === 'unsupported') {
     publish({ status: 'unsupported' })
     return state
   }
-  wire()
   try {
-    await autoUpdater.checkForUpdates()
+    if (capability === 'manual') {
+      const before = state
+      publish({ status: 'checking', error: undefined })
+      try {
+        const result = await checkLatestRelease(app.getVersion())
+        publish(
+          result.available
+            ? { status: 'available', version: result.version, error: undefined }
+            : { status: 'none', version: undefined, error: undefined }
+        )
+        return state
+      } catch (err) {
+        if (silent) state = before
+        throw err
+      }
+    }
+    const updater = wire()
+    await updater.checkForUpdates()
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     log.warn(`check failed: ${message}`)
@@ -133,10 +160,10 @@ export async function checkForUpdate(silent = false): Promise<UpdateState> {
 
 /** 手动触发下载（autoDownload 已开，这条是给"检查到但没自动下"兜底用的） */
 export async function downloadUpdate(): Promise<void> {
-  if (!app.isPackaged || isPortable()) return
-  wire()
+  if (!app.isPackaged || capability !== 'install') return
+  const updater = wire()
   try {
-    await autoUpdater.downloadUpdate()
+    await updater.downloadUpdate()
   } catch (err) {
     publish({ status: 'error', error: err instanceof Error ? err.message : String(err) })
   }
@@ -152,7 +179,7 @@ export function installUpdate(force: boolean): UpdateInstallResult {
   // 判断本身在 updateGate.ts（不 import electron-updater，所以有真正的行为用例）
   const decision = decideInstall({
     packaged: app.isPackaged,
-    portable: isPortable(),
+    capability,
     downloaded: state.status === 'downloaded',
     force,
     activity
@@ -162,6 +189,7 @@ export function installUpdate(force: boolean): UpdateInstallResult {
       error: {
         notPackaged: t('err.data.updateDevMode'),
         portable: t('err.data.updatePortable'),
+        manual: t('err.data.updateManual'),
         notDownloaded: t('err.data.updateNotDownloaded')
       }[decision.reason]
     }
@@ -181,7 +209,7 @@ export function installUpdate(force: boolean): UpdateInstallResult {
 
   // isSilent=false：assisted installer（oneClick:false）下让安装器自己走它那套页面；
   // isForceRunAfter=true：装完自动把应用拉起来，用户不用自己再点一次图标
-  autoUpdater.quitAndInstall(false, true)
+  wire().quitAndInstall(false, true)
   return { installing: true }
 }
 
@@ -193,7 +221,7 @@ export function installUpdate(force: boolean): UpdateInstallResult {
  */
 export function startUpdateChecks(): void {
   if (!app.isPackaged) return
-  if (isPortable()) {
+  if (capability === 'unsupported') {
     publish({ status: 'unsupported' })
     return
   }
