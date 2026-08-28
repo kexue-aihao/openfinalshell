@@ -13,6 +13,23 @@ function stateDotClass(tab: SessionTab): string {
   return styles.dotConnecting
 }
 
+function tabMenuItems(tab: SessionTab, t: (key: string) => string) {
+  const closeItems = [
+    { key: 'close', label: t('tab.close') },
+    { key: 'closeOthers', label: t('tab.closeOthers') },
+    { key: 'closeToRight', label: t('tab.closeToRight') },
+    { key: 'closeAll', label: t('tab.closeAll'), danger: true }
+  ]
+  if (tab.kind === 'portTraffic') return closeItems
+  return [
+    { key: 'rename', label: t('tab.rename') },
+    { key: 'duplicate', label: t('tab.duplicate') },
+    { key: 'reconnect', label: t('tab.reconnect') },
+    { type: 'divider' as const },
+    ...closeItems
+  ]
+}
+
 /**
  * 标题栏 + 标签栏合一（titleBarOverlay：右侧原生窗口按钮由系统绘制）。
  * 标签区必须 no-drag，否则点击/双击重命名全部失效。
@@ -67,16 +84,7 @@ export function TitleBar(): React.JSX.Element {
             key={tab.id}
             trigger={['contextMenu']}
             menu={{
-              items: [
-                { key: 'rename', label: t('tab.rename') },
-                { key: 'duplicate', label: t('tab.duplicate') },
-                { key: 'reconnect', label: t('tab.reconnect') },
-                { type: 'divider' },
-                { key: 'close', label: t('tab.close') },
-                { key: 'closeOthers', label: t('tab.closeOthers') },
-                { key: 'closeToRight', label: t('tab.closeToRight') },
-                { key: 'closeAll', label: t('tab.closeAll'), danger: true }
-              ],
+              items: tabMenuItems(tab, t),
               onClick: ({ key }) => onMenuClick(tab, key)
             }}
           >

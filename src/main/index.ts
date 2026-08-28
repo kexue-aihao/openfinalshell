@@ -11,6 +11,7 @@ import { registerTermIpc } from './ipc/term.ipc'
 import { registerSnippetIpc } from './ipc/snippet.ipc'
 import { registerSftpIpc } from './ipc/sftp.ipc'
 import { registerMonitorIpc } from './ipc/monitor.ipc'
+import { registerPortTrafficIpc } from './ipc/portTraffic.ipc'
 import { registerForwardIpc } from './ipc/forward.ipc'
 import { registerHistoryIpc } from './ipc/history.ipc'
 import { registerEditorIpc } from './ipc/editor.ipc'
@@ -19,6 +20,7 @@ import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { registerUpdateIpc } from './ipc/update.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
 import { monitorManager } from './monitor/MonitorManager'
+import { portTrafficManager } from './monitor/PortTrafficManager'
 import { forwardManager } from './forward/ForwardManager'
 import { lanSyncManager } from './lansync/LanSyncManager'
 import { flushForwards } from './store/forwards'
@@ -99,6 +101,7 @@ if (!app.requestSingleInstanceLock()) {
     registerSnippetIpc()
     registerSftpIpc()
     registerMonitorIpc()
+    registerPortTrafficIpc()
     registerForwardIpc()
     registerHistoryIpc()
     registerSavedRefsIpc()
@@ -146,6 +149,7 @@ if (!app.requestSingleInstanceLock()) {
     stopUpdateChecks()
     transferQueue.cancelAll()
     monitorManager.stopAll()
+    portTrafficManager.stopAll()
     forwardManager.stopAll()
     // 局域网同步：关监听 + 停发现应答 + 销毁连接。必须先于 closeDatabase()
     lanSyncManager.stopAll()

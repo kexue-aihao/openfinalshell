@@ -39,6 +39,8 @@ import type {
   MonitorSnapshot,
   MonitorState,
   MonitorStaticInfo,
+  PortTrafficSnapshot,
+  PortTrafficState,
   ProfileDraft,
   ProfileId,
   RemoteFileSaveResult,
@@ -276,6 +278,10 @@ export interface InvokeMap {
   'monitor:stop': { args: [SessionId]; result: void }
   'monitor:setInterval': { args: [{ sessionId: SessionId; intervalMs: number }]; result: void }
 
+  // --- 实时端口流量（仅在打开端口标签时按需采集） ---
+  'portTraffic:start': { args: [SessionId]; result: void }
+  'portTraffic:stop': { args: [SessionId]; result: void }
+
   // --- 端口转发 ---
   'forward:list': { args: [ProfileId | null]; result: Array<ForwardRule & { runtime?: ForwardRuntime }> }
   'forward:save': { args: [ForwardRule]; result: void }
@@ -385,6 +391,8 @@ export interface EventMap {
   'transfer:states': { tasks: TransferTask[] }
   'monitor:data': { sessionId: SessionId; snapshot: MonitorSnapshot }
   'monitor:state': { sessionId: SessionId; state: MonitorState; error?: string }
+  'portTraffic:data': { sessionId: SessionId; snapshot: PortTrafficSnapshot }
+  'portTraffic:state': { sessionId: SessionId; state: PortTrafficState; error?: string }
   'forward:state': { runtime: ForwardRuntime }
   'settings:changed': AppSettings
   /** 更新器状态（checking / available / downloading 进度 / downloaded / error） */
@@ -417,6 +425,7 @@ export const CHANNEL_PREFIXES = [
   'sftp:',
   'transfer:',
   'monitor:',
+  'portTraffic:',
   'forward:',
   'history:',
   'proxy:',

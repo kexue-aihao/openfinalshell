@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import type { MonitorSnapshot } from '@shared/types'
 import { historyOf, useMonitorStore } from '@/stores/useMonitorStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useSessionStore } from '@/stores/useSessionStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { formatBytes, formatDuration } from '@/utils/format'
@@ -43,6 +44,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
   const staticInfo = useMonitorStore((s) => (sessionId ? s.staticInfo[sessionId] : undefined))
   const state = useMonitorStore((s) => (sessionId ? s.state[sessionId] : undefined))
   const start = useMonitorStore((s) => s.start)
+  const openPortTrafficTab = useSessionStore((s) => s.openPortTrafficTab)
   const [showCores, setShowCores] = useState(false)
   const [showProcs, setShowProcs] = useState(false)
 
@@ -162,9 +164,16 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
         <MemCard snapshot={snapshot} accent={accent} memHistory={[...history.memPct]} />
 
         {/* 网络 */}
-        <div className={styles.card}>
+        <button
+          type="button"
+          className={`${styles.card} ${styles.networkCard}`}
+          onClick={() => openPortTrafficTab(tab.id, `${tab.customTitle ?? tab.title} · ${t('portTraffic.tab')}`)}
+        >
           <div className={styles.cardHead}>
             <span className={styles.cardHeadTitle}>{t('monitor.network')}</span>
+            <span className={styles.cardActionHint}>
+              {t('portTraffic.open')} <ChevronRight size={13} />
+            </span>
           </div>
           <div className={styles.netLegend}>
             <span className={styles.netItem}>
@@ -189,7 +198,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
             height={48}
             className={styles.graph}
           />
-        </div>
+        </button>
 
         {/* 延迟：既有采集通道的往返毫秒（写帧 → 首见 BEGIN 哨兵），不另开连接 */}
         {snapshot.latencyMs !== undefined && (

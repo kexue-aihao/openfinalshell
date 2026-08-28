@@ -130,6 +130,9 @@
     "failed": "收集失敗 — 請從右上角重試",
     "noIface": "找不到可計量的網路介面"
   },
+  "portTraffic": {
+    "tab": "Port traffic", "open": "View port traffic", "title": "Live port traffic", "updated": "Updated {{time}}", "totalConnections": "{{count}} connections", "port": "Local port", "connections": "Connections", "receive": "Receive", "send": "Send", "status": "Status", "active": "Active", "idle": "Idle", "collecting": "Collecting port traffic…", "empty": "No readable active TCP ports", "unsupported": "This server has no usable ss command, so TCP port traffic is unavailable", "failed": "Port traffic collection failed", "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples."
+  },
   "sftp": {
     "waitingSession": "等待工作階段…",
     "back": "上一頁",

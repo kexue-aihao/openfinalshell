@@ -4,9 +4,16 @@ import { DEFAULT_SETTINGS } from '@shared/constants'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from './useSettingsStore'
 import { useMonitorStore } from './useMonitorStore'
+import { usePortTrafficStore } from './usePortTrafficStore'
+
+export type SessionTabKind = 'terminal' | 'portTraffic'
 
 export interface SessionTab {
   id: string
+  /** 未标记的旧 tab 视为 terminal，避免升级时破坏运行中的状态。 */
+  kind?: SessionTabKind
+  /** portTraffic 标签依附的终端标签；关闭源标签时会被一并关闭。 */
+  sourceTabId?: string
   profileId: string
   sessionId: SessionId | null
   termId: TermId | null
@@ -49,6 +56,8 @@ interface SessionStore {
   bindTerm: (tabId: string, termId: TermId) => void
   toggleSftp: (id: string) => void
   toggleMonitor: (id: string) => void
+  /** 在当前窗口打开依附于既有 SSH 会话的端口流量标签，不重复登录。 */
+  openPortTrafficTab: (id: string, title: string) => void
 }
 
 /**
@@ -112,6 +121,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const sftp = useSettingsStore.getState().settings?.sftp ?? DEFAULT_SETTINGS.sftp
     const tab: SessionTab = {
       id: tabId,
+      kind: 'terminal',
       profileId: profile.id,
       sessionId: null,
       termId: null,
@@ -148,36 +158,58 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   duplicateTab: async (id, profiles) => {
     const tab = get().tabs.find((t) => t.id === id)
+    if (tab?.kind === 'portTraffic') return
     const profile = profiles.find((p) => p.id === tab?.profileId)
     if (profile) await get().openForProfile(profile)
   },
 
   closeTab: async (id) => {
     const tab = get().tabs.find((t) => t.id === id)
+    const closingIds = new Set<string>([id])
+    if (tab?.kind !== 'portTraffic') {
+      for (const candidate of get().tabs) {
+        if (candidate.kind === 'portTraffic' && candidate.sourceTabId === id) closingIds.add(candidate.id)
+      }
+    }
     /**
      * 编辑器里的未保存改动**不再拦这里**：编辑器是独立窗口，关会话不清它的标签 ——
      * 断开的会话在那边挂横幅、内容留着（脏内容的最终裁决在编辑器窗口自己的关闭链路上）。
      * 上一版"关会话先问编辑器脏不脏、然后 closeSession 清光"是嵌入式时代的规则，
      * 那时编辑器格子就活在这个会话面板里，会话一关格子必然消失。
-     */
+    */
     set((s) => {
-      const tabs = s.tabs.filter((t) => t.id !== id)
+      const tabs = s.tabs.filter((t) => !closingIds.has(t.id))
       const activeTabId =
-        s.activeTabId === id ? (tabs.length > 0 ? tabs[tabs.length - 1].id : null) : s.activeTabId
+        s.activeTabId && closingIds.has(s.activeTabId)
+          ? tabs.length > 0
+            ? tabs[tabs.length - 1].id
+            : null
+          : s.activeTabId
       return { tabs, activeTabId }
     })
     if (tab?.sessionId) {
+      if (tab.kind === 'portTraffic') {
+        await usePortTrafficStore.getState().stop(tab.sessionId).catch(() => {})
+        usePortTrafficStore.getState().clear(tab.sessionId)
+        return
+      }
       // 不 clear 的话，关掉的会话在 useMonitorStore 里的快照与 60 点历史永不释放。
       // （编辑器的文件不在这里清 —— 它们活在另一个窗口里，见上面那段）
       useMonitorStore.getState().clear(tab.sessionId)
+      await usePortTrafficStore.getState().stop(tab.sessionId).catch(() => {})
+      usePortTrafficStore.getState().clear(tab.sessionId)
       await ofs.invoke('session:close', tab.sessionId).catch(() => {})
     }
   },
 
   closeOthers: async (id) => {
-    const others = get().tabs.filter((t) => t.id !== id)
+    const selected = get().tabs.find((t) => t.id === id)
+    // 流量标签依附源终端；“关闭其他”时保留这个必要的源标签，避免把当前标签一并删掉。
+    const keepIds = new Set([id])
+    if (selected?.kind === 'portTraffic' && selected.sourceTabId) keepIds.add(selected.sourceTabId)
+    const others = get().tabs.filter((t) => !keepIds.has(t.id))
     for (const t of others) await get().closeTab(t.id)
-    set({ activeTabId: id })
+    if (get().tabs.some((t) => t.id === id)) set({ activeTabId: id })
   },
 
   closeToRight: async (id) => {
@@ -190,6 +222,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   reconnectTab: async (id) => {
     const tab = get().tabs.find((t) => t.id === id)
     if (!tab) return
+    if (tab.kind === 'portTraffic') {
+      if (tab.sourceTabId) await get().reconnectTab(tab.sourceTabId)
+      return
+    }
     get().updateTab(id, { state: 'connecting', error: undefined })
     try {
       if (tab.sessionId) {
@@ -247,6 +283,30 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         .stop(tab.sessionId)
         .catch(() => {})
     }
+  },
+
+  openPortTrafficTab: (id, title) => {
+    const source = get().tabs.find((t) => t.id === id)
+    if (!source || source.kind === 'portTraffic' || !source.sessionId) return
+    const existing = get().tabs.find(
+      (t) => t.kind === 'portTraffic' && t.sourceTabId === source.id
+    )
+    if (existing) {
+      set({ activeTabId: existing.id })
+      return
+    }
+    const tab: SessionTab = {
+      ...source,
+      id: crypto.randomUUID(),
+      kind: 'portTraffic',
+      sourceTabId: source.id,
+      title,
+      customTitle: undefined,
+      termId: null,
+      sftpOpen: false,
+      monitorOpen: false
+    }
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }))
   }
 }))
 

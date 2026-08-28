@@ -2,6 +2,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TerminalPane } from '@/features/terminal/TerminalPane'
 import { SftpPane } from '@/features/sftp/SftpPane'
+import { PortTrafficTab } from '@/features/portTraffic/PortTrafficTab'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import styles from './SessionView.module.css'
@@ -28,6 +29,10 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
         return (
           <div key={tab.id} className={`${styles.view} ${active ? styles.viewActive : ''}`}>
             <ErrorBoundary label={`session:${tab.id}`}>
+              {tab.kind === 'portTraffic' ? (
+                <PortTrafficTab tab={tab} />
+              ) : (
+              <>
               {/*
                * PanelGroup 与终端那一格**恒常挂载**，只有 SFTP 那一格随开关增删。
                *
@@ -66,6 +71,8 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
                   </>
                 )}
               </PanelGroup>
+              </>
+              )}
             </ErrorBoundary>
           </div>
         )

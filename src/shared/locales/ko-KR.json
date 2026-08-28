@@ -130,6 +130,9 @@
     "failed": "수집 실패 — 오른쪽 위에서 다시 시도하세요",
     "noIface": "집계 가능한 네트워크 인터페이스를 찾을 수 없습니다"
   },
+  "portTraffic": {
+    "tab": "Port traffic", "open": "View port traffic", "title": "Live port traffic", "updated": "Updated {{time}}", "totalConnections": "{{count}} connections", "port": "Local port", "connections": "Connections", "receive": "Receive", "send": "Send", "status": "Status", "active": "Active", "idle": "Idle", "collecting": "Collecting port traffic…", "empty": "No readable active TCP ports", "unsupported": "This server has no usable ss command, so TCP port traffic is unavailable", "failed": "Port traffic collection failed", "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples."
+  },
   "sftp": {
     "waitingSession": "세션을 기다리는 중…",
     "back": "뒤로",

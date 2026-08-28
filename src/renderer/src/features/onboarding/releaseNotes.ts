@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.18.3',
+    items: [
+      {
+        type: 'feat',
+        zh: '服务器监控的网络卡片现在可直接打开「端口流量」标签页，按秒显示远端各活动 TCP 本机端口的连接数、下行和上行速率。数据在服务器端先聚合后经当前 SSH 会话采集，关闭标签即停止；需要服务器提供 ss 命令，暂不统计 UDP',
+        en: 'The Network card in Server Monitoring can now open a Port Traffic tab, showing each active remote TCP local port\'s connection count and receive/send rate every second. Data is aggregated on the server and collected through the current SSH session, stopping when the tab closes; it requires the server\'s ss command and does not yet include UDP'
+      }
+    ]
+  },
+  {
     version: '0.18.2',
     items: [
       {

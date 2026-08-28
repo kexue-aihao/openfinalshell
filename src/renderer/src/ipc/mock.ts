@@ -8,6 +8,7 @@ import type {
   ForwardRule,
   ForwardRuntime,
   ProfileDraft,
+  PortTrafficSnapshot,
   SavedPrivateKey,
   SavedPrivateKeyDraft,
   SavedProxy,
@@ -225,6 +226,30 @@ export function createMockOfs(): OfsApi {
 
   // --- 假监控：周期推送带随机波动的快照 ---
   const monitorTimers = new Map<string, ReturnType<typeof setInterval>>()
+  const portTrafficTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+  function startMockPortTraffic(sessionId: string): void {
+    if (portTrafficTimers.has(sessionId)) return
+    let tick = 0
+    const push = (): void => {
+      tick += 1
+      const burst = (base: number, amp: number): number =>
+        Math.max(0, Math.round(base + Math.sin(tick / 2.4) * amp + (Math.random() - 0.5) * amp))
+      const snapshot: PortTrafficSnapshot = {
+        ts: Date.now(),
+        ports: [
+          { port: 22, connections: 2, rxBps: burst(2200, 1200), txBps: burst(3400, 1800) },
+          { port: 80, connections: 14, rxBps: burst(138000, 90000), txBps: burst(492000, 240000) },
+          { port: 443, connections: 38, rxBps: burst(326000, 170000), txBps: burst(860000, 420000) },
+          { port: 51820, connections: 1, rxBps: burst(1200, 800), txBps: burst(900, 600) }
+        ].sort((a, b) => b.rxBps + b.txBps - (a.rxBps + a.txBps))
+      }
+      emit('portTraffic:data', { sessionId, snapshot })
+    }
+    emit('portTraffic:state', { sessionId, state: 'running' })
+    push()
+    portTrafficTimers.set(sessionId, setInterval(push, 1000))
+  }
 
   function startMockMonitor(sessionId: string): void {
     if (monitorTimers.has(sessionId)) return
@@ -942,6 +967,15 @@ export function createMockOfs(): OfsApi {
       }
     },
     'monitor:setInterval': () => undefined
+    ,
+    'portTraffic:start': (sessionId: never) => startMockPortTraffic(sessionId as unknown as string),
+    'portTraffic:stop': (sessionId: never) => {
+      const id = sessionId as unknown as string
+      const timer = portTrafficTimers.get(id)
+      if (timer) clearInterval(timer)
+      portTrafficTimers.delete(id)
+      emit('portTraffic:state', { sessionId: id, state: 'stopped' })
+    }
   }
 
   const handleInput = (termId: string, data: string): void => {

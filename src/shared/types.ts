@@ -556,6 +556,25 @@ export interface MonitorSnapshot {
 
 export type MonitorState = 'running' | 'failed' | 'unsupported' | 'stopped'
 
+/**
+ * 一个本机 TCP 端口的采样流量。收发速率来自远端 `ss -tin` 的累计字节数差分，
+ * 因此是采样估算值；端口上连接快速建立/结束时，不能把已消失连接的历史字节硬算进下一帧。
+ */
+export interface PortTrafficEntry {
+  port: number
+  connections: number
+  rxBps: number
+  txBps: number
+}
+
+/** 端口流量页的一次完整快照；只统计远端当前用户可见的活动 TCP socket。 */
+export interface PortTrafficSnapshot {
+  ts: number
+  ports: PortTrafficEntry[]
+}
+
+export type PortTrafficState = 'running' | 'failed' | 'unsupported' | 'stopped'
+
 // ---------- 端口转发 ----------
 export type ForwardType = 'local' | 'remote' | 'dynamic'
 export type ForwardState = 'stopped' | 'active' | 'error'

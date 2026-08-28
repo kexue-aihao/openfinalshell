@@ -68,6 +68,12 @@ export const MONITOR_DF_EVERY_N_TICKS = 5
 /** 帧超时：写入批次后超过该时长未见 END 即丢帧 */
 export const MONITOR_FRAME_TIMEOUT_MS = 5000
 
+/** 端口流量页按独立 SSH 命令通道采样，不与右侧监控面板抢同一帧。 */
+export const PORT_TRAFFIC_INTERVAL_MS = 1000
+/** 一帧聚合后的端口表上限，异常多的本机端口不能无限占用 main 内存。 */
+export const PORT_TRAFFIC_MAX_FRAME_BYTES = 256 * 1024
+export const PORT_TRAFFIC_FRAME_TIMEOUT_MS = 5000
+
 /**
  * 编辑远端文件的单文件上限。**8MB，从 2MB 放宽而来，判据是量出来的。**
  *

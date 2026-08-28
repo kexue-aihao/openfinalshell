@@ -130,6 +130,9 @@
     "failed": "Échec de la collecte — réessayez depuis le coin supérieur droit",
     "noIface": "Aucune interface réseau comptabilisable trouvée"
   },
+  "portTraffic": {
+    "tab": "Port traffic", "open": "View port traffic", "title": "Live port traffic", "updated": "Updated {{time}}", "totalConnections": "{{count}} connections", "port": "Local port", "connections": "Connections", "receive": "Receive", "send": "Send", "status": "Status", "active": "Active", "idle": "Idle", "collecting": "Collecting port traffic…", "empty": "No readable active TCP ports", "unsupported": "This server has no usable ss command, so TCP port traffic is unavailable", "failed": "Port traffic collection failed", "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples."
+  },
   "sftp": {
     "waitingSession": "En attente de la session…",
     "back": "Précédent",

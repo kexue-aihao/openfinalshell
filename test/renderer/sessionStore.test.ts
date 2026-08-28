@@ -36,6 +36,7 @@ vi.mock('@/ipc/api', () => ({
 const { useSessionStore, wireSessionEvents } = await import('@/stores/useSessionStore')
 const { useSettingsStore } = await import('@/stores/useSettingsStore')
 const { useMonitorStore, historyOf } = await import('@/stores/useMonitorStore')
+const { usePortTrafficStore } = await import('@/stores/usePortTrafficStore')
 const { DEFAULT_SETTINGS } = await import('@shared/constants')
 type SessionTab = ReturnType<typeof useSessionStore.getState>['tabs'][number]
 
@@ -74,6 +75,7 @@ beforeEach(() => {
   useSessionStore.setState({ tabs: [], activeTabId: null })
   useSettingsStore.setState({ settings: null })
   useMonitorStore.setState({ latest: {}, staticInfo: {}, state: {} })
+  usePortTrafficStore.setState({ latest: {}, state: {}, error: {} })
   calls.length = 0
   invokeImpl = async () => ({ sessionId: 'sid-1' })
   wireSessionEvents()
@@ -244,6 +246,53 @@ describe('toggleMonitor 与采集器生命周期', () => {
 
     expect(useMonitorStore.getState().state['sid-1']).toBeUndefined()
     expect(historyOf('sid-1').cpu).toEqual([])
+  })
+})
+
+describe('端口流量标签', () => {
+  it('复用当前 SSH 会话打开标签，不会重复发起 session:open', () => {
+    seedTab({ state: 'ready' })
+    useSessionStore.getState().openPortTrafficTab('tab-1', 'srv · 端口流量')
+
+    const tabs = useSessionStore.getState().tabs
+    expect(tabs).toHaveLength(2)
+    expect(tabs[1]).toMatchObject({
+      kind: 'portTraffic',
+      sourceTabId: 'tab-1',
+      sessionId: 'sid-1',
+      termId: null,
+      sftpOpen: false,
+      monitorOpen: false
+    })
+    expect(useSessionStore.getState().activeTabId).toBe(tabs[1].id)
+    expect(calls.map(([channel]) => channel)).not.toContain('session:open')
+
+    // 同一会话重复点击应激活现有标签，而不是多开多个采集器。
+    useSessionStore.getState().openPortTrafficTab('tab-1', 'ignored')
+    expect(useSessionStore.getState().tabs).toHaveLength(2)
+  })
+
+  it('关闭流量标签只停止端口采集，不会关闭源 SSH 会话', async () => {
+    seedTab({ state: 'ready' })
+    useSessionStore.getState().openPortTrafficTab('tab-1', 'srv · 端口流量')
+    const flowTabId = useSessionStore.getState().tabs[1].id
+
+    await useSessionStore.getState().closeTab(flowTabId)
+
+    expect(useSessionStore.getState().tabs.map((t) => t.id)).toEqual(['tab-1'])
+    expect(calls.map(([channel]) => channel)).toContain('portTraffic:stop')
+    expect(calls.map(([channel]) => channel)).not.toContain('session:close')
+  })
+
+  it('关闭源会话时连同流量标签一起移除', async () => {
+    seedTab({ state: 'ready' })
+    useSessionStore.getState().openPortTrafficTab('tab-1', 'srv · 端口流量')
+
+    await useSessionStore.getState().closeTab('tab-1')
+
+    expect(useSessionStore.getState().tabs).toEqual([])
+    expect(calls.map(([channel]) => channel)).toContain('portTraffic:stop')
+    expect(calls.map(([channel]) => channel)).toContain('session:close')
   })
 })
 

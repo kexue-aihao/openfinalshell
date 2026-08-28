@@ -14,6 +14,7 @@ import { CommandEditorModal } from '@/features/snippets/CommandEditorModal'
 import { StartupNoticeModal } from '@/features/onboarding/StartupNoticeModal'
 import { useTransferStore, wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
+import { wirePortTrafficEvents } from '@/stores/usePortTrafficStore'
 import { wireForwardEvents } from '@/stores/useForwardStore'
 import { wireUpdateEvents } from '@/stores/useUpdateStore'
 import { wireLanSyncEvents } from '@/stores/useLanSyncStore'
@@ -33,6 +34,7 @@ export default function App(): React.JSX.Element {
     // 先订阅、后拉快照：反过来会漏掉这中间到达的事件（load 是合并语义，不会盖掉它们）
     void useTransferStore.getState().load()
     wireMonitorEvents()
+    wirePortTrafficEvents()
     wireForwardEvents()
     wireUpdateEvents()
     wireLanSyncEvents()
