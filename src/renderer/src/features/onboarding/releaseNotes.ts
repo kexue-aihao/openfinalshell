@@ -17,7 +17,7 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '0.19.0',
+    version: '0.19.1',
     items: [
       {
         type: 'feat',

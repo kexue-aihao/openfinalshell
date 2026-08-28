@@ -163,7 +163,7 @@ describe('child_process 的用处清单', () => {
   it('直连 Ping 使用系统绝对路径与 argv，且不经过 shell', () => {
     const src = stripComments(read(DL))
     expect(src).toContain("import { spawn } from 'node:child_process'")
-    expect(src).toContain("join(systemRoot, 'System32', 'PING.EXE')")
+    expect(src).toContain("win32.join(systemRoot, 'System32', 'PING.EXE')")
     expect(src).toContain("command: '/bin/ping'")
     expect(src).toContain('shell: false')
     expect(src).not.toContain('windowsVerbatimArguments')

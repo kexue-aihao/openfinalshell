@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
+import { win32 } from 'node:path'
 
 const PING_TIMEOUT_MS = 1500
 
@@ -18,7 +18,11 @@ export function pingCommand(
   systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
 ): PingCommand {
   if (platform === 'win32') {
-    return { command: join(systemRoot, 'System32', 'PING.EXE'), args: ['-n', '1', '-w', '1000', target] }
+    return {
+      // 测试与打包会在非 Windows 宿主上模拟 Windows 参数；不能误用宿主的 path.join。
+      command: win32.join(systemRoot, 'System32', 'PING.EXE'),
+      args: ['-n', '1', '-w', '1000', target]
+    }
   }
   if (platform === 'darwin') {
     return { command: '/sbin/ping', args: ['-n', '-c', '1', '-W', '1000', target] }
