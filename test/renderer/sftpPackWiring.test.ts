@@ -132,17 +132,19 @@ describe('清场', () => {
 
 describe('child_process 的用处清单', () => {
   /**
-   * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力。现在只有一处：
-   * `localTar.ts` 调 System32 的 bsdtar 列/解归档。
+   * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力。现在有两处：
+   * `localTar.ts` 调 System32 的 bsdtar 列/解归档，`directLatency.ts` 调系统 ping 测 ICMP RTT。
    *
    * 曾经还有 `RemoteEditManager.ts`（起用户指定的那个外部编辑器 exe）——
-   * 外部编辑器整条路删掉之后它也没了，于是本项目的子进程面**从两处收窄到一处**。
+   * 外部编辑器整条路删掉之后它也没了，之后新增的每一处都必须在这里说明风险边界。
    * 那一处的风险面是最麻烦的一类：被执行的 exe 路径来自设置，而设置有两个外来入口。
    *
    * 这条用例是**清单**而不是"只许一处"：多一处就多一个"命令串怎么拼"的风险面，
    * 所以要让新增者被迫改这张表、连带在评审里解释一句。
    */
-  it('src/main 下引用 child_process 的就是清单上那一个文件', () => {
+  const DL = 'src/main/monitor/directLatency.ts'
+
+  it('src/main 下引用 child_process 的文件必须全部在清单中', () => {
     const offenders: string[] = []
     const walk = (dir: string): void => {
       for (const name of readdirSync(dir)) {
@@ -155,7 +157,17 @@ describe('child_process 的用处清单', () => {
       }
     }
     walk('src/main')
-    expect(offenders).toEqual([LT])
+    expect(offenders).toEqual([DL, LT])
+  })
+
+  it('直连 Ping 使用系统绝对路径与 argv，且不经过 shell', () => {
+    const src = stripComments(read(DL))
+    expect(src).toContain("import { spawn } from 'node:child_process'")
+    expect(src).toContain("join(systemRoot, 'System32', 'PING.EXE')")
+    expect(src).toContain("command: '/bin/ping'")
+    expect(src).toContain('shell: false')
+    expect(src).not.toContain('windowsVerbatimArguments')
+    expect(src).not.toMatch(/\bexecSync\b|\bexecFile\b/)
   })
 
   it('localTar 里一律 shell: false，且不用 exec / windowsVerbatimArguments', () => {

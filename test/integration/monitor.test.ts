@@ -132,10 +132,11 @@ describe('监控采集', () => {
 
     expect(snap.uptimeSec).toBeGreaterThan(0)
 
-    // 延迟打点：写帧→首见 BEGIN 哨兵。fixture 在本机，几毫秒以内，但必须存在且非负
-    expect(snap.latencyMs).toBeTypeOf('number')
-    expect(snap.latencyMs!).toBeGreaterThanOrEqual(0)
-    expect(snap.latencyMs!).toBeLessThan(5000)
+    // 实际连接延迟：写帧→首见 BEGIN 哨兵。fixture 在本机，几毫秒以内，但必须存在且非负。
+    // 直连 ICMP 是 best-effort（系统可能没有 ping 或禁 ICMP），不把它作为集成环境前提。
+    expect(snap.connectionLatencyMs).toBeTypeOf('number')
+    expect(snap.connectionLatencyMs!).toBeGreaterThanOrEqual(0)
+    expect(snap.connectionLatencyMs!).toBeLessThan(5000)
   })
 
   it('df 与进程列表按 tick 轮换采集（非每帧都带）', async () => {

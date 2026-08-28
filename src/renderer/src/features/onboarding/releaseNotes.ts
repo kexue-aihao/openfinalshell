@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.19.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '服务器监控的延迟卡现在同时显示「直连 IP」与「实际连接」两条实时 RTT 趋势：前者由本机直接 Ping 连接目标、不经过软件代理；后者沿用当前 SSH 通道测量，会包含代理或隧道链路。服务器禁用 ICMP 或本机 Ping 不可用时会明确显示“不可用”，不再伪装为 0ms',
+        en: 'The Server Monitor latency card now shows two live RTT trends: Direct IP pings the connection target locally without the app proxy, while Active connection measures the current SSH channel and includes proxy or tunnel overhead. If ICMP is blocked or local ping is unavailable, it is clearly marked unavailable instead of being shown as 0ms'
+      }
+    ]
+  },
+  {
     version: '0.18.5',
     items: [
       {

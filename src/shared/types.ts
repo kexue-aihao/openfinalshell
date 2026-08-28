@@ -547,11 +547,15 @@ export interface MonitorSnapshot {
    */
   tcpStates?: Record<string, number>
   /**
-   * 本机 ↔ 服务器的通道往返毫秒：采集帧写入到首见 BEGIN 哨兵回显的耗时。
-   * 走的是既有 SSH 通道，不另开连接（反复 TCP 探 22 端口会刷 sshd 日志）。
-   * 打点尚未发生（首帧之前）时缺失。
+   * 本机直接 ICMP Ping 配置的连接目标得到的往返毫秒，不经过 SSH/HTTP/SOCKS 代理。
+   * 目标禁 ICMP、系统没有 ping 命令或超时时缺失；这不影响服务器指标采集。
    */
-  latencyMs?: number
+  directLatencyMs?: number
+  /**
+   * 当前实际 SSH 连接链路的往返毫秒：采集帧写入到首见 BEGIN 哨兵回显的耗时。
+   * 会包含当前 HTTP/SOCKS 代理或后续跳板带来的开销；打点尚未发生时缺失。
+   */
+  connectionLatencyMs?: number
 }
 
 export type MonitorState = 'running' | 'failed' | 'unsupported' | 'stopped'

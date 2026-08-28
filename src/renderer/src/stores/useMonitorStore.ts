@@ -10,7 +10,8 @@ export interface MonitorHistory {
   memPct: number[]
   rxBps: number[]
   txBps: number[]
-  latencyMs: number[]
+  directLatencyMs: number[]
+  connectionLatencyMs: number[]
 }
 
 /**
@@ -22,7 +23,7 @@ const histories = new Map<SessionId, MonitorHistory>()
 export function historyOf(sessionId: SessionId): MonitorHistory {
   let h = histories.get(sessionId)
   if (!h) {
-    h = { cpu: [], memPct: [], rxBps: [], txBps: [], latencyMs: [] }
+    h = { cpu: [], memPct: [], rxBps: [], txBps: [], directLatencyMs: [], connectionLatencyMs: [] }
     histories.set(sessionId, h)
   }
   return h
@@ -37,10 +38,18 @@ function pushHistory(sessionId: SessionId, snapshot: MonitorSnapshot): void {
     [h.cpu, snapshot.cpu.usagePct],
     [h.memPct, Number(memPct.toFixed(1))],
     [h.rxBps, rx],
-    [h.txBps, tx],
-    // 首帧前 latencyMs 缺失，补 0（图表把 0 画成贴底一格，比空洞好认）
-    [h.latencyMs, snapshot.latencyMs ?? 0]
+    [h.txBps, tx]
   ] as Array<[number[], number]>) {
+    arr.push(value)
+    if (arr.length > HISTORY_LEN) arr.shift()
+  }
+
+  // ICMP 可能被禁用，缺失时不填 0：0ms 会把“Ping 不可用”伪装成极低延迟。
+  for (const [arr, value] of [
+    [h.directLatencyMs, snapshot.directLatencyMs],
+    [h.connectionLatencyMs, snapshot.connectionLatencyMs]
+  ] as Array<[number[], number | undefined]>) {
+    if (value === undefined) continue
     arr.push(value)
     if (arr.length > HISTORY_LEN) arr.shift()
   }

@@ -57,7 +57,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
 
   const history = sessionId
     ? historyOf(sessionId)
-    : { cpu: [], memPct: [], rxBps: [], txBps: [], latencyMs: [] }
+    : { cpu: [], memPct: [], rxBps: [], txBps: [], directLatencyMs: [], connectionLatencyMs: [] }
   // 历史数组是原地 push/shift（引用不变），spread 成新数组让 MonitorGraph 的
   // useEffect 依赖能察觉变化；每帧一次、60 点小图，开销可忽略
   void snapshot?.ts // 依赖锚点：每来一帧本组件重渲染，下面几张图跟着重画
@@ -200,17 +200,24 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
           />
         </button>
 
-        {/* 延迟：既有采集通道的往返毫秒（写帧 → 首见 BEGIN 哨兵），不另开连接 */}
-        {snapshot.latencyMs !== undefined && (
+        {/* 两种 RTT 并列：本机直连 ICMP 与当前 SSH 数据通道（含实际代理/隧道链路）。 */}
+        {snapshot.connectionLatencyMs !== undefined && (
           <div className={styles.card}>
             <div className={styles.cardHead}>
               <span className={styles.cardHeadTitle}>{t('monitor.latency')}</span>
             </div>
-            <div className={styles.bigNumber} style={{ color: latencyColor(snapshot.latencyMs) }}>
-              {snapshot.latencyMs}
-              <span className={styles.unit}>ms</span>
+            <div className={styles.latencyGrid}>
+              <LatencyMetric
+                label={t('monitor.directLatency')}
+                value={snapshot.directLatencyMs}
+                history={[...history.directLatencyMs]}
+              />
+              <LatencyMetric
+                label={t('monitor.connectionLatency')}
+                value={snapshot.connectionLatencyMs}
+                history={[...history.connectionLatencyMs]}
+              />
             </div>
-            <MonitorGraph primary={[...history.latencyMs]} height={40} className={styles.graph} />
           </div>
         )}
 
@@ -313,6 +320,32 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('monitor.noIface')} />
         )}
       </div>
+    </div>
+  )
+}
+
+function LatencyMetric({
+  label,
+  value,
+  history
+}: {
+  label: string
+  value: number | undefined
+  history: number[]
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  return (
+    <div className={styles.latencyMetric}>
+      <span className={styles.subText}>{label}</span>
+      {value === undefined ? (
+        <div className={styles.latencyUnavailable}>{t('monitor.latencyUnavailable')}</div>
+      ) : (
+        <div className={styles.latencyValue} style={{ color: latencyColor(value) }}>
+          {value}
+          <span className={styles.unit}>ms</span>
+        </div>
+      )}
+      <MonitorGraph primary={history} height={32} className={styles.graph} />
     </div>
   )
 }

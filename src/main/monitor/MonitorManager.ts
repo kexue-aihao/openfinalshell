@@ -15,17 +15,22 @@ class MonitorManager {
       return null
     }
     const conn = sshManager.get(sessionId)
-    const collector = new MonitorCollector(sessionId, () => conn.openMonitorChannel(), {
-      onSnapshot: (snapshot) => emit('monitor:data', { sessionId, snapshot }),
-      onState: (state, error) => {
-        if (state === 'starting') return
-        emit('monitor:state', {
-          sessionId,
-          state: state === 'running' ? 'running' : state === 'unsupported' ? 'unsupported' : state === 'failed' ? 'failed' : 'stopped',
-          error
-        })
-      }
-    })
+    const collector = new MonitorCollector(
+      sessionId,
+      () => conn.openMonitorChannel(),
+      {
+        onSnapshot: (snapshot) => emit('monitor:data', { sessionId, snapshot }),
+        onState: (state, error) => {
+          if (state === 'starting') return
+          emit('monitor:state', {
+            sessionId,
+            state: state === 'running' ? 'running' : state === 'unsupported' ? 'unsupported' : state === 'failed' ? 'failed' : 'stopped',
+            error
+          })
+        }
+      },
+      conn.profile.host
+    )
     this.collectors.set(sessionId, collector)
     try {
       return await collector.start(intervalMs)

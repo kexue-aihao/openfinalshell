@@ -324,9 +324,9 @@ export function createMockOfs(): OfsApi {
                   CLOSE_WAIT: 1
                 }
               : undefined,
-          // wave 内部钳在 [0,100]，直接用永远到不了红档（≥200）——乘出去让三档配色
-          // （<100 绿 / <200 黄 / 其余红）都能在浏览器里周期性看到
-          latencyMs: Math.round(wave(45, 45) * 3)
+          // 两条链路独立波动：直连 IP 较低，实际 SSH 链路额外包含代理/隧道开销。
+          directLatencyMs: Math.round(wave(28, 18)),
+          connectionLatencyMs: Math.round(wave(45, 45) * 3)
         }
       })
     }

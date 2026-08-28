@@ -173,6 +173,33 @@
   gap: 4px;
 }
 
+.latencyGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.latencyMetric {
+  min-width: 0;
+}
+.latencyMetric + .latencyMetric {
+  padding-left: 12px;
+  border-left: 1px solid var(--ofs-border);
+}
+.latencyValue,
+.latencyUnavailable {
+  height: 28px;
+  margin-top: 1px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  font-variant-numeric: tabular-nums;
+}
+.latencyUnavailable {
+  color: var(--ofs-text-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .procRow {
   display: grid;
   grid-template-columns: 1fr 44px 44px;

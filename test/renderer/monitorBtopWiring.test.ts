@@ -16,6 +16,13 @@ describe('监控 btop 化', () => {
     expect(panel).not.toContain('areaOption')
   })
 
+  it('延迟卡分别展示直连 IP 与当前实际连接', () => {
+    expect(panel).toContain("t('monitor.directLatency')")
+    expect(panel).toContain("t('monitor.connectionLatency')")
+    expect(panel).toContain('directLatencyMs')
+    expect(panel).toContain('connectionLatencyMs')
+  })
+
   it('echarts 相关文件已删除', () => {
     expect(existsSync('src/renderer/src/components/EChart.tsx')).toBe(false)
     expect(existsSync('src/renderer/src/features/monitor/charts.ts')).toBe(false)

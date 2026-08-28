@@ -28,6 +28,7 @@ import {
   type IfaceCounters
 } from './parsers'
 import { buildFrame, buildStaticFrame, SENTINEL, splitSections } from './script'
+import { probeDirectLatency } from './directLatency'
 import { scopedLogger } from '../utils/logger'
 import { t } from '../services/i18n'
 
@@ -74,7 +75,11 @@ export class MonitorCollector {
    * 写入→首见 BEGIN ≈ 一个 SSH 通道往返 —— 不必像 pixshell 那样反复对 22 端口
    * 开 TCP 连接测延迟（那会刷一屏 sshd 的 "did not receive identification string"）。
    */
-  private lastLatencyMs: number | null = null
+  private lastConnectionLatencyMs: number | null = null
+  /** 直连 Ping 是 best-effort：不可用不影响 SSH 监控，也绝不能拖慢它。 */
+  private lastDirectLatencyMs: number | null = null
+  private directLatencyInFlight = false
+  private directLatencyAbort: AbortController | null = null
   private stopped = false
   private lastDfTick = -MONITOR_DF_EVERY_N_TICKS
   private lastDiskFs: MonitorSnapshot['diskFs'] = null
@@ -83,7 +88,11 @@ export class MonitorCollector {
   constructor(
     readonly sessionId: SessionId,
     private readonly openChannel: () => Promise<ClientChannel>,
-    private readonly cb: CollectorCallbacks
+    private readonly cb: CollectorCallbacks,
+    /** 连接配置里的目标；由本机 ping 它，不使用服务器自报的可能是内网的地址。 */
+    private readonly directLatencyTarget?: string,
+    private readonly directLatencyProbe: (target: string, signal: AbortSignal) => Promise<number | null> =
+      probeDirectLatency
   ) {}
 
   setInterval(ms: number): void {
@@ -176,7 +185,7 @@ export class MonitorCollector {
     const pending = this.pendingFrame
     if (pending && !pending.beginSeen && this.buffer.includes(SENTINEL.begin(pending.seq))) {
       pending.beginSeen = true
-      this.lastLatencyMs = Date.now() - pending.writtenAt
+      this.lastConnectionLatencyMs = Date.now() - pending.writtenAt
     }
 
     const match = FRAME_RE.exec(this.buffer)
@@ -198,6 +207,7 @@ export class MonitorCollector {
 
   private tick(): void {
     if (this.stopped || !this.channel || this.pendingFrame) return
+    this.measureDirectLatency()
     this.seq += 1
     const seq = this.seq
     const withDf = seq - this.lastDfTick >= MONITOR_DF_EVERY_N_TICKS
@@ -291,8 +301,29 @@ export class MonitorCollector {
         }
       }),
       topProcs: psText ? (this.hasPsSort ? parsePsTop(psText) : parsePsAux(psText)) : undefined,
-      latencyMs: this.lastLatencyMs ?? undefined
+      directLatencyMs: this.lastDirectLatencyMs ?? undefined,
+      connectionLatencyMs: this.lastConnectionLatencyMs ?? undefined
     }
+  }
+
+  /** 每个监控 tick 至多一条 ping；上一次未结束时跳过，避免丢包时堆积子进程。 */
+  private measureDirectLatency(): void {
+    if (!this.directLatencyTarget || this.directLatencyInFlight || this.stopped) return
+    const controller = new AbortController()
+    this.directLatencyAbort = controller
+    this.directLatencyInFlight = true
+    void this.directLatencyProbe(this.directLatencyTarget, controller.signal)
+      .then((latencyMs) => {
+        if (!this.stopped) this.lastDirectLatencyMs = latencyMs
+      })
+      .catch(() => {
+        // 直连测量的失败只代表 ping 不可用，绝不将整个服务器监控置为 failed。
+        if (!this.stopped) this.lastDirectLatencyMs = null
+      })
+      .finally(() => {
+        if (this.directLatencyAbort === controller) this.directLatencyAbort = null
+        this.directLatencyInFlight = false
+      })
   }
 
   private onFailure(reason: string): void {
@@ -365,6 +396,8 @@ export class MonitorCollector {
   stop(): void {
     this.stopped = true
     this.pause()
+    this.directLatencyAbort?.abort()
+    this.directLatencyAbort = null
     if (this.frameTimer) {
       clearTimeout(this.frameTimer)
       this.frameTimer = null
