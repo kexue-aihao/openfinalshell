@@ -12,8 +12,13 @@ interface Props {
   tab: SessionTab
 }
 
-function portState(entry: PortTrafficEntry): 'active' | 'idle' {
+function portState(entry: PortTrafficEntry): 'active' | 'idle' | 'unavailable' {
+  if (!entry.ratesAvailable) return 'unavailable'
   return entry.rxBps + entry.txBps > 0 ? 'active' : 'idle'
+}
+
+function formatPortSpeed(value: number, ratesAvailable: boolean): string {
+  return ratesAvailable ? formatSpeed(value) : '—'
 }
 
 /** 绑定已有 SSH 会话的端口流量工具页，不打开终端或创建第二个登录会话。 */
@@ -56,6 +61,7 @@ export function PortTrafficTab({ tab }: Props): React.JSX.Element {
     (acc, port) => ({ rx: acc.rx + port.rxBps, tx: acc.tx + port.txBps, connections: acc.connections + port.connections }),
     { rx: 0, tx: 0, connections: 0 }
   )
+  const ratesAvailable = snapshot.ports.length > 0 && snapshot.ports.every((entry) => entry.ratesAvailable)
 
   return (
     <div className={styles.page}>
@@ -67,8 +73,8 @@ export function PortTrafficTab({ tab }: Props): React.JSX.Element {
           </div>
         </div>
         <div className={styles.totals}>
-          <span><b className={styles.down}>↓</b>{formatSpeed(totals.rx)}</span>
-          <span><b className={styles.up}>↑</b>{formatSpeed(totals.tx)}</span>
+          <span><b className={styles.down}>↓</b>{formatPortSpeed(totals.rx, ratesAvailable)}</span>
+          <span><b className={styles.up}>↑</b>{formatPortSpeed(totals.tx, ratesAvailable)}</span>
           <span>{t('portTraffic.totalConnections', { count: totals.connections })}</span>
         </div>
       </header>
@@ -93,13 +99,15 @@ export function PortTrafficTab({ tab }: Props): React.JSX.Element {
                   <tr key={entry.port}>
                     <td className={styles.port}>{entry.port}</td>
                     <td>{entry.connections}</td>
-                    <td className={styles.receive}>{formatSpeed(entry.rxBps)}</td>
-                    <td className={styles.send}>{formatSpeed(entry.txBps)}</td>
+                    <td className={styles.receive}>{formatPortSpeed(entry.rxBps, entry.ratesAvailable)}</td>
+                    <td className={styles.send}>{formatPortSpeed(entry.txBps, entry.ratesAvailable)}</td>
                     <td>
                       <Tag color={portState(entry) === 'active' ? 'green' : 'default'}>
                         {portState(entry) === 'active'
                           ? t('portTraffic.active')
-                          : t('portTraffic.idle')}
+                          : portState(entry) === 'idle'
+                            ? t('portTraffic.idle')
+                            : t('portTraffic.countersUnavailable')}
                       </Tag>
                     </td>
                   </tr>
@@ -108,7 +116,9 @@ export function PortTrafficTab({ tab }: Props): React.JSX.Element {
             </table>
           </div>
         )}
-        <p className={styles.note}>{t('portTraffic.note')}</p>
+        <p className={styles.note}>
+          {ratesAvailable ? t('portTraffic.note') : t('portTraffic.noteCountersUnavailable')}
+        </p>
       </div>
     </div>
   )

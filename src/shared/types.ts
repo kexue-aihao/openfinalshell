@@ -563,6 +563,8 @@ export type MonitorState = 'running' | 'failed' | 'unsupported' | 'stopped'
 export interface PortTrafficEntry {
   port: number
   connections: number
+  /** 仅当此端口所有连接均提供 bytes_sent 与 bytes_received 时，速率才可使用。 */
+  ratesAvailable: boolean
   rxBps: number
   txBps: number
 }

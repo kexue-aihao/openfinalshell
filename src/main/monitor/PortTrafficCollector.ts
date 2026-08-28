@@ -23,6 +23,7 @@ interface PortCounters {
   connections: number
   rxBytes: number
   txBytes: number
+  counterConnections: number
 }
 
 interface PreviousCounters extends PortCounters {
@@ -30,19 +31,22 @@ interface PreviousCounters extends PortCounters {
 }
 
 /**
- * 解析远端 awk 已聚合的端口计数。远端输出不可信，所以所有字段均严格限于有限数字；
+ * 解析远端 awk 已聚合的端口计数。最后一列是具有完整双向内核字节计数的连接数；
+ * 没有 bytes_sent/bytes_received 的 ss 仍会返回端口与连接数，但速率会明确降级。
+ * 远端输出不可信，所以所有字段均严格限于有限数字；
  * 一条坏行不能让整页停止，异常数量或字节数也不允许进入渲染进程。
  */
 export function parsePortCounters(text: string): Map<number, PortCounters> {
   const out = new Map<number, PortCounters>()
   for (const line of text.split('\n')) {
     const fields = line.trim().split(/\s+/)
-    if (fields.length !== 4) continue
-    const [portText, connectionsText, rxText, txText] = fields
+    if (fields.length !== 5) continue
+    const [portText, connectionsText, rxText, txText, counterConnectionsText] = fields
     const port = Number(portText)
     const connections = Number(connectionsText)
     const rxBytes = Number(rxText)
     const txBytes = Number(txText)
+    const counterConnections = Number(counterConnectionsText)
     if (
       !Number.isInteger(port) ||
       port < 1 ||
@@ -52,11 +56,14 @@ export function parsePortCounters(text: string): Map<number, PortCounters> {
       !Number.isSafeInteger(rxBytes) ||
       rxBytes < 0 ||
       !Number.isSafeInteger(txBytes) ||
-      txBytes < 0
+      txBytes < 0 ||
+      !Number.isSafeInteger(counterConnections) ||
+      counterConnections < 0 ||
+      counterConnections > connections
     ) {
       continue
     }
-    out.set(port, { connections, rxBytes, txBytes })
+    out.set(port, { connections, rxBytes, txBytes, counterConnections })
   }
   return out
 }
@@ -216,12 +223,16 @@ export class PortTrafficCollector {
     const ports: PortTrafficEntry[] = []
     for (const [port, current] of counters) {
       const previous = this.previous.get(port)
-      const elapsed = previous ? Math.max(0.001, (now - previous.ts) / 1000) : 0
+      const ratesAvailable = current.counterConnections === current.connections
+      const elapsed = previous && ratesAvailable && previous.counterConnections === previous.connections
+        ? Math.max(0.001, (now - previous.ts) / 1000)
+        : 0
       const rxDelta = previous ? Math.max(0, current.rxBytes - previous.rxBytes) : 0
       const txDelta = previous ? Math.max(0, current.txBytes - previous.txBytes) : 0
       ports.push({
         port,
         connections: current.connections,
+        ratesAvailable,
         rxBps: elapsed ? Math.round(rxDelta / elapsed) : 0,
         txBps: elapsed ? Math.round(txDelta / elapsed) : 0
       })

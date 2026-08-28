@@ -238,10 +238,10 @@ export function createMockOfs(): OfsApi {
       const snapshot: PortTrafficSnapshot = {
         ts: Date.now(),
         ports: [
-          { port: 22, connections: 2, rxBps: burst(2200, 1200), txBps: burst(3400, 1800) },
-          { port: 80, connections: 14, rxBps: burst(138000, 90000), txBps: burst(492000, 240000) },
-          { port: 443, connections: 38, rxBps: burst(326000, 170000), txBps: burst(860000, 420000) },
-          { port: 51820, connections: 1, rxBps: burst(1200, 800), txBps: burst(900, 600) }
+          { port: 22, connections: 2, ratesAvailable: true, rxBps: burst(2200, 1200), txBps: burst(3400, 1800) },
+          { port: 80, connections: 14, ratesAvailable: true, rxBps: burst(138000, 90000), txBps: burst(492000, 240000) },
+          { port: 443, connections: 38, ratesAvailable: true, rxBps: burst(326000, 170000), txBps: burst(860000, 420000) },
+          { port: 51820, connections: 1, ratesAvailable: true, rxBps: burst(1200, 800), txBps: burst(900, 600) }
         ].sort((a, b) => b.rxBps + b.txBps - (a.rxBps + a.txBps))
       }
       emit('portTraffic:data', { sessionId, snapshot })

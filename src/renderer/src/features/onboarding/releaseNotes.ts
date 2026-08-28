@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.18.5',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复实时端口流量页在部分服务器上无法识别端口记录的问题；若服务器未提供完整的收发字节计数，仍会显示端口和连接数，并明确提示速率不可用',
+        en: 'Fixed live port traffic records not being recognized on some servers. When a server does not provide complete sent and received byte counters, ports and connection counts remain visible and rates are clearly marked unavailable'
+      }
+    ]
+  },
+  {
     version: '0.18.4',
     items: [
       {

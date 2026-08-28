@@ -139,11 +139,13 @@
     "status": "Status",
     "active": "Active",
     "idle": "Idle",
+    "countersUnavailable": "Rate unavailable",
     "collecting": "Collecting port traffic…",
     "empty": "No readable active TCP ports",
     "unsupported": "This server has no usable ss command, so TCP port traffic is unavailable",
     "failed": "Port traffic collection failed",
-    "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples."
+    "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples.",
+    "noteCountersUnavailable": "Active TCP ports and connection counts visible to the current server user are shown. This server's ss does not provide complete bidirectional kernel byte counters, so receive and send rates cannot be calculated reliably."
   },
   "sftp": {
     "waitingSession": "Waiting for the session…",
