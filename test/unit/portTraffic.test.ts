@@ -22,7 +22,8 @@ describe('端口流量采样', () => {
 
   it('服务器侧先按端口聚合 ss 的 TCP 字节计数，而不是把完整 socket 表传回', () => {
     const frame = buildPortTrafficFrame(7)
-    expect(frame).toContain('ss -tinH')
+    expect(frame).toContain('ss -ntinH')
+    expect(frame).not.toContain('ss -tinH 2>/dev/null')
     expect(frame).toContain('bytes_sent:')
     expect(frame).toContain('bytes_received:')
     expect(frame).toContain('printf "%s %d %.0f %.0f')

@@ -1,7 +1,7 @@
 import { SENTINEL } from './script'
 
 /**
- * `ss -tinH` 的原始输出可能随连接数线性增长，不能直接穿过 SSH 通道。
+ * `ss -ntinH` 的原始输出可能随连接数线性增长，不能直接穿过 SSH 通道。
  * 这里先在服务器端按本机 TCP 端口聚合累计字节数，主进程只收到很小的一张端口表。
  *
  * `bytes_sent` / `bytes_received` 是 Linux TCP_INFO 的单 socket 累计计数；端口页在
@@ -47,7 +47,8 @@ export function buildPortTrafficFrame(seq: number): string {
     `echo "${SENTINEL.begin(seq)}"`,
     `echo "${SENTINEL.section('PORTS')}"`,
     'if command -v ss >/dev/null 2>&1; then',
-    `ss -tinH 2>/dev/null | awk '${PORT_AGG_AWK.replace(/'/g, "'\\''")}'`,
+    // `-n` 禁止把 22/443 等端口解析成 ssh/https；解析器需要数字端口。
+    `ss -ntinH 2>/dev/null | awk '${PORT_AGG_AWK.replace(/'/g, "'\\''")}'`,
     'else',
     `echo "${SENTINEL.section('NOSS')}"`,
     'fi',

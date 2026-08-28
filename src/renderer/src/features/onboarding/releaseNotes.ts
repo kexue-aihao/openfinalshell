@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.18.4',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复实时端口流量页因服务器将端口显示为 ssh/http 等服务名而识别不到端口的问题，现在强制使用数字端口显示',
+        en: 'Fixed the live port traffic page showing no ports when servers rendered port numbers as service names such as ssh or http; numeric port output is now forced'
+      }
+    ]
+  },
+  {
     version: '0.18.3',
     items: [
       {
