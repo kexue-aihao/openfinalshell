@@ -1,10 +1,16 @@
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import type { ConnectConfig } from 'ssh2'
 import type { ConnectionProfile, PasswordPromptPayload, SessionId } from '@shared/types'
 import { vault } from '../store/Vault'
 import { rememberPassword } from '../store/connections'
-import { getPrivateKey, getProxy } from '../store/savedRefs'
+import {
+  getManagedPrivateKeyMaterial,
+  getPrivateKey,
+  getProxy,
+  updatePrivateKeySource
+} from '../store/savedRefs'
 import { getSettings } from '../services/settings'
 import { t } from '../services/i18n'
 import { expandPath } from '../utils/expandPath'
@@ -14,6 +20,41 @@ import { dialThroughProxy, ProxyError, type ResolvedProxy } from './proxyDial'
 export { friendlySshError } from './errors'
 
 const WIN_OPENSSH_AGENT_PIPE = '\\\\.\\pipe\\openssh-ssh-agent'
+
+/**
+ * 可移动磁盘换盘符时，按原盘符之后的相对路径尝试其它 Windows 盘符。
+ * 只有指纹匹配才会接受候选，避免把同名但不同内容的私钥误用。
+ */
+export async function findRelocatedKeyPath(
+  originalPath: string,
+  fingerprint: string | undefined,
+  options?: {
+    platform?: NodeJS.Platform
+    drives?: string[]
+    read?: (path: string) => Promise<Buffer>
+  }
+): Promise<{ path: string; bytes: Buffer } | undefined> {
+  const platform = options?.platform ?? process.platform
+  if (platform !== 'win32' || !fingerprint || !/^[A-Za-z]:[\\/]/.test(originalPath)) {
+    return undefined
+  }
+  const rest = originalPath.slice(2)
+  const expected = fingerprint.toLowerCase()
+  const drives = options?.drives ?? Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))
+  const read = options?.read ?? ((path: string) => readFile(path))
+  for (const drive of drives) {
+    if (drive.toLowerCase() === originalPath[0].toLowerCase()) continue
+    const candidate = `${drive}:${rest}`
+    try {
+      const bytes = await read(candidate)
+      const actual = createHash('sha256').update(bytes).digest('hex').toLowerCase()
+      if (actual === expected) return { path: candidate, bytes }
+    } catch {
+      // 盘符未挂载、路径不存在或无权限，继续检查下一盘符。
+    }
+  }
+  return undefined
+}
 
 /** agent 探测链：SSH_AUTH_SOCK → Windows OpenSSH 命名管道 → pageant */
 export function detectAgent(): string | undefined {
@@ -129,13 +170,31 @@ export async function buildConnectConfig(
       if (!key) {
         throw new Error(t('err.ssh.privateKeyNotFound'))
       }
-      // 展开只在读取时做，savedRefs 里保留用户的原始输入（~/.ssh/xxx 跨机器导入才有意义）
+      // 展开只在读取时做，savedRefs 里保留用户的原始输入（~/.ssh/xxx 跨机器导入才有意义）。
       const keyPath = expandPath(key.path)
       try {
-        config.privateKey = await readFile(keyPath)
+        const bytes = await readFile(keyPath)
+        config.privateKey = bytes
+        const fingerprint = createHash('sha256').update(bytes).digest('hex')
+        // 老记录没有指纹时顺手补上；外部私钥被用户替换后也以当前文件为新来源。
+        if (key.sourceFingerprint !== fingerprint) {
+          updatePrivateKeySource(key.id, key.path, fingerprint)
+        }
       } catch {
-        // 报错要指名是哪一条保存的私钥 —— 只报路径的话，用户得自己回想哪台机器用的是它
-        throw new Error(t('err.ssh.privateKeyReadFail', { name: key.name, path: keyPath }))
+        const relocated = await findRelocatedKeyPath(keyPath, key.sourceFingerprint)
+        if (relocated) {
+          config.privateKey = relocated.bytes
+          // 只更新路径和指纹；私钥材料仍留在 main/Vault，不回传 renderer。
+          updatePrivateKeySource(key.id, relocated.path, key.sourceFingerprint!)
+        } else {
+          const managed = getManagedPrivateKeyMaterial(key)
+          if (managed) {
+            config.privateKey = managed
+          } else {
+            // 报错要指名是哪一条保存的私钥 —— 只报路径的话，用户得自己回想哪台机器用的是它
+            throw new Error(t('err.ssh.privateKeyReadFail', { name: key.name, path: keyPath }))
+          }
+        }
       }
       if (key.passphraseRef) {
         config.passphrase = vault.getSecret(key.passphraseRef) ?? undefined

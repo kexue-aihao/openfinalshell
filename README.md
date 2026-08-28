@@ -136,6 +136,7 @@ MIT 许可 · Windows x64 / ia32 · Debian 13 amd64 · 简体中文与 English
 ### 数据安全与迁移
 
 - 密码与私钥口令经系统密钥库加密（Windows 走 DPAPI，Debian 桌面走 Secret Service）后存进本机数据库，**已保存的密码永不回传界面层**，日志里的敏感字段自动脱敏
+- 私钥默认只保存外部文件路径；在「代理与私钥」里勾选**在本软件中保存加密副本**后，私钥内容会由主进程读取并用系统密钥库保护，原文件不可用时自动使用副本。Windows 可移动磁盘换盘符时，会按原相对路径搜索其它盘符，并用 SHA-256 指纹确认后自动更新路径；副本与私钥内容不会进入配置导出或局域网同步，换机需重新添加私钥文件
 - **配置也在库里加密（at-rest）**：除密码外，主机 / 端口 / 用户名 / 备注 / 分组名 / 代理 / 转发 / 已信任主机 / 命令历史也用一把受 `safeStorage`（Windows DPAPI / Linux Secret Service）保护的主密钥加密落盘（AES-256-GCM，等值查找列用 HMAC token）——直接用 SQLite 工具打开 `.db` 看不到明文；`safeStorage` 不可用的环境自动降级为明文、不影响使用（界面设置本身不含机密，仍明文存）
 - 数据落**单文件 SQLite**（Windows 为 `%APPDATA%\OpenFinalShell\config\openfinalshell.db`，Debian 为 `~/.config/OpenFinalShell/config/openfinalshell.db`，WAL）：改一条连接不重写整个文件，多实例同时运行也不会互相覆盖
 - **导出 / 导入**（设置 → 安全与数据）：连接、分组、快捷命令、转发规则、已信任主机、界面设置导出为一个 JSON。勾选"含已保存的密码"时用你给的导出口令重新加密（scrypt + AES-256-GCM），不勾则文件里没有任何密码；再勾**"整文件加密"**则连主机 / 用户名等配置也一起加密（formatVersion 2），文件里没有任何明文

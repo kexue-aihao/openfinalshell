@@ -1,5 +1,14 @@
 import { useEffect } from 'react'
-import { App as AntdApp, Form, Input, InputNumber, Modal, Radio, Space } from 'antd'
+import {
+  App as AntdApp,
+  Checkbox,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Radio,
+  Space
+} from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { SavedPrivateKey, SavedProxy } from '@shared/types'
 import { ofs } from '@/ipc/api'
@@ -136,6 +145,7 @@ interface KeyValues {
   name: string
   path: string
   passphrase?: string
+  storeManagedCopy?: boolean
   note?: string
 }
 
@@ -143,6 +153,7 @@ export function PrivateKeyEditModal({ target, onClose, onSaved }: KeyProps): Rea
   const { t } = useTranslation()
   const { message } = AntdApp.useApp()
   const [form] = Form.useForm<KeyValues>()
+  const storeManagedCopy = Form.useWatch('storeManagedCopy', form)
   const saveKey = useSavedRefStore((s) => s.saveKey)
   const editing = target === 'new' ? undefined : target
 
@@ -151,6 +162,7 @@ export function PrivateKeyEditModal({ target, onClose, onSaved }: KeyProps): Rea
       name: editing?.name ?? '',
       path: editing?.path ?? '',
       passphrase: '',
+      storeManagedCopy: editing?.materialRef ? true : false,
       note: editing?.note ?? ''
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,6 +189,8 @@ export function PrivateKeyEditModal({ target, onClose, onSaved }: KeyProps): Rea
         name: v.name.trim(),
         path: v.path.trim(),
         passphrase: v.passphrase || undefined,
+        storeManagedCopy: v.storeManagedCopy,
+        clearManagedCopy: editing?.materialRef && !v.storeManagedCopy ? true : undefined,
         note: v.note || undefined
       })
       onSaved?.(saved.id)
@@ -201,7 +215,7 @@ export function PrivateKeyEditModal({ target, onClose, onSaved }: KeyProps): Rea
           name="path"
           label={t('conn.privateKeyPath')}
           rules={[{ required: true, message: t('conn.privateKeyRequired') }]}
-          extra={t('savedRef.keyPathHint')}
+          extra={storeManagedCopy ? t('savedRef.keyStoreCopyHint') : t('savedRef.keyPathHint')}
         >
           <Input
             placeholder="C:\\Users\\you\\.ssh\\id_ed25519"
@@ -224,6 +238,9 @@ export function PrivateKeyEditModal({ target, onClose, onSaved }: KeyProps): Rea
             autoComplete="new-password"
             placeholder={editing?.passphraseRef ? '••••••••' : ''}
           />
+        </Form.Item>
+        <Form.Item name="storeManagedCopy" valuePropName="checked">
+          <Checkbox>{t('savedRef.keyStoreCopy')}</Checkbox>
         </Form.Item>
         <Form.Item name="note" label={t('conn.note')}>
           <Input.TextArea rows={2} />

@@ -5,7 +5,7 @@ import {
   deleteProxy,
   listPrivateKeys,
   listProxies,
-  savePrivateKey,
+  savePrivateKeyFromDraft,
   saveProxy
 } from '../store/savedRefs'
 
@@ -34,6 +34,8 @@ const keyDraftSchema = z.object({
   path: z.string().min(1).max(1024),
   passphrase: z.string().max(1024).optional(),
   clearSecret: z.boolean().optional(),
+  storeManagedCopy: z.boolean().optional(),
+  clearManagedCopy: z.boolean().optional(),
   note: z.string().max(4096).optional()
 })
 
@@ -43,6 +45,6 @@ export function registerSavedRefsIpc(): void {
   handle('proxy:delete', (id) => deleteProxy(id), z.tuple([z.string()]))
 
   handle('key:list', () => listPrivateKeys())
-  handle('key:save', (draft) => savePrivateKey(draft), z.tuple([keyDraftSchema]))
+  handle('key:save', (draft) => savePrivateKeyFromDraft(draft), z.tuple([keyDraftSchema]))
   handle('key:delete', (id) => deletePrivateKey(id), z.tuple([z.string()]))
 }

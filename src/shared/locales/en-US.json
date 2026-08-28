@@ -459,6 +459,8 @@
     "keyEdit": "Edit private key",
     "keyNamePlaceholder": "e.g. prod ed25519",
     "keyPathHint": "Only the path is stored — the key material never enters this app or its export files",
+    "keyStoreCopy": "Keep an encrypted copy in this app",
+    "keyStoreCopyHint": "The copy is protected by your system keychain and stays on this computer. It is used if the original file is unavailable.",
     "keyPassHint": "Leave empty if the key has no passphrase",
     "emptyProxies": "No saved proxies yet",
     "emptyKeys": "No saved private keys yet",

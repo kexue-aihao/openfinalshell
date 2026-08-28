@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import type {
   ConnectionProfile,
   DeleteRefResult,
@@ -12,6 +13,8 @@ import type {
 import { prepare, tx } from './Database'
 import { decField, encField, tryDecJson } from './crypto'
 import { vault } from './Vault'
+import { t } from '../services/i18n'
+import { expandPath } from '../utils/expandPath'
 
 /**
  * 「已保存的代理」与「已保存的私钥」——两类**被连接引用**的实体。
@@ -132,6 +135,34 @@ export function deleteProxy(id: ProxyId): DeleteRefResult {
 // 私钥
 // ---------------------------------------------------------------------------
 
+/** 仅存在于 main 内存里的外部私钥文件快照，绝不经 IPC 回传。 */
+export interface PrivateKeySource {
+  bytes: Buffer
+  fingerprint: string
+}
+
+function fingerprintPrivateKey(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+/**
+ * 读取当前路径的私钥，以便保存副本或记录盘符重绑定所需的指纹。
+ * `required=false` 时保留旧的"路径可以先填、连接时再报错"行为。
+ */
+export async function readPrivateKeySource(
+  path: string,
+  required: boolean
+): Promise<PrivateKeySource | undefined> {
+  const expanded = expandPath(path.trim())
+  try {
+    const bytes = await readFile(expanded)
+    return { bytes, fingerprint: fingerprintPrivateKey(bytes) }
+  } catch {
+    if (!required) return undefined
+    throw new Error(t('err.ssh.privateKeyReadFail', { name: path.trim(), path: expanded }))
+  }
+}
+
 export function listPrivateKeys(): SavedPrivateKey[] {
   // 同 listProxies：name 列可能已加密，按 created_at 取回后在 JS 里按 name 排
   return (
@@ -157,11 +188,15 @@ export function upsertPrivateKey(k: SavedPrivateKey): void {
   ).run(k.id, encField(k.name), encField(JSON.stringify(k)), k.createdAt, k.updatedAt)
 }
 
-export function savePrivateKey(draft: SavedPrivateKeyDraft): SavedPrivateKey {
+export function savePrivateKey(
+  draft: SavedPrivateKeyDraft,
+  source?: PrivateKeySource
+): SavedPrivateKey {
   const now = Date.now()
   return tx(() => {
     const existing = draft.id ? getPrivateKey(draft.id) : undefined
     let passphraseRef = existing?.passphraseRef
+    let materialRef = existing?.materialRef
 
     if (draft.clearSecret) {
       vault.deleteSecret(passphraseRef)
@@ -171,11 +206,27 @@ export function savePrivateKey(draft: SavedPrivateKeyDraft): SavedPrivateKey {
       passphraseRef = vault.putSecretIfAvailable(draft.passphrase, passphraseRef)
     }
 
+    if (draft.clearManagedCopy) {
+      vault.deleteSecret(materialRef)
+      materialRef = undefined
+    }
+    if (draft.storeManagedCopy) {
+      // 调用方必须已在 main 进程从选定路径读到文件；不接受 renderer 传来的内容。
+      if (!source) throw new Error(t('err.ssh.privateKeyReadFail', { name: draft.name, path: draft.path }))
+      materialRef = vault.putSecret(source.bytes.toString('base64'), materialRef)
+    }
+
+    const path = draft.path.trim()
+    // 路径改了却读不到新文件时，旧文件的指纹不能再拿来冒充新路径。
+    const sourceFingerprint = source?.fingerprint ?? (existing?.path === path ? existing.sourceFingerprint : undefined)
+
     const key: SavedPrivateKey = {
       id: existing?.id ?? randomUUID(),
       name: draft.name.trim(),
-      path: draft.path.trim(),
+      path,
       passphraseRef,
+      materialRef,
+      sourceFingerprint,
       note: draft.note?.trim() || undefined,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
@@ -185,11 +236,40 @@ export function savePrivateKey(draft: SavedPrivateKeyDraft): SavedPrivateKey {
   })
 }
 
+/** IPC 保存入口：从路径读取只发生在 main，私钥内容永远不会穿过 IPC。 */
+export async function savePrivateKeyFromDraft(draft: SavedPrivateKeyDraft): Promise<SavedPrivateKey> {
+  const source = await readPrivateKeySource(draft.path, draft.storeManagedCopy === true)
+  return savePrivateKey(draft, source)
+}
+
+/** 盘符重绑定成功后，只更新本机的外部来源位置与对应指纹。 */
+export function updatePrivateKeySource(
+  id: PrivateKeyId,
+  path: string,
+  sourceFingerprint: string
+): void {
+  const existing = getPrivateKey(id)
+  if (!existing) return
+  if (existing.path === path && existing.sourceFingerprint === sourceFingerprint) return
+  upsertPrivateKey({ ...existing, path, sourceFingerprint, updatedAt: Date.now() })
+}
+
+/** 解开用户主动保存的本机副本；缺失、损坏或换了系统账户时安全地回退 null。 */
+export function getManagedPrivateKeyMaterial(key: SavedPrivateKey): Buffer | null {
+  if (!key.materialRef) return null
+  const encoded = vault.getSecret(key.materialRef)
+  if (!encoded) return null
+  const bytes = Buffer.from(encoded, 'base64')
+  return bytes.length > 0 ? bytes : null
+}
+
 export function deletePrivateKey(id: PrivateKeyId): DeleteRefResult {
   return tx(() => {
     const usedBy = keyUsedBy(id)
     if (usedBy.length > 0) return { deleted: false, usedBy }
-    vault.deleteSecret(getPrivateKey(id)?.passphraseRef)
+    const key = getPrivateKey(id)
+    vault.deleteSecret(key?.passphraseRef)
+    vault.deleteSecret(key?.materialRef)
     prepare('DELETE FROM private_keys WHERE id = ?').run(id)
     return { deleted: true }
   })

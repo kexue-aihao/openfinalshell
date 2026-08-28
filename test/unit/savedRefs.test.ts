@@ -1,4 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { ProfileDraft } from '@shared/types'
 
 const { database, prepare } = await import('../../src/main/store/Database')
@@ -10,12 +13,15 @@ const {
   keyUsedBy,
   listPrivateKeys,
   listProxies,
+  getManagedPrivateKeyMaterial,
   savePrivateKey,
+  savePrivateKeyFromDraft,
   saveProxy,
   proxyUsedBy
 } = await import('../../src/main/store/savedRefs')
 const conns = await import('../../src/main/store/connections')
 const { vault } = await import('../../src/main/store/Vault')
+const { buildExportEnvelope } = await import('../../src/main/services/exportData')
 
 /**
  * 「已保存的代理 / 私钥」这两类**被连接引用**的实体。
@@ -216,5 +222,57 @@ describe('列表顺序', () => {
     savePrivateKey({ name: 'z', path: '/z' })
     savePrivateKey({ name: 'y', path: '/y' })
     expect(listPrivateKeys().map((x) => x.name)).toEqual(['y', 'z'])
+  })
+})
+
+describe('私钥本机托管副本', () => {
+  it('只在 main 读取文件并保存加密副本，返回对象不含私钥明文', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ofs-key-copy-'))
+    const path = join(dir, 'id_ed25519')
+    const material = Buffer.from('-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n')
+    writeFileSync(path, material)
+    try {
+      const key = await savePrivateKeyFromDraft({
+        name: 'managed',
+        path,
+        storeManagedCopy: true
+      })
+      expect(key.materialRef).toBeTruthy()
+      expect(key.sourceFingerprint).toMatch(/^[a-f0-9]{64}$/)
+      expect(getManagedPrivateKeyMaterial(key)).toEqual(material)
+      expect(JSON.stringify(key)).not.toContain(material.toString())
+      const row = prepare('SELECT json FROM private_keys WHERE id = ?').get(key.id) as { json: string }
+      expect(row.json).not.toContain(material.toString())
+      expect(readFileSync(path)).toEqual(material)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('删除私钥时同时清理托管副本的 Vault 引用', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ofs-key-copy-'))
+    const path = join(dir, 'id_ed25519')
+    writeFileSync(path, 'key')
+    try {
+      const key = await savePrivateKeyFromDraft({ name: 'managed', path, storeManagedCopy: true })
+      expect(deletePrivateKey(key.id)).toEqual({ deleted: true })
+      expect(vault.getSecret(key.materialRef!)).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('导出配置时剥离本机托管副本引用', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ofs-key-copy-'))
+    const path = join(dir, 'id_ed25519')
+    writeFileSync(path, 'key-material')
+    try {
+      const key = await savePrivateKeyFromDraft({ name: 'managed', path, storeManagedCopy: true })
+      const built = buildExportEnvelope({ includeSecrets: false })
+      expect(built.text).not.toContain(key.materialRef!)
+      expect(built.text).toContain(key.sourceFingerprint!)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -459,6 +459,8 @@
     "keyEdit": "编辑私钥",
     "keyNamePlaceholder": "如：生产环境 ed25519",
     "keyPathHint": "只记路径，私钥内容不会被读进本软件、也不会进导出文件",
+    "keyStoreCopy": "在本软件中保存加密副本",
+    "keyStoreCopyHint": "副本由系统密钥库保护，仅保存在本机；原文件不可用时会优先使用它。",
     "keyPassHint": "私钥没有口令就留空",
     "emptyProxies": "还没有保存过代理",
     "emptyKeys": "还没有保存过私钥",

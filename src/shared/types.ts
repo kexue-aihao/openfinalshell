@@ -89,9 +89,11 @@ export interface SavedProxy {
 /**
  * 一条可被多台机器引用的私钥。
  *
- * **只记路径，不存私钥内容** —— 与 `ConnectionAuth.privateKeyPath` 上那条
- * "私钥一律引用外部文件，不内嵌"的声明是同一个决定。代价是私钥文件被移动或删除后
- * 这条记录失效（连接时会明确报出是哪一条），换来的是私钥明文永不进本项目的库与导出文件。
+ * 默认只记路径；用户可显式选择保存一份受系统密钥库保护的本机副本。副本仅供当前
+ * 系统账户上的本机连接使用，绝不进入导出文件或局域网同步载荷。
+ *
+ * 外部文件仍是可见、可替换的来源。保存时会记录其 SHA-256 指纹，Windows 上盘符变更后
+ * 可在其他盘符的同一相对路径处验证并自动重新绑定，避免误用另一把同名私钥。
  */
 export interface SavedPrivateKey {
   id: PrivateKeyId
@@ -100,6 +102,10 @@ export interface SavedPrivateKey {
   path: string
   /** 私钥口令的 Vault 引用 */
   passphraseRef?: SecretRef
+  /** 私钥内容的 Vault 引用；只在用户明确选择托管副本时存在，绝不导出。 */
+  materialRef?: SecretRef
+  /** 外部私钥文件的 SHA-256（hex），仅用于盘符变更后的同文件校验。 */
+  sourceFingerprint?: string
   note?: string
   createdAt: number
   updatedAt: number
@@ -129,6 +135,10 @@ export interface SavedPrivateKeyDraft {
   /** 明文，同上 */
   passphrase?: string
   clearSecret?: boolean
+  /** 从当前路径读取私钥并保存或刷新本机加密副本。 */
+  storeManagedCopy?: boolean
+  /** 明确移除已有的本机加密副本。 */
+  clearManagedCopy?: boolean
   note?: string
 }
 

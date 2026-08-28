@@ -107,7 +107,16 @@ function collect(): ExportData {
     ).map((g) => ({ id: g.id, name: decField(g.name), order: g.sort_order })),
     snippets: json('SELECT json FROM snippets ORDER BY sort_order'),
     proxies: json('SELECT json FROM proxies ORDER BY created_at'),
-    privateKeys: json('SELECT json FROM private_keys ORDER BY created_at'),
+    // 本机托管副本绑定当前系统账户，不能随普通配置导出；导入后仍可按路径或重新添加副本。
+    privateKeys: json<unknown>('SELECT json FROM private_keys ORDER BY created_at').map(
+      (k) => {
+        const { materialRef: _materialRef, ...portable } = k as unknown as {
+          materialRef?: string
+          [key: string]: unknown
+        }
+        return portable
+      }
+    ),
     forwards: json('SELECT json FROM forwards'),
     // key 列现在是决定论 token；导出的是可移植的明文 "host:port:keyType"（老行 host_enc 为空时回落 key）
     knownHosts: rows<{

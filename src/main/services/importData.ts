@@ -180,6 +180,7 @@ const savedKeySchema = z.object({
   name: z.string().min(1).max(120),
   path: z.string().min(1).max(1024),
   passphraseRef: idSchema.optional(),
+  sourceFingerprint: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
   note: z.string().max(4096).optional(),
   createdAt: z.number().default(() => Date.now()),
   updatedAt: z.number().default(() => Date.now())

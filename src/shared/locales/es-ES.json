@@ -463,6 +463,8 @@
     "keyEdit": "Editar clave privada",
     "keyNamePlaceholder": "p. ej. ed25519 de producción",
     "keyPathHint": "Solo se almacena la ruta — el material de la clave nunca entra en esta aplicación ni en sus archivos de exportación",
+    "keyStoreCopy": "Guardar una copia cifrada en esta aplicación",
+    "keyStoreCopyHint": "La copia está protegida por el almacén de claves del sistema y solo se guarda en este equipo. Se usa si el archivo original no está disponible.",
     "keyPassHint": "Déjalo vacío si la clave no tiene frase de contraseña",
     "emptyProxies": "Aún no hay proxies guardados",
     "emptyKeys": "Aún no hay claves privadas guardadas",

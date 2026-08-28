@@ -463,6 +463,8 @@
     "keyEdit": "Privaten Schlüssel bearbeiten",
     "keyNamePlaceholder": "z. B. prod ed25519",
     "keyPathHint": "Nur der Pfad wird gespeichert — das Schlüsselmaterial gelangt nie in diese App oder ihre Exportdateien",
+    "keyStoreCopy": "Eine verschlüsselte Kopie in dieser App speichern",
+    "keyStoreCopyHint": "Die Kopie wird durch den System-Schlüsselbund geschützt und nur auf diesem Computer gespeichert. Sie wird verwendet, wenn die Originaldatei nicht verfügbar ist.",
     "keyPassHint": "Leer lassen, wenn der Schlüssel keine Passphrase hat",
     "emptyProxies": "Noch keine gespeicherten Proxys",
     "emptyKeys": "Noch keine gespeicherten privaten Schlüssel",

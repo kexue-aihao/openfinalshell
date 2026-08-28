@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.18.2',
+    items: [
+      {
+        type: 'feat',
+        zh: '私钥现在可选择保存一份由系统密钥库保护的本机加密副本：外部文件临时不可用时仍可连接，副本不会进入导出文件或局域网同步。Windows 上私钥位于可移动磁盘时，盘符变更后会按原相对路径在其他盘符查找，并以 SHA-256 指纹确认相同文件后自动更新路径',
+        en: 'Private keys can now optionally keep a locally encrypted copy protected by the system key store, so connections can still work when the external file is temporarily unavailable. Copies never enter exports or LAN Sync. On Windows, when a key is on removable storage and its drive letter changes, the app searches the same relative path on other drives and updates the path only after confirming the SHA-256 fingerprint'
+      }
+    ]
+  },
+  {
     version: '0.18.1',
     items: [
       {

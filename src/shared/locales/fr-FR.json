@@ -463,6 +463,8 @@
     "keyEdit": "Modifier la clé privée",
     "keyNamePlaceholder": "par ex. ed25519 prod",
     "keyPathHint": "Seul le chemin est stocké — le contenu de la clé n'entre jamais dans cette application ni dans ses fichiers d'export",
+    "keyStoreCopy": "Conserver une copie chiffrée dans cette application",
+    "keyStoreCopyHint": "La copie est protégée par le trousseau système et reste sur cet ordinateur. Elle est utilisée si le fichier d’origine est indisponible.",
     "keyPassHint": "Laissez vide si la clé n'a pas de phrase secrète",
     "emptyProxies": "Aucun proxy enregistré pour le moment",
     "emptyKeys": "Aucune clé privée enregistrée pour le moment",

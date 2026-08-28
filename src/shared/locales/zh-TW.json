@@ -463,6 +463,8 @@
     "keyEdit": "編輯私密金鑰",
     "keyNamePlaceholder": "例如：正式環境 ed25519",
     "keyPathHint": "僅儲存路徑 — 金鑰內容永遠不會進入本應用程式或其匯出檔案",
+    "keyStoreCopy": "在本應用程式中儲存加密副本",
+    "keyStoreCopyHint": "副本由系統金鑰庫保護，僅儲存在本機；原始檔案無法使用時會優先採用。",
     "keyPassHint": "若金鑰沒有密碼短語則留空",
     "emptyProxies": "尚無已儲存的代理伺服器",
     "emptyKeys": "尚無已儲存的私密金鑰",

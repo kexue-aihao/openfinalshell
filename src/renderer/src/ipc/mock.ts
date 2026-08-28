@@ -806,6 +806,12 @@ export function createMockOfs(): OfsApi {
         name: d.name,
         path: d.path,
         passphraseRef: d.passphrase ? 'mock-pass-ref' : mockKeys[idx]?.passphraseRef,
+        materialRef: d.storeManagedCopy
+          ? 'mock-material-ref'
+          : d.clearManagedCopy
+            ? undefined
+            : mockKeys[idx]?.materialRef,
+        sourceFingerprint: mockKeys[idx]?.sourceFingerprint,
         note: d.note,
         createdAt: mockKeys[idx]?.createdAt ?? now,
         updatedAt: now

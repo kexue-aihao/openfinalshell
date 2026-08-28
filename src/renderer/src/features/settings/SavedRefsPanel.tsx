@@ -203,7 +203,7 @@ export function SavedRefsPanel(): React.JSX.Element {
           row(
             k.id,
             k.name,
-            `${k.path}${k.passphraseRef ? ` · ${t('conn.passphraseSaved')}` : ''}`,
+            `${k.path}${k.passphraseRef ? ` · ${t('conn.passphraseSaved')}` : ''}${k.materialRef ? ` · ${t('savedRef.keyStoreCopy')}` : ''}`,
             keyUsers.get(k.id) ?? [],
             () => setEditingKey(k),
             () => doDelete('key', k)
