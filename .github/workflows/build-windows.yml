@@ -283,6 +283,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          # flatpak-bundler 按 runtime/<id>/<arch>/<branch> 安装依赖，
+          # 新 runner 默认没有任何远程仓库，必须先提供 Flathub。
+          sudo flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - uses: actions/setup-node@v4
         with:

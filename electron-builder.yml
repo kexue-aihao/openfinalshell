@@ -118,6 +118,10 @@ appImage:
 flatpak:
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Network
+  # electron-builder 的默认 20.08 运行时已停止维护，且新构建环境中可能已不可用。
+  # 24.08 同时提供 x86_64 与 aarch64 的 Platform、SDK 和 Electron BaseApp。
+  runtimeVersion: '24.08'
+  baseVersion: '24.08'
 
 publish:
   provider: github
