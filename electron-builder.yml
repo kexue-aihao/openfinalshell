@@ -20,9 +20,9 @@ asarUnpack:
 npmRebuild: true
 
 win:
-  # 刻意不写 arch：由命令行 --x64 / --ia32 决定（不给则只出宿主架构）。
-  # 一旦在这里写死 arch: [x64, ia32]，命令行标志对安装包目标就会被忽略 ——
-  # 每次调用都把两个架构、外加一个双架构合体包全建一遍（实测单个 job 产出 732MB、耗时翻倍）。
+  # 刻意不写 arch：由命令行 --x64 / --ia32 / --arm64 决定（不给则只出宿主架构）。
+  # 一旦在这里写死 arch，命令行标志对安装包目标就会被忽略 ——
+  # 每次调用都把多个架构、外加一个双架构合体包全建一遍，既慢又会污染发布产物。
   # 注意 `--dir` 验证不出这个问题：它只跑打包、不跑安装包目标。
   target: [nsis, portable]
   # 只提供 512×512 PNG，electron-builder 自动转 ICO
@@ -41,7 +41,7 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: OpenFinalShell
   installerLanguages: [zh_CN, en_US]
-  # ${arch} 必须留着：x64 与 ia32 同名会互相覆盖，只剩后构建的那个
+  # ${arch} 必须留着：x64、ia32、arm64 同名会互相覆盖，只剩后构建的那个
   artifactName: ${productName}-${version}-setup-${arch}.${ext}
 
 portable:
@@ -54,19 +54,22 @@ mac:
   hardenedRuntime: true
 
 linux:
-  # Debian 首版只发布 amd64 .deb；架构由命令行 --x64 固定。
-  target: [deb]
+  # arch 始终由命令行的 --x64 / --arm64 指定，避免一个 job 混入多个架构的产物。
+  # .deb 保留 Debian 13 原生渠道；rpm、AppImage 与 Flatpak 覆盖其余主流发行版。
+  target: [deb, rpm, AppImage, flatpak]
   category: Network
   executableName: openfinalshell
   syncDesktopName: true
   icon: build/icon.png
   maintainer: openfinalshell contributors
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
 
 deb:
   packageCategory: net
   packageName: openfinalshell
   synopsis: SSH terminal, SFTP client and server monitor
-  artifactName: ${productName}-${version}-debian13-amd64.${ext}
+  # 依赖项针对 Debian 13，不把它伪装成可直接安装于所有 Debian 系发行版的包。
+  artifactName: ${productName}-${version}-debian13-${arch}.${ext}
   # electron-builder 26 的默认包名仍是 Debian 12 时代的非 t64 名称；
   # Debian 13 (Trixie) 必须显式使用这些可解析的运行时依赖。
   depends:
@@ -103,6 +106,18 @@ deb:
     - libsecret-1-0
   # 默认的 libappindicator3-1 已不在 Debian 13，且本项目没有托盘功能。
   recommends: []
+
+rpm:
+  packageCategory: Applications/Internet
+  packageName: openfinalshell
+  synopsis: SSH terminal, SFTP client and server monitor
+
+appImage:
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+
+flatpak:
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+  category: Network
 
 publish:
   provider: github

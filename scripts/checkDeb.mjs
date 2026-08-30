@@ -4,6 +4,9 @@ import { join } from 'node:path'
 
 const releaseDir = join(process.cwd(), 'release')
 const files = existsSync(releaseDir) ? readdirSync(releaseDir).filter((name) => name.endsWith('.deb')) : []
+const arch = process.argv[2] ?? 'x64'
+const debArch = { x64: 'amd64', arm64: 'arm64' }[arch]
+if (!debArch) throw new Error(`Unsupported Debian target architecture: ${arch}`)
 if (files.length !== 1) {
   throw new Error(`Expected exactly one .deb in release/, found ${files.length}: ${files.join(', ')}`)
 }
@@ -13,11 +16,11 @@ const field = (name) => execFileSync('dpkg-deb', ['--field', deb, name], { encod
 const contents = execFileSync('dpkg-deb', ['--contents', deb], { encoding: 'utf8' })
 const pkg = execFileSync(process.execPath, ['-p', "require('./package.json').version"], { encoding: 'utf8' }).trim()
 
-const expectedFile = `OpenFinalShell-${pkg}-debian13-amd64.deb`
+const expectedFile = `OpenFinalShell-${pkg}-debian13-${debArch}.deb`
 if (files[0] !== expectedFile) throw new Error(`Unexpected artifact name: ${files[0]} (expected ${expectedFile})`)
 if (field('Package') !== 'openfinalshell') throw new Error(`Unexpected Package: ${field('Package')}`)
 if (field('Version') !== pkg) throw new Error(`Unexpected Version: ${field('Version')}`)
-if (field('Architecture') !== 'amd64') throw new Error(`Unexpected Architecture: ${field('Architecture')}`)
+if (field('Architecture') !== debArch) throw new Error(`Unexpected Architecture: ${field('Architecture')}`)
 if (field('Section') !== 'net') throw new Error(`Unexpected Section: ${field('Section')}`)
 if (!field('Maintainer')) throw new Error('Debian Maintainer is empty')
 
@@ -47,4 +50,4 @@ for (const path of [
 const executable = contents.split('\n').find((line) => line.includes('./opt/OpenFinalShell/openfinalshell'))
 if (!executable?.startsWith('-rwx')) throw new Error('Packaged executable is not executable')
 
-console.log(`OK ${files[0]}: openfinalshell ${pkg} amd64, Debian 13 dependencies and desktop files verified`)
+console.log(`OK ${files[0]}: openfinalshell ${pkg} ${debArch}, Debian 13 dependencies and desktop files verified`)

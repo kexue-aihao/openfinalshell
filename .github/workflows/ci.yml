@@ -48,10 +48,18 @@ jobs:
       - run: npm run check:bundle
 
 
-  debian:
-    name: Debian 13（测试 / 构建 / deb）
-    runs-on: ubuntu-latest
+  linux:
+    name: Linux ${{ matrix.arch }}（测试 / 构建 / deb）
+    runs-on: ${{ matrix.runner }}
     container: debian:13
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -72,5 +80,5 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:bundle
-      - run: npx electron-builder --linux deb --x64 --publish never
-      - run: npm run check:deb
+      - run: npx electron-builder --linux deb --${{ matrix.arch }} --publish never
+      - run: npm run check:deb -- ${{ matrix.arch }}

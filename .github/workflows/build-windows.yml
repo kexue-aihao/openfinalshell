@@ -61,8 +61,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ia32 即 32 位（x86）；Electron 43 仍提供 win32-ia32 产物
-        arch: [x64, ia32]
+        # ia32 即 32 位（x86）；Electron 43 同时提供 win32 x64 / ia32 / arm64 产物。
+        arch: [x64, ia32, arm64]
     steps:
       - uses: actions/checkout@v4
 
@@ -174,20 +174,31 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  build-debian:
-    name: 打包 Debian 13 amd64
+  build-linux:
+    name: 打包 Linux ${{ matrix.arch }}
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     container: debian:13
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ARM64 必须在原生 ARM64 runner 上打包与冒烟；QEMU 只适合辅助排错，不能当发布验证。
+          - arch: x64
+            runner: ubuntu-latest
+            deb_arch: amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            deb_arch: arm64
     steps:
       - uses: actions/checkout@v4
 
-      - name: 安装 Debian 构建与 GUI 冒烟依赖
+      - name: 安装 Linux 构建、打包与 GUI 冒烟依赖
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
             ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential \
-            xvfb xauth dbus-x11 procps
+            xvfb xauth dbus-x11 procps rpm flatpak flatpak-builder
 
       - uses: actions/setup-node@v4
         with:
@@ -200,24 +211,26 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:bundle
-      - run: npx electron-builder --linux deb --x64 --publish never
-      - run: npm run check:deb
+      - run: npx electron-builder --linux deb rpm AppImage flatpak --${{ matrix.arch }} --publish never
+      - run: npm run check:deb -- ${{ matrix.arch }}
+      - run: npm run check:linux-artifacts -- ${{ matrix.arch }}
 
-      - name: 断言 Debian 更新 feed
+      - name: 断言 Linux 架构专属更新 feed
         run: |
           cd release
-          deb="OpenFinalShell-$(node -p "require('../package.json').version")-debian13-amd64.deb"
-          test -f latest-x64-linux.yml || { echo "::error::缺 latest-x64-linux.yml"; exit 1; }
-          grep -q "url: $deb" latest-x64-linux.yml || {
-            echo "::error::Linux feed 没指向 $deb"; cat latest-x64-linux.yml; exit 1;
+          feed="latest-${{ matrix.arch }}-linux.yml"
+          test -f "$feed" || { echo "::error::缺 $feed"; exit 1; }
+          # Linux 包名遵循发行版命名（amd64/x86_64/aarch64），而非 electron-builder CLI 名。
+          arch_pattern='amd64|x86_64'
+          if [ "${{ matrix.arch }}" = 'arm64' ]; then arch_pattern='arm64|aarch64'; fi
+          # Linux 当前仅提供手动更新指引；feed 不参与客户端安装，故只防止跨架构覆盖。
+          grep -Eq "$arch_pattern" "$feed" || {
+            echo "::error::$feed 未包含目标架构标识"; cat "$feed"; exit 1;
           }
-          want=$(grep -m1 'sha512:' latest-x64-linux.yml | sed 's/.*sha512: //')
-          got=$(openssl dgst -sha512 -binary "$deb" | openssl base64 -A)
-          [ "$want" = "$got" ] || { echo "::error::Linux feed sha512 不匹配"; exit 1; }
 
       - name: 用 APT 安装并运行打包产物冒烟
         run: |
-          apt-get install -y ./release/*.deb
+          apt-get install -y ./release/*-debian13-${{ matrix.deb_arch }}.deb
           useradd --create-home --shell /bin/bash ofs-ci
           runuser -u ofs-ci -- env HOME=/home/ofs-ci PATH="$PATH" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" bash -c '
             runtime=/tmp/ofs-runtime-$(id -u)
@@ -240,16 +253,19 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: debian-amd64
+          name: linux-${{ matrix.arch }}
           path: |
             release/*.deb
-            release/latest-x64-linux.yml
+            release/*.rpm
+            release/*.AppImage
+            release/*.flatpak
+            release/latest-${{ matrix.arch }}-linux.yml
           if-no-files-found: error
           retention-days: 14
 
   release:
     name: 发布 Release
-    needs: [build, build-debian]
+    needs: [build, build-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -264,26 +280,36 @@ jobs:
         run: |
           cd dist
           ls -l
-          [ "$(ls *.exe | wc -l)" -eq 4 ] || { echo "::error::期望 4 个 exe"; exit 1; }
-          [ "$(ls *.exe.blockmap | wc -l)" -eq 2 ] || { echo "::error::期望 2 个 blockmap"; exit 1; }
-          [ "$(ls *.deb | wc -l)" -eq 1 ] || { echo "::error::期望 1 个 Debian 包"; exit 1; }
+          count() { find . -maxdepth 1 -type f -name "$1" | wc -l; }
+          [ "$(count '*.exe')" -eq 6 ] || { echo "::error::期望 6 个 exe"; exit 1; }
+          [ "$(count '*.exe.blockmap')" -eq 3 ] || { echo "::error::期望 3 个 blockmap"; exit 1; }
+          [ "$(count '*.deb')" -eq 2 ] || { echo "::error::期望 2 个 Debian 包"; exit 1; }
+          [ "$(count '*.rpm')" -eq 2 ] || { echo "::error::期望 2 个 RPM 包"; exit 1; }
+          [ "$(count '*.AppImage')" -eq 2 ] || { echo "::error::期望 2 个 AppImage"; exit 1; }
+          [ "$(count '*.flatpak')" -eq 2 ] || { echo "::error::期望 2 个 Flatpak 包"; exit 1; }
           test -f latest-x64-linux.yml || { echo "::error::缺 latest-x64-linux.yml"; exit 1; }
+          test -f latest-arm64-linux.yml || { echo "::error::缺 latest-arm64-linux.yml"; exit 1; }
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
           test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
+          test -f latest-arm64.yml || { echo "::error::缺 latest-arm64.yml"; exit 1; }
+          [ "$(count 'latest-*.yml')" -eq 5 ] || { echo "::error::期望 5 个架构专属更新 feed"; exit 1; }
           if [ -e latest.yml ]; then
-            echo "::error::出现裸 latest.yml —— 两个架构的 feed 互相覆盖了"; exit 1
+            echo "::error::出现裸 latest.yml —— 多架构 feed 会互相覆盖"; exit 1
           fi
-          # 两份 feed 必须各自指向自己的架构，交叉了就是 32 位用户装 64 位包
+          # Windows 三份 feed 必须各自指向自己的架构，交叉了就会装错包。
           grep -q 'setup-x64.exe' latest-x64.yml || { echo "::error::latest-x64.yml 没指向 x64 包"; exit 1; }
           grep -q 'setup-ia32.exe' latest-ia32.yml || { echo "::error::latest-ia32.yml 没指向 ia32 包"; exit 1; }
-          grep -q 'debian13-amd64.deb' latest-x64-linux.yml || { echo "::error::Linux feed 没指向 Debian 13 包"; exit 1; }
+          grep -q 'setup-arm64.exe' latest-arm64.yml || { echo "::error::latest-arm64.yml 没指向 arm64 包"; exit 1; }
+          # Linux 文件名按包格式使用发行版惯例（amd64/x86_64/aarch64），不能拿 CLI 架构名硬比。
+          grep -Eq 'amd64|x86_64' latest-x64-linux.yml || { echo "::error::latest-x64-linux.yml 没指向 x64 Linux 包"; exit 1; }
+          grep -Eq 'arm64|aarch64' latest-arm64-linux.yml || { echo "::error::latest-arm64-linux.yml 没指向 ARM64 Linux 包"; exit 1; }
           grep -H 'url:' latest-*.yml
 
       # 安装包没有代码签名，校验和是用户确认完整性的唯一手段
       - name: 生成校验和
         run: |
           cd dist
-          sha256sum *.exe *.deb | tee SHA256SUMS.txt
+          sha256sum *.exe *.deb *.rpm *.AppImage *.flatpak | tee SHA256SUMS.txt
           ls -lh
 
       - name: 创建 Release 并上传
@@ -297,14 +323,19 @@ jobs:
           |---|---|
           | `*-setup-x64.exe` | 64 位安装版（推荐） |
           | `*-setup-ia32.exe` | 32 位（x86）安装版 |
+          | `*-setup-arm64.exe` | Windows ARM64 安装版 |
           | `*-portable-x64.exe` | 64 位免安装 |
           | `*-portable-ia32.exe` | 32 位（x86）免安装 |
-          | `*-debian13-amd64.deb` | Debian 13 amd64 安装包 |
+          | `*-portable-arm64.exe` | Windows ARM64 免安装 |
+          | `*-debian13-amd64.deb` / `*-debian13-arm64.deb` | Debian 13 安装包 |
+          | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
+          | `*-linux-x86_64.AppImage` / `*-linux-arm_aarch64.AppImage` | 通用免安装 Linux 包 |
+          | `*-linux-x86_64.flatpak` / `*-linux-aarch64.flatpak` | Flatpak 安装包 |
 
           Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
 
-          Debian 13 使用 `sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb` 安装或覆盖升级。
-          Debian 版只提示新版本，不在应用内提权安装。
+          Debian 13 使用 `sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb`（或 `arm64.deb`）安装或覆盖升级。
+          Linux 版只提示新版本，不在应用内提权安装。
 
           > `latest-*.yml` 与 `*.blockmap` 是更新检查元数据，不用手工下载。
           > 其中 blockmap 让下一版只下载变化的部分，所以历史版本的这两个文件不会删。
@@ -315,7 +346,7 @@ jobs:
           ### 升级前请注意
 
           > **Windows 安装版卸载会清空本机数据。** 卸载前请先用「设置 → 安全与数据 → 导出」备份。
-          > Debian 覆盖升级和卸载会保留 `~/.config/OpenFinalShell`。
+          > Linux 覆盖升级和卸载会保留 `~/.config/OpenFinalShell`。
 
           > **首次启动会把旧的 JSON 配置迁进 SQLite**（`userData/config/openfinalshell.db`），
           > 原文件改名 `*.migrated` 保留不删，映射有偏差还能人工找回。
@@ -335,7 +366,7 @@ jobs:
           # v0.1.0-rc1 这类带后缀的 tag 视为预发布
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
           gh release create "$GITHUB_REF_NAME" \
-            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/latest-*.yml dist/SHA256SUMS.txt \
+            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak dist/latest-*.yml dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --title "OpenFinalShell $GITHUB_REF_NAME" \
             --notes-file notes.md \

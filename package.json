@@ -1,6 +1,6 @@
 {
   "name": "openfinalshell",
-  "version": "0.19.1",
+  "version": "0.19.2",
   "description": "开源 FinalShell —— SSH 终端 + SFTP + 服务器监控三合一的桌面客户端",
   "desktopName": "openfinalshell.desktop",
   "type": "module",
@@ -20,11 +20,15 @@
     "icon": "node scripts/generateIcon.mjs",
     "package": "electron-vite build && electron-builder --win",
     "package:deb": "electron-vite build && electron-builder --linux deb --x64 --publish never",
+    "package:win:arm64": "electron-vite build && electron-builder --win --arm64 --publish never",
+    "package:linux": "electron-vite build && electron-builder --linux deb rpm AppImage flatpak --x64 --publish never",
+    "package:linux:arm64": "electron-vite build && electron-builder --linux deb rpm AppImage flatpak --arm64 --publish never",
     "package:dir": "electron-vite build && electron-builder --win --dir",
     "smoke:packaged": "node test/fixtures/packagedSmoke.mjs",
     "postinstall": "electron-builder install-app-deps",
     "check:bundle": "node scripts/checkBundleBudget.mjs",
-    "check:deb": "node scripts/checkDeb.mjs"
+    "check:deb": "node scripts/checkDeb.mjs",
+    "check:linux-artifacts": "node scripts/checkLinuxArtifacts.mjs"
   },
   "dependencies": {
     "electron-log": "^5.4.4",
