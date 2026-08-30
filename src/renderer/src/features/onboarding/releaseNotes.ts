@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.0',
+    items: [
+      {
+        type: 'feat',
+        zh: '新增独立的 Kotlin Android 原生客户端基础工程：支持 API 26 及以上、arm64-v8a/armeabi-v7a/x86_64，提供 SSH/SFTP、终端、监控、双延迟、端口流量、端口转发、局域网同步和安全凭据存储的跨端协议基础；桌面 Electron 客户端功能与协议保持不变',
+        en: 'Added the foundation for a standalone Kotlin Android client targeting API 26+ and arm64-v8a/armeabi-v7a/x86_64, with shared cross-platform protocol support for SSH/SFTP, terminal sessions, monitoring, dual latency, port traffic, forwarding, LAN Sync and secure credential storage; the desktop Electron client behavior and protocols remain unchanged'
+      }
+    ]
+  },
+  {
     version: '0.19.2',
     items: [
       {
