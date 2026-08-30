@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">OpenFinalShell</string>
+    <string name="tab_connections">Connections</string>
+    <string name="tab_terminal">Terminal</string>
+    <string name="tab_monitor">Monitor</string>
+    <string name="saved_connections">Saved connections</string>
+    <string name="label_name">Name</string>
+    <string name="label_host">Host</string>
+    <string name="label_port">Port</string>
+    <string name="label_username">Username</string>
+    <string name="label_password">Password (optional)</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_add_connection">Add connection</string>
+    <string name="status_ready">Ready</string>
+    <string name="status_profile_saved">Profile saved</string>
+    <string name="status_connection_requested">Connection requested</string>
+    <string name="terminal_select_connection">Select a connection to open a shell</string>
+    <string name="terminal_transport_pending">Shell channel is ready for transport integration</string>
+    <string name="monitor_latency_pending">Direct latency and SSH connection latency will appear here when a session is active.</string>
+</resources>

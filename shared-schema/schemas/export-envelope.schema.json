@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openfinalshell.github.io/schema/export-envelope.json",
+  "title": "ExportEnvelope",
+  "type": "object",
+  "required": ["app", "formatVersion", "appVersion", "exportedAt", "includesSecrets", "note"],
+  "properties": {
+    "app": { "const": "openfinalshell" },
+    "formatVersion": { "type": "integer", "enum": [1, 2] },
+    "appVersion": { "type": "string" },
+    "exportedAt": { "type": "integer", "minimum": 0 },
+    "includesSecrets": { "type": "boolean" },
+    "note": { "type": "string" },
+    "data": { "type": ["object", "null"] },
+    "secrets": { "$ref": "#/$defs/sealedBlock" },
+    "enc": { "$ref": "#/$defs/sealedBlock" }
+  },
+  "$defs": {
+    "sealedBlock": {
+      "type": "object",
+      "required": ["kdf", "n", "salt", "iv", "tag", "cipher"],
+      "properties": {
+        "kdf": { "const": "scrypt" },
+        "n": { "const": 32768 },
+        "salt": { "type": "string" },
+        "iv": { "type": "string" },
+        "tag": { "type": "string" },
+        "cipher": { "type": "string" }
+      }
+    }
+  }
+}

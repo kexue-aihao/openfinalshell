@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openfinalshell.github.io/schema/monitor-snapshot.json",
+  "title": "MonitorSnapshot",
+  "type": "object",
+  "required": ["ts", "uptimeSec", "cpu", "mem", "net", "diskIo"],
+  "properties": {
+    "ts": { "type": "integer", "minimum": 0 },
+    "uptimeSec": { "type": "number", "minimum": 0 },
+    "cpu": { "$ref": "#/$defs/cpu" },
+    "mem": { "$ref": "#/$defs/memory" },
+    "net": { "type": "array", "items": { "$ref": "#/$defs/network" } },
+    "diskFs": { "type": ["array", "null"], "items": { "$ref": "#/$defs/diskFs" } },
+    "diskIo": { "type": "array", "items": { "$ref": "#/$defs/diskIo" } },
+    "topProcs": { "type": ["array", "null"], "items": { "$ref": "#/$defs/process" } },
+    "conns": { "type": ["object", "null"], "$ref": "#/$defs/conns" },
+    "tcpStates": { "type": ["object", "null"], "additionalProperties": { "type": "integer", "minimum": 0 } },
+    "directLatencyMs": { "type": ["integer", "null"], "minimum": 0 },
+    "connectionLatencyMs": { "type": ["integer", "null"], "minimum": 0 }
+  },
+  "$defs": {
+    "cpu": {
+      "type": "object",
+      "required": ["usagePct", "perCore", "loadAvg"],
+      "properties": {
+        "usagePct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "perCore": { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 100 } },
+        "loadAvg": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "minimum": 0 } }
+      }
+    },
+    "memory": { "type": "object", "required": ["totalKb", "availableKb", "usedKb", "swapTotalKb", "swapUsedKb"], "properties": { "totalKb": { "type": "integer", "minimum": 0 }, "availableKb": { "type": "integer", "minimum": 0 }, "usedKb": { "type": "integer", "minimum": 0 }, "swapTotalKb": { "type": "integer", "minimum": 0 }, "swapUsedKb": { "type": "integer", "minimum": 0 } } },
+    "network": { "type": "object", "required": ["iface", "rxBps", "txBps", "rxTotalBytes", "txTotalBytes"], "properties": { "iface": { "type": "string" }, "rxBps": { "type": "integer", "minimum": 0 }, "txBps": { "type": "integer", "minimum": 0 }, "rxTotalBytes": { "type": "integer", "minimum": 0 }, "txTotalBytes": { "type": "integer", "minimum": 0 } } },
+    "diskFs": { "type": "object", "required": ["fs", "mount", "totalKb", "usedKb", "usePct"], "properties": { "fs": { "type": "string" }, "mount": { "type": "string" }, "totalKb": { "type": "integer", "minimum": 0 }, "usedKb": { "type": "integer", "minimum": 0 }, "usePct": { "type": "number", "minimum": 0, "maximum": 100 } } },
+    "diskIo": { "type": "object", "required": ["dev", "readBps", "writeBps"], "properties": { "dev": { "type": "string" }, "readBps": { "type": "integer", "minimum": 0 }, "writeBps": { "type": "integer", "minimum": 0 } } },
+    "process": { "type": "object", "required": ["pid", "name", "cpuPct", "memPct"], "properties": { "pid": { "type": "integer", "minimum": 0 }, "name": { "type": "string" }, "cpuPct": { "type": "number", "minimum": 0 }, "memPct": { "type": "number", "minimum": 0 } } },
+    "conns": { "type": "object", "required": ["socketsUsed", "tcpInuse", "tcpOrphan", "tcpTw", "udpInuse"], "properties": { "socketsUsed": { "type": "integer", "minimum": 0 }, "tcpInuse": { "type": "integer", "minimum": 0 }, "tcpOrphan": { "type": "integer", "minimum": 0 }, "tcpTw": { "type": "integer", "minimum": 0 }, "udpInuse": { "type": "integer", "minimum": 0 } } }
+  }
+}

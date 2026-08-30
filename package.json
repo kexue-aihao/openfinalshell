@@ -1,6 +1,6 @@
 {
   "name": "openfinalshell",
-  "version": "0.19.2",
+  "version": "0.20.0",
   "description": "开源 FinalShell —— SSH 终端 + SFTP + 服务器监控三合一的桌面客户端",
   "desktopName": "openfinalshell.desktop",
   "type": "module",
@@ -28,7 +28,10 @@
     "postinstall": "electron-builder install-app-deps",
     "check:bundle": "node scripts/checkBundleBudget.mjs",
     "check:deb": "node scripts/checkDeb.mjs",
-    "check:linux-artifacts": "node scripts/checkLinuxArtifacts.mjs"
+    "check:linux-artifacts": "node scripts/checkLinuxArtifacts.mjs",
+    "android:generate-schema": "node scripts/generateSharedSchema.mjs",
+    "android:test": "gradle -p android testDebugUnitTest",
+    "android:assemble": "npm run android:generate-schema && gradle -p android :app:assembleDebug"
   },
   "dependencies": {
     "electron-log": "^5.4.4",

@@ -204,6 +204,25 @@ src/preload   白名单桥
 src/renderer  React 界面（features 按功能分目录，stores 用 zustand）
 ```
 
+### Android 原生客户端
+
+仓库同时包含独立的 Kotlin Android 客户端（`android/`）。它不加载 Electron
+或 Node.js，而是通过 Apache MINA SSHD、Jetpack Compose、Room 和 Android
+Keystore 实现原生连接体验。跨端数据协议定义在 `shared-schema/`，保持现有
+监控帧、端口流量、LAN Sync 和 v1/v2 导入导出格式兼容。
+
+本地需要 JDK 17、Android SDK 35 和 Gradle 8.10：
+
+```text
+npm run android:generate-schema
+gradle -p android testDebugUnitTest
+gradle -p android :app:assembleDebug
+```
+
+Android 支持 API 26 及以上和 `arm64-v8a`、`armeabi-v7a`、`x86_64`。桌面端
+`safeStorage`/Windows DPAPI 密文不能直接在 Android 解密，跨设备迁移请使用
+口令保护的加密导出文件。
+
 ## 开发
 
 ```bash

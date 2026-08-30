@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openfinalshell.github.io/schema/lansync.json",
+  "title": "LanSyncFrame",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": { "type": "string", "enum": ["hello", "hello-ack", "confirm-s", "confirm-r", "payload", "received", "applied", "rejected", "error"] },
+    "magic": { "type": ["string", "null"] },
+    "proto": { "type": ["integer", "null"] },
+    "deviceId": { "type": ["string", "null"] },
+    "deviceName": { "type": ["string", "null"] },
+    "appVersion": { "type": ["string", "null"] },
+    "senderPub": { "type": ["string", "null"] },
+    "receiverPub": { "type": ["string", "null"] },
+    "salt": { "type": ["string", "null"] },
+    "sessionId": { "type": ["string", "null"] },
+    "mac": { "type": ["string", "null"] },
+    "envelope": { "type": ["string", "null"] },
+    "profiles": { "type": ["integer", "null"], "minimum": 0 },
+    "snippets": { "type": ["integer", "null"], "minimum": 0 },
+    "forwards": { "type": ["integer", "null"], "minimum": 0 },
+    "knownHosts": { "type": ["integer", "null"], "minimum": 0 },
+    "secrets": { "type": ["integer", "null"], "minimum": 0 },
+    "skipped": { "type": ["integer", "null"], "minimum": 0 },
+    "code": { "type": ["string", "null"] },
+    "params": { "type": ["object", "null"] }
+  }
+}

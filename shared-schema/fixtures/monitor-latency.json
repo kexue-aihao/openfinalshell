@@ -1,0 +1,1 @@
+{"ts":1735689600000,"uptimeSec":10.5,"cpu":{"usagePct":12.3,"perCore":[10.0],"loadAvg":[0.1,0.2,0.3]},"mem":{"totalKb":1000,"availableKb":400,"usedKb":600,"swapTotalKb":0,"swapUsedKb":0},"net":[],"diskFs":null,"diskIo":[],"conns":null,"directLatencyMs":24,"connectionLatencyMs":41}

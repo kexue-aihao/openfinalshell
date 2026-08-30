@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openfinalshell.github.io/schema/port-traffic.json",
+  "title": "PortTrafficSnapshot",
+  "type": "object",
+  "required": ["ts", "ports"],
+  "properties": {
+    "ts": { "type": "integer", "minimum": 0 },
+    "ports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["port", "connections", "ratesAvailable", "rxBps", "txBps"],
+        "properties": {
+          "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+          "connections": { "type": "integer", "minimum": 0 },
+          "ratesAvailable": { "type": "boolean" },
+          "rxBps": { "type": "integer", "minimum": 0 },
+          "txBps": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

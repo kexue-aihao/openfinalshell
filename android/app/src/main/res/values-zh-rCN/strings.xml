@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">OpenFinalShell</string>
+    <string name="tab_connections">连接</string>
+    <string name="tab_terminal">终端</string>
+    <string name="tab_monitor">监控</string>
+    <string name="saved_connections">已保存的连接</string>
+    <string name="label_name">名称</string>
+    <string name="label_host">主机</string>
+    <string name="label_port">端口</string>
+    <string name="label_username">用户名</string>
+    <string name="label_password">密码（可选）</string>
+    <string name="action_connect">连接</string>
+    <string name="action_add_connection">添加连接</string>
+    <string name="status_ready">就绪</string>
+    <string name="status_profile_saved">连接已保存</string>
+    <string name="status_connection_requested">已请求连接</string>
+    <string name="terminal_select_connection">请选择连接以打开 Shell</string>
+    <string name="terminal_transport_pending">Shell 通道已准备，等待传输层接入</string>
+    <string name="monitor_latency_pending">会话激活后将在此显示直达延迟和 SSH 连接延迟。</string>
+</resources>
