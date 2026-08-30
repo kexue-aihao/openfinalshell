@@ -211,7 +211,7 @@ src/renderer  React 界面（features 按功能分目录，stores 用 zustand）
 Keystore 实现原生连接体验。跨端数据协议定义在 `shared-schema/`，保持现有
 监控帧、端口流量、LAN Sync 和 v1/v2 导入导出格式兼容。
 
-本地需要 JDK 17、Android SDK 35 和 Gradle 8.10：
+本地需要 JDK 17、Android SDK 35 和 Gradle 8.10.2：
 
 ```text
 npm run android:generate-schema

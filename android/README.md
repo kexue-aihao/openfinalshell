@@ -13,7 +13,7 @@ gradle -p android testDebugUnitTest
 gradle -p android :app:assembleDebug
 ```
 
-The Android module requires JDK 17, Android SDK platform 35, and Gradle 8.10.
+The Android module requires JDK 17, Android SDK platform 35, and Gradle 8.10.2.
 The debug build produces a universal APK and ABI-specific APKs for
 `arm64-v8a`, `armeabi-v7a`, and `x86_64`.
 
