@@ -22,3 +22,4 @@ android/local.properties
 .local/gradle/
 .local/gradle-user-home/
 .local/jdk17/
+.npm-cache/
