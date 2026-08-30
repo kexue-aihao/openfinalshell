@@ -8,6 +8,11 @@ android {
     namespace = "io.github.openfinalshell.android.storage"
     compileSdk = 35
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     defaultConfig {
         minSdk = 26
         consumerProguardFiles("consumer-rules.pro")
