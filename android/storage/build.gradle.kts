@@ -1,6 +1,7 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
 }
 
@@ -21,10 +22,13 @@ android {
 
 dependencies {
     implementation(project(":core"))
-    implementation("androidx.room:room-runtime:2.7.0")
+    api("androidx.room:room-runtime:2.7.0")
     implementation("androidx.room:room-ktx:2.7.0")
     ksp("androidx.room:room-compiler:2.7.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.1.20")
     testImplementation("junit:junit:4.13.2")
 }

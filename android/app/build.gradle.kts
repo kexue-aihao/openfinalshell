@@ -58,7 +58,11 @@ android {
         buildConfig = true
     }
 
-    packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        resources.excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        resources.excludes += "/META-INF/DEPENDENCIES"
+    }
 }
 
 dependencies {

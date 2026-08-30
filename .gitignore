@@ -16,3 +16,9 @@ Thumbs.db
 android/.gradle/
 android/**/build/
 android/local.properties
+
+# Local Android toolchain downloads (never commit SDK/Gradle binaries or caches)
+.local/android-sdk/
+.local/gradle/
+.local/gradle-user-home/
+.local/jdk17/
