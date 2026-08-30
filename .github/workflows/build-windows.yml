@@ -211,9 +211,9 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run check:bundle
-      - run: npx electron-builder --linux deb rpm AppImage flatpak --${{ matrix.arch }} --publish never
+      - run: npx electron-builder --linux deb rpm AppImage --${{ matrix.arch }} --publish never
       - run: npm run check:deb -- ${{ matrix.arch }}
-      - run: npm run check:linux-artifacts -- ${{ matrix.arch }}
+      - run: npm run check:linux-artifacts -- ${{ matrix.arch }} deb rpm appImage
 
       - name: 断言 Linux 架构专属更新 feed
         run: |
@@ -258,14 +258,52 @@ jobs:
             release/*.deb
             release/*.rpm
             release/*.AppImage
-            release/*.flatpak
             release/latest-${{ matrix.arch }}-linux.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  build-flatpak:
+    name: 打包 Flatpak ${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      # electron-builder 的 Flatpak 目标需要可正常运行的系统 Flatpak 服务；
+      # Debian Docker container 内缺少该运行环境，构建会在 flatpak 阶段失败。
+      - name: 安装 Flatpak 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx electron-builder --linux flatpak --${{ matrix.arch }} --publish never
+      - run: npm run check:linux-artifacts -- ${{ matrix.arch }} flatpak
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-${{ matrix.arch }}
+          path: release/*.flatpak
           if-no-files-found: error
           retention-days: 14
 
   release:
     name: 发布 Release
-    needs: [build, build-linux]
+    needs: [build, build-linux, build-flatpak]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
