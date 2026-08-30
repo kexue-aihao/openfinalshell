@@ -234,9 +234,7 @@ class TransferQueue {
       return
     }
     if (op === 'cancel') {
-      if (task.state === 'running') entry.handle?.cancel()
-      else if (!FINAL_STATES.has(task.state)) this.setState(entry, 'canceled')
-      else if (task.isGroup) this.setState(entry, 'canceled')
+      this.cancelEntry(entry)
       return
     }
     // resume / retry
@@ -274,10 +272,7 @@ class TransferQueue {
   cancelForSession(sessionId: SessionId): void {
     for (const entry of this.entries.values()) {
       if (entry.task.sessionId !== sessionId) continue
-      if (entry.task.state === 'running') entry.handle?.cancel()
-      else if (entry.task.state === 'queued' || entry.task.state === 'paused') {
-        this.setState(entry, 'canceled')
-      }
+      this.cancelEntry(entry)
     }
   }
 
@@ -289,10 +284,34 @@ class TransferQueue {
    */
   cancelAll(): void {
     for (const entry of this.entries.values()) {
-      if (entry.task.state === 'running') entry.handle?.cancel()
-      else if (!FINAL_STATES.has(entry.task.state)) this.setState(entry, 'canceled')
+      if (!FINAL_STATES.has(entry.task.state)) {
+        this.cancelEntry(entry)
+        // Keep the terminal transition visible here for the queue-wide contract.
+        if (entry.task.state !== 'canceled') this.setState(entry, 'canceled')
+      } else if (entry.task.isGroup) {
+        this.cancelEntry(entry)
+      }
     }
     this.expandQueue.length = 0
+  }
+
+  /**
+   * 取消必须先更新公开状态，再等待 worker 收尾。
+   *
+   * start() 在异步获取 SFTP 句柄期间没有 entry.handle；只调用 handle.cancel()
+   * 会让这一小段竞态继续运行，并让 cancelAll() 返回时任务仍显示 running。
+   * worker 收尾时会再次走到同一个终态，保持清理逻辑不变。
+   */
+  private cancelEntry(entry: Entry): void {
+    const { task } = entry
+    if (task.state === 'running') {
+      entry.handle?.cancel()
+      this.setState(entry, 'canceled')
+    } else if (!FINAL_STATES.has(task.state)) {
+      this.setState(entry, 'canceled')
+    } else if (task.isGroup) {
+      this.setState(entry, 'canceled')
+    }
   }
 
   // ---------------- 调度 ----------------
@@ -335,6 +354,7 @@ class TransferQueue {
    */
   private async expandUpload(entry: Entry): Promise<void> {
     const { task } = entry
+    const isCanceled = (): boolean => task.state === 'canceled'
     /*
      * lstat 而不是 stat：stat 会跟随软链接，于是一条指向祖先目录的链接会被当成
      * 真目录展开下去 —— 表现是磁盘被写满/任务无限增长。
@@ -386,7 +406,7 @@ class TransferQueue {
       this.setState(entry, 'error')
       return
     }
-    if (task.state === 'canceled') return
+    if (isCanceled()) return
 
     const links = children.filter((c) => c.isSymbolicLink()).length
     const kept = children.filter((c) => !c.isSymbolicLink())
@@ -400,8 +420,10 @@ class TransferQueue {
      * 需要 mkdir 的次数与空目录数成正比、与树规模无关（有文件的目录由 worker 顺手建）。
      */
     if (kept.length === 0) {
+      if (isCanceled()) return
       try {
         const sftp = await sshManager.get(task.sessionId).browseSftpSession()
+        if (isCanceled()) return
         await mkdirp(sftp, toRemotePath(task.remotePath))
       } catch (err) {
         task.error = err instanceof Error ? err.message : String(err)
@@ -481,6 +503,7 @@ class TransferQueue {
 
   private async start(entry: Entry): Promise<void> {
     const { task } = entry
+    const isCanceled = (): boolean => task.state === 'canceled'
     this.setState(entry, 'running')
     this.running += 1
     this.runningBySession.set(task.sessionId, (this.runningBySession.get(task.sessionId) ?? 0) + 1)
@@ -490,6 +513,7 @@ class TransferQueue {
     try {
       conn = sshManager.get(task.sessionId)
       sftp = await conn.acquireTransferSftp()
+      if (isCanceled()) return
 
       /*
        * 打包传输的接入点：**排在 expandIfDirectory 之前** —— 展开正是打包要替代的那一步，
@@ -497,6 +521,7 @@ class TransferQueue {
        * 判定不成立时一个字节都没发出去，原路走下面那条既有路径，一行没改。
        */
       if (await this.tryPackedDownload(entry, conn, sftp)) {
+        if (isCanceled()) return
         this.setState(entry, 'done')
         return
       }
@@ -508,10 +533,12 @@ class TransferQueue {
        */
       if (await this.expandIfDirectory(entry, sftp)) {
         this.settleGroup(entry)
+        if (isCanceled()) return
         return
       }
 
       const resume = await this.resolveResume(entry, sftp)
+      if (isCanceled()) return
       const { promise, handle } = runTransfer({
         sftp,
         task,
@@ -526,6 +553,7 @@ class TransferQueue {
       entry.handle = handle
       entry.attempted = true
       await promise
+      if (isCanceled()) return
       task.transferred = task.size >= 0 ? task.size : task.transferred
       // 最后那一截（节流窗口里没报出去的）也要计入祖先，否则分组进度差最后几 KB
       this.syncRolledBytes(entry)
@@ -608,6 +636,7 @@ class TransferQueue {
     })
     entry.handle = run.handle
     entry.attempted = true
+    if (task.state === 'canceled') run.handle.cancel()
     await run.promise
     task.phase = undefined
     task.transferred = task.size >= 0 ? task.size : task.transferred
