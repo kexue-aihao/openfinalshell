@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.19.2',
+    items: [
+      {
+        type: 'feat',
+        zh: '发布链新增 Windows ARM64 安装版与免安装版；Linux 同时构建 x64 和 ARM64 的 Debian 13、RPM、AppImage、Flatpak 包。不同 Linux 包按发行版惯例使用 amd64、x86_64、arm64、aarch64 等架构名，下载时请按设备架构选择对应文件',
+        en: 'The release pipeline now includes Windows ARM64 installer and portable builds, plus Debian 13, RPM, AppImage, and Flatpak packages for Linux x64 and ARM64. Linux artifacts use distribution-standard architecture names such as amd64, x86_64, arm64, and aarch64; choose the file matching your device'
+      }
+    ]
+  },
+  {
     version: '0.19.1',
     items: [
       {
