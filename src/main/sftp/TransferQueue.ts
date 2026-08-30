@@ -285,11 +285,10 @@ class TransferQueue {
   cancelAll(): void {
     for (const entry of this.entries.values()) {
       if (!FINAL_STATES.has(entry.task.state)) {
-        this.cancelEntry(entry)
-        // Keep the terminal transition visible here for the queue-wide contract.
-        if (entry.task.state !== 'canceled') this.setState(entry, 'canceled')
+        if (entry.task.state === 'running') entry.handle?.cancel()
+        this.setState(entry, 'canceled')
       } else if (entry.task.isGroup) {
-        this.cancelEntry(entry)
+        this.setState(entry, 'canceled')
       }
     }
     this.expandQueue.length = 0
