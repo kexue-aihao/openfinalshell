@@ -198,7 +198,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential \
-            xvfb xauth dbus-x11 procps rpm flatpak flatpak-builder
+            xvfb xauth dbus-x11 procps rpm
 
       - uses: actions/setup-node@v4
         with:
@@ -263,17 +263,11 @@ jobs:
           retention-days: 14
 
   build-flatpak:
-    name: 打包 Flatpak ${{ matrix.arch }}
+    # Flathub 的 Electron BaseApp 目前只发布 x86_64；Linux ARM64 仍由
+    # deb、rpm 与 AppImage 正式覆盖，不能产出一个无法安装的 ARM64 Flatpak。
+    name: 打包 Flatpak x64
     needs: verify
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: x64
-            runner: ubuntu-latest
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -284,8 +278,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
           # flatpak-bundler 按 runtime/<id>/<arch>/<branch> 安装依赖，
-          # 新 runner 默认没有任何远程仓库，必须先提供 Flathub。
-          sudo flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          # 新 runner 默认没有用户级远程仓库，必须先提供 Flathub。
+          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
       - uses: actions/setup-node@v4
         with:
@@ -294,12 +288,16 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - run: npx electron-builder --linux flatpak --${{ matrix.arch }} --publish never
-      - run: npm run check:linux-artifacts -- ${{ matrix.arch }} flatpak
+      - name: electron-builder (flatpak x64)
+        env:
+          # flatpak-bundler 默认吞掉子进程 stderr；保留命令日志以便发布失败时可诊断。
+          DEBUG: flatpak-bundler
+        run: npx electron-builder --linux flatpak --x64 --publish never
+      - run: npm run check:linux-artifacts -- x64 flatpak
 
       - uses: actions/upload-artifact@v4
         with:
-          name: flatpak-${{ matrix.arch }}
+          name: flatpak-x64
           path: release/*.flatpak
           if-no-files-found: error
           retention-days: 14
@@ -327,7 +325,7 @@ jobs:
           [ "$(count '*.deb')" -eq 2 ] || { echo "::error::期望 2 个 Debian 包"; exit 1; }
           [ "$(count '*.rpm')" -eq 2 ] || { echo "::error::期望 2 个 RPM 包"; exit 1; }
           [ "$(count '*.AppImage')" -eq 2 ] || { echo "::error::期望 2 个 AppImage"; exit 1; }
-          [ "$(count '*.flatpak')" -eq 2 ] || { echo "::error::期望 2 个 Flatpak 包"; exit 1; }
+          [ "$(count '*.flatpak')" -eq 1 ] || { echo "::error::期望 1 个 x64 Flatpak 包"; exit 1; }
           test -f latest-x64-linux.yml || { echo "::error::缺 latest-x64-linux.yml"; exit 1; }
           test -f latest-arm64-linux.yml || { echo "::error::缺 latest-arm64-linux.yml"; exit 1; }
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
@@ -371,7 +369,7 @@ jobs:
           | `*-debian13-amd64.deb` / `*-debian13-arm64.deb` | Debian 13 安装包 |
           | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
           | `*-linux-x86_64.AppImage` / `*-linux-arm_aarch64.AppImage` | 通用免安装 Linux 包 |
-          | `*-linux-x86_64.flatpak` / `*-linux-aarch64.flatpak` | Flatpak 安装包 |
+          | `*-linux-x86_64.flatpak` | x64 Linux 的 Flatpak 安装包 |
 
           Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
 

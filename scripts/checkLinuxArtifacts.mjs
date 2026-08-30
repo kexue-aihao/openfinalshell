@@ -5,7 +5,7 @@ const arch = process.argv[2]
 const targets = process.argv.slice(3)
 const artifactArch = {
   x64: { deb: 'amd64', rpm: 'x86_64', appImage: 'x86_64', flatpak: 'x86_64' },
-  arm64: { deb: 'arm64', rpm: 'aarch64', appImage: 'arm_aarch64', flatpak: 'aarch64' }
+  arm64: { deb: 'arm64', rpm: 'aarch64', appImage: 'arm_aarch64' }
 }[arch]
 if (!artifactArch) {
   throw new Error('Usage: node scripts/checkLinuxArtifacts.mjs <x64|arm64> [deb] [rpm] [appImage] [flatpak]')
@@ -15,7 +15,9 @@ const artifactNames = {
   deb: (version) => `OpenFinalShell-${version}-debian13-${artifactArch.deb}.deb`,
   rpm: (version) => `OpenFinalShell-${version}-linux-${artifactArch.rpm}.rpm`,
   appImage: (version) => `OpenFinalShell-${version}-linux-${artifactArch.appImage}.AppImage`,
-  flatpak: (version) => `OpenFinalShell-${version}-linux-${artifactArch.flatpak}.flatpak`
+  ...(artifactArch.flatpak
+    ? { flatpak: (version) => `OpenFinalShell-${version}-linux-${artifactArch.flatpak}.flatpak` }
+    : {})
 }
 const selectedTargets = targets.length === 0 ? Object.keys(artifactNames) : targets
 for (const target of selectedTargets) {

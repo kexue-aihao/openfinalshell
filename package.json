@@ -22,7 +22,7 @@
     "package:deb": "electron-vite build && electron-builder --linux deb --x64 --publish never",
     "package:win:arm64": "electron-vite build && electron-builder --win --arm64 --publish never",
     "package:linux": "electron-vite build && electron-builder --linux deb rpm AppImage flatpak --x64 --publish never",
-    "package:linux:arm64": "electron-vite build && electron-builder --linux deb rpm AppImage flatpak --arm64 --publish never",
+    "package:linux:arm64": "electron-vite build && electron-builder --linux deb rpm AppImage --arm64 --publish never",
     "package:dir": "electron-vite build && electron-builder --win --dir",
     "smoke:packaged": "node test/fixtures/packagedSmoke.mjs",
     "postinstall": "electron-builder install-app-deps",

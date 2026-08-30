@@ -55,7 +55,7 @@ mac:
 
 linux:
   # arch 始终由命令行的 --x64 / --arm64 指定，避免一个 job 混入多个架构的产物。
-  # .deb 保留 Debian 13 原生渠道；rpm、AppImage 与 Flatpak 覆盖其余主流发行版。
+  # .deb 保留 Debian 13 原生渠道；rpm 与 AppImage 覆盖其余主流发行版。
   target: [deb, rpm, AppImage, flatpak]
   category: Network
   executableName: openfinalshell
@@ -118,8 +118,8 @@ appImage:
 flatpak:
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
   category: Network
-  # electron-builder 的默认 20.08 运行时已停止维护，且新构建环境中可能已不可用。
-  # 24.08 同时提供 x86_64 与 aarch64 的 Platform、SDK 和 Electron BaseApp。
+  # electron-builder 的默认 20.08 运行时已停止维护，改用仍受支持的 24.08。
+  # Flathub 的 Electron BaseApp 目前仅提供 x86_64，所以 CI 只发布 x64 Flatpak。
   runtimeVersion: '24.08'
   baseVersion: '24.08'
 
