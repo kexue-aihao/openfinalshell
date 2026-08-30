@@ -16,7 +16,7 @@ internal class MinaShellChannel(private val channel: ChannelShell) : ShellChanne
     private val readerExecutor = Executors.newSingleThreadExecutor()
 
     override val output: Flow<ByteArray> = callbackFlow {
-        val input: InputStream = channel.invertedOut
+        val input: InputStream = channel.getInvertedOut()
         val reader = readerExecutor.submit {
             val buffer = ByteArray(8192)
             try {
@@ -33,8 +33,8 @@ internal class MinaShellChannel(private val channel: ChannelShell) : ShellChanne
     }
 
     override suspend fun write(data: ByteArray) = withContext(Dispatchers.IO) {
-        channel.invertedIn.write(data)
-        channel.invertedIn.flush()
+        channel.getInvertedIn().write(data)
+        channel.getInvertedIn().flush()
     }
 
     override suspend fun resize(cols: Int, rows: Int) {
@@ -43,7 +43,9 @@ internal class MinaShellChannel(private val channel: ChannelShell) : ShellChanne
         channel.setPtyLines(rows)
     }
 
-    override suspend fun close() = withContext(Dispatchers.IO) { channel.close(false) }
+    override suspend fun close() {
+        withContext(Dispatchers.IO) { channel.close(false) }
+    }
 }
 
 internal class MinaSftpChannel(private val client: SftpClient) : SftpChannel {

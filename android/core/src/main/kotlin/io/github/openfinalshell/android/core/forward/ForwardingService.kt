@@ -130,7 +130,7 @@ class DynamicSocksForwarder(private val dialer: ForwardDialer) {
             if (greeting.size != 2 || greeting[0].toInt() != 5) return
             val methods = input.readNBytes(greeting[1].toInt() and 0xff)
             if (!Socks5Parser.greeting(greeting + methods)) {
-                output.write(byteArrayOf(5, 255)); return
+                output.write(byteArrayOf(5, 0xff.toByte())); return
             }
             output.write(byteArrayOf(5, 0)); output.flush()
             val head = input.readNBytes(4)
