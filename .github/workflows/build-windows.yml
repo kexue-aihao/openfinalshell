@@ -215,19 +215,6 @@ jobs:
       - run: npm run check:deb -- ${{ matrix.arch }}
       - run: npm run check:linux-artifacts -- ${{ matrix.arch }} deb rpm appImage
 
-      - name: 断言 Linux 架构专属更新 feed
-        run: |
-          cd release
-          feed="latest-${{ matrix.arch }}-linux.yml"
-          test -f "$feed" || { echo "::error::缺 $feed"; exit 1; }
-          # Linux 包名遵循发行版命名（amd64/x86_64/aarch64），而非 electron-builder CLI 名。
-          arch_pattern='amd64|x86_64'
-          if [ "${{ matrix.arch }}" = 'arm64' ]; then arch_pattern='arm64|aarch64'; fi
-          # Linux 当前仅提供手动更新指引；feed 不参与客户端安装，故只防止跨架构覆盖。
-          grep -Eq "$arch_pattern" "$feed" || {
-            echo "::error::$feed 未包含目标架构标识"; cat "$feed"; exit 1;
-          }
-
       - name: 用 APT 安装并运行打包产物冒烟
         run: |
           apt-get install -y ./release/*-debian13-${{ matrix.deb_arch }}.deb
@@ -258,7 +245,6 @@ jobs:
             release/*.deb
             release/*.rpm
             release/*.AppImage
-            release/latest-${{ matrix.arch }}-linux.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -326,12 +312,10 @@ jobs:
           [ "$(count '*.rpm')" -eq 2 ] || { echo "::error::期望 2 个 RPM 包"; exit 1; }
           [ "$(count '*.AppImage')" -eq 2 ] || { echo "::error::期望 2 个 AppImage"; exit 1; }
           [ "$(count '*.flatpak')" -eq 1 ] || { echo "::error::期望 1 个 x64 Flatpak 包"; exit 1; }
-          test -f latest-x64-linux.yml || { echo "::error::缺 latest-x64-linux.yml"; exit 1; }
-          test -f latest-arm64-linux.yml || { echo "::error::缺 latest-arm64-linux.yml"; exit 1; }
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
           test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
           test -f latest-arm64.yml || { echo "::error::缺 latest-arm64.yml"; exit 1; }
-          [ "$(count 'latest-*.yml')" -eq 5 ] || { echo "::error::期望 5 个架构专属更新 feed"; exit 1; }
+          [ "$(count 'latest-*.yml')" -eq 3 ] || { echo "::error::期望 3 个 Windows 架构专属更新 feed"; exit 1; }
           if [ -e latest.yml ]; then
             echo "::error::出现裸 latest.yml —— 多架构 feed 会互相覆盖"; exit 1
           fi
@@ -339,9 +323,6 @@ jobs:
           grep -q 'setup-x64.exe' latest-x64.yml || { echo "::error::latest-x64.yml 没指向 x64 包"; exit 1; }
           grep -q 'setup-ia32.exe' latest-ia32.yml || { echo "::error::latest-ia32.yml 没指向 ia32 包"; exit 1; }
           grep -q 'setup-arm64.exe' latest-arm64.yml || { echo "::error::latest-arm64.yml 没指向 arm64 包"; exit 1; }
-          # Linux 文件名按包格式使用发行版惯例（amd64/x86_64/aarch64），不能拿 CLI 架构名硬比。
-          grep -Eq 'amd64|x86_64' latest-x64-linux.yml || { echo "::error::latest-x64-linux.yml 没指向 x64 Linux 包"; exit 1; }
-          grep -Eq 'arm64|aarch64' latest-arm64-linux.yml || { echo "::error::latest-arm64-linux.yml 没指向 ARM64 Linux 包"; exit 1; }
           grep -H 'url:' latest-*.yml
 
       # 安装包没有代码签名，校验和是用户确认完整性的唯一手段
