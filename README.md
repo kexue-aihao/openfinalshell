@@ -221,7 +221,11 @@ gradle -p android :app:assembleDebug
 
 Android 支持 API 26 及以上和 `arm64-v8a`、`armeabi-v7a`、`x86_64`。桌面端
 `safeStorage`/Windows DPAPI 密文不能直接在 Android 解密，跨设备迁移请使用
-口令保护的加密导出文件。
+口令保护的加密导出文件。GitHub Actions 会在 Android 相关变更时运行编译、
+单元测试和 API 26/35 仪器测试；推送 `v*` 标签时，签名 APK/AAB 会上传到同一
+Release。Android 发布需要配置 `ANDROID_KEYSTORE_B64`、
+`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD`
+四个仓库 Secrets。
 
 ## 开发
 

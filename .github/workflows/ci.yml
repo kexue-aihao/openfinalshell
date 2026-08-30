@@ -28,9 +28,9 @@ jobs:
     # 而 Windows 恰好是本项目唯一的交付平台
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -61,7 +61,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装构建依赖
         run: |
@@ -69,7 +69,7 @@ jobs:
           # openssh-client 提供私钥格式测试使用的 ssh-keygen。
           apt-get install -y --no-install-recommends ca-certificates git tar xz-utils dpkg-dev openssh-client python3 build-essential
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm

@@ -1,0 +1,159 @@
+name: android-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  JAVA_VERSION: "17"
+  GRADLE_VERSION: "8.10"
+  ANDROID_PLATFORM: "android-35"
+  ANDROID_BUILD_TOOLS: "35.0.0"
+
+jobs:
+  release:
+    name: Build and publish Android APK/AAB
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
+
+      - name: Generate shared schema metadata
+        run: node scripts/generateSharedSchema.mjs
+
+      - name: Validate tag and package version
+        shell: bash
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          tag=${GITHUB_REF_NAME#v}
+          echo "package.json=$pkg tag=$tag"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            exit 1
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ env.GRADLE_VERSION }}
+          # Release must remain reproducible even when GitHub Cache is degraded.
+          cache-disabled: true
+
+      - name: Run Kotlin unit tests
+        run: gradle -p android testDebugUnitTest --stacktrace
+
+      - name: Validate signing secrets
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_B64" || { echo "::error::Missing ANDROID_KEYSTORE_B64"; exit 1; }
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || { echo "::error::Missing ANDROID_KEYSTORE_PASSWORD"; exit 1; }
+          test -n "$ANDROID_KEY_ALIAS" || { echo "::error::Missing ANDROID_KEY_ALIAS"; exit 1; }
+          test -n "$ANDROID_KEY_PASSWORD" || { echo "::error::Missing ANDROID_KEY_PASSWORD"; exit 1; }
+
+      - name: Restore release keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/openfinalshell-release.jks"
+
+      - name: Assemble signed APKs and AAB
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/openfinalshell-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle -p android :app:assembleRelease :app:bundleRelease --stacktrace
+
+      - name: Normalize Android release assets
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          mkdir -p android-release
+          shopt -s nullglob
+          apks=(android/app/build/outputs/apk/release/*.apk)
+          aabs=(android/app/build/outputs/bundle/release/*.aab)
+          [ "${#apks[@]}" -gt 0 ] || { echo "::error::No release APK was produced"; exit 1; }
+          [ "${#aabs[@]}" -eq 1 ] || { echo "::error::Expected exactly one release AAB, found ${#aabs[@]}"; exit 1; }
+          for apk in "${apks[@]}"; do
+            abi=$(basename "$apk" | sed -E 's/^app-(.*)-release\.apk$/\1/')
+            cp "$apk" "android-release/OpenFinalShell-$version-android-$abi.apk"
+          done
+          for aab in "${aabs[@]}"; do
+            cp "$aab" "android-release/OpenFinalShell-$version-android.aab"
+          done
+          sha256sum android-release/*.apk android-release/*.aab | tee android-release/SHA256SUMS-android.txt
+          ls -lh android-release
+
+      - name: Upload Android build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ github.ref_name }}
+          path: android-release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Wait for desktop Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for attempt in $(seq 1 90); do
+            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $GITHUB_REF_NAME is available"
+              exit 0
+            fi
+            echo "Waiting for desktop Release ($attempt/90)"
+            sleep 10
+          done
+          echo "::error::Timed out waiting for Release $GITHUB_REF_NAME"
+          exit 1
+
+      - name: Remove stale Android assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+            while IFS= read -r asset; do
+              case "$asset" in
+                *-android-*.apk|*-android.aab)
+                  gh release delete-asset "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+                  ;;
+              esac
+            done
+
+      - name: Upload Android assets to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" android-release/* --repo "$GITHUB_REPOSITORY" --clobber

@@ -1,4 +1,4 @@
-name: build-windows
+name: desktop-release
 
 # 打 v* tag → 构建并发布 Release；手动触发只产出 artifact 不发 Release
 on:
@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: build-windows-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -24,9 +24,9 @@ jobs:
     name: 检查（类型 / i18n / 测试）
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -64,9 +64,9 @@ jobs:
         # ia32 即 32 位（x86）；Electron 43 同时提供 win32 x64 / ia32 / arm64 产物。
         arch: [x64, ia32, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -191,7 +191,7 @@ jobs:
             runner: ubuntu-24.04-arm
             deb_arch: arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: 安装 Linux 构建、打包与 GUI 冒烟依赖
         run: |
@@ -200,7 +200,7 @@ jobs:
             ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential \
             xvfb xauth dbus-x11 procps rpm
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -255,7 +255,7 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # electron-builder 的 Flatpak 目标需要可正常运行的系统 Flatpak 服务；
       # Debian Docker container 内缺少该运行环境，构建会在 flatpak 阶段失败。
@@ -267,7 +267,7 @@ jobs:
           # 新 runner 默认没有用户级远程仓库，必须先提供 Flathub。
           flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -351,6 +351,9 @@ jobs:
           | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
           | `*-linux-x86_64.AppImage` / `*-linux-arm64.AppImage` | 通用免安装 Linux 包 |
           | `*-linux-x86_64.flatpak` | x64 Linux 的 Flatpak 安装包 |
+          | `*-android-*.apk` | Android APK（按 ABI 提供，含 universal 版） |
+          | `*-android.aab` | Android App Bundle（用于应用商店发布） |
+          | `SHA256SUMS-android.txt` | Android APK/AAB 校验和 |
 
           Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
 
@@ -375,20 +378,35 @@ jobs:
           > 迁移走「导出并勾选含密码」→ 新机「选择文件导入…」填同一口令：
           > 那一段是用导出口令重新加密的，不依赖 DPAPI。
           EOF
-          # 同一个 tag 重推时（修了问题重新出包）要能干净重来：
-          # gh release create 遇到同名 Release 直接失败，而 --clobber 式上传又会留下
-          # 上一次的陈旧资产 —— 所以先删掉 Release 本身，tag 保留不动。
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "已存在 Release $GITHUB_REF_NAME，先删除再重建（tag 保留）"
-            gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --yes
-          fi
           prerelease=()
           # v0.1.0-rc1 这类带后缀的 tag 视为预发布
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
-          gh release create "$GITHUB_REF_NAME" \
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "更新现有 Release $GITHUB_REF_NAME（保留 Android 资产）"
+            gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "OpenFinalShell $GITHUB_REF_NAME" \
+              --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "OpenFinalShell $GITHUB_REF_NAME" \
+              --notes-file notes.md \
+              --verify-tag \
+              "${prerelease[@]}"
+          fi
+
+          # 只清理桌面资产，保留 Android 工作流可能已经上传的 APK/AAB。
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+            while IFS= read -r asset; do
+              case "$asset" in
+                *.exe|*.exe.blockmap|*.deb|*.rpm|*.AppImage|*.flatpak|latest-*.yml|SHA256SUMS.txt)
+                  gh release delete-asset "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+                  ;;
+              esac
+            done
+
+          gh release upload "$GITHUB_REF_NAME" \
             dist/*.exe dist/*.exe.blockmap dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak dist/latest-*.yml dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "OpenFinalShell $GITHUB_REF_NAME" \
-            --notes-file notes.md \
-            --verify-tag \
-            "${prerelease[@]}"
+            --clobber
