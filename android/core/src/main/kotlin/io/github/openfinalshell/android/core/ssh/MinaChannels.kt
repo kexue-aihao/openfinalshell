@@ -10,13 +10,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import org.apache.sshd.client.channel.ChannelShell
+import org.apache.sshd.client.channel.ClientChannel
 import org.apache.sshd.sftp.client.SftpClient
 
 internal class MinaShellChannel(private val channel: ChannelShell) : ShellChannel {
     private val readerExecutor = Executors.newSingleThreadExecutor()
+    private val clientChannel: ClientChannel = channel
 
     override val output: Flow<ByteArray> = callbackFlow {
-        val input: InputStream = channel.getInvertedOut()
+        val input: InputStream = clientChannel.getInvertedOut()
         val reader = readerExecutor.submit {
             val buffer = ByteArray(8192)
             try {
@@ -33,8 +35,8 @@ internal class MinaShellChannel(private val channel: ChannelShell) : ShellChanne
     }
 
     override suspend fun write(data: ByteArray) = withContext(Dispatchers.IO) {
-        channel.getInvertedIn().write(data)
-        channel.getInvertedIn().flush()
+        clientChannel.getInvertedIn().write(data)
+        clientChannel.getInvertedIn().flush()
     }
 
     override suspend fun resize(cols: Int, rows: Int) {
