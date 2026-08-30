@@ -368,7 +368,7 @@ jobs:
           | `*-portable-arm64.exe` | Windows ARM64 免安装 |
           | `*-debian13-amd64.deb` / `*-debian13-arm64.deb` | Debian 13 安装包 |
           | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
-          | `*-linux-x86_64.AppImage` / `*-linux-arm_aarch64.AppImage` | 通用免安装 Linux 包 |
+          | `*-linux-x86_64.AppImage` / `*-linux-arm64.AppImage` | 通用免安装 Linux 包 |
           | `*-linux-x86_64.flatpak` | x64 Linux 的 Flatpak 安装包 |
 
           Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
