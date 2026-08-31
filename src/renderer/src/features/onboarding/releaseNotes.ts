@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.6',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android SSHD 在 Android 没有系统用户目录时初始化失败的问题；使用应用私有目录作为 SSH 用户目录，恢复 SSH、终端和 SFTP 连接',
+        en: 'Fixed Android SSHD initialization on devices without a conventional system user home; the app private directory is now used as the SSH user home so SSH, terminal and SFTP connections work again'
+      }
+    ]
+  },
+  {
     version: '0.20.5',
     items: [
       {
