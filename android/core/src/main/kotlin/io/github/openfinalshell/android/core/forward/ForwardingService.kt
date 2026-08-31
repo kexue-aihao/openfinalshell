@@ -9,6 +9,8 @@ import java.nio.ByteOrder
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 interface ForwardDialer {
     suspend fun open(host: String, port: Int): Socket
@@ -166,4 +168,60 @@ class DynamicSocksForwarder(private val dialer: ForwardDialer) {
 interface RemoteForwarder {
     suspend fun start(rule: ForwardRule)
     suspend fun stop(rule: ForwardRule)
+}
+
+data class ForwardRuntimeState(
+    val ruleId: String,
+    val state: String = "stopped",
+    val activeConnections: Int = 0,
+    val totalBytes: Long = 0,
+    val error: String? = null
+)
+
+/** Owns local, dynamic and remote forwarding lifecycles independently of Compose. */
+class ForwardingManager(
+    private val dialer: ForwardDialer,
+    private val remote: RemoteForwarder? = null
+) {
+    private val mutableStates = MutableStateFlow<Map<String, ForwardRuntimeState>>(emptyMap())
+    val states: StateFlow<Map<String, ForwardRuntimeState>> = mutableStates
+    private val local = mutableMapOf<String, LocalForwarder>()
+    private val dynamic = mutableMapOf<String, DynamicSocksForwarder>()
+    private val remoteRules = mutableMapOf<String, ForwardRule>()
+
+    suspend fun start(rule: ForwardRule) {
+        stop(rule.id)
+        try {
+            when (rule.type.lowercase()) {
+                "local" -> LocalForwarder(dialer).also { it.start(rule); local[rule.id] = it }
+                "dynamic" -> DynamicSocksForwarder(dialer).also { it.start(rule.bindAddr, rule.bindPort); dynamic[rule.id] = it }
+                "remote" -> {
+                    remote?.start(rule) ?: error("remote forwarding is not available for this session")
+                    remoteRules[rule.id] = rule
+                }
+                else -> error("unsupported forwarding type: ${rule.type}")
+            }
+            update(rule.id, ForwardRuntimeState(rule.id, "active"))
+        } catch (error: Throwable) {
+            update(rule.id, ForwardRuntimeState(rule.id, "error", error = error.message ?: error.javaClass.simpleName))
+            throw error
+        }
+    }
+
+    suspend fun stop(ruleId: String) {
+        local.remove(ruleId)?.stop()
+        dynamic.remove(ruleId)?.stop()
+        remoteRules.remove(ruleId)?.let { remote?.stop(it) }
+        mutableStates.value[ruleId]?.let { current ->
+            update(ruleId, current.copy(state = "stopped", activeConnections = 0))
+        }
+    }
+
+    suspend fun stopAll() {
+        (local.keys + dynamic.keys + remoteRules.keys).toList().forEach { stop(it) }
+    }
+
+    private fun update(id: String, state: ForwardRuntimeState) {
+        mutableStates.value = mutableStates.value + (id to state)
+    }
 }

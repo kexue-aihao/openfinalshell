@@ -7,6 +7,10 @@ class ForwardRepository(private val dao: ForwardDao) {
         ForwardRule(it.id, it.profileId, it.type, it.label, it.bindAddr, it.bindPort, it.dstHost, it.dstPort, it.autoStart)
     }
 
+    suspend fun find(id: String): ForwardRule? = dao.find(id)?.let {
+        ForwardRule(it.id, it.profileId, it.type, it.label, it.bindAddr, it.bindPort, it.dstHost, it.dstPort, it.autoStart)
+    }
+
     suspend fun upsert(rule: ForwardRule) {
         dao.upsert(
             ForwardEntity(

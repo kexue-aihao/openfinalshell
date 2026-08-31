@@ -32,7 +32,7 @@ data class SyncFrame(
 )
 
 /** 4-byte big-endian length prefix used by the existing LanSync TCP protocol. */
-class FrameCodec(private var maxBytes: Int = LanSyncConstants.MAX_FRAME_BYTES) {
+class FrameCodec(private var maxBytes: Int = LanSyncConstants.HANDSHAKE_MAX_FRAME_BYTES) {
     private val pending = ByteArrayOutputStream()
 
     fun setMaxBytes(value: Int) {
@@ -41,6 +41,7 @@ class FrameCodec(private var maxBytes: Int = LanSyncConstants.MAX_FRAME_BYTES) {
     }
 
     fun encode(frame: SyncFrame): ByteArray {
+        validate(frame)
         val body = ProtocolJson.instance.encodeToString(SyncFrame.serializer(), frame).toByteArray(Charsets.UTF_8)
         require(body.size in 1..maxBytes) { "lansync frame length is invalid: ${body.size}" }
         return ByteBuffer.allocate(4 + body.size).order(ByteOrder.BIG_ENDIAN)
@@ -61,8 +62,34 @@ class FrameCodec(private var maxBytes: Int = LanSyncConstants.MAX_FRAME_BYTES) {
             val remainder = bytes.copyOfRange(length + 4, bytes.size)
             pending.reset()
             pending.write(remainder)
-            frames += ProtocolJson.instance.decodeFromString(SyncFrame.serializer(), payload.toString(Charsets.UTF_8))
+            val frame = ProtocolJson.instance.decodeFromString(SyncFrame.serializer(), payload.toString(Charsets.UTF_8))
+            validate(frame)
+            frames += frame
         }
         return frames
+    }
+
+    private fun validate(frame: SyncFrame) {
+        require(frame.kind in VALID_KINDS) { "unsupported lansync frame kind: ${frame.kind}" }
+        when (frame.kind) {
+            "hello" -> require(frame.magic == LanSyncConstants.MAGIC && frame.proto == LanSyncConstants.PROTOCOL &&
+                !frame.deviceId.isNullOrBlank() && !frame.senderPub.isNullOrBlank())
+            "hello-ack" -> require(!frame.deviceId.isNullOrBlank() && !frame.receiverPub.isNullOrBlank() &&
+                !frame.salt.isNullOrBlank() && !frame.sessionId.isNullOrBlank())
+            "confirm-s", "confirm-r" -> require(!frame.mac.isNullOrBlank())
+            "payload" -> require(!frame.envelope.isNullOrBlank())
+            "applied" -> require((frame.profiles ?: -1) >= 0 && (frame.snippets ?: -1) >= 0 &&
+                (frame.forwards ?: -1) >= 0 && (frame.knownHosts ?: -1) >= 0 &&
+                (frame.secrets ?: -1) >= 0 && (frame.skipped ?: -1) >= 0)
+            "received", "rejected" -> Unit
+            "error" -> require(!frame.code.isNullOrBlank())
+        }
+    }
+
+    private companion object {
+        val VALID_KINDS = setOf(
+            "hello", "hello-ack", "confirm-s", "confirm-r", "payload",
+            "received", "applied", "rejected", "error"
+        )
     }
 }

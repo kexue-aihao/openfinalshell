@@ -19,4 +19,15 @@ class PortTrafficParserTest {
     fun `reports missing ss as unsupported`() {
         assertNull(PortTrafficParser.parse("@@OFS:NOSS@@"))
     }
+
+    @Test
+    fun `computes rates from cumulative counters`() {
+        val tracker = PortTrafficRateTracker()
+        val first = tracker.apply(PortTrafficParser.parse("443 1 100 50 1\n", 1_000)!!)
+        assertEquals(false, first.ports.single().ratesAvailable)
+        val second = tracker.apply(PortTrafficParser.parse("443 1 300 150 1\n", 3_000)!!)
+        assertEquals(true, second.ports.single().ratesAvailable)
+        assertEquals(100, second.ports.single().rxBps)
+        assertEquals(50, second.ports.single().txBps)
+    }
 }

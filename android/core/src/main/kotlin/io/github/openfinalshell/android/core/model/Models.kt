@@ -111,7 +111,10 @@ data class PortTrafficEntry(
     val connections: Int,
     val ratesAvailable: Boolean,
     val rxBps: Long,
-    val txBps: Long
+    val txBps: Long,
+    /** Cumulative TCP_INFO counters from the server. */
+    val rxTotalBytes: Long = 0,
+    val txTotalBytes: Long = 0
 )
 
 @Serializable

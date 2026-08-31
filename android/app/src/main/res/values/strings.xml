@@ -2,6 +2,7 @@
     <string name="app_name">OpenFinalShell</string>
     <string name="tab_connections">Connections</string>
     <string name="tab_terminal">Terminal</string>
+    <string name="tab_sftp">SFTP</string>
     <string name="tab_monitor">Monitor</string>
     <string name="saved_connections">Saved connections</string>
     <string name="label_name">Name</string>
