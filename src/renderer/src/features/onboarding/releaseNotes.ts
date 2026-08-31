@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.1',
+    items: [
+      {
+        type: 'feat',
+        zh: 'Android 原生客户端完成首期功能对齐：支持 SSH 多会话与自动重连、密码和私钥认证、主机指纹校验、终端、SFTP 浏览与断点传输、Room/Keystore 安全存储、服务器监控双延迟与端口流量、端口转发和 LAN Sync；新增 Android 应用图标，桌面端功能与协议保持兼容',
+        en: 'The native Android client now provides first-phase feature parity with SSH multi-session and automatic reconnect, password and private-key authentication, host fingerprint verification, terminal, SFTP browsing and resumable transfers, Room/Keystore secure storage, dual-latency and port-traffic monitoring, port forwarding and LAN Sync; added Android app icons while preserving desktop behavior and protocol compatibility'
+      }
+    ]
+  },
+  {
     version: '0.20.0',
     items: [
       {
