@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v5
@@ -132,6 +133,21 @@ jobs:
             if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "Release $GITHUB_REF_NAME is available"
               exit 0
+            fi
+            desktop_run=$(gh run list \
+              --workflow build-windows.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --branch "$GITHUB_REF_NAME" \
+              --limit 1 \
+              --json status,conclusion,databaseId \
+              --jq '.[0] // empty' 2>/dev/null || true)
+            if [ -n "$desktop_run" ]; then
+              desktop_status=$(printf '%s' "$desktop_run" | jq -r '.status')
+              desktop_conclusion=$(printf '%s' "$desktop_run" | jq -r '.conclusion // empty')
+              if [ "$desktop_status" = "completed" ] && [ "$desktop_conclusion" != "success" ]; then
+                echo "::error::Desktop workflow failed ($desktop_conclusion); no Release will be created"
+                exit 1
+              fi
             fi
             echo "Waiting for desktop Release ($attempt/90)"
             sleep 10

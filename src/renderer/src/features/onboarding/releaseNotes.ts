@@ -17,6 +17,26 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.3',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复发布校验遗漏当前版本更新说明导致桌面和 Android 工作流失败；优化 Android API 35 模拟器测试的启动稳定性，并在失败时保留诊断日志',
+        en: 'Fixed release validation failures caused by a missing current-version changelog entry; improved Android API 35 emulator test startup stability and preserved diagnostics when instrumentation fails'
+      }
+    ]
+  },
+  {
+    version: '0.20.2',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android 客户端首次启动或升级时 Room 数据库迁移失败导致应用闪退的问题；保留已有连接、私钥和配置数据，并同步 Android 发布版本号',
+        en: 'Fixed Android crashes caused by Room database migration failures on first launch or upgrade; existing connections, private keys and settings are preserved, and the Android release version is kept in sync'
+      }
+    ]
+  },
+  {
     version: '0.20.1',
     items: [
       {
