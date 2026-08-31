@@ -83,6 +83,12 @@ object AndroidSshdInitializer {
     }
 
     private fun registerSecurityProviderLocked() {
+        // Android vendors may ship a provider named "BC" that is not compatible with
+        // the algorithms MINA probes (for example SHA-256 on some Xiaomi builds). Keep
+        // MINA on the platform JCA providers instead of selecting that provider by name.
+        // This must happen before the first SecurityUtils registration call.
+        SecurityUtils.setAPrioriDisabledProvider(SecurityUtils.BOUNCY_CASTLE, true)
+
         if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
             runCatching { Security.addProvider(BouncyCastleProvider()) }
                 .onFailure { Log.w(TAG, "Unable to register Bouncy Castle provider", it) }

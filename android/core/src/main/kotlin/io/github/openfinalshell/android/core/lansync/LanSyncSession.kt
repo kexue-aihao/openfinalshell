@@ -10,7 +10,6 @@ import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
-import java.security.Security
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import java.util.UUID
@@ -30,13 +29,15 @@ data class LanSyncApplyResult(
 
 /** X25519 JCA adapter. The BC provider keeps this available on API 26 devices. */
 private object X25519 {
-    init { if (Security.getProvider("BC") == null) Security.addProvider(BouncyCastleProvider()) }
+    // Resolve the provider by instance. Android devices can expose an incompatible provider
+    // under the same "BC" name, so a name-based lookup is not safe for LAN Sync.
+    private val provider = BouncyCastleProvider()
 
-    fun generate(): KeyPair = KeyPairGenerator.getInstance("X25519", "BC").generateKeyPair()
+    fun generate(): KeyPair = KeyPairGenerator.getInstance("X25519", provider).generateKeyPair()
 
     fun shared(privateKey: PrivateKey, peerPublicDer: ByteArray): ByteArray {
-        val peer = KeyFactory.getInstance("X25519", "BC").generatePublic(X509EncodedKeySpec(peerPublicDer))
-        return KeyAgreement.getInstance("X25519", "BC").run {
+        val peer = KeyFactory.getInstance("X25519", provider).generatePublic(X509EncodedKeySpec(peerPublicDer))
+        return KeyAgreement.getInstance("X25519", provider).run {
             init(privateKey)
             doPhase(peer, true)
             generateSecret()

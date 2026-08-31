@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.9',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复部分 Android 设备因系统 BC 加密提供者不兼容 SHA-256 导致 SSH 握手失败的问题；LAN Sync 改用应用内加密提供者，避免误用系统同名提供者',
+        en: 'Fixed SSH handshakes failing on some Android devices because the system BC provider did not expose SHA-256; LAN Sync now uses the app provider instance instead of an incompatible system provider with the same name'
+      }
+    ]
+  },
+  {
     version: '0.20.8',
     items: [
       {
