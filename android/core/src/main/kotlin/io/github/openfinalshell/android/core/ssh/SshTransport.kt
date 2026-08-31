@@ -1,6 +1,7 @@
 package io.github.openfinalshell.android.core.ssh
 
 import io.github.openfinalshell.android.core.model.ConnectionProfile
+import io.github.openfinalshell.android.core.model.ForwardRule
 import io.github.openfinalshell.android.core.model.SessionState
 import java.security.PublicKey
 import java.security.MessageDigest
@@ -21,6 +22,10 @@ interface SshTransport {
     /** Opens a one-shot command channel. The channel completes when the remote command exits. */
     suspend fun openExec(command: String): ExecChannel
     suspend fun openSftp(): SftpChannel
+    /** Starts a standard SSH port-forwarding tracker owned by this session. */
+    suspend fun startForwarding(rule: ForwardRule): AutoCloseable {
+        error("SSH port forwarding is not supported by this transport")
+    }
     suspend fun disconnect()
 }
 

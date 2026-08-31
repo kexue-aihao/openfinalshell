@@ -7,6 +7,16 @@ class ConnectionGroupRepository(private val dao: ConnectionGroupDao) {
     suspend fun find(id: String): ConnectionGroupEntity? = dao.find(id)
     suspend fun upsert(group: ConnectionGroupEntity) = dao.upsert(group)
     suspend fun delete(id: String) = dao.delete(id)
+
+    suspend fun save(name: String, parentId: String? = null, order: Double = 0.0, id: String? = null): ConnectionGroupEntity {
+        val nowId = id ?: UUID.randomUUID().toString()
+        return ConnectionGroupEntity(
+            id = nowId,
+            name = name.trim().ifEmpty { error("group name is empty") },
+            parentId = parentId,
+            sortOrder = order
+        ).also { dao.upsert(it) }
+    }
 }
 
 class SavedProxyRepository(private val dao: SavedProxyDao) {
@@ -24,6 +34,9 @@ class SavedProxyRepository(private val dao: SavedProxyDao) {
         passwordRef: String? = null,
         id: String? = null
     ): SavedProxyEntity {
+        require(type == "http" || type == "socks5") { "unsupported proxy type" }
+        require(port in 1..65535) { "invalid proxy port" }
+        require(host.isNotBlank()) { "proxy host is empty" }
         val now = System.currentTimeMillis()
         val previous = id?.let { dao.find(it) }
         return SavedProxyEntity(

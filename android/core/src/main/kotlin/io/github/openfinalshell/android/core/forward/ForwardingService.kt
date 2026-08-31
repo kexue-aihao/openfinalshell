@@ -64,8 +64,12 @@ data class Socks5Request(val host: String, val port: Int)
 
 /** No-auth SOCKS5 CONNECT parser matching the desktop dynamic forward implementation. */
 object Socks5Parser {
-    fun greeting(bytes: ByteArray): Boolean = bytes.size >= 3 &&
-        bytes[0].toInt() == 5 && (0 until bytes[1].toInt()).any { bytes[2 + it].toInt() == 0 }
+    fun greeting(bytes: ByteArray): Boolean {
+        if (bytes.size < 2 || bytes[0].toInt() != 5) return false
+        val methodCount = bytes[1].toInt() and 0xff
+        return bytes.size >= methodCount + 2 &&
+            (0 until methodCount).any { bytes[2 + it].toInt() == 0 }
+    }
 
     fun connect(bytes: ByteArray): Socks5Request {
         require(bytes.size >= 7 && bytes[0].toInt() == 5 && bytes[1].toInt() == 1) { "unsupported SOCKS5 request" }

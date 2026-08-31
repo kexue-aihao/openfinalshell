@@ -5,6 +5,7 @@ import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.ConnectionProxy
 import io.github.openfinalshell.android.core.protocol.ProtocolJson
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -31,6 +32,20 @@ class ProfileRepository(private val dao: ProfileDao) {
                     ProtocolJson.instance.encodeToString(ConnectionProxy.serializer(), it)
                 },
                 profileJson = ProtocolJson.instance.encodeToString(ConnectionProfile.serializer(), profile),
+                protocol = profile.protocol,
+                groupId = profile.groupId,
+                color = profile.color,
+                flag = profile.flag,
+                terminalJson = ProtocolJson.instance.encodeToString(
+                    io.github.openfinalshell.android.core.model.ConnectionTerminal.serializer(), profile.terminal
+                ),
+                optionsJson = ProtocolJson.instance.encodeToString(
+                    io.github.openfinalshell.android.core.model.ConnectionOptions.serializer(), profile.options
+                ),
+                proxyMode = profile.proxyMode,
+                proxyId = profile.proxyId,
+                jumpHostId = profile.jumpHostId,
+                note = profile.note,
                 createdAt = existing?.createdAt?.takeIf { it > 0 } ?: now,
                 updatedAt = now
             )
@@ -43,7 +58,10 @@ class ProfileRepository(private val dao: ProfileDao) {
         val id = idOverride ?: profile.id
         val now = System.currentTimeMillis()
         val existing = dao.find(id)
-        val profileJson = raw.toString()
+        // Keep the serialized payload and Room primary key in sync when importing as a duplicate.
+        val profileJson = raw.toMutableMap().also { it["id"] = JsonPrimitive(id) }
+            .let(::JsonObject)
+            .toString()
         dao.upsert(
             ProfileEntity(
                 id = id,
@@ -92,7 +110,26 @@ class ProfileRepository(private val dao: ProfileDao) {
                 auth = ConnectionAuth(entity.authMethod, entity.passwordRef, entity.privateKeyId, entity.passphraseRef),
                 proxy = entity.proxyJson?.let {
                     ProtocolJson.instance.decodeFromString(ConnectionProxy.serializer(), it)
-                }
+                },
+                protocol = entity.protocol,
+                groupId = entity.groupId,
+                note = entity.note,
+                terminal = entity.terminalJson?.let {
+                    ProtocolJson.instance.decodeFromString(
+                        io.github.openfinalshell.android.core.model.ConnectionTerminal.serializer(), it
+                    )
+                } ?: io.github.openfinalshell.android.core.model.ConnectionTerminal(),
+                options = entity.optionsJson?.let {
+                    ProtocolJson.instance.decodeFromString(
+                        io.github.openfinalshell.android.core.model.ConnectionOptions.serializer(), it
+                    )
+                } ?: io.github.openfinalshell.android.core.model.ConnectionOptions(),
+                proxyMode = entity.proxyMode,
+                proxyId = entity.proxyId,
+                jumpHostId = entity.jumpHostId,
+                color = entity.color,
+                flag = entity.flag,
+                lastUsedAt = entity.lastUsedAt
             )
         }.getOrNull()
     }

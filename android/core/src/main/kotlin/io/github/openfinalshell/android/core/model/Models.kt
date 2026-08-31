@@ -10,7 +10,36 @@ data class ConnectionProfile(
     val port: Int = 22,
     val username: String,
     val auth: ConnectionAuth,
-    val proxy: ConnectionProxy? = null
+    val proxy: ConnectionProxy? = null,
+    /** Android currently supports SSH profiles only. Kept in the model for import compatibility. */
+    val protocol: String = "ssh",
+    val groupId: String? = null,
+    val note: String? = null,
+    val terminal: ConnectionTerminal = ConnectionTerminal(),
+    val options: ConnectionOptions = ConnectionOptions(),
+    val proxyMode: String? = null,
+    val proxyId: String? = null,
+    val jumpHostId: String? = null,
+    val color: String? = null,
+    val flag: String? = null,
+    val lastUsedAt: Long? = null
+)
+
+@Serializable
+data class ConnectionTerminal(
+    val charset: String = "utf-8",
+    val termType: String = "xterm-256color",
+    val startupCommand: String? = null
+)
+
+@Serializable
+data class ConnectionOptions(
+    val keepaliveInterval: Int = 30,
+    val readyTimeout: Int = 20,
+    val legacyAlgorithms: Boolean = false,
+    val autoReconnect: Boolean = true,
+    val monitorEnabled: Boolean = false,
+    val compress: Boolean = false
 )
 
 @Serializable

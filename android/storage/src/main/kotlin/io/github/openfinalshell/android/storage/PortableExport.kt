@@ -17,6 +17,17 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
+data class StorageExportSnapshot(
+    val profiles: List<ConnectionProfile>,
+    val forwards: List<ForwardRule> = emptyList(),
+    val groups: List<ConnectionGroupEntity> = emptyList(),
+    val proxies: List<SavedProxyEntity> = emptyList(),
+    val privateKeys: List<PrivateKeyEntity> = emptyList(),
+    val knownHosts: List<KnownHostEntity> = emptyList(),
+    val secretValues: Map<String, String> = emptyMap(),
+    val settings: JsonObject? = null
+)
+
 @Serializable
 data class ExportEnvelope(
     val app: String,
@@ -71,9 +82,13 @@ object PortableExport {
         includeSecrets: Boolean = false,
         secretValues: Map<String, String> = emptyMap(),
         passphrase: CharArray? = null,
-        appVersion: String = "android"
+        appVersion: String = "android",
+        groups: List<ConnectionGroupEntity> = emptyList(),
+        proxies: List<SavedProxyEntity> = emptyList(),
+        privateKeys: List<PrivateKeyEntity> = emptyList(),
+        knownHosts: List<KnownHostEntity> = emptyList()
     ): String {
-        val data = buildData(profiles, forwards, settings)
+        val data = buildData(profiles, forwards, settings, groups, proxies, privateKeys, knownHosts)
         val secrets = if (includeSecrets) {
             ImportExportCrypto.seal(
                 ProtocolJson.instance.encodeToString(
@@ -89,16 +104,50 @@ object PortableExport {
         )
     }
 
+    /** Builds a portable export from all Android repositories, including reusable references. */
+    suspend fun buildV1FromStorage(
+        profiles: ProfileRepository,
+        forwards: ForwardRepository,
+        groups: ConnectionGroupRepository,
+        proxies: SavedProxyRepository,
+        privateKeys: PrivateKeyRepository,
+        knownHosts: KnownHostRepository,
+        credentials: AndroidCredentialStore,
+        includeSecrets: Boolean = false,
+        passphrase: CharArray? = null,
+        settings: JsonObject? = null,
+        appVersion: String = "android"
+    ): String {
+        val snapshot = collectStorage(profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials, settings)
+        return buildV1(
+            snapshot.profiles,
+            snapshot.forwards,
+            snapshot.settings,
+            includeSecrets,
+            snapshot.secretValues,
+            passphrase,
+            appVersion,
+            snapshot.groups,
+            snapshot.proxies,
+            snapshot.privateKeys,
+            snapshot.knownHosts
+        )
+    }
+
     fun buildV2(
         profiles: List<ConnectionProfile>,
         forwards: List<ForwardRule> = emptyList(),
         settings: JsonObject? = null,
         passphrase: CharArray,
         secretValues: Map<String, String> = emptyMap(),
-        appVersion: String = "android"
+        appVersion: String = "android",
+        groups: List<ConnectionGroupEntity> = emptyList(),
+        proxies: List<SavedProxyEntity> = emptyList(),
+        privateKeys: List<PrivateKeyEntity> = emptyList(),
+        knownHosts: List<KnownHostEntity> = emptyList()
     ): String {
         val blob = buildJsonObject {
-            put("data", buildData(profiles, forwards, settings))
+            put("data", buildData(profiles, forwards, settings, groups, proxies, privateKeys, knownHosts))
             put("secrets", buildJsonObject { secretValues.forEach { (key, value) -> put(key, value) } })
         }
         val block = ImportExportCrypto.seal(
@@ -109,6 +158,64 @@ object PortableExport {
             ExportEnvelope.serializer(),
             ExportEnvelope("openfinalshell", 2, appVersion, System.currentTimeMillis(), secretValues.isNotEmpty(), enc = block)
         )
+    }
+
+    /** Builds a fully encrypted export from all Android repositories. */
+    suspend fun buildV2FromStorage(
+        profiles: ProfileRepository,
+        forwards: ForwardRepository,
+        groups: ConnectionGroupRepository,
+        proxies: SavedProxyRepository,
+        privateKeys: PrivateKeyRepository,
+        knownHosts: KnownHostRepository,
+        credentials: AndroidCredentialStore,
+        passphrase: CharArray,
+        includeSecrets: Boolean = true,
+        settings: JsonObject? = null,
+        appVersion: String = "android"
+    ): String {
+        val snapshot = collectStorage(profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials, settings)
+        return buildV2(
+            snapshot.profiles,
+            snapshot.forwards,
+            snapshot.settings,
+            passphrase,
+            if (includeSecrets) snapshot.secretValues else emptyMap(),
+            appVersion,
+            snapshot.groups,
+            snapshot.proxies,
+            snapshot.privateKeys,
+            snapshot.knownHosts
+        )
+    }
+
+    private suspend fun collectStorage(
+        profiles: ProfileRepository,
+        forwards: ForwardRepository,
+        groups: ConnectionGroupRepository,
+        proxies: SavedProxyRepository,
+        privateKeys: PrivateKeyRepository,
+        knownHosts: KnownHostRepository,
+        credentials: AndroidCredentialStore,
+        settings: JsonObject?
+    ): StorageExportSnapshot {
+        val profileRows = profiles.list()
+        val forwardRows = forwards.list().map { ForwardRule(it.id, it.profileId, it.type, it.label, it.bindAddr, it.bindPort, it.dstHost, it.dstPort, it.autoStart) }
+        val groupRows = groups.list()
+        val proxyRows = proxies.list()
+        val keyRows = privateKeys.list()
+        val hostRows = knownHosts.list()
+        val refs = buildSet {
+            profileRows.forEach { profile ->
+                profile.auth.passwordRef?.let(::add)
+                profile.auth.passphraseRef?.let(::add)
+                profile.proxy?.passwordRef?.let(::add)
+            }
+            proxyRows.mapNotNullTo(this) { it.passwordRef }
+            keyRows.mapNotNullTo(this) { it.passphraseRef }
+        }
+        val secrets = refs.mapNotNull { ref -> credentials.get(ref)?.let { ref to it } }.toMap()
+        return StorageExportSnapshot(profileRows, forwardRows, groupRows, proxyRows, keyRows, hostRows, secrets, settings)
     }
 
     /** Apply a decrypted envelope to Room. The caller supplies repositories to keep this layer UI independent. */
@@ -156,6 +263,7 @@ object PortableExport {
         var proxyCount = 0
         var keyCount = 0
         var hostCount = 0
+        val notes = mutableListOf<String>()
         val groupElements = root["groups"]?.jsonArray ?: JsonArray(emptyList())
         for (element in groupElements) {
             if (element !is JsonObject) { invalid++; continue }
@@ -164,7 +272,8 @@ object PortableExport {
             val name = value["name"]?.jsonPrimitive?.contentOrNull
             if (id == null || name == null) { invalid++; continue }
             if (conflict == ImportConflict.SKIP && groups.find(id) != null) { skipped++; continue }
-            groups.upsert(ConnectionGroupEntity(id, name, value["parentId"]?.jsonPrimitive?.contentOrNull, value["order"]?.jsonPrimitive?.doubleOrNull ?: 0.0))
+            val targetId = if (conflict == ImportConflict.DUPLICATE) java.util.UUID.randomUUID().toString() else id
+            groups.upsert(ConnectionGroupEntity(targetId, name, value["parentId"]?.jsonPrimitive?.contentOrNull, value["order"]?.jsonPrimitive?.doubleOrNull ?: 0.0))
             groupCount++
         }
         val proxyElements = root["proxies"]?.jsonArray ?: JsonArray(emptyList())
@@ -178,7 +287,12 @@ object PortableExport {
             val port = value["port"]?.jsonPrimitive?.intOrNull
             if (id == null || name == null || type == null || host == null || port == null) { invalid++; continue }
             if (conflict == ImportConflict.SKIP && proxies.find(id) != null) { skipped++; continue }
-            proxies.upsert(SavedProxyEntity(id, name, type, host, port, value["username"]?.jsonPrimitive?.contentOrNull, value["passwordRef"]?.jsonPrimitive?.contentOrNull, value["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L, value["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L))
+            val targetId = if (conflict == ImportConflict.DUPLICATE) java.util.UUID.randomUUID().toString() else id
+            val passwordRef = value["passwordRef"]?.jsonPrimitive?.contentOrNull?.takeIf { secretMap.containsKey(it) }
+            if (value["passwordRef"] != null && passwordRef == null) {
+                notes += "代理 $name 的密码未包含在导出文件中，需要重新录入"
+            }
+            proxies.upsert(SavedProxyEntity(targetId, name, type, host, port, value["username"]?.jsonPrimitive?.contentOrNull, passwordRef, value["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L, value["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L))
             proxyCount++
         }
         val keyElements = root["privateKeys"]?.jsonArray ?: JsonArray(emptyList())
@@ -187,17 +301,34 @@ object PortableExport {
             val value = element
             val id = value["id"]?.jsonPrimitive?.contentOrNull
             val name = value["name"]?.jsonPrimitive?.contentOrNull
-            val path = value["path"]?.jsonPrimitive?.contentOrNull
-            if (id == null || name == null || path == null) { invalid++; continue }
+            val path = (value["path"] ?: value["originalPath"])?.jsonPrimitive?.contentOrNull
+            if (id == null || name == null || path == null) {
+                if (value.containsKey("materialRef")) notes += "私钥 $name 的 Windows DPAPI/materialRef 无法在 Android 导入"
+                invalid++
+                continue
+            }
             if (conflict == ImportConflict.SKIP && privateKeys.find(id) != null) { skipped++; continue }
-            // materialRef is intentionally discarded: it may contain Windows DPAPI data.
+            if (value.containsKey("materialRef")) {
+                notes += "私钥 $name 的 materialRef 是桌面端本机密文，Android 未导入私钥材料；请重新选择私钥文件"
+            }
+            val existing = privateKeys.find(id)
+            val passphraseRef = value["passphraseRef"]?.jsonPrimitive?.contentOrNull?.takeIf { secretMap.containsKey(it) }
+            if (value["passphraseRef"] != null && passphraseRef == null) {
+                notes += "私钥 $name 的口令未包含在导出文件中，需要重新录入"
+            }
+            // A portable export intentionally omits key bytes. Never re-use an existing local
+            // Keystore reference for overwrite/duplicate imports, or a profile could silently
+            // authenticate with a different private key than the imported metadata describes.
+            if (conflict == ImportConflict.OVERWRITE) {
+                existing?.materialRef?.let { credentials.delete(it) }
+            }
             privateKeys.upsert(
                 PrivateKeyEntity(
-                    id = id,
+                    id = if (conflict == ImportConflict.DUPLICATE) java.util.UUID.randomUUID().toString() else id,
                     name = name,
                     originalPath = path,
                     sha256 = value["sourceFingerprint"]?.jsonPrimitive?.contentOrNull ?: "",
-                    passphraseRef = value["passphraseRef"]?.jsonPrimitive?.contentOrNull,
+                    passphraseRef = passphraseRef,
                     materialRef = null,
                     createdAt = value["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
                     updatedAt = value["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L
@@ -214,7 +345,8 @@ object PortableExport {
             val fingerprint = value["fingerprintSha256"]?.jsonPrimitive?.contentOrNull
             if (key == null || keyType == null || fingerprint == null) { invalid++; continue }
             if (conflict == ImportConflict.SKIP && knownHosts.find(key) != null) { skipped++; continue }
-            knownHosts.trust(KnownHostEntity(key, keyType, fingerprint, value["addedAt"]?.jsonPrimitive?.longOrNull ?: 0L))
+            val targetKey = if (conflict == ImportConflict.DUPLICATE) "$key:${java.util.UUID.randomUUID()}" else key
+            knownHosts.trust(KnownHostEntity(targetKey, keyType, fingerprint, value["addedAt"]?.jsonPrimitive?.longOrNull ?: 0L))
             hostCount++
         }
         val profileElements = root["profiles"]?.jsonArray ?: JsonArray(emptyList())
@@ -224,7 +356,8 @@ object PortableExport {
             val parsed = runCatching { ProtocolJson.instance.decodeFromJsonElement(ConnectionProfile.serializer(), raw) }.getOrNull()
             if (parsed == null) { invalid++; continue }
             if (conflict == ImportConflict.SKIP && profiles.find(parsed.id) != null) { skipped++; continue }
-            profiles.upsertImported(raw, if (conflict == ImportConflict.DUPLICATE) java.util.UUID.randomUUID().toString() else parsed.id)
+            val sanitized = clearUnavailableSecretRefs(raw, secretMap, notes)
+            profiles.upsertImported(sanitized, if (conflict == ImportConflict.DUPLICATE) java.util.UUID.randomUUID().toString() else parsed.id)
             profileCount++
         }
         val forwardElements = root["forwards"]?.jsonArray ?: JsonArray(emptyList())
@@ -243,16 +376,81 @@ object PortableExport {
             credentials.put(value, ref)
             secretCount++
         }
-        return PortableImportResult(profileCount, groupCount, proxyCount, keyCount, forwardCount, hostCount, secretCount, skipped, invalid)
+        return PortableImportResult(profileCount, groupCount, proxyCount, keyCount, forwardCount, hostCount, secretCount, skipped, invalid, notes)
     }
 
-    private fun buildData(profiles: List<ConnectionProfile>, forwards: List<ForwardRule>, settings: JsonObject?): JsonObject = buildJsonObject {
+    private fun clearUnavailableSecretRefs(
+        raw: JsonObject,
+        secretMap: Map<String, String>,
+        notes: MutableList<String>
+    ): JsonObject {
+        val root = raw.toMutableMap()
+        val auth = raw["auth"]?.jsonObject?.toMutableMap()
+        val authRefs = listOf("passwordRef", "passphraseRef")
+        if (auth != null) {
+            authRefs.forEach { name ->
+                val ref = auth[name]?.jsonPrimitive?.contentOrNull
+                if (ref != null && !secretMap.containsKey(ref)) {
+                    auth.remove(name)
+                    notes += "连接的 $name 未包含在导出文件中，需要重新录入"
+                }
+            }
+            root["auth"] = JsonObject(auth)
+        }
+        val proxy = raw["proxy"]?.jsonObject?.toMutableMap()
+        val proxyRef = proxy?.get("passwordRef")?.jsonPrimitive?.contentOrNull
+        if (proxy != null && proxyRef != null && !secretMap.containsKey(proxyRef)) {
+            proxy.remove("passwordRef")
+            notes += "连接代理密码未包含在导出文件中，需要重新录入"
+            root["proxy"] = JsonObject(proxy)
+        }
+        return JsonObject(root)
+    }
+
+    private fun buildData(
+        profiles: List<ConnectionProfile>,
+        forwards: List<ForwardRule>,
+        settings: JsonObject?,
+        groups: List<ConnectionGroupEntity> = emptyList(),
+        proxies: List<SavedProxyEntity> = emptyList(),
+        privateKeys: List<PrivateKeyEntity> = emptyList(),
+        knownHosts: List<KnownHostEntity> = emptyList()
+    ): JsonObject = buildJsonObject {
         put("profiles", JsonArray(profiles.map { ProtocolJson.instance.encodeToJsonElement(ConnectionProfile.serializer(), it) }))
         put("forwards", JsonArray(forwards.map { ProtocolJson.instance.encodeToJsonElement(ForwardRule.serializer(), it) }))
-        put("groups", JsonArray(emptyList()))
-        put("proxies", JsonArray(emptyList()))
-        put("privateKeys", JsonArray(emptyList()))
-        put("knownHosts", JsonArray(emptyList()))
+        put("groups", JsonArray(groups.map { group -> buildJsonObject {
+            put("id", group.id)
+            put("name", group.name)
+            group.parentId?.let { put("parentId", it) }
+            put("order", group.sortOrder)
+        } }))
+        put("proxies", JsonArray(proxies.map { proxy -> buildJsonObject {
+            put("id", proxy.id)
+            put("name", proxy.name)
+            put("type", proxy.type)
+            put("host", proxy.host)
+            put("port", proxy.port)
+            proxy.username?.let { put("username", it) }
+            proxy.passwordRef?.let { put("passwordRef", it) }
+            put("createdAt", proxy.createdAt)
+            put("updatedAt", proxy.updatedAt)
+        } }))
+        // The managed materialRef is local to Android Keystore and is deliberately omitted.
+        put("privateKeys", JsonArray(privateKeys.map { key -> buildJsonObject {
+            put("id", key.id)
+            put("name", key.name)
+            key.originalPath?.let { put("path", it) }
+            put("sourceFingerprint", key.sha256)
+            key.passphraseRef?.let { put("passphraseRef", it) }
+            put("createdAt", key.createdAt)
+            put("updatedAt", key.updatedAt)
+        } }))
+        put("knownHosts", JsonArray(knownHosts.map { host -> buildJsonObject {
+            put("key", host.key)
+            put("keyType", host.keyType)
+            put("fingerprintSha256", host.fingerprintSha256)
+            put("addedAt", host.addedAt)
+        } }))
         settings?.let { put("settings", it) }
     }
 

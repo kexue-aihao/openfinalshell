@@ -13,6 +13,7 @@ class PrivateKeyRepository(
 ) {
     suspend fun list(): List<PrivateKeyEntity> = dao.list()
     suspend fun find(id: String): PrivateKeyEntity? = dao.find(id)
+    suspend fun findBySha256(sha256: String): PrivateKeyEntity? = dao.findBySha256(sha256)
     suspend fun upsert(key: PrivateKeyEntity) = dao.upsert(key)
 
     suspend fun save(

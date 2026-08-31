@@ -26,4 +26,6 @@ class ForwardRepository(private val dao: ForwardDao) {
             )
         )
     }
+
+    suspend fun delete(id: String) = dao.delete(id)
 }

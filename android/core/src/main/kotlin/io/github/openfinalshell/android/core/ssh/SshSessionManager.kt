@@ -1,6 +1,7 @@
 package io.github.openfinalshell.android.core.ssh
 
 import io.github.openfinalshell.android.core.model.ConnectionProfile
+import io.github.openfinalshell.android.core.model.ForwardRule
 import io.github.openfinalshell.android.core.model.SessionState
 import java.util.UUID
 import kotlin.math.min
@@ -149,6 +150,13 @@ class SshSessionManager(
     }
 
     suspend fun openSftp(): SftpChannel = openSftp(requireActiveSession().sessionId)
+
+    /** Starts forwarding through the selected SSH session and returns its close handle. */
+    suspend fun startForwarding(sessionId: String, rule: ForwardRule): AutoCloseable {
+        val entry = requireEntry(sessionId)
+        check(entry.state == SessionState.READY) { "SSH session is not connected" }
+        return entry.transport.startForwarding(rule)
+    }
 
     suspend fun openExec(sessionId: String, command: String): ExecChannel {
         val entry = requireEntry(sessionId)

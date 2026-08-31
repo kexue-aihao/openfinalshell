@@ -32,6 +32,7 @@ class ConnectionForegroundService : Service() {
                 .remove(KEY_ACTIVE)
                 .remove(KEY_SESSIONS)
                 .remove(KEY_TRANSFERS)
+                .remove(KEY_FORWARDS)
                 .apply()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -41,6 +42,7 @@ class ConnectionForegroundService : Service() {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putInt(KEY_SESSIONS, intent.getIntExtra(EXTRA_SESSIONS, 0))
                 .putInt(KEY_TRANSFERS, intent.getIntExtra(EXTRA_TRANSFERS, 0))
+                .putInt(KEY_FORWARDS, intent.getIntExtra(EXTRA_FORWARDS, 0))
                 .apply()
         }
         if (restartedBySystem) {
@@ -69,8 +71,9 @@ class ConnectionForegroundService : Service() {
         val active = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(KEY_ACTIVE, false)
         val sessions = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_SESSIONS, 0)
         val transfers = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_TRANSFERS, 0)
-        val summary = if (sessions > 0 || transfers > 0) {
-            "SSH sessions: $sessions, transfers: $transfers"
+        val forwards = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_FORWARDS, 0)
+        val summary = if (sessions > 0 || transfers > 0 || forwards > 0) {
+            "SSH: $sessions, transfers: $transfers, forwards: $forwards"
         } else {
             "Reopen OpenFinalShell to restore tasks"
         }
@@ -88,18 +91,21 @@ class ConnectionForegroundService : Service() {
         const val ACTION_UPDATE = "io.github.openfinalshell.android.action.UPDATE"
         const val EXTRA_SESSIONS = "sessions"
         const val EXTRA_TRANSFERS = "transfers"
+        const val EXTRA_FORWARDS = "forwards"
         private const val CHANNEL_ID = "connections"
         private const val NOTIFICATION_ID = 1001
         private const val PREFS = "background_service"
         private const val KEY_ACTIVE = "active"
         private const val KEY_SESSIONS = "sessions"
         private const val KEY_TRANSFERS = "transfers"
+        private const val KEY_FORWARDS = "forwards"
 
-        fun update(context: android.content.Context, sessions: Int, transfers: Int) {
+        fun update(context: android.content.Context, sessions: Int, transfers: Int, forwards: Int = 0) {
             val intent = Intent(context, ConnectionForegroundService::class.java)
                 .setAction(ACTION_UPDATE)
                 .putExtra(EXTRA_SESSIONS, sessions)
                 .putExtra(EXTRA_TRANSFERS, transfers)
+                .putExtra(EXTRA_FORWARDS, forwards)
             runCatching { context.startService(intent) }
                 .onFailure { runCatching { ContextCompat.startForegroundService(context, intent) } }
         }

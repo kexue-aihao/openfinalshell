@@ -2,14 +2,17 @@ package io.github.openfinalshell.android.core.ssh
 
 import android.util.Log
 import io.github.openfinalshell.android.core.model.ConnectionProfile
+import io.github.openfinalshell.android.core.model.ForwardRule
 import io.github.openfinalshell.android.core.model.SessionState
 import java.io.ByteArrayInputStream
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.apache.sshd.client.ClientBuilder
 import org.apache.sshd.client.SshClient
 import org.apache.sshd.client.session.ClientSession
@@ -34,7 +37,7 @@ class MinaSshTransport(
     private var session: ClientSession? = null
     private var intentionalClose = false
 
-    override suspend fun connect(profile: ConnectionProfile, credentials: Credentials) {
+    override suspend fun connect(profile: ConnectionProfile, credentials: Credentials) = withContext(Dispatchers.IO) {
         require(profile.port in 1..65535) { "invalid SSH port" }
         check(session == null) { "SSH session is already connected" }
         intentionalClose = false
@@ -98,7 +101,7 @@ class MinaSshTransport(
         }
     }
 
-    override suspend fun openShell(cols: Int, rows: Int): ShellChannel =
+    override suspend fun openShell(cols: Int, rows: Int): ShellChannel = withContext(Dispatchers.IO) {
         checkNotNull(session) { "SSH session is not connected" }.let { current ->
             val channel = current.createShellChannel()
             channel.setPtyType("xterm-256color")
@@ -107,21 +110,48 @@ class MinaSshTransport(
             channel.open().verify()
             MinaShellChannel(channel)
         }
+    }
 
-    override suspend fun openExec(command: String): ExecChannel {
+    override suspend fun openExec(command: String): ExecChannel = withContext(Dispatchers.IO) {
         require(command.isNotBlank()) { "exec command must not be blank" }
         val current = checkNotNull(session) { "SSH session is not connected" }
         val channel = current.createExecChannel(command)
         channel.open().verify()
-        return MinaExecChannel(channel)
+        MinaExecChannel(channel)
     }
 
-    override suspend fun openSftp(): SftpChannel =
+    override suspend fun openSftp(): SftpChannel = withContext(Dispatchers.IO) {
         MinaSftpChannel(
             SftpClientFactory.instance().createSftpClient(checkNotNull(session) { "SSH session is not connected" })
         )
+    }
 
-    override suspend fun disconnect() {
+    /**
+     * Delegates tunnel lifecycle to MINA's standard forwarding trackers. This keeps all three
+     * forwarding modes inside the authenticated SSH connection and lets the tracker own socket
+     * cleanup when the session is disconnected.
+     */
+    override suspend fun startForwarding(rule: ForwardRule): AutoCloseable = withContext(Dispatchers.IO) {
+        require(rule.bindPort in 1..65535) { "invalid forwarding bind port" }
+        val current = checkNotNull(session) { "SSH session is not connected" }
+        val bind = org.apache.sshd.common.util.net.SshdSocketAddress(rule.bindAddr, rule.bindPort)
+        val destination = if (rule.type.equals("dynamic", ignoreCase = true)) {
+            null
+        } else {
+            val host = rule.dstHost ?: error("forwarding destination host is required")
+            val port = rule.dstPort ?: error("forwarding destination port is required")
+            require(port in 1..65535) { "invalid forwarding destination port" }
+            org.apache.sshd.common.util.net.SshdSocketAddress(host, port)
+        }
+        when (rule.type.lowercase()) {
+            "local" -> current.createLocalPortForwardingTracker(bind, requireNotNull(destination))
+            "remote" -> current.createRemotePortForwardingTracker(bind, requireNotNull(destination))
+            "dynamic" -> current.createDynamicPortForwardingTracker(bind)
+            else -> error("unsupported forwarding type: ${rule.type}")
+        }
+    }
+
+    override suspend fun disconnect() = withContext(Dispatchers.IO) {
         intentionalClose = true
         session?.close(false)
         client?.stop()

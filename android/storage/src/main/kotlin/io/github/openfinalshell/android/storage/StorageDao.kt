@@ -6,7 +6,7 @@ import androidx.room.Upsert
 
 @Dao
 interface ProfileDao {
-    @Query("SELECT * FROM profiles ORDER BY name COLLATE NOCASE")
+    @Query("SELECT * FROM profiles ORDER BY COALESCE(groupId, ''), name COLLATE NOCASE")
     suspend fun list(): List<ProfileEntity>
 
     @Query("SELECT * FROM profiles WHERE id = :id LIMIT 1")
@@ -39,6 +39,9 @@ interface PrivateKeyDao {
     @Query("SELECT * FROM private_keys WHERE id = :id LIMIT 1")
     suspend fun find(id: String): PrivateKeyEntity?
 
+    @Query("SELECT * FROM private_keys WHERE sha256 = :sha256 LIMIT 1")
+    suspend fun findBySha256(sha256: String): PrivateKeyEntity?
+
     @Upsert
     suspend fun upsert(key: PrivateKeyEntity)
 
@@ -63,7 +66,7 @@ interface ForwardDao {
 
 @Dao
 interface ConnectionGroupDao {
-    @Query("SELECT * FROM connection_groups ORDER BY sortOrder COLLATE NOCASE, name COLLATE NOCASE")
+    @Query("SELECT * FROM connection_groups ORDER BY sortOrder, name COLLATE NOCASE")
     suspend fun list(): List<ConnectionGroupEntity>
 
     @Query("SELECT * FROM connection_groups WHERE id = :id LIMIT 1")

@@ -52,7 +52,8 @@ class LanSyncSession(private val socket: Socket) {
         deviceName: String,
         appVersion: String,
         pairingCode: CharArray,
-        envelope: String
+        envelope: String? = null,
+        envelopeFactory: (suspend (channelPassphrase: CharArray) -> String)? = null
     ): LanSyncApplyResult = withContext(Dispatchers.IO) {
         val keys = X25519.generate()
         val senderPub = keys.public.encoded
@@ -70,7 +71,13 @@ class LanSyncSession(private val socket: Socket) {
         val confirm = read(input, codec).also { require(it.kind == "confirm-r") { "pairing rejected" } }
         require(LanSyncCrypto.constantTimeEquals(fromB64(requireNotNull(confirm.mac)), LanSyncCrypto.confirmationMac(pairKey, "receiver", transcript))) { "pairing code rejected" }
         codec.setMaxBytes(LanSyncConstants.MAX_FRAME_BYTES)
-        write(output, codec, SyncFrame("payload", envelope = envelope))
+        val channelPassphrase = Base64.getUrlEncoder().withoutPadding().encodeToString(pairKey).toCharArray()
+        val payload = try {
+            envelopeFactory?.invoke(channelPassphrase) ?: envelope ?: error("LAN Sync payload is missing")
+        } finally {
+            channelPassphrase.fill('\u0000')
+        }
+        write(output, codec, SyncFrame("payload", envelope = payload))
         require(read(input, codec).kind == "received") { "payload was not received" }
         val applied = read(input, codec)
         if (applied.kind == "rejected") return@withContext LanSyncApplyResult()
@@ -103,7 +110,12 @@ class LanSyncSession(private val socket: Socket) {
         codec.setMaxBytes(LanSyncConstants.MAX_FRAME_BYTES)
         val payload = read(input, codec).also { require(it.kind == "payload" && !it.envelope.isNullOrBlank()) { "expected payload" } }
         write(output, codec, SyncFrame("received"))
-        val result = apply(requireNotNull(payload.envelope), Base64.getUrlEncoder().withoutPadding().encodeToString(pairKey).toCharArray())
+        val channelPassphrase = Base64.getUrlEncoder().withoutPadding().encodeToString(pairKey).toCharArray()
+        val result = try {
+            apply(requireNotNull(payload.envelope), channelPassphrase)
+        } finally {
+            channelPassphrase.fill('\u0000')
+        }
         write(output, codec, SyncFrame("applied", profiles = result.profiles, snippets = result.snippets, forwards = result.forwards, knownHosts = result.knownHosts, secrets = result.secrets, skipped = result.skipped))
         result
     }

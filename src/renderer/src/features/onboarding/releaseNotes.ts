@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.8',
+    items: [
+      {
+        type: 'feat',
+        zh: '补齐 Android 端设置、私钥管理、配置备份恢复、端口转发和局域网同步能力；增加应用内更新校验与安装流程，并改善 SSH/SFTP、监控和后台服务的稳定性',
+        en: 'Completed Android settings, private-key management, configuration backup and restore, port forwarding and LAN Sync; added in-app update validation and installation, and improved SSH/SFTP, monitoring and background-service stability'
+      }
+    ]
+  },
+  {
     version: '0.20.7',
     items: [
       {
