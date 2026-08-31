@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.7',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android SSH 客户端在部分设备上因密钥交换工厂为空而无法启动连接的问题；初始化加密提供者并为 Android 配置可用的密钥交换算法',
+        en: 'Fixed Android SSH connections failing to start on some devices because the key exchange factory list was empty; initialized the security provider and configured Android-compatible key exchange algorithms'
+      }
+    ]
+  },
+  {
     version: '0.20.6',
     items: [
       {

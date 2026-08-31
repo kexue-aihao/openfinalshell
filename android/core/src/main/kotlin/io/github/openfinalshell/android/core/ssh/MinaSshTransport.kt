@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import org.apache.sshd.client.ClientBuilder
 import org.apache.sshd.client.SshClient
 import org.apache.sshd.client.session.ClientSession
 import org.apache.sshd.client.keyverifier.RejectAllServerKeyVerifier
@@ -44,7 +45,13 @@ class MinaSshTransport(
             // sshd-core resolves its I/O provider while constructing ClientBuilder. Keep this
             // inside the guarded block so provider/class-loading failures are cleaned up and
             // logged with their complete cause chain instead of leaking a class name to the UI.
-            ssh = SshClient.setUpDefaultClient()
+            // Android can report every default KEX as unsupported during MINA's capability
+            // scan. Supply the provider-aware list explicitly so start() never receives an
+            // empty KeyExchangeFactories configuration.
+            val kexFactories = AndroidSshdInitializer.keyExchangeFactories()
+            ssh = ClientBuilder.builder()
+                .keyExchangeFactories(kexFactories)
+                .build()
             // Register the instance before any configuration/start call so every partially
             // initialized client is stopped by the common failure path below.
             client = ssh
