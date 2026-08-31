@@ -11,7 +11,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.apache.sshd.client.SshClient
 import org.apache.sshd.client.session.ClientSession
-import org.apache.sshd.client.keyverifier.AcceptAllServerKeyVerifier
+import org.apache.sshd.client.keyverifier.RejectAllServerKeyVerifier
+import org.apache.sshd.client.auth.keyboard.UserInteraction
 import org.apache.sshd.common.config.keys.FilePasswordProvider
 import org.apache.sshd.sftp.client.SftpClientFactory
 
@@ -34,13 +35,16 @@ class MinaSshTransport(
         mutableState.value = SessionState.CONNECTING
         val ssh = SshClient.setUpDefaultClient()
         ssh.serverKeyVerifier = if (hostKeyVerifier == null) {
-            // Temporary prototype fallback. Replace with Android TOFU confirmation before release.
-            AcceptAllServerKeyVerifier.INSTANCE
+            // Never silently trust an unknown host. Callers must provide the app's TOFU policy.
+            RejectAllServerKeyVerifier.INSTANCE
         } else {
             org.apache.sshd.client.keyverifier.ServerKeyVerifier { _, _, key ->
                 runBlocking { hostKeyVerifier.verify(profile.host, profile.port, key) }
             }
         }
+        // Some servers expose password authentication only as keyboard-interactive. Reuse the
+        // explicitly supplied password for non-echo prompts; never fabricate an answer.
+        ssh.userInteraction = PasswordKeyboardInteraction(credentials.password ?: credentials.passphrase)
         ssh.start()
         client = ssh
         mutableState.value = SessionState.AUTHENTICATING
@@ -106,4 +110,23 @@ class MinaSshTransport(
         client = null
         mutableState.value = SessionState.CLOSED
     }
+}
+
+private class PasswordKeyboardInteraction(secret: CharArray?) : UserInteraction {
+    private val value = secret?.concatToString()
+
+    override fun isInteractionAllowed(session: ClientSession): Boolean = !value.isNullOrEmpty()
+
+    override fun interactive(
+        session: ClientSession,
+        name: String,
+        instruction: String,
+        lang: String,
+        prompts: Array<String>,
+        echo: BooleanArray
+    ): Array<String> = Array(prompts.size) { index ->
+        if (!echo.getOrElse(index) { true }) value.orEmpty() else ""
+    }
+
+    override fun getUpdatedPassword(session: ClientSession, prompt: String, lang: String): String? = value
 }

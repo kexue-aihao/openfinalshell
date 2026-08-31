@@ -20,6 +20,12 @@ import io.github.openfinalshell.android.core.ssh.SessionSnapshot
 import io.github.openfinalshell.android.core.ssh.ShellChannel
 import io.github.openfinalshell.android.core.ssh.SftpEntry
 import io.github.openfinalshell.android.core.ssh.SshSessionManager
+import io.github.openfinalshell.android.core.sftp.TransferQueue
+import io.github.openfinalshell.android.core.sftp.TransferSink
+import io.github.openfinalshell.android.core.sftp.TransferSource
+import io.github.openfinalshell.android.core.sftp.TransferTask
+import java.io.File
+import java.io.RandomAccessFile
 import io.github.openfinalshell.android.service.ConnectionForegroundService
 import io.github.openfinalshell.android.storage.AndroidCredentialStore
 import io.github.openfinalshell.android.storage.AppDatabase
@@ -28,12 +34,22 @@ import io.github.openfinalshell.android.storage.KnownHostEntity
 import io.github.openfinalshell.android.storage.KnownHostRepository
 import java.security.PublicKey
 import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+data class HostKeyPrompt(
+    val host: String,
+    val port: Int,
+    val keyType: String,
+    val fingerprint: String
+)
 
 data class AndroidUiState(
     val profiles: List<ConnectionProfile> = emptyList(),
@@ -44,6 +60,8 @@ data class AndroidUiState(
     val monitor: MonitorState = MonitorState(),
     val sftpPath: String = "/",
     val sftpEntries: List<SftpEntry> = emptyList(),
+    val transfers: List<TransferTask> = emptyList(),
+    val hostKeyPrompt: HostKeyPrompt? = null,
     val status: String = "Ready"
 )
 
@@ -57,6 +75,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val shells = mutableMapOf<String, ShellChannel>()
     private val shellOutputJobs = mutableMapOf<String, Job>()
     private var monitorJob: Job? = null
+    private val transferQueue = TransferQueue(viewModelScope)
+    @Volatile private var pendingHostKey: CompletableDeferred<Boolean>? = null
 
     private val sessions = SshSessionManager(
         transportFactory = { MinaSshTransport(hostKeyVerifier = io.github.openfinalshell.android.core.ssh.HostKeyVerifier { host, port, key -> verifyHostKey(host, port, key) }) },
@@ -84,6 +104,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             sessions.sessions.collect { snapshot ->
                 updateState { it.copy(sessions = snapshot) }
+                val activeSessions = snapshot.values.count { it.state != SessionState.CLOSED }
+                if (activeSessions > 0) {
+                    ConnectionForegroundService.update(
+                        getApplication(),
+                        activeSessions,
+                        state.value.transfers.count { task ->
+                            task.state == io.github.openfinalshell.android.core.sftp.TransferState.RUNNING ||
+                                task.state == io.github.openfinalshell.android.core.sftp.TransferState.QUEUED ||
+                                task.state == io.github.openfinalshell.android.core.sftp.TransferState.PAUSED
+                        }
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -111,6 +143,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             monitor.state.collect { value -> updateState { it.copy(monitor = value) } }
+        }
+        viewModelScope.launch {
+            transferQueue.tasks.collect { tasks ->
+                updateState { it.copy(transfers = tasks) }
+                val activeSessions = state.value.sessions.values.count { it.state != SessionState.CLOSED }
+                if (activeSessions > 0) {
+                    ConnectionForegroundService.update(
+                        getApplication(),
+                        activeSessions,
+                        tasks.count { task ->
+                            task.state == io.github.openfinalshell.android.core.sftp.TransferState.RUNNING ||
+                                task.state == io.github.openfinalshell.android.core.sftp.TransferState.QUEUED ||
+                                task.state == io.github.openfinalshell.android.core.sftp.TransferState.PAUSED
+                        }
+                    )
+                }
+            }
         }
     }
 
@@ -196,7 +245,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 collectStaticInfo(sessionId)
                 ContextCompat.startForegroundService(
                     getApplication<Application>(),
-                    Intent(getApplication(), ConnectionForegroundService::class.java)
+                    Intent(getApplication(), ConnectionForegroundService::class.java).setAction(ConnectionForegroundService.ACTION_START)
                 )
             } catch (error: Throwable) {
                 setStatus(error.message ?: "Connection failed")
@@ -263,6 +312,103 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Opens a fresh SFTP channel for the queue; the queue closes it after the operation. */
+    fun uploadSftp(localPath: String, remotePath: String) {
+        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        viewModelScope.launch {
+            try {
+                val file = File(localPath)
+                require(file.isFile) { "local upload file does not exist" }
+                transferQueue.enqueueUpload(
+                    remotePath,
+                    FileTransferSource(file),
+                    channelProvider = { sessions.openSftp(sessionId) },
+                    localPath = localPath
+                )
+                setStatus("Upload queued")
+            } catch (error: Throwable) {
+                setStatus(error.message ?: "SFTP upload failed")
+            }
+        }
+    }
+
+    fun downloadSftp(remotePath: String, localPath: String, bytesTotal: Long = -1L) {
+        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        viewModelScope.launch {
+            try {
+                val file = File(localPath)
+                file.parentFile?.mkdirs()
+                transferQueue.enqueueDownload(
+                    remotePath,
+                    FileTransferSink(file),
+                    channelProvider = { sessions.openSftp(sessionId) },
+                    bytesTotal = bytesTotal,
+                    localPath = localPath
+                )
+                setStatus("Download queued")
+            } catch (error: Throwable) {
+                setStatus(error.message ?: "SFTP download failed")
+            }
+        }
+    }
+
+    fun createSftpDirectory(name: String) {
+        val path = resolveChild(state.value.sftpPath, name)
+        mutateSftp("SFTP directory created") { channel -> channel.mkdir(path) }
+    }
+
+    fun renameSftp(from: String, name: String) {
+        val target = resolveChild(parentPath(from), name)
+        mutateSftp("SFTP item renamed") { channel -> channel.rename(from, target) }
+    }
+
+    fun goToSftpParent() {
+        val current = state.value.sftpPath.trim().ifEmpty { "/" }
+        browseSftp(parentPath(current))
+    }
+
+    fun cancelTransfer(id: String) = transferQueue.cancel(id)
+    fun pauseTransfer(id: String) = transferQueue.pause(id)
+    fun resumeTransfer(id: String) = transferQueue.resume(id)
+    fun retryTransfer(id: String) = transferQueue.retry(id)
+
+    fun acceptHostKey() {
+        pendingHostKey?.complete(true)
+    }
+
+    fun rejectHostKey() {
+        pendingHostKey?.complete(false)
+    }
+
+    private fun mutateSftp(success: String, operation: suspend (io.github.openfinalshell.android.core.ssh.SftpChannel) -> Unit) {
+        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        viewModelScope.launch {
+            var channel: io.github.openfinalshell.android.core.ssh.SftpChannel? = null
+            try {
+                channel = sessions.openSftp(sessionId)
+                operation(channel)
+                browseSftp(state.value.sftpPath)
+                setStatus(success)
+            } catch (error: Throwable) {
+                setStatus(error.message ?: "SFTP operation failed")
+            } finally {
+                runCatching { channel?.close() }
+            }
+        }
+    }
+
+    private fun resolveChild(directory: String, child: String): String {
+        val name = child.trim()
+        require(name.isNotEmpty() && name != "." && name != ".." && !name.contains('/')) { "invalid SFTP name" }
+        return directory.trimEnd('/').ifEmpty { "/" }.let { if (it == "/") "/$name" else "$it/$name" }
+    }
+
+    private fun parentPath(path: String): String {
+        val normalized = path.trimEnd('/').ifEmpty { "/" }
+        if (normalized == "/") return "/"
+        return normalized.substringBeforeLast('/').ifEmpty { "/" }
+    }
+
     fun openShell(sessionId: String, cols: Int, rows: Int) {
         if (shells.containsKey(sessionId)) {
             resizeTerminal(sessionId, cols, rows)
@@ -310,7 +456,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect(sessionId: String) {
         shellOutputJobs.remove(sessionId)?.cancel()
         shells.remove(sessionId)
-        viewModelScope.launch { sessions.disconnect(sessionId) }
+        viewModelScope.launch {
+            sessions.disconnect(sessionId)
+            if (sessions.sessions.value.values.none { it.state != SessionState.CLOSED }) {
+                ConnectionForegroundService.stop(getApplication())
+            }
+        }
         if (state.value.selectedSessionId == sessionId) {
             updateState { it.copy(selectedSessionId = null, status = "Disconnected") }
         }
@@ -347,13 +498,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val fingerprint = HostKeyFingerprint.sha256(key)
         val previous = knownHosts.find(id)
         if (previous == null) {
+            val decision = CompletableDeferred<Boolean>()
+            pendingHostKey?.complete(false)
+            pendingHostKey = decision
+            updateState {
+                it.copy(
+                    hostKeyPrompt = HostKeyPrompt(host, port, keyType, fingerprint),
+                    status = "Host key confirmation required"
+                )
+            }
+            val accepted = try {
+                decision.await()
+            } finally {
+                if (pendingHostKey === decision) pendingHostKey = null
+                updateState { it.copy(hostKeyPrompt = null) }
+            }
+            if (!accepted) return false
             knownHosts.trust(KnownHostEntity(id, keyType, fingerprint, System.currentTimeMillis()))
-            return true
         }
-        return previous.fingerprintSha256 == fingerprint
+        return previous?.fingerprintSha256 == fingerprint || previous == null
     }
 
     companion object {
         private const val MAX_TERMINAL_OUTPUT_CHARS = 200_000
+    }
+}
+
+private class FileTransferSource(private val file: File) : TransferSource {
+    override val size: Long get() = file.length()
+
+    override suspend fun read(offset: Long, maxBytes: Int): ByteArray {
+        return withContext(Dispatchers.IO) {
+            require(offset >= 0 && maxBytes > 0)
+            RandomAccessFile(file, "r").use { input ->
+                if (offset >= input.length()) return@use ByteArray(0)
+                input.seek(offset)
+                val buffer = ByteArray(minOf(maxBytes.toLong(), input.length() - offset).toInt())
+                var read = 0
+                while (read < buffer.size) {
+                    val count = input.read(buffer, read, buffer.size - read)
+                    if (count < 0) break
+                    read += count
+                }
+                if (read == buffer.size) buffer else buffer.copyOf(read)
+            }
+        }
+    }
+}
+
+private class FileTransferSink(private val file: File) : TransferSink {
+    override suspend fun reset() {
+        withContext(Dispatchers.IO) {
+            file.parentFile?.mkdirs()
+            RandomAccessFile(file, "rw").use { it.setLength(0) }
+        }
+    }
+
+    override suspend fun write(offset: Long, data: ByteArray) {
+        withContext(Dispatchers.IO) {
+            require(offset >= 0)
+            RandomAccessFile(file, "rw").use { output ->
+                output.seek(offset)
+                output.write(data)
+            }
+        }
     }
 }

@@ -115,6 +115,10 @@ class SshSessionManager(
         mutableState.value = selectedState ?: SessionState.CLOSED
     }
 
+    /** Returns the current runtime state without exposing mutable session entries. */
+    fun sessionState(sessionId: String): SessionState? =
+        synchronized(lock) { entries[sessionId]?.state }
+
     suspend fun openShell(sessionId: String, cols: Int, rows: Int): ShellChannel {
         val entry = requireEntry(sessionId)
         check(entry.state == SessionState.READY) { "SSH session is not connected" }

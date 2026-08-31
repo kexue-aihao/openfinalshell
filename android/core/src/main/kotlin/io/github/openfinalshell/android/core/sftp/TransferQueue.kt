@@ -65,7 +65,8 @@ private class TaskControl {
 
 private data class Operation(
     val control: TaskControl,
-    val run: suspend (TaskControl, String) -> Unit
+    val run: suspend (TaskControl, String) -> Unit,
+    val retryable: Boolean = true
 )
 
 /**
@@ -85,9 +86,35 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
 
     fun enqueueUpload(
         remotePath: String,
+        data: ByteArray,
+        channelProvider: suspend () -> SftpChannel,
+        localPath: String? = null
+    ): String = enqueueUpload(remotePath, ByteArraySource(data), channelProvider, localPath)
+
+    /**
+     * Enqueues an upload with a factory that returns a fresh channel for every attempt.
+     * The queue owns and closes each channel returned by the factory.
+     */
+    fun enqueueUpload(
+        remotePath: String,
+        source: TransferSource,
+        channelProvider: suspend () -> SftpChannel,
+        localPath: String? = null
+    ): String = enqueueUploadInternal(remotePath, source, channelProvider, localPath, retryable = true)
+
+    fun enqueueUpload(
+        remotePath: String,
         source: TransferSource,
         channel: SftpChannel,
         localPath: String? = null
+    ): String = enqueueUploadInternal(remotePath, source, { channel }, localPath, retryable = false)
+
+    private fun enqueueUploadInternal(
+        remotePath: String,
+        source: TransferSource,
+        channelProvider: suspend () -> SftpChannel,
+        localPath: String?,
+        retryable: Boolean
     ): String {
         val id = createTask(
             TransferTask(
@@ -98,9 +125,14 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
                 localPath = localPath
             )
         )
-        val operation = Operation(TaskControl()) { control, taskId ->
-            runUpload(taskId, remotePath, source, channel, control)
-        }
+        val operation = Operation(TaskControl(), { control, taskId ->
+            val channel = channelProvider()
+            try {
+                runUpload(taskId, remotePath, source, channel, control)
+            } finally {
+                runCatching { channel.close() }
+            }
+        }, retryable = retryable)
         synchronized(lock) { operations[id] = operation }
         launch(id, operation)
         return id
@@ -116,6 +148,24 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
         channel: SftpChannel,
         bytesTotal: Long = -1,
         localPath: String? = null
+    ): String = enqueueDownloadInternal(remotePath, sink, { channel }, bytesTotal, localPath, retryable = false)
+
+    /** Enqueues a download with a fresh SFTP channel for every attempt. */
+    fun enqueueDownload(
+        remotePath: String,
+        sink: TransferSink,
+        channelProvider: suspend () -> SftpChannel,
+        bytesTotal: Long = -1,
+        localPath: String? = null
+    ): String = enqueueDownloadInternal(remotePath, sink, channelProvider, bytesTotal, localPath, retryable = true)
+
+    private fun enqueueDownloadInternal(
+        remotePath: String,
+        sink: TransferSink,
+        channelProvider: suspend () -> SftpChannel,
+        bytesTotal: Long,
+        localPath: String?,
+        retryable: Boolean
     ): String {
         val id = createTask(
             TransferTask(
@@ -126,9 +176,14 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
                 localPath = localPath
             )
         )
-        val operation = Operation(TaskControl()) { control, taskId ->
-            runDownload(taskId, remotePath, sink, channel, control)
-        }
+        val operation = Operation(TaskControl(), { control, taskId ->
+            val channel = channelProvider()
+            try {
+                runDownload(taskId, remotePath, sink, channel, control)
+            } finally {
+                runCatching { channel.close() }
+            }
+        }, retryable = retryable)
         synchronized(lock) { operations[id] = operation }
         launch(id, operation)
         return id
@@ -148,6 +203,7 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
         val operation: Operation?
         synchronized(lock) {
             operation = operations[id]
+            if (operation?.retryable == false) return
             operation?.control?.paused = false
             val task = task(id) ?: return
             if (task.state == TransferState.PAUSED) setTask(task.copy(state = TransferState.QUEUED, error = null))
@@ -161,6 +217,7 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
             val task = task(id) ?: return
             if (task.state != TransferState.FAILED && task.state != TransferState.CANCELED) return
             operation = operations[id]
+            if (operation?.retryable == false) return
             operation?.control?.apply {
                 paused = false
                 canceled = false
@@ -270,10 +327,12 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
         channel: SftpChannel,
         control: TaskControl
     ) {
-        var offset = 0L
+        var offset = synchronized(lock) { task(id)?.bytesTransferred?.coerceAtLeast(0L) ?: 0L }
         val startedAt = System.nanoTime()
         try {
-            sink.reset()
+            // A paused transfer keeps its partial destination. Retries explicitly reset the
+            // task's byte count, so they still start from a clean destination.
+            if (offset == 0L) sink.reset()
             updateRunning(id)
             val expectedTotal = synchronized(lock) { task(id)?.bytesTotal ?: -1L }
             while (expectedTotal < 0 || offset < expectedTotal) {
@@ -283,6 +342,9 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
                 sink.write(offset, chunk)
                 offset += chunk.size
                 reportProgress(id, offset, startedAt)
+            }
+            if (expectedTotal >= 0 && offset != expectedTotal) {
+                error("download ended at $offset of $expectedTotal bytes")
             }
             synchronized(lock) { task(id)?.let { if (it.bytesTotal < 0) setTask(it.copy(bytesTotal = offset)) } }
             sink.complete(offset)

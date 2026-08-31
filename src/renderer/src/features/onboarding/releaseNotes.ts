@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.4',
+    items: [
+      {
+        type: 'fix',
+        zh: '补齐 Android SFTP 传输操作入口，支持上传、下载、建目录、重命名及传输队列暂停、继续、重试和取消；修复暂停或重试复用已关闭通道、文件读写阻塞界面和首次主机密钥自动信任问题，并改善后台任务通知状态',
+        en: 'Completed Android SFTP transfer controls for upload, download, directory creation, rename, and queue pause, resume, retry and cancel; fixed reuse of closed channels after pause or retry, moved file I/O off the UI thread, prevented silent first-use host-key trust, and improved background task notifications'
+      }
+    ]
+  },
+  {
     version: '0.20.3',
     items: [
       {

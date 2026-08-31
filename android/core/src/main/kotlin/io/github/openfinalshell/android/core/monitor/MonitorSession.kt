@@ -14,6 +14,7 @@ import io.github.openfinalshell.android.core.protocol.PortTrafficParser
 import io.github.openfinalshell.android.core.protocol.PortTrafficRateTracker
 import io.github.openfinalshell.android.core.ssh.SshSessionManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,8 +63,24 @@ class MonitorSession(private val sessions: SshSessionManager) {
             while (mutableState.value.running) {
                 val seq = ++sequence
                 val started = System.nanoTime()
-                val execution = execute(sessionId, MonitorCommandBuilder.frame(seq, tick % 5 == 0, tick % 3 == 0), seq)
-                applyMonitorFrame(execution.raw, seq, started, execution.connectionLatencyMs)
+                try {
+                    val execution = execute(sessionId, MonitorCommandBuilder.frame(seq, tick % 5 == 0, tick % 3 == 0), seq)
+                    applyMonitorFrame(execution.raw, seq, started, execution.connectionLatencyMs)
+                    mutableState.value = mutableState.value.copy(error = null)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    val sessionState = sessions.sessionState(sessionId)
+                    mutableState.value = mutableState.value.copy(error = error.message ?: error.javaClass.simpleName)
+                    if (sessionState == null || sessionState == io.github.openfinalshell.android.core.model.SessionState.CLOSED) {
+                        mutableState.value = mutableState.value.copy(running = false)
+                        break
+                    }
+                    // SshSessionManager reconnects the transport independently. Keep the monitor
+                    // alive and resume on the next tick once the session is READY.
+                    delay(RECONNECT_POLL_MS)
+                    continue
+                }
                 tick++
                 delay(intervalSeconds * 1_000L)
             }
@@ -162,14 +179,19 @@ class MonitorSession(private val sessions: SshSessionManager) {
         val channel = sessions.openExec(sessionId, command)
         var beginAt: Long? = null
         val marker = "@@OFS:BEGIN:$sequence@@"
-        val result = buildString {
-            channel.output.collect {
-                val text = String(it, Charsets.UTF_8)
-                if (beginAt == null && text.contains(marker)) beginAt = System.nanoTime()
-                append(text)
+        val result = try {
+            buildString {
+                channel.output.collect {
+                    val text = String(it, Charsets.UTF_8)
+                    if (beginAt == null && text.contains(marker)) beginAt = System.nanoTime()
+                    append(text)
+                }
             }
+        } finally {
+            runCatching { channel.close() }
         }
-        channel.close()
         ExecutionResult(result, beginAt, beginAt?.let { (it - started) / 1_000_000 })
     }
+
+    private companion object { const val RECONNECT_POLL_MS = 1_000L }
 }
