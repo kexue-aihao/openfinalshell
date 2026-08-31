@@ -2,6 +2,64 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+const DEFAULT_SH_TIMEOUT_MS = 20_000
+const SH_MAX_BUFFER_BYTES = 8 * 1024 * 1024
+
+type ShellExecError = Error & {
+  code?: string | number
+  signal?: string
+  status?: number | null
+  stdout?: unknown
+  stderr?: unknown
+}
+
+function shellTimeoutMs(): number {
+  const configured = Number(process.env.OFS_POSIX_SH_TIMEOUT_MS)
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : DEFAULT_SH_TIMEOUT_MS
+}
+
+function outputText(value: unknown): string {
+  return typeof value === 'string' ? value : value == null ? '' : String(value)
+}
+
+/**
+ * Git for Windows occasionally leaves an MSYS child stuck under CI load. Keep
+ * that failure bounded and preserve the child output, rather than letting the
+ * surrounding Vitest test timeout with no indication of which operation hung.
+ */
+function runSh(sh: string, args: string[], cwd: string | undefined, operation: string): string {
+  try {
+    const output = execFileSync(sh, args, {
+      encoding: 'utf8',
+      cwd,
+      env: shEnv(sh),
+      maxBuffer: SH_MAX_BUFFER_BYTES,
+      timeout: shellTimeoutMs(),
+      windowsHide: true
+    })
+    return String(output)
+  } catch (error) {
+    const failure = error as ShellExecError
+    const stdout = outputText(failure.stdout)
+    const stderr = outputText(failure.stderr)
+    const diagnostics = [
+      `[POSIX shell diagnostics] operation=${operation}`,
+      `executable=${sh}`,
+      `cwd=${cwd ?? process.cwd()}`,
+      `timeoutMs=${shellTimeoutMs()}`,
+      `code=${String(failure.code ?? '')}`,
+      `status=${String(failure.status ?? '')}`,
+      `signal=${String(failure.signal ?? '')}`,
+      stdout ? `stdout:\n${stdout}` : '',
+      stderr ? `stderr:\n${stderr}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n')
+    failure.message = `${failure.message}\n${diagnostics}`
+    throw failure
+  }
+}
+
 /**
  * 把生成的 shell 脚本交给一个**真的** POSIX shell 跑一遍，供 shellQuote / fastDelete /
  * packTransfer 三处的往返用例共用。
@@ -50,10 +108,10 @@ function shEnv(sh: string): NodeJS.ProcessEnv {
 
 /** 跑一个脚本文件（被测对象走这条：与生产同一条包法） */
 export function shFile(sh: string, file: string, cwd?: string): string {
-  return execFileSync(sh, [file], { encoding: 'utf8', cwd, env: shEnv(sh) })
+  return runSh(sh, [file], cwd, 'shFile')
 }
 
 /** 跑一行命令。只给测试自己的辅助查询用（列归档成员、数残留文件），不用于被测对象 */
 export function shCommand(sh: string, command: string, cwd?: string): string {
-  return execFileSync(sh, ['-c', command], { encoding: 'utf8', cwd, env: shEnv(sh) })
+  return runSh(sh, ['-c', command], cwd, 'shCommand')
 }

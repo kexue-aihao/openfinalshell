@@ -27,6 +27,9 @@ jobs:
     # 用 windows-latest：集成测试的 fixture 与源码里的 win32 分支只有在 Windows 上才真被执行，
     # 而 Windows 恰好是本项目唯一的交付平台
     runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      OFS_POSIX_SH_TIMEOUT_MS: '20000'
     steps:
       - uses: actions/checkout@v5
 
@@ -40,8 +43,44 @@ jobs:
       - run: npm run typecheck
       - run: npm run check:i18n
 
-      # 集成测试起本地 fixture SSH 服务；真机验收用例无 OFS_TEST_* 时自动跳过
-      - run: npm test
+      # 集成测试起本地 fixture SSH 服务；真机验收用例无 OFS_TEST_* 时自动跳过。
+      # Windows 上的三个真 POSIX shell 测试不能与其他测试文件并发启动 MSYS sh。
+      - name: npm test（Windows 串行 shell）
+        run: npm test -- --no-file-parallelism --maxWorkers=1 --testTimeout=120000 --reporter=dot
+
+      - name: 收集 Windows 测试环境诊断
+        if: ${{ failure() }}
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'openfinalshell-windows-test-diagnostics'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          node --version | Out-File (Join-Path $dir 'runtime.txt') -Encoding utf8
+          npm --version | Out-File (Join-Path $dir 'runtime.txt') -Append -Encoding utf8
+          git --version | Out-File (Join-Path $dir 'runtime.txt') -Append -Encoding utf8
+          $sh = Get-Command sh.exe -ErrorAction SilentlyContinue
+          if ($sh) {
+            "sh=$($sh.Source)" | Out-File (Join-Path $dir 'runtime.txt') -Append -Encoding utf8
+            & $sh.Source --version 2>&1 | Out-File (Join-Path $dir 'runtime.txt') -Append -Encoding utf8
+          }
+          Get-Process sh,bash,tar,find,du,df -ErrorAction SilentlyContinue |
+            Select-Object Id,ProcessName,Path,StartTime,CPU |
+            Format-List | Out-File (Join-Path $dir 'processes.txt') -Encoding utf8
+          Get-ChildItem Env: |
+            Where-Object { $_.Name -in @('CI', 'RUNNER_OS', 'RUNNER_TEMP', 'TEMP', 'TMP', 'PATH', 'OFS_POSIX_SH_TIMEOUT_MS') } |
+            Sort-Object Name | Format-Table -AutoSize |
+            Out-File (Join-Path $dir 'environment.txt') -Encoding utf8
+          Get-ChildItem $env:TEMP -Filter 'ofs-*' -ErrorAction SilentlyContinue |
+            Select-Object FullName,Length,LastWriteTime |
+            Format-Table -AutoSize | Out-File (Join-Path $dir 'temporary-files.txt') -Encoding utf8
+
+      - name: 上传 Windows 测试诊断
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-test-diagnostics-${{ github.run_id }}
+          path: ${{ runner.temp }}/openfinalshell-windows-test-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
 
       # check:bundle 读 out/ 的产物算 gzip，必须先 build
       - run: npm run build
