@@ -2,6 +2,7 @@ package io.github.openfinalshell.android
 
 import android.app.Application
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -99,7 +100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             runCatching { refreshProfiles() }
-                .onFailure { setStatus(it.message ?: "Local storage unavailable") }
+                .onFailure { setStatus(readableError(it, "Local storage unavailable")) }
         }
         viewModelScope.launch {
             sessions.sessions.collect { snapshot ->
@@ -127,7 +128,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             SessionState.AUTHENTICATING -> "Authenticating"
                             SessionState.READY -> "Connected"
                             SessionState.RECONNECTING -> "Reconnecting"
-                            SessionState.CLOSED -> event.error ?: "Disconnected"
+                            SessionState.CLOSED -> sanitizeMessage(event.error, "Disconnected")
                         }
                         updateState { it.copy(status = label) }
                     }
@@ -184,7 +185,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 refreshProfiles()
                 updateState { it.copy(selectedProfileId = profile.id, status = "Profile saved") }
             } catch (error: Throwable) {
-                setStatus(error.message ?: "Profile save failed")
+                setStatus(readableError(error, "Profile save failed"))
             }
         }
     }
@@ -248,7 +249,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Intent(getApplication(), ConnectionForegroundService::class.java).setAction(ConnectionForegroundService.ACTION_START)
                 )
             } catch (error: Throwable) {
-                setStatus(error.message ?: "Connection failed")
+                setStatus(readableError(error, "Connection failed"))
             }
         }
     }
@@ -262,7 +263,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun collectStaticInfo(sessionId: String) {
         viewModelScope.launch {
             runCatching { monitor.collectStaticInfo(sessionId) }
-                .onFailure { setStatus(it.message ?: "Server information unavailable") }
+                .onFailure { setStatus(readableError(it, "Server information unavailable")) }
         }
     }
 
@@ -276,7 +277,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
         viewModelScope.launch {
             runCatching { monitor.collectPortTraffic(sessionId) }
-                .onFailure { setStatus(it.message ?: "Port traffic collection failed") }
+                .onFailure { setStatus(readableError(it, "Port traffic collection failed")) }
         }
     }
 
@@ -289,7 +290,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val entries = channel.list(path).filterNot { it.name == "." || it.name == ".." }
                 updateState { it.copy(sftpPath = path, sftpEntries = entries, status = "SFTP ready") }
             } catch (error: Throwable) {
-                setStatus(error.message ?: "SFTP browse failed")
+                setStatus(readableError(error, "SFTP browse failed"))
             } finally {
                 try { channel?.close() } catch (_: Throwable) { }
             }
@@ -305,7 +306,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 channel.delete(path, recursive)
                 browseSftp(state.value.sftpPath)
             } catch (error: Throwable) {
-                setStatus(error.message ?: "SFTP delete failed")
+                setStatus(readableError(error, "SFTP delete failed"))
             } finally {
                 try { channel?.close() } catch (_: Throwable) { }
             }
@@ -327,7 +328,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 setStatus("Upload queued")
             } catch (error: Throwable) {
-                setStatus(error.message ?: "SFTP upload failed")
+                setStatus(readableError(error, "SFTP upload failed"))
             }
         }
     }
@@ -347,7 +348,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 setStatus("Download queued")
             } catch (error: Throwable) {
-                setStatus(error.message ?: "SFTP download failed")
+                setStatus(readableError(error, "SFTP download failed"))
             }
         }
     }
@@ -390,7 +391,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 browseSftp(state.value.sftpPath)
                 setStatus(success)
             } catch (error: Throwable) {
-                setStatus(error.message ?: "SFTP operation failed")
+                setStatus(readableError(error, "SFTP operation failed"))
             } finally {
                 runCatching { channel?.close() }
             }
@@ -431,7 +432,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             } catch (error: Throwable) {
-                setStatus(error.message ?: "Terminal open failed")
+                setStatus(readableError(error, "Terminal open failed"))
             }
         }
     }
@@ -440,7 +441,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shell = shells[sessionId] ?: return
         viewModelScope.launch {
             runCatching { shell.write(data.toByteArray(Charsets.UTF_8)) }
-                .onFailure { setStatus(it.message ?: "Terminal write failed") }
+                .onFailure { setStatus(readableError(it, "Terminal write failed")) }
         }
     }
 
@@ -469,6 +470,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setStatus(status: String) {
         updateState { it.copy(status = status) }
+    }
+
+    /** Keep implementation details out of the status bar while retaining them in Logcat. */
+    private fun readableError(error: Throwable, fallback: String): String {
+        Log.e(TAG, fallback, error)
+        val chain = generateSequence(error) { it.cause }.toList()
+        if (chain.any { it is LinkageError || it is ExceptionInInitializerError }) {
+            return "SSH client components could not be loaded. Reinstall the latest Android APK."
+        }
+        val message = chain.asSequence()
+            .mapNotNull { it.message?.trim() }
+            .firstOrNull { it.isNotEmpty() }
+        return sanitizeMessage(message, fallback)
+    }
+
+    private fun sanitizeMessage(message: String?, fallback: String): String {
+        val value = message?.trim().orEmpty()
+        if (value.isEmpty()) return fallback
+        // Class names and binary names are diagnostic identifiers, not user-facing errors.
+        val looksLikeClassName = value.matches(Regex("[A-Za-z_][\\w]*(\\.[A-Za-z_][\\w]*)+"))
+        val looksLikeBinaryName = value.contains('/') && !value.contains(' ')
+        return if (looksLikeClassName || looksLikeBinaryName) fallback else value
     }
 
     private fun updateState(transform: (AndroidUiState) -> AndroidUiState) {
@@ -520,6 +543,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
+        private const val TAG = "OpenFinalShell"
         private const val MAX_TERMINAL_OUTPUT_CHARS = 200_000
     }
 }

@@ -1,5 +1,6 @@
 package io.github.openfinalshell.android.core.ssh
 
+import android.util.Log
 import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.SessionState
 import java.io.ByteArrayInputStream
@@ -20,6 +21,10 @@ import org.apache.sshd.sftp.client.SftpClientFactory
 class MinaSshTransport(
     private val hostKeyVerifier: HostKeyVerifier? = null
 ) : SshTransport {
+    private companion object {
+        const val TAG = "MinaSshTransport"
+    }
+
     private val mutableState = MutableStateFlow(SessionState.CLOSED)
     override val state: StateFlow<SessionState> = mutableState
     private val mutableEvents = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 8)
@@ -33,23 +38,29 @@ class MinaSshTransport(
         check(session == null) { "SSH session is already connected" }
         intentionalClose = false
         mutableState.value = SessionState.CONNECTING
-        val ssh = SshClient.setUpDefaultClient()
-        ssh.serverKeyVerifier = if (hostKeyVerifier == null) {
-            // Never silently trust an unknown host. Callers must provide the app's TOFU policy.
-            RejectAllServerKeyVerifier.INSTANCE
-        } else {
-            org.apache.sshd.client.keyverifier.ServerKeyVerifier { _, _, key ->
-                runBlocking { hostKeyVerifier.verify(profile.host, profile.port, key) }
-            }
-        }
-        // Some servers expose password authentication only as keyboard-interactive. Reuse the
-        // explicitly supplied password for non-echo prompts; never fabricate an answer.
-        ssh.userInteraction = PasswordKeyboardInteraction(credentials.password ?: credentials.passphrase)
-        ssh.start()
-        client = ssh
-        mutableState.value = SessionState.AUTHENTICATING
+        val ssh: SshClient
         var connected: ClientSession? = null
         try {
+            // sshd-core resolves its I/O provider while constructing ClientBuilder. Keep this
+            // inside the guarded block so provider/class-loading failures are cleaned up and
+            // logged with their complete cause chain instead of leaking a class name to the UI.
+            ssh = SshClient.setUpDefaultClient()
+            // Register the instance before any configuration/start call so every partially
+            // initialized client is stopped by the common failure path below.
+            client = ssh
+            ssh.serverKeyVerifier = if (hostKeyVerifier == null) {
+                // Never silently trust an unknown host. Callers must provide the app's TOFU policy.
+                RejectAllServerKeyVerifier.INSTANCE
+            } else {
+                org.apache.sshd.client.keyverifier.ServerKeyVerifier { _, _, key ->
+                    runBlocking { hostKeyVerifier.verify(profile.host, profile.port, key) }
+                }
+            }
+            // Some servers expose password authentication only as keyboard-interactive. Reuse the
+            // explicitly supplied password for non-echo prompts; never fabricate an answer.
+            ssh.userInteraction = PasswordKeyboardInteraction(credentials.password ?: credentials.passphrase)
+            ssh.start()
+            mutableState.value = SessionState.AUTHENTICATING
             connected = ssh.connect(profile.username, profile.host, profile.port).verify().session
             credentials.password?.let { connected.addPasswordIdentity(String(it)) }
             // Key parsing is delegated to Apache MINA's parser so OpenSSH/PEM formats remain supported.
@@ -70,8 +81,9 @@ class MinaSshTransport(
             }
             mutableState.value = SessionState.READY
         } catch (error: Throwable) {
+            Log.e(TAG, "SSH client initialization or connection failed", error)
             connected?.close(false)
-            ssh.stop()
+            client?.stop()
             client = null
             session = null
             mutableState.value = SessionState.CLOSED

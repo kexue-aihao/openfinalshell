@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.5',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android SSH 客户端缺少 MINA 传输组件导致连接初始化失败并在底部提示内部类名的问题；增加初始化失败清理和可读错误提示',
+        en: 'Fixed Android SSH connection initialization failures caused by a missing MINA transport component; added cleanup for initialization errors and readable status messages instead of internal class names'
+      }
+    ]
+  },
+  {
     version: '0.20.4',
     items: [
       {

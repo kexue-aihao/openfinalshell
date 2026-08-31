@@ -26,6 +26,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("org.apache.sshd:sshd-core:2.14.0")
+    // sshd-core selects the MINA I/O provider at runtime. Keep the provider in
+    // the Android runtime classpath; without it ClientBuilder initialization
+    // fails before any network connection is attempted.
+    implementation("org.apache.sshd:sshd-mina:2.14.0")
     implementation("org.apache.sshd:sshd-sftp:2.14.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.80")
 
