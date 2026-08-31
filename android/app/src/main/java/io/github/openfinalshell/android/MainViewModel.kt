@@ -77,7 +77,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val monitor = MonitorSession(sessions)
 
     init {
-        viewModelScope.launch { refreshProfiles() }
+        viewModelScope.launch {
+            runCatching { refreshProfiles() }
+                .onFailure { setStatus(it.message ?: "Local storage unavailable") }
+        }
         viewModelScope.launch {
             sessions.sessions.collect { snapshot ->
                 updateState { it.copy(sessions = snapshot) }

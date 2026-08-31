@@ -2,6 +2,7 @@
     <string name="app_name">OpenFinalShell</string>
     <string name="tab_connections">连接</string>
     <string name="tab_terminal">终端</string>
+    <string name="tab_sftp">SFTP</string>
     <string name="tab_monitor">监控</string>
     <string name="saved_connections">已保存的连接</string>
     <string name="label_name">名称</string>
