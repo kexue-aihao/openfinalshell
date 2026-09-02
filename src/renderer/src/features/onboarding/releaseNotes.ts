@@ -17,6 +17,21 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.12',
+    items: [
+      {
+        type: 'feat',
+        zh: '重构 Android 手机界面为 Material 3 导航与分组布局；终端现使用原生 ANSI/VT 渲染，支持颜色、清屏、光标、滚动、复制、中文输入和按屏幕尺寸自动调整行列数',
+        en: 'Rebuilt the Android mobile interface with Material 3 navigation and grouped layouts; the terminal now uses native ANSI/VT rendering with color, clearing, cursor control, scrolling, copy, Chinese input, and screen-aware row and column sizing'
+      },
+      {
+        type: 'fix',
+        zh: '统一 Android 连接、传输、同步、通知和设置状态的本地化展示，避免直接显示内部状态或英文调试文本',
+        en: 'Unified localized Android status presentation for connections, transfers, sync, notifications, and settings so internal states and English diagnostic text are not shown directly'
+      }
+    ]
+  },
+  {
     version: '0.20.10',
     items: [
       {
