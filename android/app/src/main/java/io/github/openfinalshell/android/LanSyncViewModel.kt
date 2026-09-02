@@ -2,6 +2,7 @@ package io.github.openfinalshell.android
 
 import android.app.Application
 import android.net.wifi.WifiManager
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.openfinalshell.android.core.lansync.LanSyncApplyResult
@@ -31,7 +32,7 @@ data class LanSyncUiState(
     val receiver: LanSyncReceiverInfo? = null,
     val selectedPeer: LanSyncPeer? = null,
     val lastResult: LanSyncApplyResult? = null,
-    val message: String? = null
+    val message: UiStatus? = null
 )
 
 /** Owns Android LAN Sync lifecycle while keeping the wire protocol in the core module. */
@@ -68,9 +69,13 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
             mutableState.value = mutableState.value.copy(phase = "scanning", message = null)
             try {
                 val result = withMulticastLock { coordinator.scan(deviceId, deviceName) }
-                mutableState.value = mutableState.value.copy(phase = "idle", peers = result, message = "Found ${result.size} device(s)")
+                mutableState.value = mutableState.value.copy(
+                    phase = "idle",
+                    peers = result,
+                    message = UiStatus(StatusKey.SYNC_DEVICES_FOUND, listOf(result.size))
+                )
             } catch (error: Throwable) {
-                mutableState.value = mutableState.value.copy(phase = "error", message = error.readable("Device scan failed"))
+                mutableState.value = mutableState.value.copy(phase = "error", message = syncError(error, StatusKey.SYNC_DEVICE_SCAN_FAILED))
             }
         }
     }
@@ -90,9 +95,9 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
                     releaseReceiverMulticastLock()
                     throw error
                 }
-                mutableState.value = mutableState.value.copy(phase = "waiting", receiver = info, message = "Receiver ready")
+                mutableState.value = mutableState.value.copy(phase = "waiting", receiver = info, message = UiStatus(StatusKey.SYNC_RECEIVER_READY))
             } catch (error: Throwable) {
-                mutableState.value = mutableState.value.copy(phase = "idle", message = error.readable("Unable to start receiver"))
+                mutableState.value = mutableState.value.copy(phase = "idle", message = syncError(error, StatusKey.SYNC_RECEIVER_START_FAILED))
             }
         }
     }
@@ -102,13 +107,13 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
         pendingDecision = null
         coordinator.stopReceiver()
         releaseReceiverMulticastLock()
-        mutableState.value = mutableState.value.copy(phase = "idle", receiver = null, message = "Receiver stopped")
+        mutableState.value = mutableState.value.copy(phase = "idle", receiver = null, message = UiStatus(StatusKey.SYNC_RECEIVER_STOPPED))
     }
 
     fun send(peer: LanSyncPeer, pairingCode: String) {
         val code = pairingCode.trim()
         if (!code.matches(Regex("\\d{6}"))) {
-            mutableState.value = mutableState.value.copy(message = "Pairing code must be 6 digits")
+            mutableState.value = mutableState.value.copy(message = UiStatus(StatusKey.SYNC_PAIRING_CODE_INVALID))
             return
         }
         viewModelScope.launch {
@@ -122,9 +127,9 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
                         )
                     }
                 }
-                mutableState.value = mutableState.value.copy(phase = "applied", lastResult = result, message = "Sync delivered")
+                mutableState.value = mutableState.value.copy(phase = "applied", lastResult = result, message = UiStatus(StatusKey.SYNC_DELIVERED))
             } catch (error: Throwable) {
-                mutableState.value = mutableState.value.copy(phase = "error", message = error.readable("Sync failed"))
+                mutableState.value = mutableState.value.copy(phase = "error", message = syncError(error, StatusKey.SYNC_FAILED))
             }
         }
     }
@@ -141,12 +146,12 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
         val decision = CompletableDeferred<Boolean>()
         pendingDecision?.complete(false)
         pendingDecision = decision
-        mutableState.value = mutableState.value.copy(phase = "incoming", message = "Incoming sync is waiting for confirmation")
+        mutableState.value = mutableState.value.copy(phase = "incoming", message = UiStatus(StatusKey.SYNC_INCOMING_CONFIRMATION_PENDING))
         val accepted = try { decision.await() } finally {
             if (pendingDecision === decision) pendingDecision = null
         }
         if (!accepted) {
-            mutableState.value = mutableState.value.copy(phase = "waiting", message = "Sync rejected")
+            mutableState.value = mutableState.value.copy(phase = "waiting", message = UiStatus(StatusKey.SYNC_REJECTED))
             throw IllegalStateException("Sync rejected")
         }
         val result = try {
@@ -156,7 +161,7 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
                 conflict = ImportConflict.SKIP
             )
         } catch (error: Throwable) {
-            mutableState.value = mutableState.value.copy(phase = "waiting", message = error.readable("Sync import failed"))
+            mutableState.value = mutableState.value.copy(phase = "waiting", message = syncError(error, StatusKey.SYNC_IMPORT_FAILED))
             throw error
         }
         val applied = LanSyncApplyResult(
@@ -170,7 +175,7 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
         mutableState.value = mutableState.value.copy(
             phase = "applied",
             lastResult = applied,
-            message = "Imported ${result.profiles} profile(s)"
+            message = UiStatus(StatusKey.SYNC_IMPORTED, listOf(result.profiles))
         )
         return applied
     }
@@ -203,9 +208,14 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
         super.onCleared()
     }
 
-    private fun Throwable.readable(fallback: String): String = message?.trim()?.takeIf { it.isNotEmpty() } ?: fallback
+    /** The detailed cause is useful to developers, but is not a translated UI string. */
+    private fun syncError(error: Throwable, fallback: StatusKey): UiStatus {
+        Log.e(TAG, fallback.name, error)
+        return UiStatus(fallback)
+    }
 
     private companion object {
+        const val TAG = "LanSync"
         const val PREFS = "lan_sync"
         const val KEY_DEVICE_ID = "device_id"
     }

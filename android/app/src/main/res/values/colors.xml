@@ -1,4 +1,10 @@
 <resources>
     <color name="icon_blue">#1677FF</color>
     <color name="icon_green">#52C41A</color>
+
+    <!-- Shared window and system-bar colors. Compose uses the matching tokens in UiTheme.kt. -->
+    <color name="ofs_light_background">#F8F9FC</color>
+    <color name="ofs_dark_background">#111318</color>
+    <color name="ofs_terminal_background">#0B0D10</color>
+    <color name="ofs_brand_blue">#1677FF</color>
 </resources>

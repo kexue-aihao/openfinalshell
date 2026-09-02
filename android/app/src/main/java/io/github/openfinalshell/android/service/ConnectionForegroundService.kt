@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import io.github.openfinalshell.android.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,7 +21,11 @@ class ConnectionForegroundService : Service() {
         super.onCreate()
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "OpenFinalShell connections", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel_connections),
+                NotificationManager.IMPORTANCE_LOW
+            )
         )
     }
 
@@ -73,14 +78,14 @@ class ConnectionForegroundService : Service() {
         val transfers = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_TRANSFERS, 0)
         val forwards = getSharedPreferences(PREFS, MODE_PRIVATE).getInt(KEY_FORWARDS, 0)
         val summary = if (sessions > 0 || transfers > 0 || forwards > 0) {
-            "SSH: $sessions, transfers: $transfers, forwards: $forwards"
+            getString(R.string.notification_summary, sessions, transfers, forwards)
         } else {
-            "Reopen OpenFinalShell to restore tasks"
+            getString(R.string.notification_reopen_to_restore)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_upload)
-        .setContentTitle("OpenFinalShell")
-        .setContentText(if (!restartedBySystem && active) summary else "Reopen OpenFinalShell to restore tasks")
+        .setContentTitle(getString(R.string.app_name))
+        .setContentText(if (!restartedBySystem && active) summary else getString(R.string.notification_reopen_to_restore))
         .setOngoing(true)
         .build()
     }

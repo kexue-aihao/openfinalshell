@@ -26,6 +26,7 @@ import io.github.openfinalshell.android.core.ssh.SessionSnapshot
 import io.github.openfinalshell.android.core.ssh.ShellChannel
 import io.github.openfinalshell.android.core.ssh.SftpEntry
 import io.github.openfinalshell.android.core.ssh.SshSessionManager
+import io.github.openfinalshell.android.core.terminal.TerminalSnapshot
 import io.github.openfinalshell.android.core.sftp.TransferQueue
 import io.github.openfinalshell.android.core.sftp.TransferSink
 import io.github.openfinalshell.android.core.sftp.TransferSource
@@ -33,6 +34,7 @@ import io.github.openfinalshell.android.core.sftp.TransferTask
 import java.io.File
 import java.io.RandomAccessFile
 import io.github.openfinalshell.android.service.ConnectionForegroundService
+import io.github.openfinalshell.android.terminal.SshTerminalController
 import io.github.openfinalshell.android.storage.AndroidCredentialStore
 import io.github.openfinalshell.android.storage.AppDatabase
 import io.github.openfinalshell.android.storage.ProfileRepository
@@ -75,7 +77,7 @@ data class AndroidUiState(
     val selectedProfileId: String? = null,
     val selectedSessionId: String? = null,
     val sessions: Map<String, SessionSnapshot> = emptyMap(),
-    val terminalOutput: Map<String, String> = emptyMap(),
+    val terminalSessionIds: Set<String> = emptySet(),
     val monitor: MonitorState = MonitorState(),
     val sftpPath: String = "/",
     val sftpEntries: List<SftpEntry> = emptyList(),
@@ -83,7 +85,7 @@ data class AndroidUiState(
     val forwards: List<ForwardRule> = emptyList(),
     val forwardStates: Map<String, ForwardRuntimeState> = emptyMap(),
     val hostKeyPrompt: HostKeyPrompt? = null,
-    val status: String = "Ready"
+    val status: UiStatus = UiStatus()
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -98,6 +100,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val privateKeys = PrivateKeyRepository(database.privateKeys(), credentialStore)
     private val shells = mutableMapOf<String, ShellChannel>()
     private val shellOutputJobs = mutableMapOf<String, Job>()
+    /** Prevent a recomposition or reconnect event from opening a second PTY for one session. */
+    private val openingShells = mutableSetOf<String>()
+    /** Terminal controllers keep VT parsing and rendering state out of Compose text nodes. */
+    private val terminalControllers = mutableMapOf<String, SshTerminalController>()
     private var monitorJob: Job? = null
     private val transferQueue = TransferQueue(viewModelScope)
     private val forwarding = io.github.openfinalshell.android.storage.ForwardRepository(database.forwards())
@@ -127,7 +133,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             runCatching { refreshStorage() }
-                .onFailure { setStatus(readableError(it, "Local storage unavailable")) }
+                .onFailure { setStatus(readableError(it, StatusKey.LOCAL_STORAGE_UNAVAILABLE)) }
         }
         viewModelScope.launch {
             sessions.sessions.collect { snapshot ->
@@ -150,14 +156,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             sessions.events.collect { event ->
                 when (event) {
                     is SessionEvent.StateChanged -> {
-                        val label = when (event.state) {
-                            SessionState.CONNECTING -> "Connecting"
-                            SessionState.AUTHENTICATING -> "Authenticating"
-                            SessionState.READY -> "Connected"
-                            SessionState.RECONNECTING -> "Reconnecting"
-                            SessionState.CLOSED -> sanitizeMessage(event.error, "Disconnected")
+                        val status = when (event.state) {
+                            SessionState.CONNECTING -> UiStatus(StatusKey.CONNECTING)
+                            SessionState.AUTHENTICATING -> UiStatus(StatusKey.AUTHENTICATING)
+                            SessionState.READY -> UiStatus(StatusKey.CONNECTED)
+                            SessionState.RECONNECTING -> UiStatus(StatusKey.RECONNECTING)
+                            SessionState.CLOSED -> UiStatus(StatusKey.DISCONNECTED)
                         }
-                        updateState { it.copy(status = label) }
+                        updateState { it.copy(status = status) }
                         when (event.state) {
                             SessionState.CLOSED -> markForwardingsError(event.sessionId, event.error ?: "SSH session disconnected")
                             SessionState.READY -> restoreAutoForwardings(event.sessionId)
@@ -165,14 +171,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                     is SessionEvent.Reconnected -> {
-                        updateState { it.copy(status = "Reconnected") }
+                        updateState { it.copy(status = UiStatus(StatusKey.RECONNECTED)) }
                         restoreAutoForwardings(event.sessionId)
                     }
-                    is SessionEvent.ShellOpened -> updateState { it.copy(status = "Terminal ready") }
+                    is SessionEvent.ShellOpened -> updateState { it.copy(status = UiStatus(StatusKey.TERMINAL_READY)) }
                     is SessionEvent.ShellClosed -> {
                         shells.remove(event.sessionId)
                         shellOutputJobs.remove(event.sessionId)?.cancel()
-                        updateState { it.copy(status = "Terminal closed") }
+                        terminalControllers.remove(event.sessionId)?.let { controller ->
+                            viewModelScope.launch { controller.closeSession() }
+                        }
+                        updateState {
+                            it.copy(
+                                terminalSessionIds = it.terminalSessionIds - event.sessionId,
+                                status = UiStatus(StatusKey.TERMINAL_CLOSED)
+                            )
+                        }
                     }
                 }
             }
@@ -258,9 +272,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 )
                 refreshStorage()
-                setStatus("Forwarding rule saved")
+                setStatus(StatusKey.FORWARDING_RULE_SAVED)
             } catch (error: Throwable) {
-                setStatus(readableError(error, "Forwarding rule save failed"))
+                setStatus(readableError(error, StatusKey.FORWARDING_RULE_SAVE_FAILED))
             }
         }
     }
@@ -269,7 +283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             stopForward(rule.id)
             runCatching { forwarding.delete(rule.id); refreshStorage() }
-                .onFailure { setStatus(readableError(it, "Forwarding rule delete failed")) }
+                .onFailure { setStatus(readableError(it, StatusKey.FORWARDING_RULE_DELETE_FAILED)) }
         }
     }
 
@@ -284,11 +298,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 forwardingHandles[rule.id] = handle
                 forwardingSessions[rule.id] = session.sessionId
                 updateForwardState(rule.id, ForwardRuntimeState(rule.id, "active"))
-                setStatus("Forwarding started")
+                setStatus(StatusKey.FORWARDING_STARTED)
                 updateBackgroundService()
             } catch (error: Throwable) {
-                updateForwardState(rule.id, ForwardRuntimeState(rule.id, "error", error = readableError(error, "Forwarding start failed")))
-                setStatus(readableError(error, "Forwarding start failed"))
+                updateForwardState(rule.id, ForwardRuntimeState(rule.id, "error", error = readableErrorText(error, StatusKey.FORWARDING_START_FAILED)))
+                setStatus(readableError(error, StatusKey.FORWARDING_START_FAILED))
             }
         }
     }
@@ -406,9 +420,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 profiles.upsert(profile)
                 refreshStorage()
-                updateState { it.copy(selectedProfileId = profile.id, status = "Profile saved") }
+                updateState { it.copy(selectedProfileId = profile.id, status = UiStatus(StatusKey.PROFILE_SAVED)) }
             } catch (error: Throwable) {
-                setStatus(readableError(error, "Profile save failed"))
+                setStatus(readableError(error, StatusKey.PROFILE_SAVE_FAILED))
             }
         }
     }
@@ -419,8 +433,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 state.value.sessions.values.filter { it.profile.id == profile.id }.forEach { sessions.disconnect(it.sessionId) }
                 profiles.delete(profile.id)
                 refreshStorage()
-                updateState { it.copy(selectedProfileId = null, status = "Profile deleted") }
-            } catch (error: Throwable) { setStatus(readableError(error, "Profile delete failed")) }
+                updateState { it.copy(selectedProfileId = null, status = UiStatus(StatusKey.PROFILE_DELETED)) }
+            } catch (error: Throwable) { setStatus(readableError(error, StatusKey.PROFILE_DELETE_FAILED)) }
         }
     }
 
@@ -445,7 +459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun saveGroup(name: String, parentId: String? = null, order: Double = 0.0, id: String? = null) {
         viewModelScope.launch {
             runCatching { groups.save(name, parentId, order, id); refreshStorage() }
-                .onFailure { setStatus(readableError(it, "Group save failed")) }
+                .onFailure { setStatus(readableError(it, StatusKey.GROUP_SAVE_FAILED)) }
         }
     }
 
@@ -457,7 +471,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 groups.delete(group.id)
                 refreshStorage()
-            }.onFailure { setStatus(readableError(it, "Group delete failed")) }
+            }.onFailure { setStatus(readableError(it, StatusKey.GROUP_DELETE_FAILED)) }
         }
     }
 
@@ -471,15 +485,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 savedProxies.save(name, type, host, port, username, passwordRef, id)
                 refreshStorage()
-                setStatus("Proxy saved; Android SSH proxy transport is not available yet")
-            } catch (error: Throwable) { setStatus(readableError(error, "Proxy save failed")) }
+                setStatus(StatusKey.PROXY_SAVED_UNAVAILABLE)
+            } catch (error: Throwable) { setStatus(readableError(error, StatusKey.PROXY_SAVE_FAILED)) }
         }
     }
 
     fun deleteProxy(proxy: SavedProxyEntity) {
         viewModelScope.launch {
             runCatching { savedProxies.delete(proxy.id); refreshStorage() }
-                .onFailure { setStatus(readableError(it, "Proxy delete failed")) }
+                .onFailure { setStatus(readableError(it, StatusKey.PROXY_DELETE_FAILED)) }
         }
     }
 
@@ -488,22 +502,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 privateKeys.saveFromUri(getApplication<Application>().contentResolver, uri, name, passphrase.takeIf { it.isNotEmpty() }?.toCharArray())
                 refreshStorage()
-                setStatus("Private key imported")
-            } catch (error: Throwable) { setStatus(readableError(error, "Private key import failed")) }
+                setStatus(StatusKey.PRIVATE_KEY_IMPORTED)
+            } catch (error: Throwable) { setStatus(readableError(error, StatusKey.PRIVATE_KEY_IMPORT_FAILED)) }
         }
     }
 
     fun deletePrivateKey(key: PrivateKeyEntity) {
         viewModelScope.launch {
             runCatching { privateKeys.delete(key.id); refreshStorage() }
-                .onFailure { setStatus(readableError(it, "Private key delete failed")) }
+                .onFailure { setStatus(readableError(it, StatusKey.PRIVATE_KEY_DELETE_FAILED)) }
         }
     }
 
     fun revokeKnownHost(key: String) {
         viewModelScope.launch {
-            runCatching { knownHosts.remove(key); refreshStorage(); setStatus("Host trust revoked") }
-                .onFailure { setStatus(readableError(it, "Host trust revoke failed")) }
+            runCatching { knownHosts.remove(key); refreshStorage(); setStatus(StatusKey.HOST_TRUST_REVOKED) }
+                .onFailure { setStatus(readableError(it, StatusKey.HOST_TRUST_REVOKE_FAILED)) }
         }
     }
 
@@ -518,8 +532,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
                     ?: error("unable to create export file")
-                setStatus("Export completed")
-            } catch (error: Throwable) { setStatus(readableError(error, "Export failed")) }
+                setStatus(StatusKey.EXPORT_COMPLETED)
+            } catch (error: Throwable) { setStatus(readableError(error, StatusKey.EXPORT_FAILED)) }
         }
     }
 
@@ -534,8 +548,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     privateKeys, knownHosts, credentialStore, conflict
                 )
                 refreshStorage()
-                setStatus("Imported ${result.profiles} profiles, ${result.groups} groups, ${result.proxies} proxies; ${result.notes.size} notes")
-            } catch (error: Throwable) { setStatus(readableError(error, "Import failed")) }
+                setStatus(StatusKey.IMPORT_COMPLETED, result.profiles, result.groups, result.proxies, result.notes.size)
+            } catch (error: Throwable) { setStatus(readableError(error, StatusKey.IMPORT_FAILED)) }
         }
     }
 
@@ -548,9 +562,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 selectedProfileId = profile.id,
                 selectedSessionId = existing?.sessionId,
-                status = existing?.let { item ->
-                    item.state.name.lowercase().replaceFirstChar { character -> character.uppercaseChar() }
-                }
+                    status = existing?.let { item -> sessionStatus(item.state) }
                     ?: it.status
             )
         }
@@ -560,7 +572,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 if (profile.proxy != null || profile.proxyId != null || profile.proxyMode == "custom") {
-                    setStatus("Proxy connections are not available on Android yet")
+                    setStatus(StatusKey.PROXY_UNAVAILABLE)
                     return@launch
                 }
                 monitor.stop()
@@ -574,7 +586,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         it.copy(
                             selectedProfileId = profile.id,
                             selectedSessionId = existing.sessionId,
-                            status = "Connected"
+                            status = UiStatus(StatusKey.CONNECTED)
                         )
                     }
                     openShell(existing.sessionId, 80, 24)
@@ -591,7 +603,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         selectedProfileId = profile.id,
                         selectedSessionId = sessionId,
-                        status = "Connected"
+                        status = UiStatus(StatusKey.CONNECTED)
                     )
                 }
                 openShell(sessionId, 80, 24)
@@ -602,13 +614,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     Intent(getApplication(), ConnectionForegroundService::class.java).setAction(ConnectionForegroundService.ACTION_START)
                 )
             } catch (error: Throwable) {
-                setStatus(readableError(error, "Connection failed"))
+                setStatus(readableError(error, StatusKey.CONNECTION_FAILED))
             }
         }
     }
 
     fun startMonitoring(intervalSeconds: Int = 2) {
-        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
         monitorJob?.cancel()
         monitorJob = viewModelScope.launch { monitor.start(sessionId, intervalSeconds) }
     }
@@ -616,7 +628,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun collectStaticInfo(sessionId: String) {
         viewModelScope.launch {
             runCatching { monitor.collectStaticInfo(sessionId) }
-                .onFailure { setStatus(readableError(it, "Server information unavailable")) }
+                .onFailure { setStatus(readableError(it, StatusKey.SERVER_INFO_UNAVAILABLE)) }
         }
     }
 
@@ -627,23 +639,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refreshPortTraffic() {
-        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
         viewModelScope.launch {
             runCatching { monitor.collectPortTraffic(sessionId) }
-                .onFailure { setStatus(readableError(it, "Port traffic collection failed")) }
+                .onFailure { setStatus(readableError(it, StatusKey.PORT_TRAFFIC_FAILED)) }
         }
     }
 
     fun browseSftp(path: String = state.value.sftpPath) {
-        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
         viewModelScope.launch {
             var channel: io.github.openfinalshell.android.core.ssh.SftpChannel? = null
             try {
                 channel = sessions.openSftp(sessionId)
                 val entries = channel.list(path).filterNot { it.name == "." || it.name == ".." }
-                updateState { it.copy(sftpPath = path, sftpEntries = entries, status = "SFTP ready") }
+                updateState { it.copy(sftpPath = path, sftpEntries = entries, status = UiStatus(StatusKey.SFTP_READY)) }
             } catch (error: Throwable) {
-                setStatus(readableError(error, "SFTP browse failed"))
+                setStatus(readableError(error, StatusKey.SFTP_BROWSE_FAILED))
             } finally {
                 try { channel?.close() } catch (_: Throwable) { }
             }
@@ -659,7 +671,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 channel.delete(path, recursive)
                 browseSftp(state.value.sftpPath)
             } catch (error: Throwable) {
-                setStatus(readableError(error, "SFTP delete failed"))
+                setStatus(readableError(error, StatusKey.SFTP_DELETE_FAILED))
             } finally {
                 try { channel?.close() } catch (_: Throwable) { }
             }
@@ -668,7 +680,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Opens a fresh SFTP channel for the queue; the queue closes it after the operation. */
     fun uploadSftp(localPath: String, remotePath: String) {
-        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
         viewModelScope.launch {
             try {
                 val file = File(localPath)
@@ -679,15 +691,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     channelProvider = { sessions.openSftp(sessionId) },
                     localPath = localPath
                 )
-                setStatus("Upload queued")
+                setStatus(StatusKey.UPLOAD_QUEUED)
             } catch (error: Throwable) {
-                setStatus(readableError(error, "SFTP upload failed"))
+                setStatus(readableError(error, StatusKey.SFTP_UPLOAD_FAILED))
             }
         }
     }
 
     fun downloadSftp(remotePath: String, localPath: String, bytesTotal: Long = -1L) {
-        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
         viewModelScope.launch {
             try {
                 val file = File(localPath)
@@ -699,21 +711,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     bytesTotal = bytesTotal,
                     localPath = localPath
                 )
-                setStatus("Download queued")
+                setStatus(StatusKey.DOWNLOAD_QUEUED)
             } catch (error: Throwable) {
-                setStatus(readableError(error, "SFTP download failed"))
+                setStatus(readableError(error, StatusKey.SFTP_DOWNLOAD_FAILED))
             }
         }
     }
 
     fun createSftpDirectory(name: String) {
         val path = resolveChild(state.value.sftpPath, name)
-        mutateSftp("SFTP directory created") { channel -> channel.mkdir(path) }
+        mutateSftp(StatusKey.SFTP_DIRECTORY_CREATED) { channel -> channel.mkdir(path) }
     }
 
     fun renameSftp(from: String, name: String) {
         val target = resolveChild(parentPath(from), name)
-        mutateSftp("SFTP item renamed") { channel -> channel.rename(from, target) }
+        mutateSftp(StatusKey.SFTP_ITEM_RENAMED) { channel -> channel.rename(from, target) }
     }
 
     fun goToSftpParent() {
@@ -734,8 +746,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pendingHostKey?.complete(false)
     }
 
-    private fun mutateSftp(success: String, operation: suspend (io.github.openfinalshell.android.core.ssh.SftpChannel) -> Unit) {
-        val sessionId = state.value.selectedSessionId ?: return setStatus("Select a connected session first")
+    private fun mutateSftp(success: StatusKey, operation: suspend (io.github.openfinalshell.android.core.ssh.SftpChannel) -> Unit) {
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
         viewModelScope.launch {
             var channel: io.github.openfinalshell.android.core.ssh.SftpChannel? = null
             try {
@@ -744,7 +756,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 browseSftp(state.value.sftpPath)
                 setStatus(success)
             } catch (error: Throwable) {
-                setStatus(readableError(error, "SFTP operation failed"))
+                setStatus(readableError(error, StatusKey.SFTP_OPERATION_FAILED))
             } finally {
                 runCatching { channel?.close() }
             }
@@ -768,48 +780,77 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             resizeTerminal(sessionId, cols, rows)
             return
         }
+        if (!openingShells.add(sessionId)) return
         viewModelScope.launch {
             try {
                 val shell = sessions.openShell(sessionId, cols, rows)
                 shells[sessionId] = shell
+                val controller = SshTerminalController(
+                    inputScope = viewModelScope,
+                    inputSink = { bytes -> shell.write(bytes) },
+                    initialCols = cols.coerceAtLeast(1),
+                    initialRows = rows.coerceAtLeast(1)
+                )
+                terminalControllers[sessionId] = controller
+                updateState { current ->
+                    current.copy(terminalSessionIds = current.terminalSessionIds + sessionId)
+                }
                 shellOutputJobs[sessionId] = launch {
                     shell.output.collect { bytes ->
-                        val text = bytes.toString(Charsets.UTF_8)
-                        if (text.isNotEmpty()) {
-                            updateState { current ->
-                                val old = current.terminalOutput[sessionId].orEmpty()
-                                val next = (old + text).takeLast(MAX_TERMINAL_OUTPUT_CHARS)
-                                current.copy(terminalOutput = current.terminalOutput + (sessionId to next))
-                            }
-                        }
+                        controller.write(bytes)
                     }
                 }
             } catch (error: Throwable) {
-                setStatus(readableError(error, "Terminal open failed"))
+                setStatus(readableError(error, StatusKey.TERMINAL_OPEN_FAILED))
+            } finally {
+                openingShells.remove(sessionId)
             }
         }
     }
 
-    fun sendTerminalInput(sessionId: String, data: String) {
-        val shell = shells[sessionId] ?: return
+    /** Writes user input and terminal protocol replies to the SSH shell without text round-tripping. */
+    fun sendTerminalInput(sessionId: String, data: ByteArray) {
+        val controller = terminalControllers[sessionId]
         viewModelScope.launch {
-            runCatching { shell.write(data.toByteArray(Charsets.UTF_8)) }
-                .onFailure { setStatus(readableError(it, "Terminal write failed")) }
+            runCatching {
+                if (controller != null) controller.sendInput(data)
+                else shells[sessionId]?.write(data)
+            }
+                .onFailure { setStatus(readableError(it, StatusKey.TERMINAL_WRITE_FAILED)) }
         }
     }
 
+    fun sendTerminalInput(sessionId: String, data: String) =
+        sendTerminalInput(sessionId, data.toByteArray(Charsets.UTF_8))
+
+    /** Snapshot stream for a native terminal view; the SSH channel remains private to the VM. */
+    fun terminalSnapshot(sessionId: String): StateFlow<TerminalSnapshot>? =
+        terminalControllers[sessionId]?.snapshot
+
+    fun terminalController(sessionId: String): SshTerminalController? = terminalControllers[sessionId]
+
     fun resizeTerminal(sessionId: String, cols: Int, rows: Int) {
         val shell = shells[sessionId] ?: return
-        viewModelScope.launch { runCatching { shell.resize(cols, rows) } }
+        val controller = terminalControllers[sessionId]
+        viewModelScope.launch {
+            runCatching {
+                controller?.resize(cols.coerceAtLeast(1), rows.coerceAtLeast(1))
+                shell.resize(cols.coerceAtLeast(1), rows.coerceAtLeast(1))
+            }
+        }
     }
 
     fun clearTerminal(sessionId: String) {
-        updateState { it.copy(terminalOutput = it.terminalOutput - sessionId) }
+        terminalControllers[sessionId]?.clearScreen()
     }
 
     fun disconnect(sessionId: String) {
+        openingShells.remove(sessionId)
         forwardingSessions.filterValues { it == sessionId }.keys.toList().forEach(::stopForward)
         shellOutputJobs.remove(sessionId)?.cancel()
+        terminalControllers.remove(sessionId)?.let { controller ->
+            viewModelScope.launch { controller.closeSession() }
+        }
         shells.remove(sessionId)
         viewModelScope.launch {
             sessions.disconnect(sessionId)
@@ -818,35 +859,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         if (state.value.selectedSessionId == sessionId) {
-            updateState { it.copy(selectedSessionId = null, status = "Disconnected") }
+            updateState {
+                it.copy(
+                    selectedSessionId = null,
+                    terminalSessionIds = it.terminalSessionIds - sessionId,
+                    status = UiStatus(StatusKey.DISCONNECTED)
+                )
+            }
+        } else {
+            updateState { it.copy(terminalSessionIds = it.terminalSessionIds - sessionId) }
         }
     }
 
-    fun setStatus(status: String) {
+    fun setStatus(status: UiStatus) {
         updateState { it.copy(status = status) }
     }
 
-    /** Keep implementation details out of the status bar while retaining them in Logcat. */
-    private fun readableError(error: Throwable, fallback: String): String {
-        Log.e(TAG, fallback, error)
-        val chain = generateSequence(error) { it.cause }.toList()
-        if (chain.any { it is LinkageError || it is ExceptionInInitializerError }) {
-            return "SSH client components could not be loaded. Reinstall the latest Android APK."
-        }
-        val message = chain.asSequence()
-            .mapNotNull { it.message?.trim() }
-            .firstOrNull { it.isNotEmpty() }
-        return sanitizeMessage(message, fallback)
+    private fun setStatus(key: StatusKey, vararg args: Any) {
+        setStatus(UiStatus(key, args.toList()))
     }
 
-    private fun sanitizeMessage(message: String?, fallback: String): String {
-        val value = message?.trim().orEmpty()
-        if (value.isEmpty()) return fallback
-        // Class names and binary names are diagnostic identifiers, not user-facing errors.
-        val looksLikeClassName = value.matches(Regex("[A-Za-z_][\\w]*(\\.[A-Za-z_][\\w]*)+"))
-        val looksLikeBinaryName = value.contains('/') && !value.contains(' ')
-        return if (looksLikeClassName || looksLikeBinaryName) fallback else value
+    /** Keep implementation details out of the status bar while retaining them in Logcat. */
+    private fun readableError(error: Throwable, fallback: StatusKey): UiStatus {
+        Log.e(TAG, fallback.name, error)
+        val chain = generateSequence(error) { it.cause }.toList()
+        if (chain.any { it is LinkageError || it is ExceptionInInitializerError }) {
+            return UiStatus(StatusKey.SSH_COMPONENTS_UNAVAILABLE)
+        }
+        return UiStatus(fallback)
     }
+
+    private fun readableErrorText(error: Throwable, fallback: StatusKey): String {
+        val status = readableError(error, fallback)
+        val context = getApplication<Application>()
+        return context.getString(status.key.resourceId, *status.args.toTypedArray())
+    }
+
+    private fun sessionStatus(state: SessionState): UiStatus = UiStatus(
+        when (state) {
+            SessionState.CONNECTING -> StatusKey.CONNECTING
+            SessionState.AUTHENTICATING -> StatusKey.AUTHENTICATING
+            SessionState.READY -> StatusKey.CONNECTED
+            SessionState.RECONNECTING -> StatusKey.RECONNECTING
+            SessionState.CLOSED -> StatusKey.DISCONNECTED
+        }
+    )
 
     private fun updateState(transform: (AndroidUiState) -> AndroidUiState) {
         mutableState.value = transform(mutableState.value)
@@ -857,6 +914,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         forwardingHandles.clear()
         forwardingSessions.clear()
         shellOutputJobs.values.forEach(Job::cancel)
+        terminalControllers.values.forEach { it.disposeView() }
+        terminalControllers.clear()
         shells.values.forEach { shell -> viewModelScope.launch { runCatching { shell.close() } } }
         monitor.stop()
         monitorJob?.cancel()
@@ -884,7 +943,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             updateState {
                 it.copy(
                     hostKeyPrompt = HostKeyPrompt(host, port, keyType, fingerprint),
-                    status = "Host key confirmation required"
+                    status = UiStatus(StatusKey.HOST_KEY_CONFIRMATION_REQUIRED)
                 )
             }
             val accepted = try {
@@ -901,7 +960,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "OpenFinalShell"
-        private const val MAX_TERMINAL_OUTPUT_CHARS = 200_000
     }
 }
 

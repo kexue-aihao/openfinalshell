@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.openfinalshell.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = (providers.gradleProperty("versionCode").orNull ?: "10").toInt()
-        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.10"
+        versionCode = (providers.gradleProperty("versionCode").orNull ?: "11").toInt()
+        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.11"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -74,6 +74,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
@@ -81,6 +82,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    // Termux's maintained terminal emulator provides the VT/ANSI renderer used by the SSH shell.
+    implementation("com.github.termux.termux-app:terminal-emulator:v0.118.0")
+    implementation("com.github.termux.termux-app:terminal-view:v0.118.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
@@ -112,6 +116,27 @@ val settingsI18nKeys = setOf(
     "settings_about_body", "update_ready_dialog_title", "update_ready_dialog_message",
     "action_install_and_restart", "action_later", "settings_unavailable", "settings_save_failed"
 )
+val uiI18nKeys = setOf(
+    "nav_more",
+    "status_ready", "status_connecting", "status_authenticating", "status_connected", "status_reconnecting",
+    "status_disconnected", "status_reconnected", "status_terminal_ready", "status_terminal_closed",
+    "status_profile_saved", "status_profile_deleted", "status_forwarding_rule_saved", "status_forwarding_rule_deleted",
+    "status_forwarding_started", "status_proxy_saved_unavailable", "status_proxy_unavailable", "status_private_key_imported",
+    "status_host_trust_revoked", "status_export_completed", "status_import_completed", "status_session_required",
+    "status_server_info_unavailable", "status_port_traffic_failed", "status_sftp_ready", "status_sftp_directory_created",
+    "status_sftp_item_renamed", "status_upload_queued", "status_download_queued", "status_host_key_confirmation_required",
+    "status_ssh_components_unavailable", "status_error_detail", "status_local_storage_unavailable",
+    "status_forwarding_rule_save_failed", "status_forwarding_rule_delete_failed", "status_forwarding_start_failed",
+    "status_profile_save_failed", "status_profile_delete_failed", "status_group_save_failed", "status_group_delete_failed",
+    "status_proxy_save_failed", "status_proxy_delete_failed", "status_private_key_import_failed", "status_private_key_delete_failed",
+    "status_host_trust_revoke_failed", "status_export_failed", "status_import_failed", "status_connection_failed",
+    "status_sftp_browse_failed", "status_sftp_delete_failed", "status_sftp_upload_failed", "status_sftp_download_failed",
+    "status_sftp_operation_failed", "status_terminal_open_failed", "status_terminal_write_failed",
+    "status_sync_devices_found", "status_sync_device_scan_failed", "status_sync_receiver_ready", "status_sync_receiver_start_failed",
+    "status_sync_receiver_stopped", "status_sync_pairing_code_invalid", "status_sync_delivered", "status_sync_failed",
+    "status_sync_incoming_confirmation_pending", "status_sync_rejected", "status_sync_import_failed", "status_sync_imported"
+)
+val checkedI18nKeys = settingsI18nKeys + uiI18nKeys
 val settingsI18nLocales = listOf("zh-rCN", "zh-rTW", "ja-rJP", "ko-rKR", "ru-rRU", "es-rES", "fr-rFR", "de-rDE", "pt-rBR")
 
 tasks.register("checkI18n") {
@@ -132,15 +157,15 @@ tasks.register("checkI18n") {
         }
 
         val baseNames = stringNames(baseFile.asFile)
-        check(settingsI18nKeys.all { it in baseNames }) {
-            "Default strings.xml is missing Settings keys: ${settingsI18nKeys.filterNot { it in baseNames }.sorted()}"
+        check(checkedI18nKeys.all { it in baseNames }) {
+            "Default strings.xml is missing localized UI keys: ${checkedI18nKeys.filterNot { it in baseNames }.sorted()}"
         }
         settingsI18nLocales.forEach { qualifier ->
             val directory = layout.projectDirectory.dir("src/main/res/values-$qualifier").asFile
             val files = directory.listFiles { file -> file.extension == "xml" }?.toList().orEmpty()
             val names = files.flatMap(::stringNames).toSet()
-            check(settingsI18nKeys.all { it in names }) {
-                "values-$qualifier is missing Settings translations: ${settingsI18nKeys.filterNot { it in names }.sorted()}"
+            check(checkedI18nKeys.all { it in names }) {
+                "values-$qualifier is missing localized UI keys: ${checkedI18nKeys.filterNot { it in names }.sorted()}"
             }
         }
     }

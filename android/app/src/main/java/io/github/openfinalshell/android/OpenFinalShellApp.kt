@@ -3,14 +3,15 @@ package io.github.openfinalshell.android
 import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,25 +23,44 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,20 +78,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.net.Uri
 import io.github.openfinalshell.android.storage.AndroidSettings
 import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.SessionState
 import io.github.openfinalshell.android.core.ssh.SftpEntry
+import io.github.openfinalshell.android.core.terminal.TerminalCursorStyle
 import io.github.openfinalshell.android.update.UpdateState
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import io.github.openfinalshell.android.ui.OpenFinalShellTheme
+import io.github.openfinalshell.android.ui.OpenFinalShellSpacing
+import io.github.openfinalshell.android.terminal.SshTerminalView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,7 +111,11 @@ fun OpenFinalShellApp(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
     val lanSyncState by lanSyncViewModel.state.collectAsStateWithLifecycle()
-    var tab by remember { mutableIntStateOf(0) }
+    val snackbarHost = remember { SnackbarHostState() }
+    val statusText = uiStatusText(state.status)
+    // Keep the existing page indexes so session state and ViewModel calls remain unchanged.
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var showMore by rememberSaveable { mutableStateOf(false) }
     var deferredUpdateTag by rememberSaveable { mutableStateOf<String?>(null) }
     var installAfterPermission by rememberSaveable { mutableStateOf(false) }
     val updatePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -103,6 +135,9 @@ fun OpenFinalShellApp(
 
     LaunchedEffect(settingsState.update) {
         if (settingsState.update !is UpdateState.Ready) deferredUpdateTag = null
+    }
+    LaunchedEffect(state.status) {
+        if (state.status.key != StatusKey.READY) snackbarHost.showSnackbar(statusText)
     }
 
     state.hostKeyPrompt?.let { prompt ->
@@ -140,9 +175,7 @@ fun OpenFinalShellApp(
     }
     val primary = runCatching { Color(android.graphics.Color.parseColor(settingsState.settings.accentColor)) }
         .getOrDefault(Color(0xFF1677FF))
-    val colors = (if (darkTheme) darkColorScheme() else lightColorScheme()).copy(primary = primary)
-
-    MaterialTheme(colorScheme = colors) {
+    OpenFinalShellTheme(darkTheme = darkTheme, accentColor = primary) {
         val readyUpdate = settingsState.update as? UpdateState.Ready
         if (readyUpdate != null && deferredUpdateTag != readyUpdate.release.tagName) {
             UpdateReadyDialog(
@@ -154,49 +187,196 @@ fun OpenFinalShellApp(
                 }
             )
         }
-        Scaffold(
-            topBar = { TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(R.string.app_name)) }) },
-            bottomBar = {
-                Surface(tonalElevation = 2.dp, modifier = Modifier.navigationBarsPadding()) {
-                    Text(
-                        text = settingsState.message ?: state.status,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val wideLayout = maxWidth >= 600.dp
+            // More destinations must not make the previous primary destination look selected.
+            val primaryTab = if (tab in 0..3) tab else -1
+            val pageTitle = when (tab) {
+                0 -> R.string.tab_connections
+                1 -> R.string.tab_terminal
+                2 -> R.string.tab_sftp
+                3 -> R.string.tab_monitor
+                4 -> R.string.tab_forwards
+                5 -> R.string.tab_sync
+                else -> R.string.tab_settings
+            }
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(androidx.compose.ui.res.stringResource(pageTitle))
+                                if (tab in 1..3) {
+                                    val selected = state.selectedSessionId?.let { state.sessions[it] }
+                                    selected?.profile?.let {
+                                        Text(
+                                            text = "${it.username}@${it.host}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     )
+                },
+                bottomBar = {
+                    if (!wideLayout) {
+                        MainNavigationBar(
+                            selected = primaryTab,
+                            moreSelected = tab >= 4,
+                            onSelect = { index -> tab = index },
+                            onMore = { showMore = true }
+                        )
+                    }
+                },
+                snackbarHost = { SnackbarHost(snackbarHost) }
+            ) { padding ->
+                Row(Modifier.fillMaxSize().padding(padding)) {
+                    if (wideLayout) {
+                        MainNavigationRail(
+                            selected = primaryTab,
+                            moreSelected = tab >= 4,
+                            onSelect = { index -> tab = index },
+                            onMore = { showMore = true }
+                        )
+                    }
+                    Column(Modifier.fillMaxSize().weight(1f)) {
+                        when (tab) {
+                            0 -> ConnectionsScreen(state, viewModel)
+                            1 -> TerminalScreen(
+                                state,
+                                viewModel,
+                                settingsState.settings.terminalFontSize,
+                                settingsState.settings.terminalCursorStyle
+                            )
+                            2 -> SftpScreen(state, viewModel)
+                            3 -> MonitorScreen(state, viewModel)
+                            4 -> ForwardScreen(state, viewModel)
+                            5 -> LanSyncScreen(lanSyncState, lanSyncViewModel)
+                            else -> SettingsScreen(settingsViewModel, settingsState, viewModel, state, requestUpdateInstall)
+                        }
+                    }
                 }
             }
-        ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                ScrollableTabRow(
-                    selectedTabIndex = tab,
-                    edgePadding = 12.dp,
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    listOf(R.string.tab_connections, R.string.tab_terminal, R.string.tab_sftp, R.string.tab_monitor, R.string.tab_forwards, R.string.tab_sync, R.string.tab_settings)
-                        .forEachIndexed { index, label ->
-                            Tab(
-                                selected = tab == index,
-                                onClick = { tab = index },
-                                text = { Text(androidx.compose.ui.res.stringResource(label)) }
-                            )
-                        }
+        }
+        if (showMore) {
+            ModalBottomSheet(onDismissRequest = { showMore = false }) {
+                MoreNavigationItem(R.string.tab_forwards, Icons.AutoMirrored.Filled.ArrowForward) {
+                    tab = 4
+                    showMore = false
                 }
-                when (tab) {
-                    0 -> ConnectionsScreen(state, viewModel)
-                    1 -> TerminalScreen(state, viewModel)
-                    2 -> SftpScreen(state, viewModel)
-                    3 -> MonitorScreen(state, viewModel)
-                    4 -> ForwardScreen(state, viewModel)
-                    5 -> LanSyncScreen(lanSyncState, lanSyncViewModel)
-                    else -> SettingsScreen(settingsViewModel, settingsState, viewModel, state, requestUpdateInstall)
+                MoreNavigationItem(R.string.tab_sync, Icons.Filled.Refresh) {
+                    tab = 5
+                    showMore = false
                 }
+                MoreNavigationItem(R.string.tab_settings, Icons.Filled.Settings) {
+                    tab = 6
+                    showMore = false
+                }
+                Spacer(Modifier.navigationBarsPadding())
             }
         }
     }
 }
 
 @Composable
+private fun MainNavigationBar(
+    selected: Int,
+    moreSelected: Boolean,
+    onSelect: (Int) -> Unit,
+    onMore: () -> Unit
+) {
+    NavigationBar {
+        NavigationBarItem(
+            selected = selected == 0,
+            onClick = { onSelect(0) },
+            icon = { Icon(Icons.Filled.Home, contentDescription = null) },
+            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_connections), maxLines = 1) }
+        )
+        NavigationBarItem(
+            selected = selected == 1,
+            onClick = { onSelect(1) },
+            icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_terminal), maxLines = 1) }
+        )
+        NavigationBarItem(
+            selected = selected == 2,
+            onClick = { onSelect(2) },
+            icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_sftp), maxLines = 1) }
+        )
+        NavigationBarItem(
+            selected = selected == 3,
+            onClick = { onSelect(3) },
+            icon = { Icon(Icons.Filled.Info, contentDescription = null) },
+            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_monitor), maxLines = 1) }
+        )
+        NavigationBarItem(
+            selected = moreSelected,
+            onClick = onMore,
+            icon = { Icon(Icons.Filled.MoreVert, contentDescription = null) },
+            label = { Text(androidx.compose.ui.res.stringResource(R.string.nav_more)) }
+        )
+    }
+}
+
+@Composable
+private fun MainNavigationRail(
+    selected: Int,
+    moreSelected: Boolean,
+    onSelect: (Int) -> Unit,
+    onMore: () -> Unit
+) {
+    NavigationRail {
+        MainNavigationRailItem(0, selected, R.string.tab_connections, Icons.Filled.Home, onSelect)
+        MainNavigationRailItem(1, selected, R.string.tab_terminal, Icons.Filled.Edit, onSelect)
+        MainNavigationRailItem(2, selected, R.string.tab_sftp, Icons.AutoMirrored.Filled.List, onSelect)
+        MainNavigationRailItem(3, selected, R.string.tab_monitor, Icons.Filled.Info, onSelect)
+        NavigationRailItem(
+            selected = moreSelected,
+            onClick = onMore,
+            icon = { Icon(Icons.Filled.MoreVert, contentDescription = null) },
+            label = { Text(androidx.compose.ui.res.stringResource(R.string.nav_more)) }
+        )
+    }
+}
+
+@Composable
+private fun ColumnScope.MainNavigationRailItem(
+    index: Int,
+    selected: Int,
+    labelRes: Int,
+    icon: ImageVector,
+    onSelect: (Int) -> Unit
+) {
+    NavigationRailItem(
+        selected = selected == index,
+        onClick = { onSelect(index) },
+        icon = { Icon(icon, contentDescription = null) },
+        label = { Text(androidx.compose.ui.res.stringResource(labelRes), maxLines = 1) }
+    )
+}
+
+@Composable
+private fun MoreNavigationItem(label: Int, icon: ImageVector, onClick: () -> Unit) {
+    val labelText = androidx.compose.ui.res.stringResource(label)
+    ListItem(
+        headlineContent = { Text(labelText) },
+        leadingContent = { Icon(icon, contentDescription = null) },
+        modifier = Modifier
+            .heightIn(min = 56.dp)
+            .clickable(onClick = onClick)
+            .semantics {
+                contentDescription = labelText
+                role = Role.Button
+            }
+    )
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
     var name by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
@@ -204,6 +384,8 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var privateKeyId by remember { mutableStateOf<String?>(null) }
+    var showAddConnectionForm by rememberSaveable { mutableStateOf(state.profiles.isEmpty()) }
+    var privateKeyMenuExpanded by remember { mutableStateOf(false) }
     val formValid = name.isNotBlank() && host.isNotBlank() && username.isNotBlank() &&
         (port.toIntOrNull()?.let { it in 1..65535 } == true)
 
@@ -234,9 +416,19 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
             }
         }
         item {
-            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
-            Text(androidx.compose.ui.res.stringResource(R.string.add_connection_title), style = MaterialTheme.typography.titleMedium)
+            HorizontalDivider(modifier = Modifier.padding(vertical = OpenFinalShellSpacing.Small))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    androidx.compose.ui.res.stringResource(R.string.add_connection_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { showAddConnectionForm = !showAddConnectionForm }) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.action_add_connection))
+                }
+            }
         }
+        if (showAddConnectionForm) {
         item {
             OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(androidx.compose.ui.res.stringResource(R.string.label_name)) }, singleLine = true)
         }
@@ -262,19 +454,43 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
         }
         if (state.privateKeys.isNotEmpty()) {
             item {
-                Text(androidx.compose.ui.res.stringResource(R.string.label_private_key), style = MaterialTheme.typography.labelLarge)
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
-                        selected = privateKeyId == null,
-                        onClick = { privateKeyId = null },
-                        label = { Text(androidx.compose.ui.res.stringResource(R.string.private_key_none)) }
+                val selectedKeyName = state.privateKeys.firstOrNull { it.id == privateKeyId }?.name
+                    ?: androidx.compose.ui.res.stringResource(R.string.private_key_none)
+                ExposedDropdownMenuBox(
+                    expanded = privateKeyMenuExpanded,
+                    onExpandedChange = { privateKeyMenuExpanded = it }
+                ) {
+                    OutlinedTextField(
+                        value = selectedKeyName,
+                        onValueChange = {},
+                        readOnly = true,
+                        modifier = Modifier.fillMaxWidth().menuAnchor(
+                            MenuAnchorType.PrimaryNotEditable,
+                            enabled = true
+                        ),
+                        label = { Text(androidx.compose.ui.res.stringResource(R.string.label_private_key)) },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = privateKeyMenuExpanded) }
                     )
-                    state.privateKeys.forEach { key ->
-                        FilterChip(
-                            selected = privateKeyId == key.id,
-                            onClick = { privateKeyId = key.id },
-                            label = { Text(key.name) }
+                    ExposedDropdownMenu(
+                        expanded = privateKeyMenuExpanded,
+                        onDismissRequest = { privateKeyMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(androidx.compose.ui.res.stringResource(R.string.private_key_none)) },
+                            onClick = {
+                                privateKeyId = null
+                                privateKeyMenuExpanded = false
+                            }
                         )
+                        state.privateKeys.forEach { key ->
+                            DropdownMenuItem(
+                                text = { Text(key.name) },
+                                onClick = {
+                                    privateKeyId = key.id
+                                    privateKeyMenuExpanded = false
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -289,10 +505,12 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
                     username = ""
                     password = ""
                     privateKeyId = null
+                    showAddConnectionForm = false
                 },
                 enabled = formValid,
                 modifier = Modifier.fillMaxWidth()
             ) { Text(androidx.compose.ui.res.stringResource(R.string.action_add_connection)) }
+        }
         }
     }
 }
@@ -306,7 +524,10 @@ private fun ConnectionCard(
     onConnect: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onSelect),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = OpenFinalShellSpacing.MinimumTouchTarget)
+            .clickable(role = Role.Button, onClick = onSelect),
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
@@ -325,7 +546,7 @@ private fun ConnectionCard(
                     color = if (it.state == SessionState.READY) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                     shape = MaterialTheme.shapes.small
                 ) {
-                    Text(it.state.name, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
+                    Text(sessionStateText(it.state), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -343,6 +564,33 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
     var directoryName by remember { mutableStateOf("") }
     var renamePath by remember { mutableStateOf("") }
     var renameName by remember { mutableStateOf("") }
+    var pendingDeletePath by remember { mutableStateOf<String?>(null) }
+    var transferAction by rememberSaveable { mutableStateOf("upload") }
+    var showDirectoryForm by rememberSaveable { mutableStateOf(false) }
+    var showRenameForm by rememberSaveable { mutableStateOf(false) }
+
+    pendingDeletePath?.let { targetPath ->
+        AlertDialog(
+            onDismissRequest = { pendingDeletePath = null },
+            title = { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) },
+            text = { Text(targetPath, fontFamily = FontFamily.Monospace) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSftp(targetPath)
+                        pendingDeletePath = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeletePath = null }) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -360,79 +608,109 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
             )
             return@Column
         }
-        Button(onClick = { viewModel.browseSftp(parent) }, enabled = path != "/") {
-            Text(androidx.compose.ui.res.stringResource(R.string.action_parent))
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
+        ) {
+            TextButton(onClick = { viewModel.browseSftp(parent) }, enabled = path != "/") {
+                Text(androidx.compose.ui.res.stringResource(R.string.action_parent))
+            }
+            TextButton(onClick = { showDirectoryForm = !showDirectoryForm }) {
+                Text(androidx.compose.ui.res.stringResource(R.string.action_create))
+            }
+            TextButton(onClick = { showRenameForm = !showRenameForm }) {
+                Text(androidx.compose.ui.res.stringResource(R.string.action_rename))
+            }
         }
-        OutlinedTextField(
-            value = uploadLocalPath,
-            onValueChange = { uploadLocalPath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.label_local_file)) },
-            singleLine = true
-        )
-        OutlinedTextField(
-            value = uploadRemotePath,
-            onValueChange = { uploadRemotePath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.label_remote_path)) },
-            singleLine = true
-        )
-        Button(
-            onClick = { viewModel.uploadSftp(uploadLocalPath, uploadRemotePath) },
-            enabled = uploadLocalPath.isNotBlank() && uploadRemotePath.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text(androidx.compose.ui.res.stringResource(R.string.action_upload)) }
-        OutlinedTextField(
-            value = downloadRemotePath,
-            onValueChange = { downloadRemotePath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.label_remote_file)) },
-            singleLine = true
-        )
-        OutlinedTextField(
-            value = downloadLocalPath,
-            onValueChange = { downloadLocalPath = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.label_local_destination)) },
-            singleLine = true
-        )
-        Button(
-            onClick = { viewModel.downloadSftp(downloadRemotePath, downloadLocalPath) },
-            enabled = downloadRemotePath.isNotBlank() && downloadLocalPath.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
-        ) { Text(androidx.compose.ui.res.stringResource(R.string.action_download)) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
+            FilterChip(
+                selected = transferAction == "upload",
+                onClick = { transferAction = "upload" },
+                label = { Text(androidx.compose.ui.res.stringResource(R.string.action_upload)) }
+            )
+            FilterChip(
+                selected = transferAction == "download",
+                onClick = { transferAction = "download" },
+                label = { Text(androidx.compose.ui.res.stringResource(R.string.action_download)) }
+            )
+        }
+        if (transferAction == "upload") {
             OutlinedTextField(
-                value = directoryName,
-                onValueChange = { directoryName = it },
-                modifier = Modifier.weight(1f),
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_directory_name)) },
+                value = uploadLocalPath,
+                onValueChange = { uploadLocalPath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_local_file)) },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = uploadRemotePath,
+                onValueChange = { uploadRemotePath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_remote_path)) },
                 singleLine = true
             )
             Button(
-                onClick = { viewModel.createSftpDirectory(directoryName); directoryName = "" },
-                enabled = directoryName.isNotBlank()
-            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_create)) }
+                onClick = { viewModel.uploadSftp(uploadLocalPath, uploadRemotePath) },
+                enabled = uploadLocalPath.isNotBlank() && uploadRemotePath.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_upload)) }
+        } else {
+            OutlinedTextField(
+                value = downloadRemotePath,
+                onValueChange = { downloadRemotePath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_remote_file)) },
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = downloadLocalPath,
+                onValueChange = { downloadLocalPath = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_local_destination)) },
+                singleLine = true
+            )
+            Button(
+                onClick = { viewModel.downloadSftp(downloadRemotePath, downloadLocalPath) },
+                enabled = downloadRemotePath.isNotBlank() && downloadLocalPath.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_download)) }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showDirectoryForm) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
+                OutlinedTextField(
+                    value = directoryName,
+                    onValueChange = { directoryName = it },
+                    modifier = Modifier.weight(1f),
+                    label = { Text(androidx.compose.ui.res.stringResource(R.string.label_directory_name)) },
+                    singleLine = true
+                )
+                Button(
+                    onClick = { viewModel.createSftpDirectory(directoryName); directoryName = ""; showDirectoryForm = false },
+                    enabled = directoryName.isNotBlank()
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_create)) }
+            }
+        }
+        if (showRenameForm) {
             OutlinedTextField(
                 value = renamePath,
                 onValueChange = { renamePath = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 label = { Text(androidx.compose.ui.res.stringResource(R.string.label_rename_path)) },
                 singleLine = true
             )
-            OutlinedTextField(
-                value = renameName,
-                onValueChange = { renameName = it },
-                modifier = Modifier.weight(1f),
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_new_name)) },
-                singleLine = true
-            )
-            Button(
-                onClick = { viewModel.renameSftp(renamePath, renameName); renamePath = ""; renameName = "" },
-                enabled = renamePath.isNotBlank() && renameName.isNotBlank()
-            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_rename)) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
+                OutlinedTextField(
+                    value = renameName,
+                    onValueChange = { renameName = it },
+                    modifier = Modifier.weight(1f),
+                    label = { Text(androidx.compose.ui.res.stringResource(R.string.label_new_name)) },
+                    singleLine = true
+                )
+                Button(
+                    onClick = { viewModel.renameSftp(renamePath, renameName); renamePath = ""; renameName = ""; showRenameForm = false },
+                    enabled = renamePath.isNotBlank() && renameName.isNotBlank()
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_rename)) }
+            }
         }
         if (state.sftpEntries.isEmpty()) {
             EmptyState(
@@ -440,8 +718,10 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
                 body = androidx.compose.ui.res.stringResource(R.string.sftp_empty_body)
             )
         } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 8.dp)) {
-                items(state.sftpEntries, key = { it.path }) { entry -> SftpEntryRow(entry, viewModel) }
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = OpenFinalShellSpacing.Small)) {
+                items(state.sftpEntries, key = { it.path }) { entry ->
+                    SftpEntryRow(entry, onDelete = { pendingDeletePath = it }, viewModel = viewModel)
+                }
             }
         }
         if (state.transfers.isNotEmpty()) {
@@ -451,24 +731,24 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
                         Column(Modifier.weight(1f)) {
                             Text(transfer.remotePath, maxLines = 1)
                             Text(
-                                "${transfer.state.name} ${transfer.bytesTransferred}/${transfer.bytesTotal.coerceAtLeast(0)}",
+                                "${transferStateText(transfer.state)} ${transfer.bytesTransferred}/${transfer.bytesTotal.coerceAtLeast(0)}",
                                 style = MaterialTheme.typography.labelSmall
                             )
-                            transfer.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall) }
+                            transfer.error?.let { error -> ErrorState(error) }
                         }
                         when (transfer.state) {
                             io.github.openfinalshell.android.core.sftp.TransferState.RUNNING,
-                            io.github.openfinalshell.android.core.sftp.TransferState.QUEUED -> Button(onClick = { viewModel.pauseTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_pause)) }
-                            io.github.openfinalshell.android.core.sftp.TransferState.PAUSED -> Button(onClick = { viewModel.resumeTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_resume)) }
+                            io.github.openfinalshell.android.core.sftp.TransferState.QUEUED -> TextButton(onClick = { viewModel.pauseTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_pause)) }
+                            io.github.openfinalshell.android.core.sftp.TransferState.PAUSED -> TextButton(onClick = { viewModel.resumeTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_resume)) }
                             io.github.openfinalshell.android.core.sftp.TransferState.FAILED,
-                            io.github.openfinalshell.android.core.sftp.TransferState.CANCELED -> Button(onClick = { viewModel.retryTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_retry)) }
+                            io.github.openfinalshell.android.core.sftp.TransferState.CANCELED -> TextButton(onClick = { viewModel.retryTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_retry)) }
                             io.github.openfinalshell.android.core.sftp.TransferState.COMPLETED -> Unit
                         }
                         if (transfer.state != io.github.openfinalshell.android.core.sftp.TransferState.COMPLETED &&
                             transfer.state != io.github.openfinalshell.android.core.sftp.TransferState.FAILED &&
                             transfer.state != io.github.openfinalshell.android.core.sftp.TransferState.CANCELED
                         ) {
-                            Button(onClick = { viewModel.cancelTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_cancel)) }
+                            TextButton(onClick = { viewModel.cancelTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_cancel)) }
                         }
                     }
                 }
@@ -478,40 +758,62 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
 }
 
 @Composable
-private fun SftpEntryRow(entry: SftpEntry, viewModel: MainViewModel) {
+private fun SftpEntryRow(
+    entry: SftpEntry,
+    viewModel: MainViewModel,
+    onDelete: (String) -> Unit
+) {
     val directory = entry.type == SftpEntry.Type.DIRECTORY
     Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = OpenFinalShellSpacing.Medium, top = OpenFinalShellSpacing.Small, bottom = OpenFinalShellSpacing.Small, end = OpenFinalShellSpacing.Small), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(if (directory) "[DIR] ${entry.name}" else entry.name, fontFamily = if (directory) FontFamily.Default else FontFamily.Monospace, maxLines = 2)
                 Text(entry.path, style = MaterialTheme.typography.labelSmall, maxLines = 1)
             }
             if (directory) {
-                Button(onClick = { viewModel.browseSftp(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_open)) }
+                TextButton(onClick = { viewModel.browseSftp(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_open)) }
             } else {
-                Button(onClick = { viewModel.deleteSftp(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
+                TextButton(
+                    onClick = { onDelete(entry.path) },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
             }
         }
     }
 }
 
 @Composable
-private fun TerminalScreen(state: AndroidUiState, viewModel: MainViewModel) {
+private fun TerminalScreen(
+    state: AndroidUiState,
+    viewModel: MainViewModel,
+    terminalFontSize: Int,
+    terminalCursorStyle: String
+) {
     val sessionId = state.selectedSessionId
     val session = sessionId?.let { state.sessions[it] }
-    val output = sessionId?.let { state.terminalOutput[it].orEmpty() }.orEmpty()
-    val outputScroll = rememberScrollState()
     val actionsScroll = rememberScrollState()
-    var input by remember(sessionId) { mutableStateOf("") }
+    val controller = sessionId
+        ?.takeIf { it in state.terminalSessionIds }
+        ?.let(viewModel::terminalController)
+    val terminalDescription = androidx.compose.ui.res.stringResource(R.string.tab_terminal)
+    // Observing the emulator snapshot invalidates the Android view without putting terminal bytes
+    // into a Compose Text node or the global UI state.
+    val terminalSnapshot = controller?.snapshot?.collectAsStateWithLifecycle()?.value
 
-    LaunchedEffect(sessionId, output) { outputScroll.scrollTo(outputScroll.maxValue) }
     LaunchedEffect(sessionId, session?.state) {
-        if (sessionId != null && session?.state == SessionState.READY) viewModel.openShell(sessionId, 80, 24)
+        if (sessionId != null && session?.state == SessionState.READY) {
+            // The Android view immediately replaces this initial size with its measured rows/columns.
+            viewModel.openShell(sessionId, 80, 24)
+        }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(session?.profile?.name ?: androidx.compose.ui.res.stringResource(R.string.tab_terminal), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-            Text(session?.state?.name ?: androidx.compose.ui.res.stringResource(R.string.terminal_no_session), style = MaterialTheme.typography.labelMedium)
+            Text(
+                session?.state?.let { sessionStateText(it) }
+                    ?: androidx.compose.ui.res.stringResource(R.string.terminal_no_session),
+                style = MaterialTheme.typography.labelMedium
+            )
         }
         if (sessionId == null) {
             EmptyState(
@@ -520,30 +822,93 @@ private fun TerminalScreen(state: AndroidUiState, viewModel: MainViewModel) {
             )
             return@Column
         }
-        Box(Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp).background(Color.Black).verticalScroll(outputScroll).padding(10.dp)) {
-            Text(
-                text = output.ifEmpty { androidx.compose.ui.res.stringResource(R.string.terminal_connecting, session?.profile?.host ?: "server") },
-                color = Color(0xffd6ffd6), fontFamily = FontFamily.Monospace
-            )
-        }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-            BasicTextField(
-                value = input, onValueChange = { input = it },
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp).border(1.dp, MaterialTheme.colorScheme.outline).padding(12.dp),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Monospace), maxLines = 4
-            )
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = { viewModel.sendTerminalInput(sessionId, input); input = "" }, enabled = input.isNotEmpty()) {
-                Text(androidx.compose.ui.res.stringResource(R.string.action_send))
+        if (controller == null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLowest
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        androidx.compose.ui.res.stringResource(
+                            R.string.terminal_connecting,
+                            session?.profile?.host ?: androidx.compose.ui.res.stringResource(R.string.terminal_unknown_host)
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
+        } else {
+            AndroidView(
+                factory = { context -> SshTerminalView(context) },
+                modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp),
+                update = { terminalView ->
+                    terminalView.contentDescription = terminalDescription
+                    terminalView.bind(
+                        nextController = controller,
+                        fontSizeSp = terminalFontSize,
+                        cursorStyle = when (terminalCursorStyle) {
+                            "line" -> TerminalCursorStyle.BAR
+                            "underline" -> TerminalCursorStyle.UNDERLINE
+                            else -> TerminalCursorStyle.BLOCK
+                        },
+                        input = { bytes -> viewModel.sendTerminalInput(sessionId, bytes) },
+                        resize = { cols, rows -> viewModel.resizeTerminal(sessionId, cols, rows) }
+                    )
+                    terminalSnapshot // Keep this update lambda subscribed to emulator screen changes.
+                    terminalView.refresh()
+                }
+            )
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(actionsScroll), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { viewModel.sendTerminalInput(sessionId, "\n") }) { Text(androidx.compose.ui.res.stringResource(R.string.action_enter)) }
-            Button(onClick = { viewModel.clearTerminal(sessionId) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_clear)) }
-            Button(onClick = { viewModel.disconnect(sessionId) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_disconnect)) }
+            TextButton(onClick = { viewModel.sendTerminalInput(sessionId, "\n") }) { Text(androidx.compose.ui.res.stringResource(R.string.action_enter)) }
+            TextButton(onClick = { viewModel.clearTerminal(sessionId) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_clear)) }
+            TextButton(
+                onClick = { viewModel.disconnect(sessionId) },
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_disconnect)) }
         }
     }
 }
+
+@Composable
+private fun sessionStateText(state: SessionState): String = uiStatusText(
+    UiStatus(
+        when (state) {
+            SessionState.CONNECTING -> StatusKey.CONNECTING
+            SessionState.AUTHENTICATING -> StatusKey.AUTHENTICATING
+            SessionState.READY -> StatusKey.CONNECTED
+            SessionState.RECONNECTING -> StatusKey.RECONNECTING
+            SessionState.CLOSED -> StatusKey.DISCONNECTED
+        }
+    )
+)
+
+@Composable
+private fun transferStateText(state: io.github.openfinalshell.android.core.sftp.TransferState): String =
+    androidx.compose.ui.res.stringResource(
+        when (state) {
+            io.github.openfinalshell.android.core.sftp.TransferState.QUEUED -> R.string.transfer_state_queued
+            io.github.openfinalshell.android.core.sftp.TransferState.RUNNING -> R.string.transfer_state_running
+            io.github.openfinalshell.android.core.sftp.TransferState.PAUSED -> R.string.transfer_state_paused
+            io.github.openfinalshell.android.core.sftp.TransferState.COMPLETED -> R.string.transfer_state_completed
+            io.github.openfinalshell.android.core.sftp.TransferState.FAILED -> R.string.transfer_state_failed
+            io.github.openfinalshell.android.core.sftp.TransferState.CANCELED -> R.string.transfer_state_canceled
+        }
+    )
+
+@Composable
+private fun forwardTypeText(type: String): String = androidx.compose.ui.res.stringResource(
+    when (type) {
+        "remote" -> R.string.forward_type_remote
+        "dynamic" -> R.string.forward_type_dynamic
+        else -> R.string.forward_type_local
+    }
+)
+
+@Composable
+private fun forwardRuntimeStateText(state: String?): String = androidx.compose.ui.res.stringResource(
+    if (state == "active") R.string.forward_state_active else R.string.forward_state_stopped
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -558,11 +923,35 @@ private fun ForwardScreen(state: AndroidUiState, viewModel: MainViewModel) {
         mutableStateOf(state.selectedProfileId ?: state.profiles.firstOrNull()?.id.orEmpty())
     }
     var autoStart by remember { mutableStateOf(false) }
+    var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     val selectedProfile = state.profiles.firstOrNull { it.id == profileId }
     val port = bindPort.toIntOrNull()
     val destinationPort = dstPort.toIntOrNull()
     val valid = selectedProfile != null && bindAddr.isNotBlank() && port?.let { it in 1..65535 } == true &&
         (type == "dynamic" || (dstHost.isNotBlank() && destinationPort?.let { it in 1..65535 } == true))
+
+    pendingDeleteId?.let { targetId ->
+        val target = state.forwards.firstOrNull { it.id == targetId }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteId = null },
+            title = { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) },
+            text = { Text(target?.label ?: targetId) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        target?.let(viewModel::deleteForward)
+                        pendingDeleteId = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteId = null }) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
 
     LazyColumn(
         Modifier.fillMaxSize().imePadding(),
@@ -584,8 +973,8 @@ private fun ForwardScreen(state: AndroidUiState, viewModel: MainViewModel) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(rule.label, style = MaterialTheme.typography.titleSmall)
-                                Text("${rule.type.uppercase()} ${rule.bindAddr}:${rule.bindPort} -> ${rule.dstHost ?: "SOCKS5"}:${rule.dstPort ?: "-"}", style = MaterialTheme.typography.bodySmall)
-                                Text(profileName + " | " + (runtime?.state ?: "stopped"), style = MaterialTheme.typography.labelSmall)
+                                Text("${forwardTypeText(rule.type)} ${rule.bindAddr}:${rule.bindPort} -> ${rule.dstHost ?: "SOCKS5"}:${rule.dstPort ?: "-"}", style = MaterialTheme.typography.bodySmall)
+                                Text(profileName + " | " + forwardRuntimeStateText(runtime?.state), style = MaterialTheme.typography.labelSmall)
                             }
                             if (runtime?.state == "active") {
                                 TextButton(onClick = { viewModel.stopForward(rule.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_stop)) }
@@ -593,8 +982,11 @@ private fun ForwardScreen(state: AndroidUiState, viewModel: MainViewModel) {
                                 TextButton(onClick = { viewModel.startForward(rule) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_start)) }
                             }
                         }
-                        runtime?.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                        TextButton(onClick = { viewModel.deleteForward(rule) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
+                        runtime?.error?.let { ErrorState(it) }
+                        TextButton(
+                            onClick = { pendingDeleteId = rule.id },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
                     }
                 }
             }
@@ -639,6 +1031,7 @@ private fun ForwardScreen(state: AndroidUiState, viewModel: MainViewModel) {
 @Composable
 private fun LanSyncScreen(state: LanSyncUiState, viewModel: LanSyncViewModel) {
     var pairingCode by remember { mutableStateOf("") }
+    val localizedMessage = state.message?.let { uiStatusText(it) }
     LazyColumn(
         Modifier.fillMaxSize().imePadding(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -649,7 +1042,7 @@ private fun LanSyncScreen(state: LanSyncUiState, viewModel: LanSyncViewModel) {
             Text(androidx.compose.ui.res.stringResource(R.string.sync_description), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
         item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
                 Button(onClick = viewModel::scan, enabled = state.phase != "scanning") {
                     Text(androidx.compose.ui.res.stringResource(R.string.sync_scan))
                 }
@@ -706,13 +1099,24 @@ private fun LanSyncScreen(state: LanSyncUiState, viewModel: LanSyncViewModel) {
             items(state.peers, key = { "${it.deviceId}@${it.address}:${it.tcpPort}" }) { peer ->
                 val selected = state.selectedPeer?.deviceId == peer.deviceId && state.selectedPeer?.address == peer.address
                 Card(
-                    Modifier.fillMaxWidth().clickable { viewModel.selectPeer(peer) },
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = OpenFinalShellSpacing.MinimumTouchTarget)
+                        .clickable(role = Role.Button) { viewModel.selectPeer(peer) },
                     border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
                 ) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(peer.deviceName, style = MaterialTheme.typography.titleSmall)
-                            Text("${peer.address}:${peer.tcpPort}  v${peer.appVersion}", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                androidx.compose.ui.res.stringResource(
+                                    R.string.sync_peer_metadata,
+                                    peer.address,
+                                    peer.tcpPort,
+                                    peer.appVersion
+                                ),
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                         Button(onClick = { viewModel.send(peer, pairingCode) }, enabled = pairingCode.length == 6 && state.phase != "sending") {
                             Text(androidx.compose.ui.res.stringResource(R.string.sync_send))
@@ -721,7 +1125,12 @@ private fun LanSyncScreen(state: LanSyncUiState, viewModel: LanSyncViewModel) {
                 }
             }
         }
-        state.message?.let { message -> item { Text(message, color = if (state.phase == "error") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) } }
+        localizedMessage?.let { message ->
+            item {
+                if (state.phase == "error") ErrorState(message)
+                else Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         state.lastResult?.let { result ->
             item {
                 Text(androidx.compose.ui.res.stringResource(R.string.sync_last_result, result.profiles, result.forwards, result.secrets, result.skipped))
@@ -795,7 +1204,7 @@ private fun MonitorScreen(state: AndroidUiState, viewModel: MainViewModel) {
                 }
             }
         }
-        monitor.error?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+        monitor.error?.let { item { ErrorState(androidx.compose.ui.res.stringResource(R.string.status_monitor_failed)) } }
     }
 }
 
@@ -810,11 +1219,14 @@ private fun SettingsScreen(
 ) {
     val settings = state.settings
     val context = LocalContext.current
+    val defaultPrivateKeyName = androidx.compose.ui.res.stringResource(R.string.private_key_default_name)
     var transferPassphrase by remember { mutableStateOf("") }
+    var pendingDeleteKeyId by remember { mutableStateOf<String?>(null) }
     val privateKeyPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
             val displayName = it.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')
-                ?.ifBlank { "private-key" } ?: "private-key"
+                ?.ifBlank { defaultPrivateKeyName }
+                ?: defaultPrivateKeyName
             mainViewModel.importPrivateKey(it, displayName)
         }
     }
@@ -834,6 +1246,28 @@ private fun SettingsScreen(
             }
             viewModel.setDownloadDirectoryUri(uri.toString())
         }
+    }
+    pendingDeleteKeyId?.let { keyId ->
+        val key = mainState.privateKeys.firstOrNull { it.id == keyId }
+        AlertDialog(
+            onDismissRequest = { pendingDeleteKeyId = null },
+            title = { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) },
+            text = { Text(key?.name.orEmpty()) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        key?.let(mainViewModel::deletePrivateKey)
+                        pendingDeleteKeyId = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteKeyId = null }) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.action_cancel))
+                }
+            }
+        )
     }
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -936,7 +1370,10 @@ private fun SettingsScreen(
                                 Text(key.name)
                                 Text(key.originalPath.orEmpty(), style = MaterialTheme.typography.bodySmall, maxLines = 2)
                             }
-                            TextButton(onClick = { mainViewModel.deletePrivateKey(key) }) {
+                            TextButton(
+                                onClick = { pendingDeleteKeyId = key.id },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
                                 Text(androidx.compose.ui.res.stringResource(R.string.action_delete))
                             }
                         }
@@ -985,15 +1422,26 @@ private fun SettingsScreen(
 
 @Composable
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        content()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(
+            modifier = Modifier.padding(OpenFinalShellSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
     }
 }
 
 @Composable
 private fun SettingsSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = OpenFinalShellSpacing.MinimumTouchTarget),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -1053,7 +1501,10 @@ private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, on
         is UpdateState.Downloading -> {
             val ratio = if (update.totalBytes > 0) update.downloadedBytes.toFloat() / update.totalBytes else 0f
             Text(androidx.compose.ui.res.stringResource(R.string.update_downloading, formatBytes(update.downloadedBytes), formatBytes(update.totalBytes)))
-            LinearProgressIndicator(progress = ratio.coerceIn(0f, 1f), modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(
+                progress = { ratio.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth()
+            )
             TextButton(onClick = viewModel::cancelDownload) { Text(androidx.compose.ui.res.stringResource(R.string.action_cancel)) }
         }
         is UpdateState.Ready -> {
@@ -1073,7 +1524,7 @@ private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, on
         is UpdateState.Installing -> Text(androidx.compose.ui.res.stringResource(R.string.update_installing, update.versionName))
         is UpdateState.Installed -> Text(androidx.compose.ui.res.stringResource(R.string.update_installed, update.versionName))
         is UpdateState.Failed -> {
-            Text(update.message, color = MaterialTheme.colorScheme.error)
+            Text(androidx.compose.ui.res.stringResource(R.string.update_failed), color = MaterialTheme.colorScheme.error)
             if (update.retryable) Button(onClick = viewModel::checkForUpdates) { Text(androidx.compose.ui.res.stringResource(R.string.action_retry)) }
         }
     }
@@ -1109,8 +1560,14 @@ private fun LatencyCard(monitor: io.github.openfinalshell.android.core.monitor.M
 
 @Composable
 private fun MetricCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    ) {
+        Column(
+            Modifier.padding(OpenFinalShellSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.XSmall)
+        ) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             content()
         }
@@ -1119,9 +1576,35 @@ private fun MetricCard(title: String, content: @Composable ColumnScope.() -> Uni
 
 @Composable
 private fun EmptyState(title: String, body: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = OpenFinalShellSpacing.XLarge, horizontal = OpenFinalShellSpacing.Large),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
+        ) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun ErrorState(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(OpenFinalShellSpacing.Medium),
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 
