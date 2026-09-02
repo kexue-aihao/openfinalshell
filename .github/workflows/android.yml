@@ -141,9 +141,14 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-test-diagnostics
-          adb logcat -d > android-test-diagnostics/logcat.txt 2>&1 || true
-          adb shell getprop > android-test-diagnostics/getprop.txt 2>&1 || true
-          find android -path '*/build/outputs/androidTest-results/*' -type f -print -exec cp --parents '{}' android-test-diagnostics/ \; 2>/dev/null || true
+          # The emulator runner may have already stopped adb after a failed test. Bound every
+          # diagnostic command so a secondary collection failure cannot hold the CI run open.
+          timeout 30s adb logcat -d -t 5000 > android-test-diagnostics/logcat.txt 2>&1 || true
+          timeout 15s adb shell getprop > android-test-diagnostics/getprop.txt 2>&1 || true
+          test_results=android/app/build/outputs/androidTest-results
+          if [[ -d "$test_results" ]]; then
+            cp -R "$test_results" android-test-diagnostics/androidTest-results
+          fi
 
       - name: Upload instrumentation diagnostics
         if: ${{ failure() }}

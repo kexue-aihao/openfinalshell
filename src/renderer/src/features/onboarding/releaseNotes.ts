@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.13',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android API 26 和 API 35 自动化界面测试仍检查旧版品牌标题而失败的问题；主导航现提供本地化无障碍标签，测试失败时的诊断收集也已限时，避免工作流卡住',
+        en: 'Fixed Android API 26 and API 35 UI tests failing because they still checked a removed legacy brand title; primary navigation now provides localized accessibility labels, and failure diagnostics are time-bounded so workflows cannot get stuck'
+      }
+    ]
+  },
+  {
     version: '0.20.12',
     items: [
       {

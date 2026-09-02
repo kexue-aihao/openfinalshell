@@ -288,36 +288,56 @@ private fun MainNavigationBar(
     onSelect: (Int) -> Unit,
     onMore: () -> Unit
 ) {
+    val connectionsLabel = androidx.compose.ui.res.stringResource(R.string.tab_connections)
+    val terminalLabel = androidx.compose.ui.res.stringResource(R.string.tab_terminal)
+    val sftpLabel = androidx.compose.ui.res.stringResource(R.string.tab_sftp)
+    val monitorLabel = androidx.compose.ui.res.stringResource(R.string.tab_monitor)
+    val moreLabel = androidx.compose.ui.res.stringResource(R.string.nav_more)
     NavigationBar {
         NavigationBarItem(
             selected = selected == 0,
             onClick = { onSelect(0) },
             icon = { Icon(Icons.Filled.Home, contentDescription = null) },
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_connections), maxLines = 1) }
+            label = { Text(connectionsLabel, maxLines = 1) },
+            modifier = Modifier.semantics {
+                contentDescription = connectionsLabel
+            }
         )
         NavigationBarItem(
             selected = selected == 1,
             onClick = { onSelect(1) },
             icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_terminal), maxLines = 1) }
+            label = { Text(terminalLabel, maxLines = 1) },
+            modifier = Modifier.semantics {
+                contentDescription = terminalLabel
+            }
         )
         NavigationBarItem(
             selected = selected == 2,
             onClick = { onSelect(2) },
             icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_sftp), maxLines = 1) }
+            label = { Text(sftpLabel, maxLines = 1) },
+            modifier = Modifier.semantics {
+                contentDescription = sftpLabel
+            }
         )
         NavigationBarItem(
             selected = selected == 3,
             onClick = { onSelect(3) },
             icon = { Icon(Icons.Filled.Info, contentDescription = null) },
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.tab_monitor), maxLines = 1) }
+            label = { Text(monitorLabel, maxLines = 1) },
+            modifier = Modifier.semantics {
+                contentDescription = monitorLabel
+            }
         )
         NavigationBarItem(
             selected = moreSelected,
             onClick = onMore,
             icon = { Icon(Icons.Filled.MoreVert, contentDescription = null) },
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.nav_more)) }
+            label = { Text(moreLabel) },
+            modifier = Modifier.semantics {
+                contentDescription = moreLabel
+            }
         )
     }
 }
@@ -329,6 +349,7 @@ private fun MainNavigationRail(
     onSelect: (Int) -> Unit,
     onMore: () -> Unit
 ) {
+    val moreLabel = androidx.compose.ui.res.stringResource(R.string.nav_more)
     NavigationRail {
         MainNavigationRailItem(0, selected, R.string.tab_connections, Icons.Filled.Home, onSelect)
         MainNavigationRailItem(1, selected, R.string.tab_terminal, Icons.Filled.Edit, onSelect)
@@ -338,7 +359,10 @@ private fun MainNavigationRail(
             selected = moreSelected,
             onClick = onMore,
             icon = { Icon(Icons.Filled.MoreVert, contentDescription = null) },
-            label = { Text(androidx.compose.ui.res.stringResource(R.string.nav_more)) }
+            label = { Text(moreLabel) },
+            modifier = Modifier.semantics {
+                contentDescription = moreLabel
+            }
         )
     }
 }
@@ -351,11 +375,15 @@ private fun ColumnScope.MainNavigationRailItem(
     icon: ImageVector,
     onSelect: (Int) -> Unit
 ) {
+    val label = androidx.compose.ui.res.stringResource(labelRes)
     NavigationRailItem(
         selected = selected == index,
         onClick = { onSelect(index) },
         icon = { Icon(icon, contentDescription = null) },
-        label = { Text(androidx.compose.ui.res.stringResource(labelRes), maxLines = 1) }
+        label = { Text(label, maxLines = 1) },
+        modifier = Modifier.semantics {
+            contentDescription = label
+        }
     )
 }
 
