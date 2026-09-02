@@ -1,5 +1,7 @@
 .panel {
   height: 100%;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -7,6 +9,7 @@
 
 .toolbar {
   display: flex;
+  min-width: 0;
   gap: 6px;
   padding: 4px 4px 0;
   border: 1px solid var(--ofs-shell-border);
@@ -16,15 +19,26 @@
 
 .tree {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
+  overflow-x: hidden;
 }
 
 .node {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
-  line-height: 24px;
+  padding: 4px 0;
+  line-height: 1.3;
+}
+
+.nodeText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .nodeName {
@@ -36,7 +50,8 @@
 .nodeHost {
   /* 副标题（user@host / 备注）：过去用最暗的 text-3 + 11px，小屏上发灰看不清。
      提到 text-2 + 12px 提升对比；能收缩省略而不是溢出到面板外被裁掉。 */
-  flex: 0 1 auto;
+  display: block;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

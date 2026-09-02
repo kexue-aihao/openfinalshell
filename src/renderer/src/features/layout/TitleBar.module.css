@@ -26,7 +26,7 @@
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: linear-gradient(135deg, var(--ofs-accent), #52c41a);
+  background: var(--ofs-accent);
   flex: none;
 }
 
@@ -49,8 +49,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 120px;
-  max-width: 220px;
+  min-width: 96px;
+  max-width: 200px;
   height: 32px;
   padding: 0 6px 0 10px;
   border-radius: var(--ofs-radius-m) var(--ofs-radius-m) 0 0;
@@ -58,6 +58,12 @@
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
+}
+.tab:focus-visible,
+.newTabBtn:focus-visible,
+.tabClose:focus-visible {
+  outline: 2px solid var(--ofs-accent);
+  outline-offset: -2px;
 }
 .tab:hover {
   background: var(--ofs-bg-hover);

@@ -161,11 +161,12 @@ export function ConnectionTreePanel(): React.JSX.Element {
               return null
             })()}
             <Server size={13} strokeWidth={1.75} style={{ flex: 'none' }} />
-            <span className={styles.nodeName}>{p.name}</span>
-            {/* 有备注时行内副标题显示备注（更贴合"看一眼就知道这台是干嘛的"），
-                否则退回 user@host（host 按设置打码，仅用于区分机器）；完整信息都在 Tooltip 里 */}
-            <span className={styles.nodeHost}>
-              {p.note || `${p.username}@${maskInList ? maskHost(p.host) : p.host}`}
+            <span className={styles.nodeText}>
+              <span className={styles.nodeName}>{p.name}</span>
+              {/* 有备注时副标题显示备注，否则退回 user@host；完整信息仍在 Tooltip 里 */}
+              <span className={styles.nodeHost}>
+                {p.note || `${p.username}@${maskInList ? maskHost(p.host) : p.host}`}
+              </span>
             </span>
           </span>
         </Tooltip>

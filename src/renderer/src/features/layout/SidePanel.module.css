@@ -1,5 +1,6 @@
 .sidePanel {
   height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--ofs-shell-surface);
@@ -12,7 +13,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 36px;
+  min-height: 40px;
   padding: 0 12px;
   font-size: 12px;
   font-weight: 600;
@@ -23,8 +24,11 @@
 
 .content {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
-  padding: 4px 8px;
+  overflow-x: hidden;
+  padding: 6px 8px 10px;
 }
 
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {

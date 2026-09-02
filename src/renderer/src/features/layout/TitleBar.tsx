@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Dropdown, Input } from 'antd'
 import { Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -49,6 +49,7 @@ export function TitleBar(): React.JSX.Element {
   const setEditingProfile = useUiStore((s) => s.setEditingProfile)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const tabRefs = useRef(new Map<string, HTMLDivElement>())
 
   const startRename = (tab: SessionTab): void => {
     setRenamingId(tab.id)
@@ -72,14 +73,21 @@ export function TitleBar(): React.JSX.Element {
     }
   }
 
+  const activateTabAt = (index: number): void => {
+    if (tabs.length === 0) return
+    const next = tabs[(index + tabs.length) % tabs.length]
+    setActiveTab(next.id)
+    requestAnimationFrame(() => tabRefs.current.get(next.id)?.focus())
+  }
+
   return (
     <header className={styles.titleBar}>
       <div className={styles.brand}>
         <span className={styles.logoDot} />
         {t('app.name')}
       </div>
-      <div className={styles.tabStrip}>
-        {tabs.map((tab) => (
+      <div className={styles.tabStrip} role="tablist" aria-label={t('app.name')}>
+        {tabs.map((tab, index) => (
           <Dropdown
             key={tab.id}
             trigger={['contextMenu']}
@@ -89,8 +97,40 @@ export function TitleBar(): React.JSX.Element {
             }}
           >
             <div
+              role="tab"
+              ref={(element) => {
+                if (element) tabRefs.current.set(tab.id, element)
+                else tabRefs.current.delete(tab.id)
+              }}
+              tabIndex={tab.id === activeTabId ? 0 : -1}
+              aria-selected={tab.id === activeTabId}
+              aria-label={tab.customTitle ?? tab.title}
               className={`${styles.tab} ${tab.id === activeTabId ? styles.tabActive : ''}`}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(e) => {
+                if (renamingId === tab.id) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setActiveTab(tab.id)
+                }
+                if (e.key === 'Delete') void closeTab(tab.id)
+                if (e.key === 'ArrowRight') {
+                  e.preventDefault()
+                  activateTabAt(index + 1)
+                }
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault()
+                  activateTabAt(index - 1)
+                }
+                if (e.key === 'Home') {
+                  e.preventDefault()
+                  activateTabAt(0)
+                }
+                if (e.key === 'End') {
+                  e.preventDefault()
+                  activateTabAt(tabs.length - 1)
+                }
+              }}
               onDoubleClick={() => startRename(tab)}
               onAuxClick={(e) => {
                 if (e.button === 1) void closeTab(tab.id)
@@ -121,6 +161,8 @@ export function TitleBar(): React.JSX.Element {
               <button
                 type="button"
                 className={styles.tabClose}
+                aria-label={`${t('tab.close')}: ${tab.customTitle ?? tab.title}`}
+                title={t('tab.close')}
                 onClick={(e) => {
                   e.stopPropagation()
                   void closeTab(tab.id)
@@ -134,6 +176,7 @@ export function TitleBar(): React.JSX.Element {
         <button
           type="button"
           className={styles.newTabBtn}
+          aria-label={t('sidebar.newConnection')}
           title={t('sidebar.newConnection')}
           onClick={() => setEditingProfile('new')}
         >

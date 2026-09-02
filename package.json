@@ -1,6 +1,6 @@
 {
   "name": "openfinalshell",
-  "version": "0.20.15",
+  "version": "0.20.16",
   "description": "开源 FinalShell —— SSH 终端 + SFTP + 服务器监控三合一的桌面客户端",
   "desktopName": "openfinalshell.desktop",
   "type": "module",

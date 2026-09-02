@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.openfinalshell.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = (providers.gradleProperty("versionCode").orNull ?: "15").toInt()
-        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.15"
+        versionCode = (providers.gradleProperty("versionCode").orNull ?: "16").toInt()
+        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.16"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

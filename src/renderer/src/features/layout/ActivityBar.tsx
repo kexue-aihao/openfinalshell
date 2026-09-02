@@ -47,6 +47,9 @@ export function ActivityBar(): React.JSX.Element {
           <button
             type="button"
             className={`${styles.item} ${activeSidebar === key && !sidePanelCollapsed ? styles.itemActive : ''}`}
+            aria-label={t(labelKey)}
+            aria-current={activeSidebar === key && !sidePanelCollapsed ? 'page' : undefined}
+            title={t(labelKey)}
             onClick={() => onViewClick(key)}
           >
             <Icon size={18} strokeWidth={1.75} />
@@ -58,12 +61,24 @@ export function ActivityBar(): React.JSX.Element {
       ))}
       <div className={styles.spacer} />
       <Tooltip title={t('activity.toggleTheme')} placement="right">
-        <button type="button" className={styles.item} onClick={toggleTheme}>
+        <button
+          type="button"
+          className={styles.item}
+          aria-label={t('activity.toggleTheme')}
+          title={t('activity.toggleTheme')}
+          onClick={toggleTheme}
+        >
           <SunMoon size={18} strokeWidth={1.75} />
         </button>
       </Tooltip>
       <Tooltip title={t('activity.settings')} placement="right">
-        <button type="button" className={styles.item} onClick={() => setSettingsOpen(true)}>
+        <button
+          type="button"
+          className={styles.item}
+          aria-label={t('activity.settings')}
+          title={t('activity.settings')}
+          onClick={() => setSettingsOpen(true)}
+        >
           <Settings size={18} strokeWidth={1.75} />
         </button>
       </Tooltip>

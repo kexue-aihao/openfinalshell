@@ -24,12 +24,12 @@ export const darkTheme: OfsTheme = {
     glassBorder: 'rgba(255,255,255,.12)',
     textPrimary: '#e6e8eb',
     textSecondary: '#9aa1ab',
-    textDisabled: '#5c636e',
+    textDisabled: '#707783',
     success: '#52c41a',
     warning: '#faad14',
     error: '#f5222d',
-    shadowPanel: '0 2px 8px rgba(0,0,0,.35)',
-    shadowModal: '0 8px 32px rgba(0,0,0,.5)'
+    shadowPanel: '0 2px 8px rgba(0,0,0,.28)',
+    shadowModal: '0 8px 32px rgba(0,0,0,.42)'
   },
   syntax: {
     comment: '#6b727f',
@@ -82,7 +82,7 @@ export const lightTheme: OfsTheme = {
     glassBorder: 'rgba(31,35,41,.13)',
     textPrimary: '#1f2329',
     textSecondary: '#5c636e',
-    textDisabled: '#a0a6b0',
+    textDisabled: '#737b88',
     success: '#52c41a',
     warning: '#faad14',
     error: '#f5222d',

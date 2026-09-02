@@ -26,6 +26,7 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
 
   if (!settings) return <div className={styles.root} />
   const { layout } = settings
+  const sidePanelSize = Math.min(32, Math.max(15, layout.sidePanelSizePct))
 
   return (
     <div className={styles.root}>
@@ -38,7 +39,9 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
             onLayout={(sizes) => {
               if (sizes.length < 2) return
               const next = { ...layout }
-              if (!layout.sidePanelCollapsed) next.sidePanelSizePct = sizes[0]
+              if (!layout.sidePanelCollapsed) {
+                next.sidePanelSizePct = Math.min(32, Math.max(15, sizes[0]))
+              }
               if (activeTab?.monitorOpen) next.monitorPanelSizePct = sizes[sizes.length - 1]
               patch({ layout: next })
             }}
@@ -48,9 +51,9 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                 <Panel
                   id="side"
                   order={1}
-                  defaultSize={layout.sidePanelSizePct}
-                  minSize={12}
-                  maxSize={40}
+                  defaultSize={sidePanelSize}
+                  minSize={15}
+                  maxSize={32}
                 >
                   <SidePanel />
                 </Panel>

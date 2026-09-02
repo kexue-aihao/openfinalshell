@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.16',
+    items: [
+      {
+        type: 'feat',
+        zh: '优化桌面欢迎页与连接管理外壳：响应式快捷入口、明确的快速连接操作、两行最近会话、连接树信息层级，以及更清晰的键盘焦点和标签导航',
+        en: 'Refined the desktop welcome page and connection-management shell with responsive quick actions, an explicit quick-connect command, two-line recent sessions, clearer connection-tree hierarchy, and improved keyboard focus and tab navigation'
+      }
+    ]
+  },
+  {
     version: '0.20.15',
     items: [
       {
