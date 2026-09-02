@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Adapts a remote SSH channel to Termux's maintained terminal emulator. No local process or PTY
@@ -32,12 +34,19 @@ class SshTerminalController(
     @Volatile private var cursorStyle = TerminalEmulator.DEFAULT_TERMINAL_CURSOR_STYLE
     private var initialized = false
     private var renderRevision = 0L
+    private val inputMutex = Mutex()
 
     private val terminalOutput = object : TerminalOutput() {
         override fun write(data: ByteArray, offset: Int, count: Int) {
             if (closed || count <= 0) return
             val response = data.copyOfRange(offset, offset + count)
-            inputScope.launch { inputSink(response) }
+            // Terminal replies (DA/DSR, OSC queries, etc.) must retain byte order relative to
+            // user input. A single mutex also prevents a reply from racing session shutdown.
+            inputScope.launch {
+                inputMutex.withLock {
+                    if (!closed) inputSink(response)
+                }
+            }
         }
 
         override fun titleChanged(oldTitle: String?, newTitle: String?) {
@@ -81,13 +90,19 @@ class SshTerminalController(
     }
 
     override suspend fun sendInput(data: ByteArray) {
-        if (!closed && data.isNotEmpty()) inputSink(data)
+        if (data.isEmpty()) return
+        inputMutex.withLock {
+            if (!closed) inputSink(data)
+        }
     }
 
     override suspend fun resize(cols: Int, rows: Int) {
         if (closed) return
         synchronized(emulator) {
-            emulator.resize(cols.coerceAtLeast(MIN_COLUMNS), rows.coerceAtLeast(MIN_ROWS))
+            val nextCols = cols.coerceAtLeast(MIN_COLUMNS)
+            val nextRows = rows.coerceAtLeast(MIN_ROWS)
+            if (nextCols == emulator.mColumns && nextRows == emulator.mRows) return
+            emulator.resize(nextCols, nextRows)
             publishSnapshot()
         }
     }
@@ -100,6 +115,7 @@ class SshTerminalController(
             val clearSequence = "\u001b[3J\u001b[2J\u001b[H".toByteArray(Charsets.UTF_8)
             emulator.append(clearSequence, clearSequence.size)
             emulator.screen.clearTranscript()
+            emulator.clearScrollCounter()
             publishSnapshot()
         }
     }
@@ -135,7 +151,8 @@ class SshTerminalController(
     }
 
     fun visibleText(topRow: Int = 0): String = synchronized(emulator) {
-        emulator.getSelectedText(0, topRow, emulator.mColumns, topRow + emulator.mRows)
+        val clampedTopRow = topRow.coerceIn(-emulator.screen.activeTranscriptRows, 0)
+        emulator.getSelectedText(0, clampedTopRow, emulator.mColumns, clampedTopRow + emulator.mRows)
     }
 
     /** Reads transcript only for explicit copy/testing work, never as part of a Compose redraw. */
@@ -194,7 +211,9 @@ class SshTerminalController(
 
     private fun publishSnapshot() {
         if (!initialized) return
-        mutableSnapshot.value = createSnapshot()
+        synchronized(emulator) {
+            mutableSnapshot.value = createSnapshot()
+        }
     }
 
     private fun createSnapshot(): TerminalSnapshot = TerminalSnapshot(

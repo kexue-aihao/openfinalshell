@@ -70,7 +70,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -99,7 +98,28 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.openfinalshell.android.ui.OpenFinalShellTheme
 import io.github.openfinalshell.android.ui.OpenFinalShellSpacing
+import io.github.openfinalshell.android.ui.OpenFinalShellShapes
+import io.github.openfinalshell.android.ui.OpenFinalShellTerminalTokens
 import io.github.openfinalshell.android.terminal.SshTerminalView
+
+private enum class AppDestination(
+    val key: String,
+    val titleRes: Int,
+    val primaryIndex: Int? = null
+) {
+    CONNECTIONS("connections", R.string.tab_connections, 0),
+    TERMINAL("terminal", R.string.tab_terminal, 1),
+    SFTP("sftp", R.string.tab_sftp, 2),
+    MONITOR("monitor", R.string.tab_monitor, 3),
+    FORWARDS("forwards", R.string.tab_forwards),
+    SYNC("sync", R.string.tab_sync),
+    SETTINGS("settings", R.string.tab_settings);
+
+    companion object {
+        fun fromKey(key: String): AppDestination = entries.firstOrNull { it.key == key } ?: CONNECTIONS
+        fun fromPrimaryIndex(index: Int): AppDestination = entries.firstOrNull { it.primaryIndex == index } ?: CONNECTIONS
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,8 +133,7 @@ fun OpenFinalShellApp(
     val lanSyncState by lanSyncViewModel.state.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val statusText = uiStatusText(state.status)
-    // Keep the existing page indexes so session state and ViewModel calls remain unchanged.
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var destinationKey by rememberSaveable { mutableStateOf(AppDestination.CONNECTIONS.key) }
     var showMore by rememberSaveable { mutableStateOf(false) }
     var deferredUpdateTag by rememberSaveable { mutableStateOf<String?>(null) }
     var installAfterPermission by rememberSaveable { mutableStateOf(false) }
@@ -189,24 +208,15 @@ fun OpenFinalShellApp(
         }
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wideLayout = maxWidth >= 600.dp
-            // More destinations must not make the previous primary destination look selected.
-            val primaryTab = if (tab in 0..3) tab else -1
-            val pageTitle = when (tab) {
-                0 -> R.string.tab_connections
-                1 -> R.string.tab_terminal
-                2 -> R.string.tab_sftp
-                3 -> R.string.tab_monitor
-                4 -> R.string.tab_forwards
-                5 -> R.string.tab_sync
-                else -> R.string.tab_settings
-            }
+            val destination = AppDestination.fromKey(destinationKey)
+            val primaryTab = destination.primaryIndex ?: -1
             Scaffold(
                 topBar = {
                     TopAppBar(
                         title = {
                             Column {
-                                Text(androidx.compose.ui.res.stringResource(pageTitle))
-                                if (tab in 1..3) {
+                                Text(androidx.compose.ui.res.stringResource(destination.titleRes))
+                                if (destination in setOf(AppDestination.TERMINAL, AppDestination.SFTP, AppDestination.MONITOR)) {
                                     val selected = state.selectedSessionId?.let { state.sessions[it] }
                                     selected?.profile?.let {
                                         Text(
@@ -225,8 +235,8 @@ fun OpenFinalShellApp(
                     if (!wideLayout) {
                         MainNavigationBar(
                             selected = primaryTab,
-                            moreSelected = tab >= 4,
-                            onSelect = { index -> tab = index },
+                            moreSelected = destination.primaryIndex == null,
+                            onSelect = { index -> destinationKey = AppDestination.fromPrimaryIndex(index).key },
                             onMore = { showMore = true }
                         )
                     }
@@ -237,25 +247,25 @@ fun OpenFinalShellApp(
                     if (wideLayout) {
                         MainNavigationRail(
                             selected = primaryTab,
-                            moreSelected = tab >= 4,
-                            onSelect = { index -> tab = index },
+                            moreSelected = destination.primaryIndex == null,
+                            onSelect = { index -> destinationKey = AppDestination.fromPrimaryIndex(index).key },
                             onMore = { showMore = true }
                         )
                     }
                     Column(Modifier.fillMaxSize().weight(1f)) {
-                        when (tab) {
-                            0 -> ConnectionsScreen(state, viewModel)
-                            1 -> TerminalScreen(
+                        when (destination) {
+                            AppDestination.CONNECTIONS -> ConnectionsScreen(state, viewModel)
+                            AppDestination.TERMINAL -> TerminalScreen(
                                 state,
                                 viewModel,
                                 settingsState.settings.terminalFontSize,
                                 settingsState.settings.terminalCursorStyle
                             )
-                            2 -> SftpScreen(state, viewModel)
-                            3 -> MonitorScreen(state, viewModel)
-                            4 -> ForwardScreen(state, viewModel)
-                            5 -> LanSyncScreen(lanSyncState, lanSyncViewModel)
-                            else -> SettingsScreen(settingsViewModel, settingsState, viewModel, state, requestUpdateInstall)
+                            AppDestination.SFTP -> SftpScreen(state, viewModel)
+                            AppDestination.MONITOR -> MonitorScreen(state, viewModel)
+                            AppDestination.FORWARDS -> ForwardScreen(state, viewModel)
+                            AppDestination.SYNC -> LanSyncScreen(lanSyncState, lanSyncViewModel)
+                            AppDestination.SETTINGS -> SettingsScreen(settingsViewModel, settingsState, viewModel, state, requestUpdateInstall)
                         }
                     }
                 }
@@ -264,15 +274,15 @@ fun OpenFinalShellApp(
         if (showMore) {
             ModalBottomSheet(onDismissRequest = { showMore = false }) {
                 MoreNavigationItem(R.string.tab_forwards, Icons.AutoMirrored.Filled.ArrowForward) {
-                    tab = 4
+                    destinationKey = AppDestination.FORWARDS.key
                     showMore = false
                 }
                 MoreNavigationItem(R.string.tab_sync, Icons.Filled.Refresh) {
-                    tab = 5
+                    destinationKey = AppDestination.SYNC.key
                     showMore = false
                 }
                 MoreNavigationItem(R.string.tab_settings, Icons.Filled.Settings) {
-                    tab = 6
+                    destinationKey = AppDestination.SETTINGS.key
                     showMore = false
                 }
                 Spacer(Modifier.navigationBarsPadding())
@@ -824,6 +834,7 @@ private fun TerminalScreen(
         ?.takeIf { it in state.terminalSessionIds }
         ?.let(viewModel::terminalController)
     val terminalDescription = androidx.compose.ui.res.stringResource(R.string.tab_terminal)
+    var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
     // Observing the emulator snapshot invalidates the Android view without putting terminal bytes
     // into a Compose Text node or the global UI state.
     val terminalSnapshot = controller?.snapshot?.collectAsStateWithLifecycle()?.value
@@ -833,6 +844,27 @@ private fun TerminalScreen(
             // The Android view immediately replaces this initial size with its measured rows/columns.
             viewModel.openShell(sessionId, 80, 24)
         }
+    }
+    if (confirmDisconnect && sessionId != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDisconnect = false },
+            title = { Text(androidx.compose.ui.res.stringResource(R.string.action_disconnect)) },
+            text = { Text(androidx.compose.ui.res.stringResource(R.string.terminal_disconnect_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmDisconnect = false
+                        viewModel.disconnect(sessionId)
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_disconnect)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDisconnect = false }) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.action_cancel))
+                }
+            }
+        )
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -853,7 +885,8 @@ private fun TerminalScreen(
         if (controller == null) {
             Surface(
                 modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLowest
+                color = OpenFinalShellTerminalTokens.Background,
+                shape = OpenFinalShellShapes.large
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
@@ -866,32 +899,48 @@ private fun TerminalScreen(
                 }
             }
         } else {
-            AndroidView(
-                factory = { context -> SshTerminalView(context) },
+            Surface(
                 modifier = Modifier.fillMaxWidth().weight(1f).heightIn(min = 180.dp),
-                update = { terminalView ->
-                    terminalView.contentDescription = terminalDescription
-                    terminalView.bind(
-                        nextController = controller,
-                        fontSizeSp = terminalFontSize,
-                        cursorStyle = when (terminalCursorStyle) {
-                            "line" -> TerminalCursorStyle.BAR
-                            "underline" -> TerminalCursorStyle.UNDERLINE
-                            else -> TerminalCursorStyle.BLOCK
-                        },
-                        input = { bytes -> viewModel.sendTerminalInput(sessionId, bytes) },
-                        resize = { cols, rows -> viewModel.resizeTerminal(sessionId, cols, rows) }
-                    )
-                    terminalSnapshot // Keep this update lambda subscribed to emulator screen changes.
-                    terminalView.refresh()
-                }
-            )
+                color = OpenFinalShellTerminalTokens.Background,
+                shape = OpenFinalShellShapes.large
+            ) {
+                AndroidView(
+                    factory = { context -> SshTerminalView(context) },
+                    modifier = Modifier.fillMaxSize(),
+                    update = { terminalView ->
+                        terminalView.contentDescription = terminalDescription
+                        terminalView.bind(
+                            nextController = controller,
+                            fontSizeSp = terminalFontSize,
+                            cursorStyle = when (terminalCursorStyle) {
+                                "line" -> TerminalCursorStyle.BAR
+                                "underline" -> TerminalCursorStyle.UNDERLINE
+                                else -> TerminalCursorStyle.BLOCK
+                            },
+                            input = { bytes -> viewModel.sendTerminalInput(sessionId, bytes) },
+                            resize = { cols, rows -> viewModel.resizeTerminal(sessionId, cols, rows) }
+                        )
+                        terminalSnapshot // Keep this update lambda subscribed to emulator screen changes.
+                        terminalView.refresh()
+                    }
+                )
+            }
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(actionsScroll), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { viewModel.sendTerminalInput(sessionId, "\n") }) { Text(androidx.compose.ui.res.stringResource(R.string.action_enter)) }
-            TextButton(onClick = { viewModel.clearTerminal(sessionId) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_clear)) }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(actionsScroll),
+            horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
+        ) {
             TextButton(
-                onClick = { viewModel.disconnect(sessionId) },
+                onClick = { viewModel.sendTerminalInput(sessionId, "\n") },
+                modifier = Modifier.heightIn(min = OpenFinalShellSpacing.MinimumTouchTarget)
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_enter)) }
+            TextButton(
+                onClick = { viewModel.clearTerminal(sessionId) },
+                modifier = Modifier.heightIn(min = OpenFinalShellSpacing.MinimumTouchTarget)
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_clear)) }
+            TextButton(
+                onClick = { confirmDisconnect = true },
+                modifier = Modifier.heightIn(min = OpenFinalShellSpacing.MinimumTouchTarget),
                 colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
             ) { Text(androidx.compose.ui.res.stringResource(R.string.action_disconnect)) }
         }
@@ -1299,10 +1348,14 @@ private fun SettingsScreen(
     }
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = OpenFinalShellSpacing.PageHorizontal,
+            top = OpenFinalShellSpacing.PageVertical,
+            end = OpenFinalShellSpacing.PageHorizontal,
+            bottom = OpenFinalShellSpacing.XXLarge
+        ),
+        verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
     ) {
-        item { Text(androidx.compose.ui.res.stringResource(R.string.settings_title), style = MaterialTheme.typography.titleLarge) }
         item {
             SettingsSection(androidx.compose.ui.res.stringResource(R.string.settings_general)) {
                 ChoiceRow(
@@ -1375,7 +1428,10 @@ private fun SettingsScreen(
                     maxLines = 3
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { directoryPicker.launch(settings.downloadDirectoryUri?.let(Uri::parse)) }) {
+                    Button(
+                        onClick = { directoryPicker.launch(settings.downloadDirectoryUri?.let(Uri::parse)) },
+                        shape = OpenFinalShellShapes.medium
+                    ) {
                         Text(androidx.compose.ui.res.stringResource(R.string.action_choose_directory))
                     }
                     if (settings.downloadDirectoryUri != null) {
@@ -1407,7 +1463,10 @@ private fun SettingsScreen(
                         }
                     }
                 }
-                Button(onClick = { privateKeyPicker.launch(arrayOf("*/*")) }) {
+                Button(
+                    onClick = { privateKeyPicker.launch(arrayOf("*/*")) },
+                    shape = OpenFinalShellShapes.medium
+                ) {
                     Text(androidx.compose.ui.res.stringResource(R.string.action_import_private_key))
                 }
             }
@@ -1425,11 +1484,13 @@ private fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { exportPicker.launch("openfinalshell-export.json") },
-                        enabled = transferPassphrase.length >= 8
+                        enabled = transferPassphrase.length >= 8,
+                        shape = OpenFinalShellShapes.medium
                     ) { Text(androidx.compose.ui.res.stringResource(R.string.action_export)) }
                     Button(
                         onClick = { importPicker.launch(arrayOf("application/json", "text/plain")) },
-                        enabled = transferPassphrase.length >= 8
+                        enabled = transferPassphrase.length >= 8,
+                        shape = OpenFinalShellShapes.medium
                     ) { Text(androidx.compose.ui.res.stringResource(R.string.action_import)) }
                 }
             }
@@ -1452,10 +1513,11 @@ private fun SettingsScreen(
 private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
-            modifier = Modifier.padding(OpenFinalShellSpacing.Large),
+            modifier = Modifier.padding(OpenFinalShellSpacing.Medium),
             verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
         ) {
             Text(title, style = MaterialTheme.typography.titleMedium)
@@ -1478,14 +1540,39 @@ private fun SettingsSwitchRow(label: String, checked: Boolean, onCheckedChange: 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChoiceRow(label: String, selected: String, options: List<Pair<String, Int?>>, onSelected: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selected }
+        ?.second
+        ?.let { androidx.compose.ui.res.stringResource(it) }
+        ?: selected
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = selectedLabel,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(
+                MenuAnchorType.PrimaryNotEditable,
+                enabled = true
+            ),
+            singleLine = true
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
             options.forEach { (value, resource) ->
-                FilterChip(
-                    selected = value == selected,
-                    onClick = { onSelected(value) },
-                    label = { Text(resource?.let { androidx.compose.ui.res.stringResource(it) } ?: value) }
+                DropdownMenuItem(
+                    text = { Text(resource?.let { androidx.compose.ui.res.stringResource(it) } ?: value) },
+                    onClick = {
+                        onSelected(value)
+                        expanded = false
+                    }
                 )
             }
         }
@@ -1520,11 +1607,17 @@ private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, on
         }
         is UpdateState.UpToDate -> {
             Text(androidx.compose.ui.res.stringResource(R.string.update_up_to_date, update.currentVersion))
-            Button(onClick = viewModel::checkForUpdates) { Text(androidx.compose.ui.res.stringResource(R.string.action_check_updates)) }
+            Button(
+                onClick = viewModel::checkForUpdates,
+                shape = OpenFinalShellShapes.medium
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_check_updates)) }
         }
         is UpdateState.Available -> {
             Text(androidx.compose.ui.res.stringResource(R.string.update_available, update.release.versionName, update.apk.asset.name))
-            Button(onClick = viewModel::downloadUpdate) { Text(androidx.compose.ui.res.stringResource(R.string.action_download_update)) }
+            Button(
+                onClick = viewModel::downloadUpdate,
+                shape = OpenFinalShellShapes.medium
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_download_update)) }
         }
         is UpdateState.Downloading -> {
             val ratio = if (update.totalBytes > 0) update.downloadedBytes.toFloat() / update.totalBytes else 0f
@@ -1538,22 +1631,36 @@ private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, on
         is UpdateState.Ready -> {
             Text(androidx.compose.ui.res.stringResource(R.string.update_ready, update.release.versionName))
             if (viewModel.canInstallPackages()) {
-                Button(onClick = onRequestUpdateInstall) { Text(androidx.compose.ui.res.stringResource(R.string.action_install_update)) }
+                Button(
+                    onClick = onRequestUpdateInstall,
+                    shape = OpenFinalShellShapes.medium
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_install_update)) }
             } else {
-                Button(onClick = onRequestUpdateInstall) {
+                Button(
+                    onClick = onRequestUpdateInstall,
+                    shape = OpenFinalShellShapes.medium
+                ) {
                     Text(androidx.compose.ui.res.stringResource(R.string.action_allow_install))
                 }
             }
         }
         UpdateState.Canceled -> {
             Text(androidx.compose.ui.res.stringResource(R.string.update_canceled))
-            Button(onClick = viewModel::checkForUpdates) { Text(androidx.compose.ui.res.stringResource(R.string.action_check_updates)) }
+            Button(
+                onClick = viewModel::checkForUpdates,
+                shape = OpenFinalShellShapes.medium
+            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_check_updates)) }
         }
         is UpdateState.Installing -> Text(androidx.compose.ui.res.stringResource(R.string.update_installing, update.versionName))
         is UpdateState.Installed -> Text(androidx.compose.ui.res.stringResource(R.string.update_installed, update.versionName))
         is UpdateState.Failed -> {
             Text(androidx.compose.ui.res.stringResource(R.string.update_failed), color = MaterialTheme.colorScheme.error)
-            if (update.retryable) Button(onClick = viewModel::checkForUpdates) { Text(androidx.compose.ui.res.stringResource(R.string.action_retry)) }
+            if (update.retryable) {
+                Button(
+                    onClick = viewModel::checkForUpdates,
+                    shape = OpenFinalShellShapes.medium
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_retry)) }
+            }
         }
     }
     if (state.saving) Text(androidx.compose.ui.res.stringResource(R.string.settings_saving), style = MaterialTheme.typography.labelSmall)

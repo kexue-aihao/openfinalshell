@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="nav_more">更多</string>
+    <string name="terminal_disconnect_confirm">確定要中斷目前的終端工作階段嗎？</string>
     <string name="status_ready">就緒</string>
     <string name="status_connecting">Connecting</string>
     <string name="status_authenticating">Authenticating</string>

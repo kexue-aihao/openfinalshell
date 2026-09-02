@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="nav_more">その他</string>
+    <string name="terminal_disconnect_confirm">現在のターミナルセッションを切断しますか？</string>
     <string name="status_ready">準備完了</string>
     <string name="status_connecting">Connecting</string>
     <string name="status_authenticating">Authenticating</string>

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="nav_more">Ещё</string>
+    <string name="terminal_disconnect_confirm">Отключить текущий сеанс терминала?</string>
     <string name="status_ready">Готово</string>
     <string name="status_connecting">Connecting</string>
     <string name="status_authenticating">Authenticating</string>

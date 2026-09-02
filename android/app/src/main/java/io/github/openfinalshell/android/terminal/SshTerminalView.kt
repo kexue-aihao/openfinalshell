@@ -23,8 +23,34 @@ import com.termux.view.TerminalRenderer
 import io.github.openfinalshell.android.R
 import io.github.openfinalshell.android.core.terminal.TerminalCursorStyle
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+internal data class TerminalViewport(val columns: Int, val rows: Int)
+
+/** Converts measured pixels into a stable PTY viewport, preserving cell boundaries. */
+internal fun measureTerminalViewport(
+    width: Int,
+    height: Int,
+    fontWidth: Float,
+    lineSpacing: Int,
+    paddingLeft: Int = 0,
+    paddingTop: Int = 0,
+    paddingRight: Int = 0,
+    paddingBottom: Int = 0,
+    minColumns: Int = 4,
+    minRows: Int = 4
+): TerminalViewport? {
+    val contentWidth = (width - paddingLeft - paddingRight).coerceAtLeast(0)
+    val contentHeight = (height - paddingTop - paddingBottom).coerceAtLeast(0)
+    if (contentWidth == 0 || contentHeight == 0 || !fontWidth.isFinite() || fontWidth <= 0f) return null
+    val spacing = lineSpacing.coerceAtLeast(1)
+    return TerminalViewport(
+        columns = max(minColumns.coerceAtLeast(1), floor(contentWidth / fontWidth).toInt()),
+        rows = max(minRows.coerceAtLeast(1), contentHeight / spacing)
+    )
+}
 
 /**
  * A remote-shell adapter around Termux's TerminalEmulator/TerminalRenderer pair. It deliberately
@@ -43,8 +69,8 @@ class SshTerminalView @JvmOverloads constructor(
     private var dragStartY = 0f
     private var startTopRow = 0
     private var movedDuringGesture = false
-    private var lastReportedColumns = -1
-    private var lastReportedRows = -1
+    private var lastMeasuredColumns = -1
+    private var lastMeasuredRows = -1
     private var selectionStart: TerminalCell? = null
     private var selectionEnd: TerminalCell? = null
 
@@ -77,8 +103,11 @@ class SshTerminalView @JvmOverloads constructor(
         resize: (Int, Int) -> Unit
     ) {
         if (controller !== nextController) {
-            lastReportedColumns = -1
-            lastReportedRows = -1
+            lastMeasuredColumns = -1
+            lastMeasuredRows = -1
+            topRow = 0
+            selectionStart = null
+            selectionEnd = null
         }
         controller = nextController
         onInput = input
@@ -91,6 +120,9 @@ class SshTerminalView @JvmOverloads constructor(
         if (requestedSizePx != rendererTextSizePx) {
             rendererTextSizePx = requestedSizePx
             renderer = TerminalRenderer(requestedSizePx, Typeface.MONOSPACE)
+            // Font metrics determine the number of cells in the measured viewport.
+            lastMeasuredColumns = -1
+            lastMeasuredRows = -1
         }
         updateTerminalSize()
         invalidate()
@@ -103,20 +135,42 @@ class SshTerminalView @JvmOverloads constructor(
         val terminal = controller?.emulator ?: return
         val start = selectionStart
         val end = selectionEnd
-        renderer.render(
-            terminal,
-            canvas,
-            topRow,
-            start?.column ?: -1,
-            start?.row ?: -1,
-            end?.column ?: -1,
-            end?.row ?: -1
-        )
+        synchronized(terminal) {
+            // A clear or resize can shrink the available transcript while a gesture is active.
+            // Keep the renderer and hit testing within Termux's external row range.
+            topRow = topRow.coerceIn(-terminal.screen.activeTranscriptRows, 0)
+            renderer.render(
+                terminal,
+                canvas,
+                topRow,
+                start?.column ?: -1,
+                start?.row ?: -1,
+                end?.column ?: -1,
+                end?.row ?: -1
+            )
+        }
     }
 
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
         updateTerminalSize()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        updateTerminalSize()
+    }
+
+    override fun onDetachedFromWindow() {
+        // The controller owns the emulator buffer; only release view callbacks to avoid keeping
+        // a disconnected Compose/ViewModel graph alive across navigation or configuration changes.
+        onInput = null
+        onResize = null
+        lastMeasuredColumns = -1
+        lastMeasuredRows = -1
+        selectionStart = null
+        selectionEnd = null
+        super.onDetachedFromWindow()
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
@@ -184,15 +238,17 @@ class SshTerminalView @JvmOverloads constructor(
     private fun handleTerminalKey(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return true
         val terminal = controller?.emulator ?: return false
-        val modifiers = buildKeyModifiers(event)
-        KeyHandler.getCode(
-            event.keyCode,
-            modifiers,
-            terminal.isCursorKeysApplicationMode,
-            terminal.isKeypadApplicationMode
-        )?.let {
-            dispatch(it)
-            return true
+        synchronized(terminal) {
+            val modifiers = buildKeyModifiers(event)
+            KeyHandler.getCode(
+                event.keyCode,
+                modifiers,
+                terminal.isCursorKeysApplicationMode,
+                terminal.isKeypadApplicationMode
+            )?.let {
+                dispatch(it)
+                return true
+            }
         }
         if (event.unicodeChar != 0) {
             dispatch(String(Character.toChars(event.unicodeChar)))
@@ -212,18 +268,33 @@ class SshTerminalView @JvmOverloads constructor(
     private fun updateTerminalSize() {
         val terminal = controller?.emulator ?: return
         if (width == 0 || height == 0) return
-        val columns = max(MIN_COLUMNS, (width / renderer.getFontWidth()).toInt())
-        val rows = max(MIN_ROWS, height / renderer.getFontLineSpacing().coerceAtLeast(1))
-        if ((columns != terminal.mColumns || rows != terminal.mRows) &&
-            (columns != lastReportedColumns || rows != lastReportedRows)
-        ) {
-            lastReportedColumns = columns
-            lastReportedRows = rows
-            onResize?.invoke(columns, rows)
+        val fontWidth = renderer.getFontWidth().takeIf { it.isFinite() && it > 0f } ?: return
+        val viewport = measureTerminalViewport(
+            width = width,
+            height = height,
+            fontWidth = fontWidth,
+            lineSpacing = renderer.getFontLineSpacing(),
+            paddingLeft = paddingLeft,
+            paddingTop = paddingTop,
+            paddingRight = paddingRight,
+            paddingBottom = paddingBottom,
+            minColumns = MIN_COLUMNS,
+            minRows = MIN_ROWS
+        ) ?: return
+        if (viewport.columns != lastMeasuredColumns || viewport.rows != lastMeasuredRows) {
+            lastMeasuredColumns = viewport.columns
+            lastMeasuredRows = viewport.rows
+            onResize?.invoke(viewport.columns, viewport.rows)
         }
     }
 
-    private fun activeTranscriptRows(): Int = controller?.emulator?.screen?.activeTranscriptRows ?: 0
+    private fun activeTranscriptRows(): Int {
+        val terminal = controller?.emulator ?: return 0
+        return activeTranscriptRows(terminal)
+    }
+
+    private fun activeTranscriptRows(terminal: TerminalEmulator): Int =
+        synchronized(terminal) { terminal.screen.activeTranscriptRows }
 
     private fun startSelection(event: MotionEvent) {
         selectionStart = cellAt(event)
@@ -241,12 +312,14 @@ class SshTerminalView @JvmOverloads constructor(
         val first = minOf(start, end)
         val last = maxOf(start, end)
         val terminal = controller?.emulator ?: return
-        val text = terminal.getSelectedText(
-            first.column,
-            first.row,
-            (last.column + 1).coerceAtMost(terminal.mColumns),
-            last.row + 1
-        )
+        val text = synchronized(terminal) {
+            terminal.getSelectedText(
+                first.column,
+                first.row,
+                (last.column + 1).coerceAtMost(terminal.mColumns),
+                last.row.coerceAtMost(terminal.mRows - 1)
+            )
+        }
         if (text.isBlank()) return
         context.getSystemService(ClipboardManager::class.java)
             ?.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.terminal_clipboard_label), text))
@@ -254,13 +327,17 @@ class SshTerminalView @JvmOverloads constructor(
     }
 
     private fun cellAt(event: MotionEvent): TerminalCell {
-        val terminal = controller?.emulator
-        val columns = terminal?.mColumns ?: MIN_COLUMNS
-        val rows = terminal?.mRows ?: MIN_ROWS
-        val column = (event.x / renderer.getFontWidth()).toInt().coerceIn(0, columns - 1)
-        val row = (topRow + event.y.div(renderer.getFontLineSpacing().coerceAtLeast(1)).toInt())
-            .coerceIn(-activeTranscriptRows(), rows - 1)
-        return TerminalCell(column, row)
+        val fontWidth = renderer.getFontWidth().takeIf { it.isFinite() && it > 0f } ?: 1f
+        val lineSpacing = renderer.getFontLineSpacing().coerceAtLeast(1)
+        val terminal = controller?.emulator ?: return TerminalCell(0, 0)
+        return synchronized(terminal) {
+            val columns = terminal.mColumns
+            val rows = terminal.mRows
+            val column = (event.x / fontWidth).toInt().coerceIn(0, columns - 1)
+            val row = (topRow + event.y.div(lineSpacing).toInt())
+                .coerceIn(-terminal.screen.activeTranscriptRows, rows - 1)
+            TerminalCell(column, row)
+        }
     }
 
     private fun dispatch(text: String?) {

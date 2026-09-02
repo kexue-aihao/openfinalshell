@@ -18,8 +18,8 @@ android {
         applicationId = "io.github.openfinalshell.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = (providers.gradleProperty("versionCode").orNull ?: "16").toInt()
-        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.16"
+        versionCode = (providers.gradleProperty("versionCode").orNull ?: "17").toInt()
+        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.17"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -131,7 +131,7 @@ val uiI18nKeys = setOf(
     "status_proxy_save_failed", "status_proxy_delete_failed", "status_private_key_import_failed", "status_private_key_delete_failed",
     "status_host_trust_revoke_failed", "status_export_failed", "status_import_failed", "status_connection_failed",
     "status_sftp_browse_failed", "status_sftp_delete_failed", "status_sftp_upload_failed", "status_sftp_download_failed",
-    "status_sftp_operation_failed", "status_terminal_open_failed", "status_terminal_write_failed",
+    "status_sftp_operation_failed", "status_terminal_open_failed", "status_terminal_write_failed", "terminal_disconnect_confirm",
     "status_sync_devices_found", "status_sync_device_scan_failed", "status_sync_receiver_ready", "status_sync_receiver_start_failed",
     "status_sync_receiver_stopped", "status_sync_pairing_code_invalid", "status_sync_delivered", "status_sync_failed",
     "status_sync_incoming_confirmation_pending", "status_sync_rejected", "status_sync_import_failed", "status_sync_imported"

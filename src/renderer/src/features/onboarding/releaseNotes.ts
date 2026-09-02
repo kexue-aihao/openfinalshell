@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.17',
+    items: [
+      {
+        type: 'fix',
+        zh: '优化 Android 设置页与终端界面：修复底部内容遮挡、选项横向溢出、终端 ANSI/中文换行和窗口尺寸适配问题，并增加断开确认',
+        en: 'Refined the Android Settings and terminal screens: fixed bottom-content occlusion, horizontal option overflow, terminal ANSI/CJK wrapping and viewport sizing, and added disconnect confirmation'
+      }
+    ]
+  },
+  {
     version: '0.20.16',
     items: [
       {

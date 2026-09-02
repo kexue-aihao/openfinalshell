@@ -99,6 +99,7 @@
     <string name="action_enter">回车</string>
     <string name="action_clear">清屏</string>
     <string name="action_disconnect">断开</string>
+    <string name="terminal_disconnect_confirm">确定要断开当前终端会话吗？</string>
     <string name="action_start">开始</string>
     <string name="action_stop">停止</string>
     <string name="action_ports">端口</string>

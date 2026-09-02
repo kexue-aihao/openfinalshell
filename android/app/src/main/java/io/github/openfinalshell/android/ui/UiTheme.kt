@@ -58,6 +58,63 @@ object OpenFinalShellColors {
     val TerminalSelection = Color(0x665A7FB8)
 }
 
+/**
+ * Surfaces used by the mobile shell. Glass colors are intentionally subtle:
+ * they provide separation for static chrome while keeping workspaces opaque
+ * and readable during terminal output or large list scrolling.
+ */
+object OpenFinalShellSurfaceTokens {
+    val LightGlass = Color(0xF2FFFFFF)
+    val LightGlassElevated = Color(0xFFFFFFFF)
+    val LightGlassBorder = Color(0x2674777F)
+    val LightWorkspace = Color(0xFFFFFFFF)
+
+    val DarkGlass = Color(0xF2191B20)
+    val DarkGlassElevated = Color(0xFF22252B)
+    val DarkGlassBorder = Color(0x338E9099)
+    val DarkWorkspace = Color(0xFF15171C)
+
+    /** Opaque fallback for devices/themes where transparency is disabled. */
+    val LightSolid = Color(0xFFF8F9FC)
+    val DarkSolid = Color(0xFF191B20)
+}
+
+/** Semantic interaction states. Alpha values match Material's state-layer model. */
+object OpenFinalShellStateTokens {
+    val FocusIndicator = OpenFinalShellColors.BrandBlue
+    val LightDisabledContent = Color(0x61000000)
+    val DarkDisabledContent = Color(0x61FFFFFF)
+    val LightDisabledContainer = Color(0x1F000000)
+    val DarkDisabledContainer = Color(0x1FFFFFFF)
+
+    const val HoverLayerAlpha: Float = 0.08f
+    const val FocusLayerAlpha: Float = 0.12f
+    const val PressedLayerAlpha: Float = 0.12f
+    const val DraggedLayerAlpha: Float = 0.16f
+}
+
+/** Fixed corner radii for the mobile UI. Avoids pill-shaped controls by default. */
+object OpenFinalShellCornerTokens {
+    val Label = 4.dp
+    val Control = 6.dp
+    val Card = 8.dp
+    val Dialog = 8.dp
+}
+
+/** Opaque, high-contrast colors and metrics reserved for terminal workspaces. */
+object OpenFinalShellTerminalTokens {
+    val Background = OpenFinalShellColors.TerminalBackground
+    val Foreground = OpenFinalShellColors.TerminalForeground
+    val Cursor = OpenFinalShellColors.TerminalCursor
+    val Selection = OpenFinalShellColors.TerminalSelection
+    val ToolbarBackground = OpenFinalShellColors.DarkSurface
+    val Border = OpenFinalShellColors.DarkOutline.copy(alpha = 0.45f)
+    val FontSize = 14.sp
+    val MinimumFontSize = 10.sp
+    val MaximumFontSize = 24.sp
+    val LineHeightMultiplier = 1.25f
+}
+
 /** Shared spacing and control dimensions. Use these values instead of ad-hoc dp values in new screens. */
 object OpenFinalShellSpacing {
     val None: Dp = 0.dp
@@ -90,9 +147,11 @@ object OpenFinalShellDimens {
 }
 
 val OpenFinalShellShapes = Shapes(
-    small = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(OpenFinalShellCornerTokens.Label),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(OpenFinalShellCornerTokens.Label),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(OpenFinalShellCornerTokens.Control),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(OpenFinalShellCornerTokens.Card),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(OpenFinalShellCornerTokens.Card)
 )
 
 /** Typography uses platform sans-serif for UI and a separate monospace style for terminal content. */

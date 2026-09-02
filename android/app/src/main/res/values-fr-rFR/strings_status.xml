@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="nav_more">Plus</string>
+    <string name="terminal_disconnect_confirm">Déconnecter la session de terminal actuelle ?</string>
     <string name="status_ready">Prêt</string>
     <string name="status_connecting">Connecting</string>
     <string name="status_authenticating">Authenticating</string>

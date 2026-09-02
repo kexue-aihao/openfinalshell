@@ -101,6 +101,7 @@
     <string name="action_enter">Enter</string>
     <string name="action_clear">Clear</string>
     <string name="action_disconnect">Disconnect</string>
+    <string name="terminal_disconnect_confirm">Disconnect the current terminal session?</string>
     <string name="action_start">Start</string>
     <string name="action_stop">Stop</string>
     <string name="action_ports">Ports</string>
