@@ -1,5 +1,6 @@
 package io.github.openfinalshell.android.update
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
@@ -270,7 +271,7 @@ internal object AndroidPackageInstaller {
                     context,
                     sessionId,
                     callback,
-                    android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+                    statusReceiverFlags()
                 )
                 session.commit(pendingIntent.intentSender)
             }
@@ -279,4 +280,12 @@ internal object AndroidPackageInstaller {
             throw error
         }
     }
+
+    /**
+     * PackageInstaller writes the installation result and confirmation Intent to this callback.
+     * Android 12+ therefore rejects an immutable PendingIntent here.
+     */
+    internal fun statusReceiverFlags(sdkInt: Int = Build.VERSION.SDK_INT): Int =
+        PendingIntent.FLAG_UPDATE_CURRENT or
+            if (sdkInt >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
 }

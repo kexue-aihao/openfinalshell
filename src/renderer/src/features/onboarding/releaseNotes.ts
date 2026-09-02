@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.14',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android 应用内升级在 Android 12 及更高版本中因安装状态回调被错误标记为不可变，导致下载完成后无法打开系统安装确认页的问题',
+        en: 'Fixed Android in-app updates failing to open the system installation confirmation after download on Android 12 and later because the installation-status callback was incorrectly immutable'
+      }
+    ]
+  },
+  {
     version: '0.20.13',
     items: [
       {
