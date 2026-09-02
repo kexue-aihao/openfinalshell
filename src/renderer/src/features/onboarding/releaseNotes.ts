@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.10',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Android 应用内升级下载完成后未提示安装和重启的问题；设置现已支持与桌面端一致的十种语言、跟随系统语言及 Android 系统级应用语言设置，并补齐设置页翻译校验',
+        en: 'Fixed Android in-app updates not prompting for installation and restart after a download; Settings now supports the same ten languages as desktop, follow-system language and Android app-language settings, with translation coverage checks'
+      }
+    ]
+  },
+  {
     version: '0.20.9',
     items: [
       {

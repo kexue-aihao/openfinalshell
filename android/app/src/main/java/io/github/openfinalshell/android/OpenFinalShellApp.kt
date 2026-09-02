@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +84,26 @@ fun OpenFinalShellApp(
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
     val lanSyncState by lanSyncViewModel.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
+    var deferredUpdateTag by rememberSaveable { mutableStateOf<String?>(null) }
+    var installAfterPermission by rememberSaveable { mutableStateOf(false) }
+    val updatePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (installAfterPermission && settingsViewModel.canInstallPackages()) {
+            settingsViewModel.installUpdate()
+        }
+        installAfterPermission = false
+    }
+    val requestUpdateInstall = {
+        if (settingsViewModel.canInstallPackages()) {
+            settingsViewModel.installUpdate()
+        } else {
+            installAfterPermission = true
+            updatePermissionLauncher.launch(settingsViewModel.installPermissionIntent())
+        }
+    }
+
+    LaunchedEffect(settingsState.update) {
+        if (settingsState.update !is UpdateState.Ready) deferredUpdateTag = null
+    }
 
     state.hostKeyPrompt?.let { prompt ->
         AlertDialog(
@@ -122,6 +143,17 @@ fun OpenFinalShellApp(
     val colors = (if (darkTheme) darkColorScheme() else lightColorScheme()).copy(primary = primary)
 
     MaterialTheme(colorScheme = colors) {
+        val readyUpdate = settingsState.update as? UpdateState.Ready
+        if (readyUpdate != null && deferredUpdateTag != readyUpdate.release.tagName) {
+            UpdateReadyDialog(
+                versionName = readyUpdate.release.versionName,
+                onDefer = { deferredUpdateTag = readyUpdate.release.tagName },
+                onInstall = {
+                    deferredUpdateTag = readyUpdate.release.tagName
+                    requestUpdateInstall()
+                }
+            )
+        }
         Scaffold(
             topBar = { TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(R.string.app_name)) }) },
             bottomBar = {
@@ -157,7 +189,7 @@ fun OpenFinalShellApp(
                     3 -> MonitorScreen(state, viewModel)
                     4 -> ForwardScreen(state, viewModel)
                     5 -> LanSyncScreen(lanSyncState, lanSyncViewModel)
-                    else -> SettingsScreen(settingsViewModel, settingsState, viewModel, state)
+                    else -> SettingsScreen(settingsViewModel, settingsState, viewModel, state, requestUpdateInstall)
                 }
             }
         }
@@ -773,7 +805,8 @@ private fun SettingsScreen(
     viewModel: SettingsViewModel,
     state: SettingsUiState,
     mainViewModel: MainViewModel,
-    mainState: AndroidUiState
+    mainState: AndroidUiState,
+    onRequestUpdateInstall: () -> Unit
 ) {
     val settings = state.settings
     val context = LocalContext.current
@@ -802,10 +835,6 @@ private fun SettingsScreen(
             viewModel.setDownloadDirectoryUri(uri.toString())
         }
     }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        viewModel.refreshInstallStatus()
-    }
-
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
@@ -817,7 +846,7 @@ private fun SettingsScreen(
                 ChoiceRow(
                     androidx.compose.ui.res.stringResource(R.string.settings_language),
                     settings.language,
-                    listOf("system" to R.string.settings_language_system, "zh-CN" to R.string.settings_language_chinese, "en" to R.string.settings_language_english)
+                    AndroidLocales.options.map { it.tag to it.labelRes }
                 ) { viewModel.setLanguage(it) }
                 ChoiceRow(
                     androidx.compose.ui.res.stringResource(R.string.settings_theme),
@@ -942,7 +971,7 @@ private fun SettingsScreen(
         }
         item {
             SettingsSection(androidx.compose.ui.res.stringResource(R.string.settings_updates)) {
-                UpdatePanel(state, viewModel, permissionLauncher)
+                UpdatePanel(state, viewModel, onRequestUpdateInstall)
             }
         }
         item {
@@ -1006,7 +1035,7 @@ private fun NumberSetting(label: String, value: Int, range: IntRange, onChange: 
 }
 
 @Composable
-private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, permissionLauncher: androidx.activity.result.ActivityResultLauncher<Intent>) {
+private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, onRequestUpdateInstall: () -> Unit) {
     when (val update = state.update) {
         UpdateState.Idle -> Text(androidx.compose.ui.res.stringResource(R.string.update_not_checked))
         UpdateState.Checking -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1030,9 +1059,9 @@ private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, pe
         is UpdateState.Ready -> {
             Text(androidx.compose.ui.res.stringResource(R.string.update_ready, update.release.versionName))
             if (viewModel.canInstallPackages()) {
-                Button(onClick = viewModel::installUpdate) { Text(androidx.compose.ui.res.stringResource(R.string.action_install_update)) }
+                Button(onClick = onRequestUpdateInstall) { Text(androidx.compose.ui.res.stringResource(R.string.action_install_update)) }
             } else {
-                Button(onClick = { permissionLauncher.launch(viewModel.installPermissionIntent()) }) {
+                Button(onClick = onRequestUpdateInstall) {
                     Text(androidx.compose.ui.res.stringResource(R.string.action_allow_install))
                 }
             }
@@ -1049,6 +1078,25 @@ private fun UpdatePanel(state: SettingsUiState, viewModel: SettingsViewModel, pe
         }
     }
     if (state.saving) Text(androidx.compose.ui.res.stringResource(R.string.settings_saving), style = MaterialTheme.typography.labelSmall)
+}
+
+@Composable
+private fun UpdateReadyDialog(versionName: String, onDefer: () -> Unit, onInstall: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDefer,
+        title = { Text(androidx.compose.ui.res.stringResource(R.string.update_ready_dialog_title)) },
+        text = { Text(androidx.compose.ui.res.stringResource(R.string.update_ready_dialog_message, versionName)) },
+        confirmButton = {
+            TextButton(onClick = onInstall) {
+                Text(androidx.compose.ui.res.stringResource(R.string.action_install_and_restart))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDefer) {
+                Text(androidx.compose.ui.res.stringResource(R.string.action_later))
+            }
+        }
+    )
 }
 
 @Composable

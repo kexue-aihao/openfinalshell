@@ -27,7 +27,7 @@ data class AndroidSettings(
     /** Clamp values read from old or hand-edited documents before they reach the UI/core. */
     fun normalized(): AndroidSettings = copy(
         schemaVersion = CURRENT_SCHEMA_VERSION,
-        language = language.takeIf { it in LANGUAGES } ?: "system",
+        language = normalizeLanguage(language),
         theme = theme.takeIf { it in THEMES } ?: "system",
         accentColor = accentColor.takeIf { HEX_COLOR.matches(it) } ?: "#1677FF",
         terminalFontSize = terminalFontSize.coerceIn(10, 32),
@@ -40,13 +40,24 @@ data class AndroidSettings(
     )
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 1
+        const val CURRENT_SCHEMA_VERSION = 2
         const val DOCUMENT_NAME = "android.settings"
-        val LANGUAGES = setOf("system", "zh-CN", "en")
+        /** Matches the desktop locale registry, plus Android's explicit follow-system option. */
+        val LANGUAGES = setOf(
+            "system", "zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR",
+            "ru-RU", "es-ES", "fr-FR", "de-DE", "pt-BR"
+        )
         val THEMES = setOf("system", "light", "dark")
         val CURSOR_STYLES = setOf("block", "line", "underline")
         val CONFLICT_POLICIES = setOf("ask", "overwrite", "skip")
         private val HEX_COLOR = Regex("^#[0-9A-Fa-f]{6}$")
+
+        fun normalizeLanguage(value: String): String = when (value) {
+            // Version 1 used these shorthand values. Keep existing installations valid.
+            "en" -> "en-US"
+            "zh" -> "zh-CN"
+            else -> value.takeIf { it in LANGUAGES } ?: "system"
+        }
     }
 }
 

@@ -68,8 +68,8 @@ jobs:
           # Release must remain reproducible even when GitHub Cache is degraded.
           cache-disabled: true
 
-      - name: Run Kotlin unit tests
-        run: gradle -p android testDebugUnitTest --stacktrace
+      - name: Check Settings translations and run Kotlin unit tests
+        run: gradle -p android :app:checkI18n testDebugUnitTest --stacktrace
 
       - name: Validate signing secrets
         env:

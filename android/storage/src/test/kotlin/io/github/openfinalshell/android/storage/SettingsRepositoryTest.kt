@@ -31,11 +31,12 @@ class SettingsRepositoryTest {
     @Test
     fun `legacy values are migrated and constrained`() = runBlocking {
         val dao = FakeDocumentDao()
-        dao.upsert(DocumentEntity(AndroidSettings.DOCUMENT_NAME, """{"schemaVersion":0,"theme":"solarized","terminalFontSize":99,"sftpConcurrency":0,"sftpShowHiddenFiles":true}"""))
+        dao.upsert(DocumentEntity(AndroidSettings.DOCUMENT_NAME, """{"schemaVersion":0,"language":"en","theme":"solarized","terminalFontSize":99,"sftpConcurrency":0,"sftpShowHiddenFiles":true}"""))
 
         val migrated = SettingsRepository(dao, Dispatchers.Unconfined).load()
 
         assertEquals(AndroidSettings.CURRENT_SCHEMA_VERSION, migrated.schemaVersion)
+        assertEquals("en-US", migrated.language)
         assertEquals("system", migrated.theme)
         assertEquals(32, migrated.terminalFontSize)
         assertEquals(1, migrated.sftpConcurrency)

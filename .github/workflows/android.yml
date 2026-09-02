@@ -69,8 +69,8 @@ jobs:
           # GitHub Cache 服务短暂不可用时不应阻断 Android 编译。
           cache-disabled: true
 
-      - name: Run Kotlin unit tests
-        run: gradle -p android testDebugUnitTest --stacktrace
+      - name: Check Settings translations and run Kotlin unit tests
+        run: gradle -p android :app:checkI18n testDebugUnitTest --stacktrace
 
       - name: Assemble debug APKs
         run: gradle -p android :app:assembleDebug --stacktrace

@@ -2,6 +2,7 @@ package io.github.openfinalshell.android
 
 import android.app.Application
 import android.content.Intent
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.openfinalshell.android.storage.AndroidSettings
@@ -48,20 +49,48 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
         // Room and the network check run in background coroutines; first frame remains responsive.
         loadJob = viewModelScope.launch {
-            val settings = runCatching { withContext(Dispatchers.IO) { repository.load() } }
-                .onFailure { error -> mutableState.update { it.copy(message = error.message ?: "Settings unavailable") } }
+            val storedSettings = runCatching { withContext(Dispatchers.IO) { repository.load() } }
+                .onFailure { error ->
+                    mutableState.update { it.copy(message = error.message ?: application.getString(R.string.settings_unavailable)) }
+                }
                 .getOrElse { AndroidSettings() }
+            // Android 13 may receive a per-app language change while the app is not running.
+            // A concrete platform locale takes precedence over our older local document.
+            val platformLanguage = AndroidLocales.settingFor(AppCompatDelegate.getApplicationLocales())
+            val settings = if (platformLanguage != AndroidLocales.SYSTEM && platformLanguage != storedSettings.language) {
+                storedSettings.copy(language = platformLanguage)
+            } else {
+                storedSettings
+            }
+            if (settings != storedSettings) withContext(Dispatchers.IO) { repository.save(settings) }
             mutableState.update { it.copy(settings = settings, loaded = true) }
+            AndroidLocales.apply(settings.language)
             if (settings.autoCheckUpdates) checkForUpdates()
         }
     }
 
     fun update(transform: (AndroidSettings) -> AndroidSettings) {
-        mutableState.update { it.copy(settings = transform(it.settings), message = null) }
-        persist()
+        updateAndPersist(transform)
     }
 
-    fun setLanguage(language: String) = update { it.copy(language = language) }
+    private fun updateAndPersist(
+        transform: (AndroidSettings) -> AndroidSettings,
+        afterPersist: ((AndroidSettings) -> Unit)? = null
+    ) {
+        mutableState.update { it.copy(settings = transform(it.settings), message = null) }
+        persist(afterPersist)
+    }
+
+    fun setLanguage(language: String) = updateAndPersist(
+        transform = { it.copy(language = AndroidLocales.normalize(language)) },
+        afterPersist = { AndroidLocales.apply(it.language) }
+    )
+
+    /** Mirrors a language selected in Android 13's system app-language settings. */
+    fun setLanguageFromPlatform(language: String) {
+        if (!state.value.loaded || state.value.settings.language == language) return
+        update { it.copy(language = AndroidLocales.normalize(language)) }
+    }
     fun setTheme(theme: String) = update { it.copy(theme = theme) }
     fun setAccentColor(color: String) = update { it.copy(accentColor = color) }
     fun setMaskHosts(enabled: Boolean) = update { it.copy(maskHosts = enabled) }
@@ -102,7 +131,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun installPermissionIntent(): Intent = updateManager.installPermissionIntent()
     fun canInstallPackages(): Boolean = updateManager.canInstallPackages()
 
-    private fun persist() {
+    private fun persist(afterPersist: ((AndroidSettings) -> Unit)? = null) {
         viewModelScope.launch {
             mutableState.update { it.copy(saving = true) }
             runCatching {
@@ -110,8 +139,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 saveMutex.withLock {
                     withContext(Dispatchers.IO) { repository.save(state.value.settings) }
                 }
+            }.onSuccess {
+                afterPersist?.invoke(state.value.settings)
             }.onFailure { error ->
-                mutableState.update { it.copy(message = error.message ?: "Unable to save settings") }
+                mutableState.update { it.copy(message = error.message ?: getApplication<Application>().getString(R.string.settings_save_failed)) }
             }
             mutableState.update { it.copy(saving = false) }
         }

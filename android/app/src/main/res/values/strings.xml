@@ -83,8 +83,16 @@
     <string name="settings_general">General</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_system">System</string>
-    <string name="settings_language_chinese">Chinese</string>
-    <string name="settings_language_english">English</string>
+    <string name="settings_language_zh_cn" translatable="false">简体中文</string>
+    <string name="settings_language_zh_tw" translatable="false">繁體中文</string>
+    <string name="settings_language_en_us" translatable="false">English</string>
+    <string name="settings_language_ja_jp" translatable="false">日本語</string>
+    <string name="settings_language_ko_kr" translatable="false">한국어</string>
+    <string name="settings_language_ru_ru" translatable="false">Русский</string>
+    <string name="settings_language_es_es" translatable="false">Español</string>
+    <string name="settings_language_fr_fr" translatable="false">Français</string>
+    <string name="settings_language_de_de" translatable="false">Deutsch</string>
+    <string name="settings_language_pt_br" translatable="false">Português (Brasil)</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_system">System</string>
     <string name="settings_theme_light">Light</string>
@@ -128,12 +136,18 @@
     <string name="action_download_update">Download update</string>
     <string name="update_downloading">Downloading: %1$s of %2$s</string>
     <string name="update_ready">Version %1$s is ready to install.</string>
+    <string name="update_ready_dialog_title">Update ready</string>
+    <string name="update_ready_dialog_message">Version %1$s has been downloaded. Android will ask you to confirm installation, then OpenFinalShell will restart.</string>
     <string name="action_install_update">Install update</string>
+    <string name="action_install_and_restart">Install and restart</string>
     <string name="action_allow_install">Allow installs</string>
+    <string name="action_later">Later</string>
     <string name="update_canceled">Update download canceled.</string>
     <string name="update_installing">Installing version %1$s...</string>
     <string name="update_installed">Version %1$s installed.</string>
     <string name="settings_saving">Saving...</string>
+    <string name="settings_unavailable">Settings unavailable</string>
+    <string name="settings_save_failed">Unable to save settings</string>
     <string name="settings_about">About</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_about_body">OpenFinalShell Android client</string>

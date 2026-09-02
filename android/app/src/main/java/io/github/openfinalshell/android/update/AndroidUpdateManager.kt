@@ -94,6 +94,7 @@ class AndroidUpdateManager(
                 .remove(KEY_INSTALL_STATUS)
                 .apply()
             UpdateState.Ready(release, selected, apk.absolutePath)
+                .also { mutableState.value = it }
         } catch (error: CancellationException) {
             withContext(Dispatchers.IO) { part.delete() }
             mutableState.value = UpdateState.Canceled
