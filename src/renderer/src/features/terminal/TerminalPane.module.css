@@ -20,8 +20,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: color-mix(in srgb, var(--ofs-bg-base) 82%, transparent);
-  backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--ofs-bg-base) 94%, transparent);
 }
 
 .overlayText {
@@ -50,10 +49,18 @@
   gap: 2px;
   padding: 2px;
   border-radius: var(--ofs-radius-m);
-  background: color-mix(in srgb, var(--ofs-bg-elevated) 88%, transparent);
+  border: 1px solid var(--ofs-shell-border);
+  background: var(--ofs-shell-surface-strong);
   opacity: 0;
   transition: opacity 0.15s;
 }
 .pane:hover .hoverTools {
   opacity: 1;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .hoverTools {
+    -webkit-backdrop-filter: blur(12px) saturate(1.06);
+    backdrop-filter: blur(12px) saturate(1.06);
+  }
 }

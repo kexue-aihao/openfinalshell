@@ -66,8 +66,15 @@ export interface OfsTheme {
     bgElevated: string
     bgHover: string
     bgActive: string
+    /** 半透明外壳、导航栏和浮层的正常表面 */
+    glassSurface: string
+    /** 弹窗等需要更明确层级的玻璃表面 */
+    glassSurfaceStrong: string
+    /** 禁用透明效果或不支持 backdrop-filter 时的实体回退 */
+    solidSurface: string
     border: string
     borderStrong: string
+    glassBorder: string
     textPrimary: string
     textSecondary: string
     textDisabled: string

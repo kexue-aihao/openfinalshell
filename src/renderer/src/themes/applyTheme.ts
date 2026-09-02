@@ -7,16 +7,28 @@ import type { OfsTheme } from './types'
  *  ① :root 上的 --ofs-* CSS 变量 + data-theme 属性（自绘组件用）
  *  ② antd ThemeConfig（组件库用）
  */
-export function applyCssVars(mode: 'dark' | 'light', accent: string): OfsTheme {
+export function applyCssVars(
+  mode: 'dark' | 'light',
+  accent: string,
+  reduceTransparency = false
+): OfsTheme {
   const t = themes[mode]
   const root = document.documentElement
   root.dataset.theme = mode
+  root.dataset.reduceTransparency = String(reduceTransparency)
   const vars: Record<string, string> = {
     '--ofs-bg-base': t.ui.bgBase,
     '--ofs-bg-panel': t.ui.bgPanel,
     '--ofs-bg-elevated': t.ui.bgElevated,
     '--ofs-bg-hover': t.ui.bgHover,
     '--ofs-bg-active': t.ui.bgActive,
+    '--ofs-glass-surface': t.ui.glassSurface,
+    '--ofs-glass-surface-strong': t.ui.glassSurfaceStrong,
+    '--ofs-solid-surface': t.ui.solidSurface,
+    '--ofs-glass-border': t.ui.glassBorder,
+    '--ofs-shell-surface': reduceTransparency ? t.ui.solidSurface : t.ui.glassSurface,
+    '--ofs-shell-surface-strong': reduceTransparency ? t.ui.solidSurface : t.ui.glassSurfaceStrong,
+    '--ofs-shell-border': reduceTransparency ? t.ui.border : t.ui.glassBorder,
     '--ofs-border': t.ui.border,
     '--ofs-border-strong': t.ui.borderStrong,
     '--ofs-text-1': t.ui.textPrimary,
@@ -48,11 +60,23 @@ export function buildAntdTheme(mode: 'dark' | 'light', accent: string): ThemeCon
     algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
     token: {
       colorPrimary: accent,
+      colorBgBase: t.ui.bgBase,
+      colorBgLayout: t.ui.bgBase,
       colorBgContainer: t.ui.bgPanel,
       colorBgElevated: t.ui.bgElevated,
       colorBorder: t.ui.border,
       colorBorderSecondary: t.ui.border,
+      colorText: t.ui.textPrimary,
+      colorTextSecondary: t.ui.textSecondary,
+      colorTextDisabled: t.ui.textDisabled,
       borderRadius: 6,
+      borderRadiusSM: 4,
+      borderRadiusLG: 8,
+      boxShadow: t.ui.shadowPanel,
+      boxShadowSecondary: t.ui.shadowModal,
+      controlHeight: 32,
+      controlHeightSM: 24,
+      controlHeightLG: 40,
       fontSize: 13,
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Yu Gothic UI", "Meiryo", "Malgun Gothic", sans-serif'

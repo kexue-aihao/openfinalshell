@@ -120,9 +120,10 @@ export function SettingsModal(): React.JSX.Element {
     if (dir) setSftp({ downloadDir: dir })
   }
 
-    return (
+  return (
     <Modal
       open={open}
+      className={styles.modal}
       title={t('activity.settings')}
       width={860}
       footer={null}
@@ -223,6 +224,15 @@ export function SettingsModal(): React.JSX.Element {
                     onChange={(v) => set('uiZoom', v)}
                   />
                 </div>
+              </Row>
+              <Row
+                label={t('settings.reduceTransparency')}
+                hint={t('settings.reduceTransparencyHint')}
+              >
+                <Switch
+                  checked={settings.reduceTransparency}
+                  onChange={(v) => set('reduceTransparency', v)}
+                />
               </Row>
               <Row label={t('settings.maskHostInList')} hint={t('settings.maskHostInListHint')}>
                 <Switch

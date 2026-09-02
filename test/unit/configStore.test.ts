@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { JsonFileStore, deepMerge } from '../../src/main/store/ConfigStore'
 import { atomicWriteFile } from '../../src/main/utils/atomicWrite'
+import { DEFAULT_SETTINGS } from '../../src/shared/constants'
+import type { AppSettings } from '../../src/shared/types'
 
 interface Cfg {
   version: number
@@ -30,6 +32,14 @@ describe('deepMerge', () => {
   it('undefined patch 不改变 base', () => {
     const base = { a: 1 }
     expect(deepMerge(base, undefined)).toBe(base)
+  })
+
+  it('旧设置文档缺少 reduceTransparency 时沿用新的默认值 false', () => {
+    const legacy = structuredClone(DEFAULT_SETTINGS) as unknown as Record<string, unknown>
+    delete legacy.reduceTransparency
+
+    const migrated = deepMerge(DEFAULT_SETTINGS, legacy as Partial<AppSettings>)
+    expect(migrated.reduceTransparency).toBe(false)
   })
 })
 

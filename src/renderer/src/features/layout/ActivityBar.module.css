@@ -6,8 +6,8 @@
   align-items: center;
   padding: 8px 0;
   gap: 4px;
-  background: var(--ofs-bg-panel);
-  border-right: 1px solid var(--ofs-border);
+  background: var(--ofs-shell-surface);
+  border-right: 1px solid var(--ofs-shell-border);
 }
 
 .spacer {
@@ -32,7 +32,7 @@
   color: var(--ofs-text-1);
 }
 .itemActive {
-  background: var(--ofs-bg-active);
+  background: color-mix(in srgb, var(--ofs-accent) 13%, var(--ofs-solid-surface));
   color: var(--ofs-accent);
 }
 .itemActive::before {
@@ -59,4 +59,11 @@
   font-size: 10px;
   line-height: 14px;
   text-align: center;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .activityBar {
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
 }

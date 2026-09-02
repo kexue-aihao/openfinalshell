@@ -7,8 +7,8 @@
   padding: 0 12px;
   font-size: 11px;
   color: var(--ofs-text-2);
-  background: var(--ofs-bg-panel);
-  border-top: 1px solid var(--ofs-border);
+  background: var(--ofs-shell-surface);
+  border-top: 1px solid var(--ofs-shell-border);
 }
 
 .item {
@@ -49,4 +49,11 @@
   border-radius: 50%;
   background: var(--ofs-success, #52c41a);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ofs-success, #52c41a) 25%, transparent);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .statusBar {
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    backdrop-filter: blur(14px) saturate(1.06);
+  }
 }

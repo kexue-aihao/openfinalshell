@@ -582,6 +582,8 @@
     "themeSystem": "跟随系统",
     "accent": "强调色",
     "uiZoom": "界面缩放",
+    "reduceTransparency": "减少透明效果",
+    "reduceTransparencyHint": "使用实体背景代替半透明和模糊效果，可改善远程桌面或低性能显卡环境下的清晰度与性能。",
     "maskHostInList": "连接列表隐藏完整地址",
     "maskHostInListHint": "连接树里的 IP / 域名只显示首尾片段（如 156.•.•.50），足以区分机器又便于截图分享；完整地址仍用于连接、复制命令与搜索。",
     "fontFamily": "终端字体",

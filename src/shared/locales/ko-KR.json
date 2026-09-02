@@ -568,6 +568,8 @@
     "themeSystem": "시스템",
     "accent": "강조 색상",
     "uiZoom": "UI 확대/축소",
+    "reduceTransparency": "투명 효과 줄이기",
+    "reduceTransparencyHint": "반투명과 흐림 대신 불투명한 표면을 사용합니다. 원격 데스크톱이나 저성능 GPU에서 선명도와 성능을 높일 수 있습니다.",
     "maskHostInList": "목록에서 주소 가리기",
     "maskHostInListHint": "연결 트리에서 IP/호스트 이름의 일부만 표시합니다(예: 156.•.•.50) — 컴퓨터를 구분하기에 충분하고 스크린샷에 안전합니다. 연결, 명령 복사, 검색에는 여전히 전체 주소가 사용됩니다.",
     "fontFamily": "터미널 글꼴",

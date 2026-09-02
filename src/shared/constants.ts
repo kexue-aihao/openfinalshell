@@ -194,6 +194,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
   themeMode: 'dark',
   accent: PRESET_COLORS[0],
+  // 新字段由 DocStore 的深合并自动补给旧配置；默认保留 Fluent 轻玻璃效果。
+  reduceTransparency: false,
   uiZoom: 100,
   disableGpu: false,
   confirmOnCloseTab: true,

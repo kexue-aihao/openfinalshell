@@ -2,8 +2,9 @@
   height: var(--ofs-titlebar-height);
   display: flex;
   align-items: stretch;
-  background: var(--ofs-bg-panel);
-  border-bottom: 1px solid var(--ofs-border);
+  background: var(--ofs-shell-surface);
+  border-bottom: 1px solid var(--ofs-shell-border);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--ofs-shell-border) 72%, transparent);
   /* 整条默认可拖拽窗口；交互元素单独 no-drag */
   -webkit-app-region: drag;
   /* 右侧给原生窗口按钮（titleBarOverlay）留位 */
@@ -62,7 +63,7 @@
   background: var(--ofs-bg-hover);
 }
 .tabActive {
-  background: var(--ofs-bg-base);
+  background: var(--ofs-solid-surface);
   color: var(--ofs-text-1);
   border: 1px solid var(--ofs-border);
   border-bottom: none;
@@ -136,4 +137,11 @@
 .newTabBtn:hover {
   background: var(--ofs-bg-hover);
   color: var(--ofs-text-1);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .titleBar {
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
 }

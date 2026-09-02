@@ -5,6 +5,14 @@ import { applyWindowChrome } from '../window'
 import { applyEditorWindowChrome } from '../editorWindow'
 import { secureStorageAvailable } from '../store/secureStorage'
 
+/**
+ * 设置整体仍兼容历史的自由形状 patch；新加的透明度偏好在 IPC 边界必须是布尔值。
+ * `.passthrough()` 保留既有字段，避免把这一次小改动变成整份设置契约重写。
+ */
+export const settingsPatchSchema = z
+  .object({ reduceTransparency: z.boolean().optional() })
+  .passthrough()
+
 export function registerSettingsIpc(): void {
   handle('settings:get', () => getSettings())
 
@@ -32,7 +40,7 @@ export function registerSettingsIpc(): void {
       broadcast('settings:changed', next)
       return next
     },
-    z.tuple([z.record(z.string(), z.unknown())])
+    z.tuple([settingsPatchSchema])
   )
 
   handle('vault:isAvailable', () => secureStorageAvailable())

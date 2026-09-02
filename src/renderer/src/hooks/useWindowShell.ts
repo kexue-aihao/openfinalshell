@@ -53,7 +53,8 @@ export function useAppTheme(settings: AppSettings | null): {
     return settings.themeMode === 'system' ? (systemDark ? 'dark' : 'light') : settings.themeMode
   }, [settings, systemDark])
   const accent = settings?.accent ?? '#1677ff'
-  useMemo(() => applyCssVars(mode, accent), [mode, accent])
+  const reduceTransparency = settings?.reduceTransparency ?? false
+  useMemo(() => applyCssVars(mode, accent, reduceTransparency), [mode, accent, reduceTransparency])
   const antdTheme = useMemo(() => buildAntdTheme(mode, accent), [mode, accent])
   return { mode, antdTheme }
 }

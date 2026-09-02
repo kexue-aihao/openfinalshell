@@ -7,6 +7,8 @@
 
 .toolbar {
   padding: 4px 4px 0;
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-shell-surface);
 }
 
 .list {
@@ -30,7 +32,8 @@
   padding: 8px;
   border: 1px solid var(--ofs-border);
   border-radius: var(--ofs-radius-m);
-  background: var(--ofs-bg-elevated);
+  background: var(--ofs-solid-surface);
+  box-shadow: var(--ofs-shadow-panel);
 }
 
 .itemTop {

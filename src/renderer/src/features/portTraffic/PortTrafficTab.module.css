@@ -13,8 +13,8 @@
   justify-content: space-between;
   gap: 16px;
   padding: 12px 18px;
-  border-bottom: 1px solid var(--ofs-border);
-  background: var(--ofs-bg-panel);
+  border-bottom: 1px solid var(--ofs-shell-border);
+  background: var(--ofs-shell-surface);
 }
 
 .title {
@@ -59,6 +59,7 @@
   overflow: auto;
   border: 1px solid var(--ofs-border);
   border-radius: var(--ofs-radius-m);
+  background: var(--ofs-solid-surface);
 }
 
 .table {
@@ -82,7 +83,7 @@
   top: 0;
   z-index: 1;
   color: var(--ofs-text-3);
-  background: var(--ofs-bg-panel);
+  background: var(--ofs-solid-surface);
   font-weight: 500;
 }
 
@@ -95,6 +96,13 @@
 .note { margin: 12px 0 0; line-height: 1.55; }
 .empty { height: 100%; display: grid; place-items: center; color: var(--ofs-text-3); }
 .noPorts { margin-top: 70px; }
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .header {
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    backdrop-filter: blur(14px) saturate(1.06);
+  }
+}
 
 @media (max-width: 700px) {
   .header { align-items: flex-start; flex-direction: column; }

@@ -7,9 +7,11 @@
 
 .card {
   border: 1px solid var(--ofs-border);
-  border-radius: 8px;
+  border-radius: var(--ofs-radius-l);
   padding: 16px;
   min-height: 220px;
+  background: var(--ofs-solid-surface);
+  box-shadow: var(--ofs-shadow-panel);
 }
 
 .cardTitle {
@@ -20,8 +22,9 @@
 .codeBox {
   margin: 8px 0;
   padding: 12px;
-  border-radius: 8px;
-  background: var(--ofs-bg-elevated, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-l);
+  background: var(--ofs-bg-elevated);
   text-align: center;
 }
 
@@ -82,7 +85,8 @@
   gap: 8px;
   padding: 6px 8px;
   border: 1px solid var(--ofs-border);
-  border-radius: 6px;
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-solid-surface);
 }
 
 .deviceMain {

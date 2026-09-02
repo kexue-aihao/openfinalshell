@@ -3,7 +3,8 @@ import { join } from 'node:path'
 import type { AppSettings, EditorOpenRequest } from '@shared/types'
 import { scopedLogger } from './utils/logger'
 import { getSettings, patchSettings } from './services/settings'
-import { resolveChrome, TITLEBAR_HEIGHT } from './window'
+import { applyNativeWindowMaterial, resolveChrome, TITLEBAR_HEIGHT } from './window'
+import { resolveWindowControlsOverlayColor } from './windowMaterial'
 import { bindEditorWindow, emitEditor } from './ipc/registry'
 
 const log = scopedLogger('editorWindow')
@@ -32,9 +33,10 @@ export function applyEditorWindowChrome(settings: AppSettings): void {
   if (!win || win.isDestroyed()) return
   const chrome = resolveChrome(settings)
   win.setBackgroundColor(chrome.bg)
+  const material = applyNativeWindowMaterial(win, settings)
   if (process.platform === 'win32') {
     win.setTitleBarOverlay({
-      color: chrome.overlayBg,
+      color: resolveWindowControlsOverlayColor(material, chrome.overlayBg),
       symbolColor: chrome.symbol,
       height: TITLEBAR_HEIGHT
     })
@@ -73,6 +75,14 @@ function createWindow(): BrowserWindow {
       spellcheck: false
     }
   })
+  const material = applyNativeWindowMaterial(w, settings)
+  if (process.platform === 'win32') {
+    w.setTitleBarOverlay({
+      color: resolveWindowControlsOverlayColor(material, chrome.overlayBg),
+      symbolColor: chrome.symbol,
+      height: TITLEBAR_HEIGHT
+    })
+  }
 
   // ---- 安全基线与主窗口逐条对齐（见 window.ts）----
   w.webContents.setWindowOpenHandler(({ url }) => {

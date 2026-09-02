@@ -568,6 +568,8 @@
     "themeSystem": "System",
     "accent": "Akzentfarbe",
     "uiZoom": "UI-Zoom",
+    "reduceTransparency": "Transparenz reduzieren",
+    "reduceTransparencyHint": "Verwendet deckende Oberflächen statt Transparenz und Unschärfe. Das kann Klarheit und Leistung bei Remotedesktop oder schwacher GPU verbessern.",
     "maskHostInList": "Adressen in der Liste maskieren",
     "maskHostInListHint": "Zeige im Verbindungsbaum nur eine teilweise IP/Hostname (z. B. 156.•.•.50) — genug, um Rechner zu unterscheiden, und sicher für Screenshots. Die vollständige Adresse wird weiterhin zum Verbinden, für den Kopierbefehl und die Suche verwendet.",
     "fontFamily": "Terminal-Schriftart",

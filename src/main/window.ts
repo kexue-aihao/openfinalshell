@@ -1,8 +1,15 @@
 import { BrowserWindow, nativeTheme, shell } from 'electron'
+import { release } from 'node:os'
 import { join } from 'node:path'
 import type { AppSettings } from '@shared/types'
 import { scopedLogger } from './utils/logger'
 import { getSettings, patchSettings, settingsStore } from './services/settings'
+import {
+  applyWindowBackgroundMaterial,
+  resolveWindowBackgroundMaterial,
+  resolveWindowControlsOverlayColor,
+  type WindowBackgroundMaterial
+} from './windowMaterial'
 
 const log = scopedLogger('window')
 
@@ -24,6 +31,34 @@ export function resolveChrome(settings: AppSettings): { bg: string; overlayBg: s
   return CHROME[resolveMode(settings)]
 }
 
+/** 主窗口和独立编辑器窗口共用的 Windows Mica 更新路径。 */
+export function applyNativeWindowMaterial(
+  win: BrowserWindow,
+  settings: AppSettings
+): WindowBackgroundMaterial {
+  if (process.platform !== 'win32') return 'none'
+
+  const material = resolveWindowBackgroundMaterial({
+    platform: process.platform,
+    systemVersion: release(),
+    reduceTransparency: settings.reduceTransparency
+  })
+  return applyWindowBackgroundMaterial(win, material)
+}
+
+function applyTitleBarOverlay(
+  win: BrowserWindow,
+  chrome: ReturnType<typeof resolveChrome>,
+  material: WindowBackgroundMaterial
+): void {
+  if (process.platform !== 'win32') return
+  win.setTitleBarOverlay({
+    color: resolveWindowControlsOverlayColor(material, chrome.overlayBg),
+    symbolColor: chrome.symbol,
+    height: TITLEBAR_HEIGHT
+  })
+}
+
 let mainWindow: BrowserWindow | null = null
 
 export function getMainWindow(): BrowserWindow | null {
@@ -35,13 +70,8 @@ export function applyWindowChrome(settings: AppSettings): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   const chrome = CHROME[resolveMode(settings)]
   mainWindow.setBackgroundColor(chrome.bg)
-  if (process.platform === 'win32') {
-    mainWindow.setTitleBarOverlay({
-      color: chrome.overlayBg,
-      symbolColor: chrome.symbol,
-      height: TITLEBAR_HEIGHT
-    })
-  }
+  const material = applyNativeWindowMaterial(mainWindow, settings)
+  applyTitleBarOverlay(mainWindow, chrome, material)
 }
 
 export function createMainWindow(): BrowserWindow {
@@ -72,6 +102,8 @@ export function createMainWindow(): BrowserWindow {
     }
   })
   mainWindow = win
+  const material = applyNativeWindowMaterial(win, settings)
+  applyTitleBarOverlay(win, chrome, material)
 
   // ---- 安全基线：renderer 是纯视图，任何导航/弹窗/权限请求全拒 ----
   win.webContents.setWindowOpenHandler(({ url }) => {

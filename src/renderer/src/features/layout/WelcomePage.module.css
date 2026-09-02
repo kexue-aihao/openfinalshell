@@ -42,7 +42,8 @@
   padding: 16px;
   border: 1px solid var(--ofs-border);
   border-radius: var(--ofs-radius-l);
-  background: var(--ofs-bg-panel);
+  background: var(--ofs-solid-surface);
+  box-shadow: var(--ofs-shadow-panel);
   cursor: pointer;
   transition:
     border-color 0.15s,

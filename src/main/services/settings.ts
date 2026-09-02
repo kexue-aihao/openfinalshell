@@ -22,6 +22,12 @@ let store: DocStore<AppSettings> | null = null
  * 标记与改动同一次写入，所以之后用户关掉了就再也不会被掀开。
  */
 function migrateOnce(): void {
+  // `reduceTransparency` 是纯展示偏好：老配置没有它时 DocStore 的深合并已经给出默认 false，
+  // 不应为了写入一个默认值打扰用户。只有历史数据被手工改成非布尔值时才修复，避免它一路
+  // 进入 renderer 后把 CSS 的 data 属性变成不可预期的状态。
+  if (typeof getSettings().reduceTransparency !== 'boolean') {
+    patchSettings({ reduceTransparency: DEFAULT_SETTINGS.reduceTransparency })
+  }
   if (!metaGet('sftp_show_hidden_default_v2')) {
     patchSettings({ sftp: { ...getSettings().sftp, showHiddenFiles: true } })
     metaSet('sftp_show_hidden_default_v2', String(Date.now()))
@@ -115,4 +121,3 @@ export function stripMainOnlyPaths(
   }
   return { patch: next, stripped }
 }
-

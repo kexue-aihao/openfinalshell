@@ -2,8 +2,8 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--ofs-bg-panel);
-  border-right: 1px solid var(--ofs-border);
+  background: var(--ofs-shell-surface);
+  border-right: 1px solid var(--ofs-shell-border);
   overflow: hidden;
 }
 
@@ -25,4 +25,11 @@
   flex: 1;
   overflow: auto;
   padding: 4px 8px;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .sidePanel {
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
 }

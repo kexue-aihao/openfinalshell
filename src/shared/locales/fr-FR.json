@@ -568,6 +568,8 @@
     "themeSystem": "Système",
     "accent": "Couleur d'accentuation",
     "uiZoom": "Zoom de l'interface",
+    "reduceTransparency": "Réduire la transparence",
+    "reduceTransparencyHint": "Utilise des surfaces opaques au lieu de la transparence et du flou. Cela peut améliorer la lisibilité et les performances avec le bureau à distance ou un GPU peu puissant.",
     "maskHostInList": "Masquer les adresses dans la liste",
     "maskHostInListHint": "N'affiche qu'une IP/nom d'hôte partiel (par ex. 156.•.•.50) dans l'arborescence des connexions — assez pour distinguer les machines et sûr pour les captures d'écran. L'adresse complète est toujours utilisée pour la connexion, la copie de commande et la recherche.",
     "fontFamily": "Police du terminal",

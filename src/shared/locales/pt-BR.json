@@ -568,6 +568,8 @@
     "themeSystem": "Sistema",
     "accent": "Cor de destaque",
     "uiZoom": "Zoom da interface",
+    "reduceTransparency": "Reduzir transparência",
+    "reduceTransparencyHint": "Usa superfícies opacas em vez de transparência e desfoque. Isso pode melhorar a nitidez e o desempenho em área de trabalho remota ou GPUs de baixo desempenho.",
     "maskHostInList": "Mascarar endereços na lista",
     "maskHostInListHint": "Mostra apenas parte do IP/nome do host (ex.: 156.•.•.50) na árvore de conexões — o suficiente para distinguir máquinas e seguro para capturas de tela. O endereço completo ainda é usado para conectar, copiar comando e buscar.",
     "fontFamily": "Fonte do terminal",

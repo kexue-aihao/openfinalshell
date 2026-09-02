@@ -4,7 +4,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--ofs-bg-panel);
+  background: transparent;
 }
 
 /* ---- 文件标签条（兼作窗口标题栏：titleBarStyle hidden，拖拽区就是它） ---- */
@@ -16,7 +16,8 @@
   gap: 2px;
   min-height: var(--ofs-titlebar-height);
   padding: 6px 6px 0;
-  border-bottom: 1px solid var(--ofs-border);
+  border-bottom: 1px solid var(--ofs-shell-border);
+  background: var(--ofs-shell-surface);
   /* 整条默认可拖拽窗口；标签与按钮单独 no-drag */
   -webkit-app-region: drag;
   /* 右侧给原生窗口按钮（titleBarOverlay）留位 */
@@ -60,6 +61,13 @@
   /* 与代码区连成一体：盖住下面那条分隔线 */
   margin-bottom: -1px;
   padding-bottom: 5px;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .tabs {
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
 }
 
 .tabName {

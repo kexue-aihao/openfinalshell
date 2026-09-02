@@ -648,6 +648,13 @@ export interface AppSettings {
   themeMode: ThemeMode
   /** 强调色（8 色预置之一） */
   accent: string
+  /**
+   * 关闭半透明表面与 CSS 模糊。
+   *
+   * 对远程桌面、集显或偏好实体背景的用户，清晰度与稳定帧率比窗口材质更重要。
+   * 这个是展示偏好，不影响终端、编辑器或任何网络协议。
+   */
+  reduceTransparency: boolean
   uiZoom: number
   disableGpu: boolean
   confirmOnCloseTab: boolean

@@ -568,6 +568,8 @@
     "themeSystem": "系統",
     "accent": "強調色",
     "uiZoom": "介面縮放",
+    "reduceTransparency": "減少透明效果",
+    "reduceTransparencyHint": "以實體背景取代半透明與模糊效果，可改善遠端桌面或低效能顯示卡環境的清晰度與效能。",
     "maskHostInList": "在清單中遮蔽位址",
     "maskHostInListHint": "在連線樹中只顯示部分 IP／主機名稱（例如 156.•.•.50）— 足以區分機器，且適合截圖。連線、複製命令與搜尋時仍使用完整位址。",
     "fontFamily": "終端機字型",

@@ -2,8 +2,8 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--ofs-bg-base);
-  border-left: 1px solid var(--ofs-border);
+  background: var(--ofs-solid-surface);
+  border-left: 1px solid var(--ofs-shell-border);
   overflow: hidden;
 }
 
@@ -19,7 +19,8 @@
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: var(--ofs-text-2);
-  border-bottom: 1px solid var(--ofs-border);
+  border-bottom: 1px solid var(--ofs-shell-border);
+  background: var(--ofs-shell-surface);
 }
 
 .body {
@@ -36,7 +37,8 @@
   padding: 10px 12px;
   border: 1px solid var(--ofs-border);
   border-radius: var(--ofs-radius-l);
-  background: var(--ofs-bg-panel);
+  background: var(--ofs-solid-surface);
+  box-shadow: var(--ofs-shadow-panel);
 }
 
 .networkCard {
@@ -224,4 +226,11 @@
   text-align: center;
   font-size: 12px;
   color: var(--ofs-text-3);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .header {
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    backdrop-filter: blur(14px) saturate(1.06);
+  }
 }

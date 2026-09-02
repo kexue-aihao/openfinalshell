@@ -9,6 +9,9 @@
   display: flex;
   gap: 6px;
   padding: 4px 4px 0;
+  border: 1px solid var(--ofs-shell-border);
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-shell-surface);
 }
 
 .tree {
@@ -48,4 +51,11 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .toolbar {
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    backdrop-filter: blur(14px) saturate(1.06);
+  }
 }

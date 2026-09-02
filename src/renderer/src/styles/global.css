@@ -8,6 +8,79 @@
   --ofs-activitybar-width: 48px;
 }
 
+/*
+ * 玻璃表面只给静态外壳和浮层使用。页面任务只需添加 `.ofs-glass-surface`
+ * 或 `.ofs-glass-surface--strong`；终端、编辑器、表格和虚拟列表应继续使用
+ * `.ofs-solid-surface`，避免每帧模糊重绘。
+ */
+.ofs-glass-surface,
+.ofs-solid-surface {
+  border: 1px solid var(--ofs-shell-border);
+  box-shadow: var(--ofs-shadow-panel);
+}
+
+.ofs-glass-surface {
+  background: var(--ofs-shell-surface);
+}
+
+.ofs-glass-surface--strong {
+  background: var(--ofs-shell-surface-strong);
+  border: 1px solid var(--ofs-shell-border);
+  box-shadow: var(--ofs-shadow-modal);
+}
+
+.ofs-solid-surface {
+  background: var(--ofs-solid-surface);
+  border-color: var(--ofs-border);
+}
+
+/* Ant Design 的浮层都经由 Portal 挂在 body 上，不能只在某个 CSS Module 内处理。
+   这里统一它们的表面，业务表格和页面内容仍使用实体背景。 */
+.ant-modal .ant-modal-content,
+.ant-drawer .ant-drawer-content,
+.ant-dropdown,
+.ant-select-dropdown,
+.ant-popover .ant-popover-inner {
+  background: var(--ofs-shell-surface-strong);
+  border: 1px solid var(--ofs-shell-border);
+  box-shadow: var(--ofs-shadow-modal);
+}
+
+/* Dropdown 的菜单本体默认会再绘制一层 colorBgElevated，需继承外层玻璃表面。 */
+.ant-dropdown .ant-dropdown-menu {
+  background: transparent;
+  box-shadow: none;
+}
+
+.ant-drawer .ant-drawer-header,
+.ant-modal .ant-modal-header {
+  background: transparent;
+  border-bottom-color: var(--ofs-shell-border);
+}
+
+/* 仅在 Chromium 支持 backdrop-filter 时启用模糊；不支持时由下方规则显式回退实体色。 */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root:not([data-reduce-transparency='true']) .ofs-glass-surface,
+  :root:not([data-reduce-transparency='true']) .ofs-glass-surface--strong,
+  :root:not([data-reduce-transparency='true']) .ant-modal .ant-modal-content,
+  :root:not([data-reduce-transparency='true']) .ant-drawer .ant-drawer-content,
+  :root:not([data-reduce-transparency='true']) .ant-dropdown,
+  :root:not([data-reduce-transparency='true']) .ant-select-dropdown,
+  :root:not([data-reduce-transparency='true']) .ant-popover .ant-popover-inner {
+    -webkit-backdrop-filter: blur(18px) saturate(1.08);
+    backdrop-filter: blur(18px) saturate(1.08);
+  }
+}
+
+/* 旧 GPU、远程桌面等不支持 backdrop-filter 时，不能只留半透明背景；明确退回实体表面。 */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root:not([data-reduce-transparency='true']) {
+    --ofs-shell-surface: var(--ofs-solid-surface) !important;
+    --ofs-shell-surface-strong: var(--ofs-solid-surface) !important;
+    --ofs-shell-border: var(--ofs-border) !important;
+  }
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -29,7 +102,8 @@ body {
     'Yu Gothic UI', 'Meiryo', 'Malgun Gothic', sans-serif;
   font-size: 13px;
   color: var(--ofs-text-1);
-  background: var(--ofs-bg-base);
+  /* 外壳的半透明区域在 Windows Mica 下才有原生材质可透出；工作区各自保持实体背景。 */
+  background: transparent;
   user-select: none;
   -webkit-font-smoothing: antialiased;
 }

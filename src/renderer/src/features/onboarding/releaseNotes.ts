@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.15',
+    items: [
+      {
+        type: 'feat',
+        zh: '桌面端升级为统一 Fluent 风格：新增圆角、阴影、轻玻璃外壳与 Windows 11 Mica 材质；设置中可关闭透明效果，终端、编辑器和高频列表保持实体高性能渲染',
+        en: 'Upgraded the desktop UI to a unified Fluent style with rounded surfaces, shadows, restrained glass shell styling, and Windows 11 Mica; added a setting to reduce transparency while keeping the terminal, editor, and high-frequency lists solid for performance'
+      }
+    ]
+  },
+  {
     version: '0.20.14',
     items: [
       {

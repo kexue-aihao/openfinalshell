@@ -2,7 +2,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--ofs-bg-base);
+  background: transparent;
 }
 
 .body {
@@ -14,6 +14,7 @@
 .panels {
   flex: 1;
   min-width: 0;
+  background: var(--ofs-solid-surface);
 }
 
 .mainArea {

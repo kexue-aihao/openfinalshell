@@ -4,7 +4,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--ofs-bg-panel);
+  background: var(--ofs-solid-surface);
   border-top: 1px solid var(--ofs-border);
 }
 
@@ -15,6 +15,7 @@
   gap: 4px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--ofs-border);
+  background: var(--ofs-shell-surface);
 }
 
 .pathInput {
@@ -88,6 +89,13 @@
   color: var(--ofs-text-1);
   font-size: 14px;
   pointer-events: none;
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .toolbar {
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    backdrop-filter: blur(14px) saturate(1.06);
+  }
 }
 
 /* 拖拽落点行：遮罩盖在整个面板上，所以行高亮要够显眼才看得见

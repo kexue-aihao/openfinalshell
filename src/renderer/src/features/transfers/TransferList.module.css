@@ -23,6 +23,9 @@
   padding: 2px 4px 4px;
   font-size: 11px;
   color: var(--ofs-text-3);
+  border: 1px solid var(--ofs-shell-border);
+  border-radius: var(--ofs-radius-m);
+  background: var(--ofs-shell-surface);
 }
 
 /** 总计那一行：条目多时允许换行，不许把按钮挤出去 */
@@ -71,7 +74,7 @@
   padding: 8px;
   border: 1px solid var(--ofs-border);
   border-radius: var(--ofs-radius-m);
-  background: var(--ofs-bg-elevated);
+  background: var(--ofs-solid-surface);
   /* 虚拟化时行是绝对定位 + 定高的，padding 必须算在高度里 */
   box-sizing: border-box;
   overflow: hidden;
@@ -208,4 +211,12 @@
 
 .spacer {
   flex: 1;
+}
+
+/* 只模糊不滚动的汇总头；任务列表和虚拟行保持实体表面。 */
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :global(:root:not([data-reduce-transparency='true'])) .header {
+    -webkit-backdrop-filter: blur(14px) saturate(1.06);
+    backdrop-filter: blur(14px) saturate(1.06);
+  }
 }
