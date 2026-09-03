@@ -160,10 +160,12 @@
 }
 
 .aboutLogo {
+  display: block;
   width: 56px;
   height: 56px;
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--ofs-accent), #52c41a);
+  object-fit: contain;
+  border: 1px solid color-mix(in srgb, var(--ofs-accent) 30%, var(--ofs-border));
 }
 
 .aboutName {

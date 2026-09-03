@@ -6,6 +6,7 @@ import type { ProfileDraft } from '@shared/types'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useUiStore } from '@/stores/useUiStore'
+import logoUrl from '@/assets/openfinalshell-logo.svg'
 import styles from './WelcomePage.module.css'
 
 /** 解析 `ssh user@host[:port]` / `user@host` / `host` 三种写法 */
@@ -80,7 +81,7 @@ export function WelcomePage(): React.JSX.Element {
 
   return (
     <div className={styles.welcome}>
-      <div className={styles.logo} aria-hidden="true" />
+      <img className={styles.logo} src={logoUrl} alt="" aria-hidden="true" />
       <h1 className={styles.title}>{t('welcome.title')}</h1>
       <p className={styles.subtitle}>{t('welcome.subtitle')}</p>
       <div className={styles.cards}>

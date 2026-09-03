@@ -11,11 +11,12 @@
 }
 
 .logo {
+  display: block;
   width: 72px;
   height: 72px;
   border-radius: 18px;
-  background: var(--ofs-accent);
-  border: 1px solid color-mix(in srgb, var(--ofs-accent) 60%, var(--ofs-border));
+  object-fit: contain;
+  border: 1px solid color-mix(in srgb, var(--ofs-accent) 30%, var(--ofs-border));
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ofs-accent) 22%, transparent);
   margin-bottom: 4px;
 }

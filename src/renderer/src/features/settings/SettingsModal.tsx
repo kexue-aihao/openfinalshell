@@ -17,6 +17,7 @@ import {
   Typography
 } from 'antd'
 import { useTranslation } from 'react-i18next'
+import logoUrl from '@/assets/openfinalshell-logo.svg'
 import { PRESET_COLORS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
 import { LOCALES } from '@shared/locales/registry'
 import type { AppSettings } from '@shared/types'
@@ -543,7 +544,7 @@ export function SettingsModal(): React.JSX.Element {
 
           {section === 'about' && (
             <div className={styles.about}>
-              <div className={styles.aboutLogo} />
+              <img className={styles.aboutLogo} src={logoUrl} alt="" aria-hidden="true" />
               <div className={styles.aboutName}>OpenFinalShell</div>
               <div className={styles.aboutVersion}>
                 {versions

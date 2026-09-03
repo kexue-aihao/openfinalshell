@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.18',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复欢迎页和设置关于区域未显示软件 Logo 的问题，统一使用 OpenFinalShell 应用图标',
+        en: 'Fixed the welcome page and Settings About section not displaying the application logo; both now use the OpenFinalShell app icon'
+      }
+    ]
+  },
+  {
     version: '0.20.17',
     items: [
       {
