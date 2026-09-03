@@ -1,14 +1,21 @@
 # OpenFinalShell
 
-开源的 FinalShell 替代品 —— 一个 Windows / Debian 桌面 SSH 客户端，把**终端、文件管理、服务器监控**放进同一个窗口：连上一台机器，上面是终端、中间是远端文件的编辑器、下面是文件列表，旁边是这台机器的 CPU / 内存 / 网络实时曲线。再加上端口转发、快捷命令与加密的凭据存储。
+OpenFinalShell 是一个开源、跨平台的 SSH/SFTP 服务器运维工作台。它把远程终端、文件管理、在线编辑、服务器监控、端口转发和快捷命令集中在同一套工作流中，适合日常登录服务器、排查运行状态、修改配置和传输文件。
 
-- 一次连接，三件事同时做：**终端 + SFTP + 监控**共用同一条 SSH 连接，不用为了看一眼负载再开一个窗口
-- **改远端配置文件不用下载**：右键打开、语法高亮、`Ctrl+S` 存回去，写回是原子替换并保留权限位
-- **零 native 依赖**：数据库用 Node 内置的 `node:sqlite`、凭据用 Electron 内置的 `safeStorage`，所以 32 位（x86）也有正式安装包
-- **界面层拿不到明文密码**：渲染进程全程 `contextIsolation` + `sandbox`，密码只在保存表单时单向进主进程，之后只剩一个引用
-- **Windows 安装版不用卸载、也不用下整包**：应用内自动更新，后台只下变化的部分；**但装不装由你点** —— 这软件里跑着活的 SSH 会话，装更新要退出应用，那一下不该由软件替你决定
+项目由两部分组成：
 
-MIT 许可 · Windows / Linux / macOS · Android · 简体中文与 English
+- **桌面端**：基于 Electron、React 和 TypeScript，支持 Windows x86/x64/ARM64、Linux（Debian/RPM/AppImage/Flatpak）以及 macOS Intel、Apple Silicon 和 Universal。
+- **Android 端**：独立的 Kotlin 原生客户端，使用 Jetpack Compose、Apache MINA SSHD、Room 和 Android Keystore，支持 API 26 及以上的常见 CPU 架构。
+
+核心能力：
+
+- 一次 SSH 会话可同时使用多标签终端、SFTP 文件管理和实时服务器监控，并支持断线自动重连。
+- 终端支持 WebGL、真彩色、中文与 Emoji 宽度处理、搜索、命令历史和快捷命令；SFTP 支持在线编辑、拖拽上传、传输队列、暂停恢复、重试和断点续传。
+- 监控提供 CPU、内存、磁盘、网络、连接数、进程和双延迟指标；端口转发支持本地、远程和动态 SOCKS5 模式。
+- 密码、私钥口令和连接配置按平台安全存储；支持加密导入导出、局域网配对同步、可移动磁盘私钥路径恢复和应用内更新（安装前由用户确认）。
+- 桌面端和 Android 端遵循相同的 SSH、监控、端口流量、LAN Sync 及导入导出协议，不需要修改服务器配置。
+
+OpenFinalShell 专注 SSH/SFTP 运维，不提供 Telnet、串口、RDP、VNC 或 GSSAPI。项目采用 MIT 许可证，界面提供简体中文和 English。
 
 ---
 
