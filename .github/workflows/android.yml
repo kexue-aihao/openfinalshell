@@ -66,8 +66,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
-          # GitHub Cache 服务短暂不可用时不应阻断 Android 编译。
-          cache-disabled: true
 
       - name: Check Settings translations and run Kotlin unit tests
         run: gradle -p android :app:checkI18n testDebugUnitTest --stacktrace
@@ -75,17 +73,12 @@ jobs:
       - name: Assemble debug APKs
         run: gradle -p android :app:assembleDebug --stacktrace
 
-      - name: Upload debug APKs
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-debug-${{ github.sha }}
-          path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
-
   instrumentation:
     name: Android instrumentation (API ${{ matrix.api_level }})
     needs: unit
+    # 模拟器测试是 PR/手动验收门禁；主分支 push 只保留快速的单元测试和
+    # Debug 构建，避免每次合并都重复启动两个冷模拟器。
+    if: ${{ github.event_name != 'push' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -111,7 +104,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
-          cache-disabled: true
 
       - name: Assemble instrumentation APKs
         run: gradle -p android :app:assembleDebug :app:assembleDebugAndroidTest --stacktrace

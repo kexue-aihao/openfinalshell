@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  # PR 连续 push 时只跑最新一版；master 的 push 用 run id 隔离、互不取消
-  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.run_id || 'pr' }}
+  # 同一分支只保留最新提交，避免旧提交继续占用完整构建矩阵。
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -88,7 +88,7 @@ jobs:
 
 
   linux:
-    name: Linux ${{ matrix.arch }}（测试 / 构建 / deb）
+    name: Linux ${{ matrix.arch }}（构建 / deb）
     runs-on: ${{ matrix.runner }}
     container: debian:13
     strategy:
@@ -114,9 +114,9 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run check:i18n
-      - run: npm test
+
+      # Windows job 已执行完整类型、i18n 和测试门禁；Linux job 只负责
+      # Linux 原生打包和产物校验，避免在两个架构上重复跑全量测试。
       - run: npm run build
       - run: npm run check:bundle
       - run: npx electron-builder --linux deb --${{ matrix.arch }} --publish never

@@ -247,11 +247,10 @@ jobs:
           cache: npm
 
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run check:i18n
-      - run: npm test
+
+      # verify job 已执行完整类型、i18n 和测试门禁；本 job 只负责
+      # Linux 原生打包、产物校验和安装冒烟，避免每个架构重复跑全量测试。
       - run: npm run build
-      - run: npm run check:bundle
       - run: npx electron-builder --linux deb rpm AppImage --${{ matrix.arch }} --publish never
       - run: npm run check:deb -- ${{ matrix.arch }}
       - run: npm run check:linux-artifacts -- ${{ matrix.arch }} deb rpm appImage
