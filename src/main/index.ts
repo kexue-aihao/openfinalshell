@@ -98,15 +98,9 @@ if (!app.requestSingleInstanceLock()) {
   }
 
   /**
-   * 明确取消应用菜单。
-   *
-   * 从来没调过 setApplicationMenu，于是 Electron 自动装了一份默认菜单 —— 窗口用
-   * titleBarStyle:'hidden' 所以那份菜单**看不见**，但它的加速键是真的在生效：
-   * `Ctrl+R` / `Ctrl+Shift+R` 重载整个渲染进程（所有终端连接与传输队列当场没了）、
-   * `Ctrl+Shift+I` 弹出开发者工具、`Ctrl+Shift+C` 进元素选取模式。
-   * 一个看不见的菜单能一键把用户的会话全清掉，这是纯粹的失误面。
-   *
-   * 排在建窗之前：默认菜单是在窗口创建时挂上去的。
+   * 在建窗之前安装平台菜单：macOS 使用原生 Application/File/Edit/View/Window/Help
+   * 菜单，其他平台显式移除 Electron 默认菜单，避免隐藏菜单仍注册 Chromium 加速键
+   * （例如 Ctrl/Cmd+R 重载 renderer 或 Ctrl/Cmd+Shift+I 打开开发者工具）。
    */
   void app.whenReady().then(() => {
     installApplicationMenu()

@@ -18,6 +18,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -194,7 +200,13 @@ fun OpenFinalShellApp(
     }
     val primary = runCatching { Color(android.graphics.Color.parseColor(settingsState.settings.accentColor)) }
         .getOrDefault(Color(0xFF1677FF))
-    OpenFinalShellTheme(darkTheme = darkTheme, accentColor = primary) {
+    OpenFinalShellTheme(
+        darkTheme = darkTheme,
+        // Material You supplies device-aware surfaces on API 31+, while the
+        // theme keeps a deterministic fallback on API 26-30.
+        dynamicColor = true,
+        accentColor = primary
+    ) {
         val readyUpdate = settingsState.update as? UpdateState.Ready
         if (readyUpdate != null && deferredUpdateTag != readyUpdate.release.tagName) {
             UpdateReadyDialog(
@@ -211,6 +223,11 @@ fun OpenFinalShellApp(
             val destination = AppDestination.fromKey(destinationKey)
             val primaryTab = destination.primaryIndex ?: -1
             Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                // Consume status/navigation insets at the shell boundary. Child
+                // lists can then add IME padding without drawing underneath the
+                // bottom navigation or gesture area.
+                contentWindowInsets = WindowInsets.safeDrawing,
                 topBar = {
                     TopAppBar(
                         title = {
@@ -243,7 +260,13 @@ fun OpenFinalShellApp(
                 },
                 snackbarHost = { SnackbarHost(snackbarHost) }
             ) { padding ->
-                Row(Modifier.fillMaxSize().padding(padding)) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .consumeWindowInsets(padding)
+                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                ) {
                     if (wideLayout) {
                         MainNavigationRail(
                             selected = primaryTab,
@@ -1347,7 +1370,13 @@ private fun SettingsScreen(
         )
     }
     LazyColumn(
-        Modifier.fillMaxSize(),
+        Modifier
+            .fillMaxSize()
+            // The settings form contains text fields. Keep the focused row
+            // above the IME and leave room for gesture navigation when the
+            // bottom navigation is visible.
+            .imePadding()
+            .navigationBarsPadding(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             start = OpenFinalShellSpacing.PageHorizontal,
             top = OpenFinalShellSpacing.PageVertical,
