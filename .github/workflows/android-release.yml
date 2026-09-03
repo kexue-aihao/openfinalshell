@@ -95,7 +95,10 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle -p android :app:assembleRelease :app:bundleRelease --stacktrace
+        run: |
+          version=$(node -p "require('./package.json').version")
+          gradle -p android :app:assembleRelease :app:bundleRelease \
+            -PversionName="$version" -PversionCode="$GITHUB_RUN_NUMBER" --stacktrace
 
       - name: Normalize Android release assets
         shell: bash
