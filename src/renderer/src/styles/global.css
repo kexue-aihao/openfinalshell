@@ -15,6 +15,37 @@
     'Yu Gothic UI', 'Meiryo', 'Malgun Gothic', sans-serif;
 }
 
+/* Windows Fluent uses a slightly denser shell while keeping workspaces
+   opaque. The profile is set by applyCssVars; the fallback values above keep
+   first paint deterministic before the renderer has applied runtime tokens. */
+:root[data-platform-ui='windows-fluent'] {
+  --ofs-titlebar-height: 40px;
+  --ofs-activitybar-width: 48px;
+}
+
+/* Linux desktop shells (GTK/Qt on either X11 or Wayland) deliberately use
+   opaque, low-decoration surfaces.  Compositors differ widely in their
+   backdrop-filter implementation and a translucent shell makes text and
+   resize handles unreadable on older/remote sessions. */
+:root[data-platform-ui='linux-neutral'] {
+  --ofs-shell-surface: var(--ofs-solid-surface);
+  --ofs-shell-surface-strong: var(--ofs-solid-surface);
+  --ofs-shell-border: var(--ofs-border);
+  --ofs-platform-density: compact;
+  color-scheme: light;
+}
+
+:root[data-platform-ui='linux-neutral'][data-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root[data-platform-ui='linux-neutral'] {
+  /* Chromium on GTK/Qt honours the standard scrollbar properties.  Keep the
+     thumb subtle and avoid a bright platform-mismatched overlay scrollbar. */
+  scrollbar-color: var(--ofs-bg-active) transparent;
+  scrollbar-width: thin;
+}
+
 /*
  * 玻璃表面只给静态外壳和浮层使用。页面任务只需添加 `.ofs-glass-surface`
  * 或 `.ofs-glass-surface--strong`；终端、编辑器、表格和虚拟列表应继续使用
@@ -81,16 +112,30 @@
 
 /* 仅在 Chromium 支持 backdrop-filter 时启用模糊；不支持时由下方规则显式回退实体色。 */
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  :root:not([data-reduce-transparency='true']) .ofs-glass-surface,
-  :root:not([data-reduce-transparency='true']) .ofs-glass-surface--strong,
-  :root:not([data-reduce-transparency='true']) .ant-modal .ant-modal-content,
-  :root:not([data-reduce-transparency='true']) .ant-drawer .ant-drawer-content,
-  :root:not([data-reduce-transparency='true']) .ant-dropdown,
-  :root:not([data-reduce-transparency='true']) .ant-select-dropdown,
-  :root:not([data-reduce-transparency='true']) .ant-popover .ant-popover-inner {
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ofs-glass-surface,
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ofs-glass-surface--strong,
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ant-modal .ant-modal-content,
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ant-drawer .ant-drawer-content,
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ant-dropdown,
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ant-select-dropdown,
+  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
+    .ant-popover .ant-popover-inner {
     -webkit-backdrop-filter: blur(18px) saturate(1.08);
     backdrop-filter: blur(18px) saturate(1.08);
   }
+}
+
+/* Component CSS modules own a few shell surfaces.  Keep Linux opaque even
+   when Chromium advertises backdrop-filter support (common on X11/Wayland). */
+:root[data-platform-ui='linux-neutral'] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 /* 旧 GPU、远程桌面等不支持 backdrop-filter 时，不能只留半透明背景；明确退回实体表面。 */
@@ -125,6 +170,13 @@ body {
   background: transparent;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+}
+
+:root[data-platform-ui='linux-neutral'] body {
+  /* Keep metrics close to GTK/Qt desktop environments.  The system-ui face
+     resolves to the user's configured font (Noto/DejaVu on most distros). */
+  font-family: var(--ofs-platform-font-family);
+  -webkit-font-smoothing: auto;
 }
 
 /* 所有原生与 Ant Design 交互控件共享同一套键盘焦点提示。 */
@@ -174,6 +226,8 @@ body {
     --ofs-solid-surface: Canvas !important;
     --ofs-border: ButtonText !important;
     --ofs-shell-border: ButtonText !important;
+    --ofs-platform-shell-surface: Canvas !important;
+    --ofs-platform-workspace-surface: Canvas !important;
     --ofs-platform-focus-ring: Highlight !important;
   }
 
@@ -197,6 +251,18 @@ body {
 
   :where(button, input, textarea, select, [role='button'], [role='tab']):focus-visible {
     outline-width: 3px;
+  }
+
+  :root[data-platform-ui='linux-neutral'] {
+    --ofs-shadow-panel: none;
+    --ofs-shadow-modal: none;
+  }
+
+  :root[data-platform-ui='linux-neutral'] .ofs-glass-surface,
+  :root[data-platform-ui='linux-neutral'] .ofs-glass-surface--strong,
+  :root[data-platform-ui='linux-neutral'] .ant-modal .ant-modal-content,
+  :root[data-platform-ui='linux-neutral'] .ant-drawer .ant-drawer-content {
+    border-width: 2px;
   }
 }
 

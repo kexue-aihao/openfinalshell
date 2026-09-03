@@ -13,7 +13,7 @@
   gap: 6px;
   padding: 4px 4px 0;
   border: 1px solid var(--ofs-shell-border);
-  border-radius: var(--ofs-radius-m);
+  border-radius: var(--ofs-platform-radius-m);
   background: var(--ofs-shell-surface);
 }
 

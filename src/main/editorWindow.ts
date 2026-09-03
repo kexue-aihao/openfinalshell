@@ -33,6 +33,13 @@ export function applyEditorWindowChrome(settings: AppSettings): void {
   if (!win || win.isDestroyed()) return
   const chrome = resolveChrome(settings)
   win.setBackgroundColor(chrome.bg)
+  if (process.platform === 'darwin') {
+    try {
+      win.setVibrancy(settings.reduceTransparency ? null : 'under-window')
+    } catch {
+      // Cosmetic only: unsupported Electron/macOS builds keep the solid surface.
+    }
+  }
   const material = applyNativeWindowMaterial(win, settings)
   if (process.platform === 'win32') {
     win.setTitleBarOverlay({
@@ -52,6 +59,7 @@ function createWindow(): BrowserWindow {
   const settings = getSettings()
   const chrome = resolveChrome(settings)
   const bounds = settings.window.editor
+  const isMac = process.platform === 'darwin'
 
   const w = new BrowserWindow({
     width: bounds.width,
@@ -60,12 +68,12 @@ function createWindow(): BrowserWindow {
     minHeight: 420,
     show: false,
     backgroundColor: chrome.bg,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: chrome.overlayBg,
-      symbolColor: chrome.symbol,
-      height: TITLEBAR_HEIGHT
-    },
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac
+      ? settings.reduceTransparency
+        ? {}
+        : { transparent: true, vibrancy: 'under-window' as const }
+      : { titleBarOverlay: { color: chrome.overlayBg, symbolColor: chrome.symbol, height: TITLEBAR_HEIGHT } }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

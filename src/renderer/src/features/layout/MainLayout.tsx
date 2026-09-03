@@ -15,6 +15,11 @@ interface Props {
   uiMode: 'dark' | 'light'
 }
 
+// Keep the navigation rail usable at the minimum desktop window size while
+// preventing a restored, stale percentage from swallowing the workspace.
+const MIN_SIDE_PANEL_PCT = 22
+const MAX_SIDE_PANEL_PCT = 32
+
 export function MainLayout({ uiMode }: Props): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
@@ -26,7 +31,10 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
 
   if (!settings) return <div className={styles.root} />
   const { layout } = settings
-  const sidePanelSize = Math.min(32, Math.max(15, layout.sidePanelSizePct))
+  const sidePanelSize = Math.min(
+    MAX_SIDE_PANEL_PCT,
+    Math.max(MIN_SIDE_PANEL_PCT, layout.sidePanelSizePct)
+  )
 
   return (
     <div className={styles.root}>
@@ -40,7 +48,10 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
               if (sizes.length < 2) return
               const next = { ...layout }
               if (!layout.sidePanelCollapsed) {
-                next.sidePanelSizePct = Math.min(32, Math.max(15, sizes[0]))
+                next.sidePanelSizePct = Math.min(
+                  MAX_SIDE_PANEL_PCT,
+                  Math.max(MIN_SIDE_PANEL_PCT, sizes[0])
+                )
               }
               if (activeTab?.monitorOpen) next.monitorPanelSizePct = sizes[sizes.length - 1]
               patch({ layout: next })
@@ -52,8 +63,8 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                   id="side"
                   order={1}
                   defaultSize={sidePanelSize}
-                  minSize={15}
-                  maxSize={32}
+                  minSize={MIN_SIDE_PANEL_PCT}
+                  maxSize={MAX_SIDE_PANEL_PCT}
                 >
                   <SidePanel />
                 </Panel>

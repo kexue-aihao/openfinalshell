@@ -28,6 +28,10 @@
   scrollbar-width: thin;
 }
 
+:global(:root[data-platform-ui='macos-hig']) .tabs {
+  padding-left: 72px;
+}
+
 .tabsGap {
   flex: 1;
   min-width: 8px;

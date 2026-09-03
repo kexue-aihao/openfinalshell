@@ -30,6 +30,8 @@ export function createTerminal(settings: AppSettings, uiMode: 'dark' | 'light'):
     cursorBlink: t.cursorBlink,
     scrollback: t.scrollback,
     theme: resolveTerminalTheme(t.themeId, uiMode),
+    // macOS Option is handled by xterm as a Meta modifier, matching native
+    // terminal word-navigation and the app's Option-based tab shortcuts.
     macOptionIsMeta: true
   })
 

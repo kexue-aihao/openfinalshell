@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises'
-import { app, BrowserWindow, Menu } from 'electron'
+import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import { initLogger, logger } from './utils/logger'
 import { getSettings, settingsStore } from './services/settings'
 import { bindMainWindow } from './ipc/registry'
@@ -38,6 +38,41 @@ import { startUpdateChecks, stopUpdateChecks } from './services/updater'
 
 initLogger()
 
+/** Install the native macOS application menu; other platforms keep no menu. */
+function installApplicationMenu(): void {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: app.getName(),
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    { role: 'help' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function bindMainWindowLifecycle(win: BrowserWindow): void {
+  bindMainWindow(win)
+  win.on('closed', () => closeEditorWindowIfOpen())
+}
+
 // ---- 崩溃兜底：main 进程任何未捕获异常只记日志，不崩进程 ----
 process.on('uncaughtException', (err) => {
   logger.error('uncaughtException', err)
@@ -74,7 +109,7 @@ if (!app.requestSingleInstanceLock()) {
    * 排在建窗之前：默认菜单是在窗口创建时挂上去的。
    */
   void app.whenReady().then(() => {
-    Menu.setApplicationMenu(null)
+    installApplicationMenu()
 
     /**
      * 内联代理/私钥 → 可复用实体的一次性迁移。
@@ -126,23 +161,20 @@ if (!app.requestSingleInstanceLock()) {
     void rm(packTempDir(), { recursive: true, force: true }).catch(() => {})
 
     const win = createMainWindow()
-    bindMainWindow(win)
-    // 主窗口关了就把编辑器窗口也带走（走同一条脏文件裁决链路，不硬杀）；
-    // 全部窗口收尾后 window-all-closed 才让应用退出
-    win.on('closed', () => closeEditorWindowIfOpen())
+    bindMainWindowLifecycle(win)
 
     // 更新检查排在建窗之后：它要往窗口推状态事件，而且延迟 10 秒才真的查
     startUpdateChecks()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        bindMainWindow(createMainWindow())
+        bindMainWindowLifecycle(createMainWindow())
       }
     })
   })
 
   app.on('window-all-closed', () => {
-    app.quit()
+    if (process.platform !== 'darwin') app.quit()
   })
 
   app.on('before-quit', () => {

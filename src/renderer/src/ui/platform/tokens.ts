@@ -6,6 +6,12 @@ const BASE_BORDER = 'var(--ofs-shell-border)'
 const BASE_FOCUS = 'var(--ofs-accent)'
 const SYSTEM_FONT =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Yu Gothic UI", "Meiryo", "Malgun Gothic", sans-serif'
+// Linux distributions do not ship Segoe UI.  Prefer the browser/system UI
+// face first, then the broadly available Noto families before falling back to
+// DejaVu.  Keeping this stack here (rather than in individual components)
+// makes Chromium's X11 and Wayland renderers use the same metrics.
+const LINUX_SYSTEM_FONT =
+  'system-ui, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK TC", "DejaVu Sans", sans-serif'
 
 const PLATFORM_TOKENS: Record<PlatformUiProfile, PlatformUiTokens> = {
   'windows-fluent': {
@@ -35,7 +41,7 @@ const PLATFORM_TOKENS: Record<PlatformUiProfile, PlatformUiTokens> = {
     workspaceSurface: BASE_WORKSPACE,
     border: BASE_BORDER,
     focusRing: BASE_FOCUS,
-    fontFamily: SYSTEM_FONT,
+    fontFamily: LINUX_SYSTEM_FONT,
     density: 'compact',
     supportsGlass: false
   }

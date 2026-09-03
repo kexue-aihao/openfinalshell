@@ -11,6 +11,12 @@
   padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 4px);
 }
 
+/* hiddenInset 的 Traffic Lights 位于标题栏左侧；给品牌和标签留出安全区，
+   避免窗口控制按钮覆盖可点击内容。 */
+:global(:root[data-platform-ui='macos-hig']) .titleBar {
+  padding-left: 72px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -53,7 +59,7 @@
   max-width: 200px;
   height: 32px;
   padding: 0 6px 0 10px;
-  border-radius: var(--ofs-radius-m) var(--ofs-radius-m) 0 0;
+  border-radius: var(--ofs-platform-radius-m) var(--ofs-platform-radius-m) 0 0;
   color: var(--ofs-text-2);
   cursor: pointer;
   font-size: 12px;
@@ -111,7 +117,7 @@
   width: 18px;
   height: 18px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--ofs-platform-radius-s);
   background: transparent;
   color: var(--ofs-text-3);
   cursor: pointer;
@@ -135,7 +141,7 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: var(--ofs-radius-m);
+  border-radius: var(--ofs-platform-radius-m);
   background: transparent;
   color: var(--ofs-text-2);
   cursor: pointer;

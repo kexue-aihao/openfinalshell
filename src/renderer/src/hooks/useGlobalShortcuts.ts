@@ -4,6 +4,16 @@ import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const n = navigator as Navigator & { userAgentData?: { platform?: string } }
+  return /mac/i.test([n.userAgentData?.platform, n.platform, n.userAgent].filter(Boolean).join(' '))
+}
+
+function hasPrimaryModifier(e: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey'>): boolean {
+  return isMacPlatform() ? e.metaKey : e.ctrlKey
+}
+
 /**
  * 焦点是不是在一个"用户正在打字"的地方。
  *
@@ -34,22 +44,22 @@ export function useGlobalShortcuts(): void {
       const { tabs, activeTabId, activateRelative, activateIndex, closeTab, duplicateTab } =
         useSessionStore.getState()
 
-      // Ctrl+Tab / Ctrl+Shift+Tab：切换标签
-      if (e.ctrlKey && e.key === 'Tab') {
+      // Ctrl+Tab / Cmd+Tab：切换标签
+      if (hasPrimaryModifier(e) && e.key === 'Tab') {
         e.preventDefault()
         activateRelative(e.shiftKey ? -1 : 1)
         return
       }
 
-      // Alt+1..9：直达第 N 个标签
-      if (e.altKey && !e.ctrlKey && /^[1-9]$/.test(e.key)) {
+      // Alt/Option+1..9：直达第 N 个标签
+      if (e.altKey && !hasPrimaryModifier(e) && /^Digit[1-9]$/.test(e.code)) {
         e.preventDefault()
-        activateIndex(Number(e.key) - 1)
+        activateIndex(Number(e.code.slice(5)) - 1)
         return
       }
 
-      // Ctrl+Shift+T：复制当前会话
-      if (e.ctrlKey && e.shiftKey && e.code === 'KeyT') {
+      // Ctrl/Cmd+Shift+T：复制当前会话
+      if (hasPrimaryModifier(e) && e.shiftKey && e.code === 'KeyT') {
         e.preventDefault()
         if (activeTabId) {
           void duplicateTab(activeTabId, useConnectionStore.getState().profiles)
@@ -57,8 +67,8 @@ export function useGlobalShortcuts(): void {
         return
       }
 
-      // Ctrl+W：关闭当前标签（按设置决定是否确认）。文本框里让位，见 inTextEntry
-      if (e.ctrlKey && !e.shiftKey && e.code === 'KeyW' && !inTextEntry(e.target)) {
+      // Ctrl/Cmd+W：关闭当前标签（按设置决定是否确认）。文本框里让位，见 inTextEntry
+      if (hasPrimaryModifier(e) && !e.shiftKey && e.code === 'KeyW' && !inTextEntry(e.target)) {
         e.preventDefault()
         if (!activeTabId) return
         const settings = useSettingsStore.getState().settings

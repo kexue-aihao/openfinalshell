@@ -22,7 +22,7 @@
   width: 38px;
   height: 38px;
   border: none;
-  border-radius: var(--ofs-radius-m);
+  border-radius: var(--ofs-platform-radius-m);
   background: transparent;
   color: var(--ofs-text-2);
   cursor: pointer;

@@ -70,6 +70,15 @@ export function applyWindowChrome(settings: AppSettings): void {
   if (!mainWindow || mainWindow.isDestroyed()) return
   const chrome = CHROME[resolveMode(settings)]
   mainWindow.setBackgroundColor(chrome.bg)
+  if (process.platform === 'darwin') {
+    // Vibrancy is a native effect, so CSS's reduce-transparency flag alone
+    // cannot disable it when the preference changes at runtime.
+    try {
+      mainWindow.setVibrancy(settings.reduceTransparency ? null : 'under-window')
+    } catch {
+      // Cosmetic only: unsupported Electron/macOS builds keep the solid surface.
+    }
+  }
   const material = applyNativeWindowMaterial(mainWindow, settings)
   applyTitleBarOverlay(mainWindow, chrome, material)
 }
@@ -77,6 +86,7 @@ export function applyWindowChrome(settings: AppSettings): void {
 export function createMainWindow(): BrowserWindow {
   const settings = getSettings()
   const chrome = CHROME[resolveMode(settings)]
+  const isMac = process.platform === 'darwin'
 
   const win = new BrowserWindow({
     width: settings.window.width,
@@ -86,12 +96,12 @@ export function createMainWindow(): BrowserWindow {
     show: false,
     backgroundColor: chrome.bg,
     // titleBarOverlay 而非 frame:false：保留原生窗口按钮，Snap Layouts / 贴边 / 双击最大化免费获得
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: chrome.overlayBg,
-      symbolColor: chrome.symbol,
-      height: TITLEBAR_HEIGHT
-    },
+    titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
+    ...(isMac
+      ? settings.reduceTransparency
+        ? {}
+        : { transparent: true, vibrancy: 'under-window' as const }
+      : { titleBarOverlay: { color: chrome.overlayBg, symbolColor: chrome.symbol, height: TITLEBAR_HEIGHT } }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,

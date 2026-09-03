@@ -19,6 +19,16 @@ import { SearchOverlay } from './SearchOverlay'
 import { resolveTerminalTheme } from '@/themes/terminal'
 import styles from './TerminalPane.module.css'
 
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const n = navigator as Navigator & { userAgentData?: { platform?: string } }
+  return /mac/i.test([n.userAgentData?.platform, n.platform, n.userAgent].filter(Boolean).join(' '))
+}
+
+function hasPrimaryModifier(e: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey'>): boolean {
+  return isMacPlatform() ? e.metaKey : e.ctrlKey
+}
+
 interface Props {
   tab: SessionTab
   active: boolean
@@ -156,30 +166,30 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     bundle.term.attachCustomKeyEventHandler((ev) => {
       if (ev.isComposing || ev.keyCode === 229) return true
       if (ev.type !== 'keydown') return true
-      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyC') {
+      if (hasPrimaryModifier(ev) && ev.shiftKey && ev.code === 'KeyC') {
         const sel = bundle.term.getSelection()
         if (sel) void navigator.clipboard.writeText(sel).catch(() => {})
         return false
       }
-      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyV') {
+      if (hasPrimaryModifier(ev) && ev.shiftKey && ev.code === 'KeyV') {
         void pasteFromClipboard()
         return false
       }
-      if (ev.ctrlKey && !ev.shiftKey && ev.code === 'KeyF') {
+      if (hasPrimaryModifier(ev) && !ev.shiftKey && ev.code === 'KeyF') {
         setSearchOpen(true)
         return false
       }
-      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyH') {
+      if (hasPrimaryModifier(ev) && ev.shiftKey && ev.code === 'KeyH') {
         setHistoryOpen(true)
         return false
       }
       /*
-       * Ctrl+= / Ctrl+- / Ctrl+0 调字号（与 Ctrl+滚轮同一条通路）。
+       * Ctrl/Cmd+= / Ctrl/Cmd+- / Ctrl/Cmd+0 调字号（与 Ctrl/Cmd+滚轮同一条通路）。
        * 用 ev.key 而不是 code：数字键盘的 +/- 也该生效。
-       * 两条刻意的排除：Ctrl+Shift+-（key 为 '_'）是 readline 的 undo（0x1F），不许抢；
+       * 两条刻意的排除：Ctrl/Cmd+Shift+-（key 为 '_'）是 readline 的 undo（0x1F），不许抢；
        * '+' 不排 shift —— 多数布局 '+' 本来就要按 shift 才打得出。
        */
-      if (ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+      if (hasPrimaryModifier(ev) && !ev.altKey && (isMacPlatform() ? !ev.ctrlKey : !ev.metaKey)) {
         if (ev.key === '=' || ev.key === '+') {
           adjustFontSize(1)
           return false
@@ -256,7 +266,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     // 按事件计步的话一次轻扫就把字号打到 8/32 端点，顺带几十次 settings 落库 + 全终端 refit
     let wheelAcc = 0
     const onWheel = (ev: WheelEvent): void => {
-      if (!ev.ctrlKey || ev.deltaY === 0) return
+      if (!hasPrimaryModifier(ev) || ev.deltaY === 0) return
       ev.preventDefault()
       ev.stopPropagation()
       // 方向反转时旧余量作废，否则上一手势剩的零头会吃掉反方向的第一步

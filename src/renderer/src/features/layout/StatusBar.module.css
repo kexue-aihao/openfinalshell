@@ -35,7 +35,7 @@
 .clickable {
   cursor: pointer;
   padding: 0 4px;
-  border-radius: var(--ofs-radius-s);
+  border-radius: var(--ofs-platform-radius-s);
 }
 .clickable:hover {
   background: var(--ofs-bg-hover);

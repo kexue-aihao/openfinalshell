@@ -30,6 +30,8 @@ describe('resolvePlatformUiTokens', () => {
       density: 'compact',
       supportsGlass: false
     })
+    expect(resolvePlatformUiTokens('linux-neutral').fontFamily).toContain('system-ui')
+    expect(resolvePlatformUiTokens('linux-neutral').fontFamily).toContain('Noto Sans')
   })
 
   it('falls back to an opaque neutral profile for invalid values', () => {
