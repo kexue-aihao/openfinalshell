@@ -7,6 +7,7 @@ import { applyCssVars, buildAntdTheme } from '@/themes/applyTheme'
 import i18n, { ensureBundle, isBundleLoaded } from '@/i18n'
 import { ofs } from '@/ipc/api'
 import { localeMeta } from '@shared/locales/registry'
+import { resolvePlatformUiProfile } from '@/ui/platform'
 
 /**
  * 窗口外壳的公共部分：主题、语言、缩放。
@@ -54,8 +55,15 @@ export function useAppTheme(settings: AppSettings | null): {
   }, [settings, systemDark])
   const accent = settings?.accent ?? '#1677ff'
   const reduceTransparency = settings?.reduceTransparency ?? false
-  useMemo(() => applyCssVars(mode, accent, reduceTransparency), [mode, accent, reduceTransparency])
-  const antdTheme = useMemo(() => buildAntdTheme(mode, accent), [mode, accent])
+  const platformProfile = useMemo(() => resolvePlatformUiProfile(), [])
+  useMemo(
+    () => applyCssVars(mode, accent, reduceTransparency, platformProfile),
+    [mode, accent, reduceTransparency, platformProfile]
+  )
+  const antdTheme = useMemo(
+    () => buildAntdTheme(mode, accent, platformProfile),
+    [mode, accent, platformProfile]
+  )
   return { mode, antdTheme }
 }
 

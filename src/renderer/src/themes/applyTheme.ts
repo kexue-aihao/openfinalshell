@@ -1,6 +1,8 @@
 import { theme as antdTheme, type ThemeConfig } from 'antd'
 import { themes } from './palettes'
 import type { OfsTheme } from './types'
+import { resolvePlatformUiProfile, resolvePlatformUiTokens } from '@/ui/platform'
+import type { PlatformUiProfile } from '@/ui/platform'
 
 /**
  * 主题单一事实来源（TS token）→ 双输出：
@@ -10,12 +12,18 @@ import type { OfsTheme } from './types'
 export function applyCssVars(
   mode: 'dark' | 'light',
   accent: string,
-  reduceTransparency = false
+  reduceTransparency = false,
+  platformProfile?: PlatformUiProfile
 ): OfsTheme {
   const t = themes[mode]
   const root = document.documentElement
+  const profile = platformProfile ?? resolvePlatformUiProfile()
+  const platformTokens = resolvePlatformUiTokens(profile)
+  const glassEnabled = platformTokens.supportsGlass && !reduceTransparency
   root.dataset.theme = mode
   root.dataset.reduceTransparency = String(reduceTransparency)
+  root.dataset.platformUi = profile
+  root.dataset.platformGlass = String(glassEnabled)
   const vars: Record<string, string> = {
     '--ofs-bg-base': t.ui.bgBase,
     '--ofs-bg-panel': t.ui.bgPanel,
@@ -26,9 +34,9 @@ export function applyCssVars(
     '--ofs-glass-surface-strong': t.ui.glassSurfaceStrong,
     '--ofs-solid-surface': t.ui.solidSurface,
     '--ofs-glass-border': t.ui.glassBorder,
-    '--ofs-shell-surface': reduceTransparency ? t.ui.solidSurface : t.ui.glassSurface,
-    '--ofs-shell-surface-strong': reduceTransparency ? t.ui.solidSurface : t.ui.glassSurfaceStrong,
-    '--ofs-shell-border': reduceTransparency ? t.ui.border : t.ui.glassBorder,
+    '--ofs-shell-surface': glassEnabled ? t.ui.glassSurface : t.ui.solidSurface,
+    '--ofs-shell-surface-strong': glassEnabled ? t.ui.glassSurfaceStrong : t.ui.solidSurface,
+    '--ofs-shell-border': glassEnabled ? t.ui.glassBorder : t.ui.border,
     '--ofs-border': t.ui.border,
     '--ofs-border-strong': t.ui.borderStrong,
     '--ofs-text-1': t.ui.textPrimary,
@@ -39,7 +47,16 @@ export function applyCssVars(
     '--ofs-warning': t.ui.warning,
     '--ofs-error': t.ui.error,
     '--ofs-shadow-panel': t.ui.shadowPanel,
-    '--ofs-shadow-modal': t.ui.shadowModal
+    '--ofs-shadow-modal': t.ui.shadowModal,
+    '--ofs-platform-radius-s': `${platformTokens.radius.small}px`,
+    '--ofs-platform-radius-m': `${platformTokens.radius.medium}px`,
+    '--ofs-platform-radius-l': `${platformTokens.radius.large}px`,
+    '--ofs-platform-shell-surface': platformTokens.shellSurface,
+    '--ofs-platform-workspace-surface': platformTokens.workspaceSurface,
+    '--ofs-platform-border': platformTokens.border,
+    '--ofs-platform-focus-ring': platformTokens.focusRing,
+    '--ofs-platform-font-family': platformTokens.fontFamily,
+    '--ofs-platform-density': platformTokens.density
   }
   // 语法色与编辑器容器色：走同一条 CSS 变量出口，于是 CodeMirror 的主题里
   // 写的全是 var(--ofs-syn-*) / var(--ofs-ed-*)，切主题时不用重建任何 EditorView。
@@ -52,8 +69,13 @@ export function applyCssVars(
 
 const kebab = (s: string): string => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
 
-export function buildAntdTheme(mode: 'dark' | 'light', accent: string): ThemeConfig {
+export function buildAntdTheme(
+  mode: 'dark' | 'light',
+  accent: string,
+  platformProfile?: PlatformUiProfile
+): ThemeConfig {
   const t = themes[mode]
+  const platformTokens = resolvePlatformUiTokens(platformProfile ?? resolvePlatformUiProfile())
   return {
     cssVar: true,
     hashed: false,
@@ -69,17 +91,16 @@ export function buildAntdTheme(mode: 'dark' | 'light', accent: string): ThemeCon
       colorText: t.ui.textPrimary,
       colorTextSecondary: t.ui.textSecondary,
       colorTextDisabled: t.ui.textDisabled,
-      borderRadius: 6,
-      borderRadiusSM: 4,
-      borderRadiusLG: 8,
+      borderRadius: platformTokens.radius.medium,
+      borderRadiusSM: platformTokens.radius.small,
+      borderRadiusLG: platformTokens.radius.large,
       boxShadow: t.ui.shadowPanel,
       boxShadowSecondary: t.ui.shadowModal,
       controlHeight: 32,
       controlHeightSM: 24,
       controlHeightLG: 40,
       fontSize: 13,
-      fontFamily:
-        '-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Yu Gothic UI", "Meiryo", "Malgun Gothic", sans-serif'
+      fontFamily: platformTokens.fontFamily
     }
   }
 }

@@ -6,6 +6,13 @@
   --ofs-titlebar-height: 40px;
   --ofs-statusbar-height: 24px;
   --ofs-activitybar-width: 48px;
+  --ofs-platform-radius-s: var(--ofs-radius-s);
+  --ofs-platform-radius-m: var(--ofs-radius-m);
+  --ofs-platform-radius-l: var(--ofs-radius-l);
+  --ofs-platform-focus-ring: var(--ofs-accent, Highlight);
+  --ofs-platform-font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    'Yu Gothic UI', 'Meiryo', 'Malgun Gothic', sans-serif;
 }
 
 /*
@@ -32,6 +39,20 @@
 .ofs-solid-surface {
   background: var(--ofs-solid-surface);
   border-color: var(--ofs-border);
+}
+
+/* Profiles without a native material (Linux, remote sessions, old GPUs) use
+   opaque surfaces even when the user did not explicitly reduce transparency. */
+:root[data-platform-glass='false'] .ofs-glass-surface,
+:root[data-platform-glass='false'] .ofs-glass-surface--strong,
+:root[data-platform-glass='false'] .ant-modal .ant-modal-content,
+:root[data-platform-glass='false'] .ant-drawer .ant-drawer-content,
+:root[data-platform-glass='false'] .ant-dropdown,
+:root[data-platform-glass='false'] .ant-select-dropdown,
+:root[data-platform-glass='false'] .ant-popover .ant-popover-inner {
+  background: var(--ofs-solid-surface);
+  border-color: var(--ofs-border);
+  box-shadow: var(--ofs-shadow-panel);
 }
 
 /* Ant Design 的浮层都经由 Portal 挂在 body 上，不能只在某个 CSS Module 内处理。
@@ -97,9 +118,7 @@ body,
 body {
   /* 多语种字体回退：Latin/Cyrillic 走 Segoe UI；中文 YaHei/PingFang；
      日文 Yu Gothic UI、韩文 Malgun Gothic（Windows 自带），避免 JA/KO 缺字回退方框 */
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
-    'Yu Gothic UI', 'Meiryo', 'Malgun Gothic', sans-serif;
+  font-family: var(--ofs-platform-font-family);
   font-size: 13px;
   color: var(--ofs-text-1);
   /* 外壳的半透明区域在 Windows Mica 下才有原生材质可透出；工作区各自保持实体背景。 */
@@ -110,7 +129,7 @@ body {
 
 /* 所有原生与 Ant Design 交互控件共享同一套键盘焦点提示。 */
 :where(button, input, textarea, select, [role='button'], [role='tab']):focus-visible {
-  outline: 2px solid var(--ofs-accent);
+  outline: 2px solid var(--ofs-platform-focus-ring, var(--ofs-accent));
   outline-offset: 2px;
 }
 
@@ -121,7 +140,7 @@ body {
 .ant-btn:focus-visible,
 .ant-input:focus-visible,
 .ant-select-focused .ant-select-selector {
-  outline: 2px solid var(--ofs-accent) !important;
+  outline: 2px solid var(--ofs-platform-focus-ring, var(--ofs-accent)) !important;
   outline-offset: 1px;
 }
 
@@ -144,6 +163,41 @@ body {
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Windows High Contrast and Linux accessibility themes replace authored
+   colors with system colors so focus and borders remain visible. */
+@media (forced-colors: active) {
+  :root {
+    --ofs-shell-surface: Canvas !important;
+    --ofs-shell-surface-strong: Canvas !important;
+    --ofs-solid-surface: Canvas !important;
+    --ofs-border: ButtonText !important;
+    --ofs-shell-border: ButtonText !important;
+    --ofs-platform-focus-ring: Highlight !important;
+  }
+
+  .ofs-glass-surface,
+  .ofs-glass-surface--strong,
+  .ofs-solid-surface,
+  .ant-modal .ant-modal-content,
+  .ant-drawer .ant-drawer-content {
+    background: Canvas !important;
+    border: 1px solid ButtonText !important;
+    box-shadow: none !important;
+    forced-color-adjust: auto;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ofs-border: color-mix(in srgb, var(--ofs-text-1) 52%, var(--ofs-bg-base));
+    --ofs-border-strong: var(--ofs-text-1);
+  }
+
+  :where(button, input, textarea, select, [role='button'], [role='tab']):focus-visible {
+    outline-width: 3px;
+  }
 }
 
 /* react-resizable-panels 分隔条 */
