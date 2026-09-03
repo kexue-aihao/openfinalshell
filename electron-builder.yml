@@ -52,6 +52,12 @@ mac:
   category: public.app-category.developer-tools
   icon: build/icon.png
   hardenedRuntime: true
+  # ssh2 的可选 crypto binding 由 npm install 脚本直接用宿主 Node 编译，
+  # 在 Apple Silicon runner 上为 x64/universal 构建时会得到同一份宿主架构
+  # 二进制。macOS 下 ssh2 会自动回退到纯 JavaScript 实现，因此不把这份
+  # 无法可靠跨架构合并的可选 binding 放入发布包。
+  files:
+    - '!node_modules/ssh2/lib/protocol/crypto/build/**'
 
 linux:
   # arch 始终由命令行的 --x64 / --arm64 指定，避免一个 job 混入多个架构的产物。

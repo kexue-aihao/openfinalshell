@@ -268,8 +268,20 @@ jobs:
           zips=(release/*.zip)
           [ "${#dmgs[@]}" -eq 1 ] || { echo "::error::期望 1 个 DMG，实际 ${#dmgs[@]} 个"; exit 1; }
           [ "${#zips[@]}" -eq 1 ] || { echo "::error::期望 1 个 ZIP，实际 ${#zips[@]} 个"; exit 1; }
-          case "$(basename "${dmgs[0]}")" in *-${{ matrix.arch }}.dmg) ;; *) echo "::error::DMG 架构不匹配"; exit 1 ;; esac
-          case "$(basename "${zips[0]}")" in *-${{ matrix.arch }}-mac.zip) ;; *) echo "::error::ZIP 架构不匹配"; exit 1 ;; esac
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            # electron-builder 的默认 x64 artifactName 不带架构后缀。
+            case "$(basename "${dmgs[0]}")" in
+              OpenFinalShell-*.dmg) ;;
+              *) echo "::error::DMG 架构不匹配"; exit 1 ;;
+            esac
+            case "$(basename "${zips[0]}")" in
+              OpenFinalShell-*-mac.zip) ;;
+              *) echo "::error::ZIP 架构不匹配"; exit 1 ;;
+            esac
+          else
+            case "$(basename "${dmgs[0]}")" in *-${{ matrix.arch }}.dmg) ;; *) echo "::error::DMG 架构不匹配"; exit 1 ;; esac
+            case "$(basename "${zips[0]}")" in *-${{ matrix.arch }}-mac.zip) ;; *) echo "::error::ZIP 架构不匹配"; exit 1 ;; esac
+          fi
           ls -lh "${dmgs[@]}" "${zips[@]}"
 
       - uses: actions/upload-artifact@v4
