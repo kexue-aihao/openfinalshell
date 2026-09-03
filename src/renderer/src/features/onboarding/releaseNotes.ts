@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.19',
+    items: [
+      {
+        type: 'fix',
+        zh: '完善跨平台桌面与 Android 界面适配，统一主题、导航、设置和终端交互体验，并修复相关构建与发布流程问题',
+        en: 'Improved cross-platform desktop and Android UI adaptation with consistent themes, navigation, Settings and terminal interactions, and fixed related build and release workflow issues'
+      }
+    ]
+  },
+  {
     version: '0.20.18',
     items: [
       {
