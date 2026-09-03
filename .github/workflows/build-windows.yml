@@ -225,7 +225,8 @@ jobs:
         include:
           # x64 使用 Intel runner，arm64/universal 使用 Apple Silicon runner。
           - arch: x64
-            runner: macos-13
+            # macos-13 runner 已长期排队/不可用；macos-14 可交叉打包 x64。
+            runner: macos-14
           - arch: arm64
             runner: macos-14
           - arch: universal
@@ -255,7 +256,9 @@ jobs:
         env:
           # 当前发布包不配置签名证书；关闭自动发现，避免访问不存在的钥匙串。
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+        run: >-
+          npx electron-builder --mac --${{ matrix.arch }} --publish never
+          ${{ matrix.arch == 'universal' && '--config.publish.channel=latest-universal' || '' }}
 
       - name: 断言 macOS 产物
         shell: bash
@@ -266,7 +269,7 @@ jobs:
           [ "${#dmgs[@]}" -eq 1 ] || { echo "::error::期望 1 个 DMG，实际 ${#dmgs[@]} 个"; exit 1; }
           [ "${#zips[@]}" -eq 1 ] || { echo "::error::期望 1 个 ZIP，实际 ${#zips[@]} 个"; exit 1; }
           case "$(basename "${dmgs[0]}")" in *-${{ matrix.arch }}.dmg) ;; *) echo "::error::DMG 架构不匹配"; exit 1 ;; esac
-          case "$(basename "${zips[0]}")" in *-${{ matrix.arch }}.zip) ;; *) echo "::error::ZIP 架构不匹配"; exit 1 ;; esac
+          case "$(basename "${zips[0]}")" in *-${{ matrix.arch }}-mac.zip) ;; *) echo "::error::ZIP 架构不匹配"; exit 1 ;; esac
           ls -lh "${dmgs[@]}" "${zips[@]}"
 
       - uses: actions/upload-artifact@v4
