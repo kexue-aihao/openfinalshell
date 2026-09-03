@@ -5,7 +5,8 @@ import { join } from 'node:path'
 const releaseDir = join(process.cwd(), 'release')
 const files = existsSync(releaseDir) ? readdirSync(releaseDir).filter((name) => name.endsWith('.deb')) : []
 const arch = process.argv[2] ?? 'x64'
-const debArch = { x64: 'amd64', arm64: 'arm64' }[arch]
+const debArch = { x64: 'amd64', arm64: 'arm64', armv7l: 'armhf' }[arch]
+const artifactArch = { x64: 'amd64', arm64: 'arm64', armv7l: 'armv7l' }[arch]
 if (!debArch) throw new Error(`Unsupported Debian target architecture: ${arch}`)
 if (files.length !== 1) {
   throw new Error(`Expected exactly one .deb in release/, found ${files.length}: ${files.join(', ')}`)
@@ -16,7 +17,7 @@ const field = (name) => execFileSync('dpkg-deb', ['--field', deb, name], { encod
 const contents = execFileSync('dpkg-deb', ['--contents', deb], { encoding: 'utf8' })
 const pkg = execFileSync(process.execPath, ['-p', "require('./package.json').version"], { encoding: 'utf8' }).trim()
 
-const expectedFile = `OpenFinalShell-${pkg}-debian13-${debArch}.deb`
+const expectedFile = `OpenFinalShell-${pkg}-debian13-${artifactArch}.deb`
 if (files[0] !== expectedFile) throw new Error(`Unexpected artifact name: ${files[0]} (expected ${expectedFile})`)
 if (field('Package') !== 'openfinalshell') throw new Error(`Unexpected Package: ${field('Package')}`)
 if (field('Version') !== pkg) throw new Error(`Unexpected Version: ${field('Version')}`)

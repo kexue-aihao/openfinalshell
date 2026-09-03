@@ -5,10 +5,11 @@ const arch = process.argv[2]
 const targets = process.argv.slice(3)
 const artifactArch = {
   x64: { deb: 'amd64', rpm: 'x86_64', appImage: 'x86_64', flatpak: 'x86_64' },
-  arm64: { deb: 'arm64', rpm: 'aarch64', appImage: 'arm64' }
+  arm64: { deb: 'arm64', rpm: 'aarch64', appImage: 'arm64' },
+  armv7l: { deb: 'armv7l', rpm: 'armv7l', appImage: 'armv7l' }
 }[arch]
 if (!artifactArch) {
-  throw new Error('Usage: node scripts/checkLinuxArtifacts.mjs <x64|arm64> [deb] [rpm] [appImage] [flatpak]')
+  throw new Error('Usage: node scripts/checkLinuxArtifacts.mjs <x64|arm64|armv7l> [deb] [rpm] [appImage] [flatpak]')
 }
 
 const artifactNames = {

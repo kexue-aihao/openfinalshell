@@ -99,6 +99,9 @@ jobs:
             runner: ubuntu-latest
           - arch: arm64
             runner: ubuntu-24.04-arm
+          - arch: armv7l
+            # 无原生 armv7l runner；这里只验证交叉打包出的 Debian 包。
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 

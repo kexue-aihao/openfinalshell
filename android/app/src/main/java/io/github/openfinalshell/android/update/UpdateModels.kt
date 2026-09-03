@@ -98,7 +98,7 @@ data class SemVersion(
 }
 
 object UpdateAssetSelector {
-    private val supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64")
+    private val supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
     fun currentAbi(supported: Array<String> = Build.SUPPORTED_ABIS): String =
         supported.firstOrNull { it in supportedAbis } ?: "universal"

@@ -215,6 +215,69 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-mac:
+    name: 打包 macOS ${{ matrix.arch }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # x64 使用 Intel runner，arm64/universal 使用 Apple Silicon runner。
+          - arch: x64
+            runner: macos-13
+          - arch: arm64
+            runner: macos-14
+          - arch: universal
+            runner: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: 缓存 Electron 二进制
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: electron-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-${{ matrix.arch }}-
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: electron-builder (macOS ${{ matrix.arch }})
+        env:
+          # 当前发布包不配置签名证书；关闭自动发现，避免访问不存在的钥匙串。
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+
+      - name: 断言 macOS 产物
+        shell: bash
+        run: |
+          shopt -s nullglob
+          dmgs=(release/*.dmg)
+          zips=(release/*.zip)
+          [ "${#dmgs[@]}" -eq 1 ] || { echo "::error::期望 1 个 DMG，实际 ${#dmgs[@]} 个"; exit 1; }
+          [ "${#zips[@]}" -eq 1 ] || { echo "::error::期望 1 个 ZIP，实际 ${#zips[@]} 个"; exit 1; }
+          case "$(basename "${dmgs[0]}")" in *-${{ matrix.arch }}.dmg) ;; *) echo "::error::DMG 架构不匹配"; exit 1 ;; esac
+          case "$(basename "${zips[0]}")" in *-${{ matrix.arch }}.zip) ;; *) echo "::error::ZIP 架构不匹配"; exit 1 ;; esac
+          ls -lh "${dmgs[@]}" "${zips[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
   build-linux:
     name: 打包 Linux ${{ matrix.arch }}
     needs: verify
@@ -228,9 +291,17 @@ jobs:
           - arch: x64
             runner: ubuntu-latest
             deb_arch: amd64
+            smoke: true
           - arch: arm64
             runner: ubuntu-24.04-arm
             deb_arch: arm64
+            smoke: true
+          - arch: armv7l
+            # GitHub 没有原生 armv7l runner；electron-builder 可下载对应
+            # Electron 运行时并在 x64 runner 上交叉打包，不能在此架构上运行冒烟。
+            runner: ubuntu-latest
+            deb_arch: armhf
+            smoke: false
     steps:
       - uses: actions/checkout@v5
 
@@ -256,6 +327,7 @@ jobs:
       - run: npm run check:linux-artifacts -- ${{ matrix.arch }} deb rpm appImage
 
       - name: 用 APT 安装并运行打包产物冒烟
+        if: matrix.smoke
         run: |
           apt-get install -y ./release/*-debian13-${{ matrix.deb_arch }}.deb
           useradd --create-home --shell /bin/bash ofs-ci
@@ -330,7 +402,7 @@ jobs:
 
   release:
     name: 发布 Release
-    needs: [build, build-linux, build-flatpak]
+    needs: [build, build-mac, build-linux, build-flatpak]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -348,10 +420,12 @@ jobs:
           count() { find . -maxdepth 1 -type f -name "$1" | wc -l; }
           [ "$(count '*.exe')" -eq 6 ] || { echo "::error::期望 6 个 exe"; exit 1; }
           [ "$(count '*.exe.blockmap')" -eq 3 ] || { echo "::error::期望 3 个 blockmap"; exit 1; }
-          [ "$(count '*.deb')" -eq 2 ] || { echo "::error::期望 2 个 Debian 包"; exit 1; }
-          [ "$(count '*.rpm')" -eq 2 ] || { echo "::error::期望 2 个 RPM 包"; exit 1; }
-          [ "$(count '*.AppImage')" -eq 2 ] || { echo "::error::期望 2 个 AppImage"; exit 1; }
+          [ "$(count '*.deb')" -eq 3 ] || { echo "::error::期望 3 个 Debian 包"; exit 1; }
+          [ "$(count '*.rpm')" -eq 3 ] || { echo "::error::期望 3 个 RPM 包"; exit 1; }
+          [ "$(count '*.AppImage')" -eq 3 ] || { echo "::error::期望 3 个 AppImage"; exit 1; }
           [ "$(count '*.flatpak')" -eq 1 ] || { echo "::error::期望 1 个 x64 Flatpak 包"; exit 1; }
+          [ "$(count '*.dmg')" -eq 3 ] || { echo "::error::期望 3 个 macOS DMG"; exit 1; }
+          [ "$(count '*.zip')" -eq 3 ] || { echo "::error::期望 3 个 macOS ZIP"; exit 1; }
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
           test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
           test -f latest-arm64.yml || { echo "::error::缺 latest-arm64.yml"; exit 1; }
@@ -369,7 +443,7 @@ jobs:
       - name: 生成校验和
         run: |
           cd dist
-          sha256sum *.exe *.deb *.rpm *.AppImage *.flatpak | tee SHA256SUMS.txt
+          sha256sum *.exe *.deb *.rpm *.AppImage *.flatpak *.dmg *.zip | tee SHA256SUMS.txt
           ls -lh
 
       - name: 创建 Release 并上传
@@ -388,16 +462,19 @@ jobs:
           | `*-portable-ia32.exe` | 32 位（x86）免安装 |
           | `*-portable-arm64.exe` | Windows ARM64 免安装 |
           | `*-debian13-amd64.deb` / `*-debian13-arm64.deb` | Debian 13 安装包 |
-          | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
-          | `*-linux-x86_64.AppImage` / `*-linux-arm64.AppImage` | 通用免安装 Linux 包 |
+          | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` / `*-linux-armv7l.rpm` | Fedora / RHEL / openSUSE 安装包 |
+          | `*-linux-x86_64.AppImage` / `*-linux-arm64.AppImage` / `*-linux-armv7l.AppImage` | 通用免安装 Linux 包 |
           | `*-linux-x86_64.flatpak` | x64 Linux 的 Flatpak 安装包 |
+          | `*-linux-armv7l.deb` | Debian ARMv7/armhf 安装包 |
+          | `*-x64.dmg` / `*-arm64.dmg` / `*-universal.dmg` | macOS 安装镜像 |
+          | `*-x64.zip` / `*-arm64.zip` / `*-universal.zip` | macOS 免安装压缩包 |
           | `*-android-*.apk` | Android APK（按 ABI 提供，含 universal 版） |
           | `*-android.aab` | Android App Bundle（用于应用商店发布） |
           | `SHA256SUMS-android.txt` | Android APK/AAB 校验和 |
 
           Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
 
-          Debian 13 使用 `sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb`（或 `arm64.deb`）安装或覆盖升级。
+          Debian 13 使用 `sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb`（或 `arm64.deb` / `armv7l.deb`）安装或覆盖升级。
           Linux 版只提示新版本，不在应用内提权安装。
 
           > `latest-*.yml` 与 `*.blockmap` 是更新检查元数据，不用手工下载。
@@ -440,13 +517,13 @@ jobs:
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
             while IFS= read -r asset; do
               case "$asset" in
-                *.exe|*.exe.blockmap|*.deb|*.rpm|*.AppImage|*.flatpak|latest-*.yml|SHA256SUMS.txt)
+                *.exe|*.exe.blockmap|*.deb|*.rpm|*.AppImage|*.flatpak|*.dmg|*.zip|latest-*.yml|SHA256SUMS.txt)
                   gh release delete-asset "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
                   ;;
               esac
             done
 
           gh release upload "$GITHUB_REF_NAME" \
-            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak dist/latest-*.yml dist/SHA256SUMS.txt \
+            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak dist/*.dmg dist/*.zip dist/latest-*.yml dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

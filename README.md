@@ -8,7 +8,7 @@
 - **界面层拿不到明文密码**：渲染进程全程 `contextIsolation` + `sandbox`，密码只在保存表单时单向进主进程，之后只剩一个引用
 - **Windows 安装版不用卸载、也不用下整包**：应用内自动更新，后台只下变化的部分；**但装不装由你点** —— 这软件里跑着活的 SSH 会话，装更新要退出应用，那一下不该由软件替你决定
 
-MIT 许可 · Windows x64 / ia32 · Debian 13 amd64 · 简体中文与 English
+MIT 许可 · Windows / Linux / macOS · Android · 简体中文与 English
 
 ---
 
@@ -152,17 +152,28 @@ MIT 许可 · Windows x64 / ia32 · Debian 13 amd64 · 简体中文与 English
 
 ## 安装
 
-到 [Releases](https://github.com/kexue-aihao/openfinalshell/releases) 下载安装包。每个版本提供 4 个 Windows 文件和 1 个 Debian 13 文件：
+到 [Releases](https://github.com/kexue-aihao/openfinalshell/releases) 下载安装包。每个版本提供 Windows x86/x64/ARM64、Linux x86_64/ARM64/ARMv7、macOS x64/ARM64/Universal，以及 Android 各 ABI APK 和 AAB：
+
+Linux i386 暂不提供：Electron 43 没有官方 Linux ia32 运行时，无法生成可维护的安装包。
 
 | 文件 | 说明 |
 |---|---|
 | `OpenFinalShell-<版本>-setup-x64.exe` | 64 位安装版（NSIS，免管理员，装到 `%LOCALAPPDATA%`） |
 | `OpenFinalShell-<版本>-setup-ia32.exe` | 32 位安装版 |
+| `OpenFinalShell-<版本>-setup-arm64.exe` | ARM64 安装版 |
 | `OpenFinalShell-<版本>-x64.exe` | 64 位免安装版 |
 | `OpenFinalShell-<版本>-ia32.exe` | 32 位免安装版 |
-| `OpenFinalShell-<版本>-debian13-amd64.deb` | Debian 13 amd64 安装包 |
+| `OpenFinalShell-<版本>-portable-arm64.exe` | ARM64 免安装版 |
+| `OpenFinalShell-<版本>-debian13-{amd64,arm64,armv7l}.deb` | Debian 13 安装包 |
+| `OpenFinalShell-<版本>-linux-{x86_64,aarch64,armv7l}.rpm` | RPM 安装包（Fedora/RHEL/openSUSE） |
+| `OpenFinalShell-<版本>-linux-{x86_64,arm64,armv7l}.AppImage` | 通用 Linux 免安装包 |
+| `OpenFinalShell-<版本>-linux-x86_64.flatpak` | x86_64 Flatpak 包 |
+| `OpenFinalShell-<版本>-{x64,arm64,universal}.dmg` | macOS 安装镜像 |
+| `OpenFinalShell-<版本>-{x64,arm64,universal}.zip` | macOS 免安装压缩包 |
+| `OpenFinalShell-<版本>-android-{arm64-v8a,armeabi-v7a,x86_64,x86,universal}.apk` | Android APK |
+| `OpenFinalShell-<版本>-android.aab` | Android App Bundle |
 
-同目录的 `SHA256SUMS.txt` 可校验（另有 `latest-*.yml` 与 `*.blockmap`，那是更新检查元数据，不用手工下载）。Windows 安装包暂未做代码签名，首次运行可能出现 SmartScreen 提示。macOS 及 Debian 13 以外的 Linux 发行版尚未发布。
+同目录的 `SHA256SUMS.txt` 和 `SHA256SUMS-android.txt` 可校验（另有 `latest-*.yml` 与 `*.blockmap`，那是更新检查元数据，不用手工下载）。Windows 和 macOS 安装包暂未做代码签名，首次运行可能出现系统安全提示；Linux 同时提供 Debian、RPM 和 AppImage 包，Flatpak 目前提供 x86_64 版本。
 
 Debian 13 安装或覆盖升级：
 
@@ -477,7 +488,7 @@ git tag v0.2.1 && git push origin v0.2.1
 | v0.2.x | 命令编辑器：多行命令临时拼装 → 发到当前 / 所有会话 | ✅ |
 | v0.2.x | 从 FinalShell 导入连接与分组（密码除外，见已知限制） | ✅ |
 
-往后：跳板机 ProxyJump（字段已预留）、SFTP 传输冲突策略（同名文件目前直接覆盖）、主密码保险库、传输队列持久化、SFTP 压缩/解压、拖出到系统、上传方向的打包传输、macOS / Linux 打包、自动更新、快捷键改键、Playwright e2e。
+往后：跳板机 ProxyJump（字段已预留）、SFTP 传输冲突策略（同名文件目前直接覆盖）、主密码保险库、传输队列持久化、SFTP 压缩/解压、拖出到系统、上传方向的打包传输、自动更新、快捷键改键、Playwright e2e。
 
 ## 许可
 

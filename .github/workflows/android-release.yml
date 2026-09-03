@@ -25,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v5
@@ -34,6 +33,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -49,6 +49,9 @@ jobs:
 
       - name: Generate shared schema metadata
         run: node scripts/generateSharedSchema.mjs
+
+      - name: Verify generated schema is committed
+        run: git diff --exit-code -- src/shared/generated android/core/src/main/kotlin/io/github/openfinalshell/android/core/protocol
 
       - name: Validate tag and package version
         shell: bash
@@ -102,15 +105,31 @@ jobs:
           shopt -s nullglob
           apks=(android/app/build/outputs/apk/release/*.apk)
           aabs=(android/app/build/outputs/bundle/release/*.aab)
-          [ "${#apks[@]}" -gt 0 ] || { echo "::error::No release APK was produced"; exit 1; }
+          expected_abis=(arm64-v8a armeabi-v7a x86_64 x86 universal)
+          [ "${#apks[@]}" -eq "${#expected_abis[@]}" ] || {
+            echo "::error::Expected ${#expected_abis[@]} release APKs, found ${#apks[@]}"
+            printf '%s\n' "${apks[@]}"
+            exit 1
+          }
           [ "${#aabs[@]}" -eq 1 ] || { echo "::error::Expected exactly one release AAB, found ${#aabs[@]}"; exit 1; }
-          for apk in "${apks[@]}"; do
-            abi=$(basename "$apk" | sed -E 's/^app-(.*)-release\.apk$/\1/')
+          for abi in "${expected_abis[@]}"; do
+            apk="android/app/build/outputs/apk/release/app-$abi-release.apk"
+            [ -f "$apk" ] || { echo "::error::Missing release APK for ABI $abi"; exit 1; }
             cp "$apk" "android-release/OpenFinalShell-$version-android-$abi.apk"
           done
-          for aab in "${aabs[@]}"; do
-            cp "$aab" "android-release/OpenFinalShell-$version-android.aab"
+          cp "${aabs[0]}" "android-release/OpenFinalShell-$version-android.aab"
+
+          # A release artifact must be installable and signed. apksigner is part of
+          # the pinned Android build-tools package installed above.
+          apksigner="$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS}/apksigner"
+          [ -x "$apksigner" ] || { echo "::error::Missing apksigner at $apksigner"; exit 1; }
+          for apk in android-release/*.apk; do
+            "$apksigner" verify --min-sdk-version 26 "$apk"
           done
+
+          # Keep the release directory deterministic: five APKs plus one AAB and
+          # the Android-only checksum file, with no Gradle metadata accidentally uploaded.
+          [ "$(find android-release -maxdepth 1 -type f -name '*.apk' | wc -l)" -eq 5 ] || exit 1
           sha256sum android-release/*.apk android-release/*.aab | tee android-release/SHA256SUMS-android.txt
           ls -lh android-release
 

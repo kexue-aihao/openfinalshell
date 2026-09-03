@@ -18,10 +18,11 @@ class UpdateModelsTest {
     fun selectorPrefersDeviceAbiAndFallsBackToUniversal() {
         val release = release(
             "OpenFinalShell-0.20.8-android-universal.apk",
-            "OpenFinalShell-0.20.8-android-arm64-v8a.apk"
+            "OpenFinalShell-0.20.8-android-arm64-v8a.apk",
+            "OpenFinalShell-0.20.8-android-x86.apk"
         )
         assertEquals("arm64-v8a", UpdateAssetSelector.select(release, arrayOf("arm64-v8a"))!!.abi)
-        assertEquals("universal", UpdateAssetSelector.select(release, arrayOf("x86"))!!.abi)
+        assertEquals("x86", UpdateAssetSelector.select(release, arrayOf("x86"))!!.abi)
     }
 
     @Test
