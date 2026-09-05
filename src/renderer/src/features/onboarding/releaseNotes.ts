@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.22',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Windows x64 正式版构建未找到 vcpkg OpenSSL legacy provider，导致嵌入式 RDP worker 无法打包的问题',
+        en: 'Fixed Windows x64 release builds failing to package the embedded RDP worker when the vcpkg OpenSSL legacy provider is installed directly in the runtime bin directory'
+      }
+    ]
+  },
+  {
     version: '0.20.21',
     items: [
       {

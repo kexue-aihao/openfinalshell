@@ -220,6 +220,9 @@ function copyOpenSslProviderModules() {
   for (const root of [...vcpkgRoots(), ...pkgConfigRoots()]) {
     candidates.push(join(root, 'lib', 'ossl-modules'))
     candidates.push(join(root, 'bin', 'ossl-modules'))
+    // The vcpkg Windows OpenSSL port installs provider modules directly in
+    // the runtime bin directory, while MSYS2 keeps them under ossl-modules.
+    candidates.push(join(root, 'bin'))
     candidates.push(join(root, 'tools', 'openssl'))
   }
   const copied = []

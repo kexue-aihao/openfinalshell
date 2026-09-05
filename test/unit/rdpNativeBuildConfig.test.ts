@@ -39,6 +39,7 @@ describe('RDP native FreeRDP build contract', () => {
     expect(buildScript).toContain('runtimeNamesFromLdd(executablePath, root)')
     expect(buildScript).toContain("join(rootParent, 'usr', 'bin', 'ldd.exe')")
     expect(buildScript).toContain("join(root, 'lib', 'ossl-modules')")
+    expect(buildScript).toContain("join(root, 'bin')")
     expect(buildScript).toContain("'ossl-modules', 'legacy.dll'")
     expect(buildScript).toContain('OpenSSL legacy provider module')
     expect(buildScript).toContain("join(base, 'share', 'licenses', name, 'LICENSE')")
