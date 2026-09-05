@@ -16,11 +16,16 @@ const deb = join(releaseDir, files[0])
 const field = (name) => execFileSync('dpkg-deb', ['--field', deb, name], { encoding: 'utf8' }).trim()
 const contents = execFileSync('dpkg-deb', ['--contents', deb], { encoding: 'utf8' })
 const pkg = execFileSync(process.execPath, ['-p', "require('./package.json').version"], { encoding: 'utf8' }).trim()
+// Debian uses '~' to sort prereleases before the corresponding final version;
+// electron-builder maps the first npm semver prerelease '-' to that separator.
+const debianPkgVersion = pkg.replace(/^(\d+(?:\.\d+){0,2})-/, '$1~')
 
 const expectedFile = `OpenFinalShell-${pkg}-debian13-${artifactArch}.deb`
 if (files[0] !== expectedFile) throw new Error(`Unexpected artifact name: ${files[0]} (expected ${expectedFile})`)
 if (field('Package') !== 'openfinalshell') throw new Error(`Unexpected Package: ${field('Package')}`)
-if (field('Version') !== pkg) throw new Error(`Unexpected Version: ${field('Version')}`)
+if (field('Version') !== pkg && field('Version') !== debianPkgVersion) {
+  throw new Error(`Unexpected Version: ${field('Version')} (expected ${pkg} or ${debianPkgVersion})`)
+}
 if (field('Architecture') !== debArch) throw new Error(`Unexpected Architecture: ${field('Architecture')}`)
 if (field('Section') !== 'net') throw new Error(`Unexpected Section: ${field('Section')}`)
 if (!field('Maintainer')) throw new Error('Debian Maintainer is empty')
