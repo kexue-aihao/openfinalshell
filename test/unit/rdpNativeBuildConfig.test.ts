@@ -12,6 +12,7 @@ describe('RDP native FreeRDP build contract', () => {
   it('links both FreeRDP core and client pkg-config modules for 2.x and 3.x', () => {
     expect(cmake).toContain('pkg_check_modules(FREERDP2 QUIET freerdp2 freerdp-client2)')
     expect(cmake).toContain('pkg_check_modules(FREERDP3 QUIET freerdp3 freerdp-client3)')
+    expect(cmake).toContain('_CRT_SECURE_NO_WARNINGS NOMINMAX')
     expect(cmake).toContain('target_link_options(ofs-rdp-worker PRIVATE ${FREERDP_LDFLAGS_OTHER})')
     expect(cmake).toContain('find_package(FreeRDP-Client3 CONFIG QUIET)')
     expect(cmake).toContain('target_link_libraries(ofs-rdp-worker PRIVATE freerdp3 freerdp-client3 winpr3)')

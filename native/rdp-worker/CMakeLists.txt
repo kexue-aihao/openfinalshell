@@ -16,7 +16,7 @@ add_executable(ofs-rdp-worker main.cpp freerdp_adapter.cpp unicode.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(ofs-rdp-worker PRIVATE Threads::Threads)
 if (MSVC)
-  target_compile_definitions(ofs-rdp-worker PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_compile_definitions(ofs-rdp-worker PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
 endif()
 
 if (OFS_RDP_ENABLE_FREERDP)
