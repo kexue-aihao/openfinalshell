@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { safeStorage } from 'electron'
 import { beforeAll, describe, expect, it } from 'vitest'
 import type { ConnectionProfile } from '@shared/types'
 import { testUserDataDir } from '../stubs/electron'
@@ -10,6 +11,7 @@ import { testUserDataDir } from '../stubs/electron'
  */
 const { database, prepare } = await import('../../src/main/store/Database')
 const { encryptExistingRowsOnce } = await import('../../src/main/store/encryptMigration')
+const crypto = await import('../../src/main/store/crypto')
 const { getProfile, upsertProfile, deleteProfile, listConnections } = await import(
   '../../src/main/store/connections'
 )
@@ -179,6 +181,30 @@ describe('整文件加密导出 v2 → 导入 往返', () => {
 })
 
 describe('回归：写入即加密 / 列表逐行降级', () => {
+  it('安全后端恢复后会重扫并加密降级期间写入的明文', () => {
+    const original = safeStorage.isEncryptionAvailable
+    try {
+      safeStorage.isEncryptionAvailable = (): boolean => false
+      crypto._resetDataKeyCacheForTests()
+      upsertProfile(profile({ id: 'p-fallback', name: 'fallback', host: '192.0.2.10' }))
+      const plain = prepare('SELECT json FROM profiles WHERE id = ?').get('p-fallback') as {
+        json: string
+      }
+      expect(plain.json.startsWith('enc:1:')).toBe(false)
+    } finally {
+      safeStorage.isEncryptionAvailable = original
+      crypto._resetDataKeyCacheForTests()
+    }
+
+    // rows_encrypted_v1 已由前面的迁移写过；dirty 标记必须允许这次恢复重扫。
+    encryptExistingRowsOnce()
+    const encrypted = prepare('SELECT json FROM profiles WHERE id = ?').get('p-fallback') as {
+      json: string
+    }
+    expect(encrypted.json.startsWith('enc:1:')).toBe(true)
+    expect(getProfile('p-fallback')?.host).toBe('192.0.2.10')
+  })
+
   it('upsertPrivateKey 写入即加密（name 与 json 列都是密文，曾漏了 encField）', () => {
     upsertPrivateKey({
       id: 'k-enc',

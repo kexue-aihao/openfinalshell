@@ -217,6 +217,14 @@ export function savePrivateKey(
     }
 
     const path = draft.path.trim()
+    // A managed copy is bound to the path it was read from. If the path
+    // changes without explicitly refreshing the copy, retaining the old
+    // material would make a missing new path silently authenticate with the
+    // previous file's key.
+    if (existing && existing.path !== path && !draft.storeManagedCopy && materialRef) {
+      vault.deleteSecret(materialRef)
+      materialRef = undefined
+    }
     // 路径改了却读不到新文件时，旧文件的指纹不能再拿来冒充新路径。
     const sourceFingerprint = source?.fingerprint ?? (existing?.path === path ? existing.sourceFingerprint : undefined)
 

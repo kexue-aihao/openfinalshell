@@ -30,10 +30,25 @@ const log = scopedLogger('crypto')
 
 const FIELD_PREFIX = 'enc:1:'
 const MDK_META_KEY = 'data_key_v1'
+export const DATA_ENCRYPTION_DIRTY_META_KEY = 'rows_need_encryption_v1'
 
 let encKey: Buffer | null = null
 let macKey: Buffer | null = null
 let loggedKeyLoss = false
+let loggedDirtyMarkFailure = false
+
+/** 记录本次降级可能写出了明文，让下次安全后端恢复后重新扫描迁移。 */
+function markDataEncryptionDirty(): void {
+  try {
+    metaSet(DATA_ENCRYPTION_DIRTY_META_KEY, '1')
+  } catch (err) {
+    // 明文降级本身不能因为辅助标记失败而 brick；真正的业务写入仍会报告其数据库错误。
+    if (!loggedDirtyMarkFailure) {
+      log.warn('failed to mark plaintext fallback for later encryption', err)
+      loggedDirtyMarkFailure = true
+    }
+  }
+}
 
 function deriveKeys(key: Buffer): void {
   encKey = createHmac('sha256', key).update('ofs-enc-v1').digest()
@@ -85,6 +100,7 @@ export function _resetDataKeyCacheForTests(): void {
   encKey = null
   macKey = null
   loggedKeyLoss = false
+  loggedDirtyMarkFailure = false
 }
 
 /** 当前环境是否能加密新写入（safeStorage 可用且 MDK 可解出） */
@@ -100,7 +116,10 @@ export function isEncrypted(value: string): boolean {
 /** 加密一个字段值；加密不可用时原样返回明文 */
 export function encField(plaintext: string): string {
   const k = keys()
-  if (!k) return plaintext
+  if (!k) {
+    markDataEncryptionDirty()
+    return plaintext
+  }
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', k.enc, iv)
   const ct = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
@@ -127,7 +146,10 @@ export function decField(stored: string): string {
  */
 export function tokenize(plaintext: string): string {
   const k = keys()
-  if (!k) return plaintext
+  if (!k) {
+    markDataEncryptionDirty()
+    return plaintext
+  }
   return createHmac('sha256', k.mac).update(plaintext, 'utf8').digest('hex')
 }
 

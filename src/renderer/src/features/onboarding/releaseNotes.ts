@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.23',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复安全后端暂不可用时降级写入的数据无法在恢复后重新加密、导入畸形密码块泄露底层错误，以及私钥路径变更后误用旧托管副本的问题',
+        en: 'Fixed deferred encryption after a temporary secure-storage outage, normalized errors for malformed import password blocks, and prevented stale managed private-key material from being reused after a path change'
+      }
+    ]
+  },
+  {
     version: '0.20.22',
     items: [
       {

@@ -362,6 +362,26 @@ describe('导入：往返', () => {
     expect(r.secrets).toBe(1)
   })
 
+  it('畸形密码块不会泄露 Node 原生错误，统一返回本地化口令错误', async () => {
+    wipe()
+    const file = writeEnvelope('malformed-secrets.json', {
+      includesSecrets: true,
+      secrets: {
+        kdf: 'scrypt',
+        // 非 2 的幂且 IV/tag 为空：schema 允许的形状，但解密实现必须安全归一化错误。
+        n: 5000,
+        salt: '',
+        iv: '',
+        tag: '',
+        cipher: ''
+      }
+    })
+    const preview = await inspectImport({ sourcePath: file })
+    await expect(
+      applyImport({ token: preview!.token, passphrase: PASS, conflict: 'skip', include: ALL })
+    ).rejects.toThrow(/口令不正确|wrong passphrase/i)
+  })
+
   it('不给口令也能导入连接，只是密码为空（连接时会提示输入）', async () => {
     seed()
     const file = await exportSeed('nopass.json')

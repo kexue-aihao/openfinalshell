@@ -1,5 +1,12 @@
 import { metaGet, metaSet, tx } from './Database'
-import { decField, encField, isDataEncryptionAvailable, isEncrypted, tokenize } from './crypto'
+import {
+  DATA_ENCRYPTION_DIRTY_META_KEY,
+  decField,
+  encField,
+  isDataEncryptionAvailable,
+  isEncrypted,
+  tokenize
+} from './crypto'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('encrypt-migrate')
@@ -23,7 +30,8 @@ function encIf(value: string): string {
  *   SQLite 改主键最稳的做法是**整表读出 → 清空 → 以 token/enc 重插**。
  */
 export function encryptExistingRowsOnce(): void {
-  if (metaGet(FLAG)) return
+  // 已完成迁移后若曾因安全后端不可用而降级写入明文，dirty 标记会要求重扫一次。
+  if (metaGet(FLAG) && metaGet(DATA_ENCRYPTION_DIRTY_META_KEY) !== '1') return
   if (!isDataEncryptionAvailable()) return
 
   tx((conn) => {
@@ -91,6 +99,7 @@ export function encryptExistingRowsOnce(): void {
     }
 
     metaSet(FLAG, String(Date.now()))
+    metaSet(DATA_ENCRYPTION_DIRTY_META_KEY, '0')
   })
   log.info('existing rows encrypted at rest')
 }

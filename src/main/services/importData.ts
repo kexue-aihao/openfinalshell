@@ -451,15 +451,15 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
 
 /** 用口令解开一个密文块，返回明文字符串。GCM 校验失败一律归为"口令不对"（含文件被改） */
 function openSealedString(sealed: SealedBlock, passphrase: string): string {
-  const key = scryptSync(passphrase, Buffer.from(sealed.salt, 'base64'), SCRYPT_KEYLEN, {
-    N: sealed.n,
-    r: 8,
-    p: 1,
-    maxmem: SCRYPT_MAXMEM
-  })
-  const d = createDecipheriv('aes-256-gcm', key, Buffer.from(sealed.iv, 'base64'))
-  d.setAuthTag(Buffer.from(sealed.tag, 'base64'))
   try {
+    const key = scryptSync(passphrase, Buffer.from(sealed.salt, 'base64'), SCRYPT_KEYLEN, {
+      N: sealed.n,
+      r: 8,
+      p: 1,
+      maxmem: SCRYPT_MAXMEM
+    })
+    const d = createDecipheriv('aes-256-gcm', key, Buffer.from(sealed.iv, 'base64'))
+    d.setAuthTag(Buffer.from(sealed.tag, 'base64'))
     return Buffer.concat([
       d.update(Buffer.from(sealed.cipher, 'base64')),
       d.final()
@@ -471,7 +471,14 @@ function openSealedString(sealed: SealedBlock, passphrase: string): string {
 }
 
 function openSecrets(sealed: SealedBlock, passphrase: string): Record<string, string> {
-  const parsed = z.record(z.string(), z.string()).safeParse(JSON.parse(openSealedString(sealed, passphrase)))
+  let value: unknown
+  try {
+    value = JSON.parse(openSealedString(sealed, passphrase))
+  } catch (err) {
+    if (err instanceof Error && err.message === t('err.data.wrongPassphrase')) throw err
+    throw new Error(t('err.data.badSecretsFormat'))
+  }
+  const parsed = z.record(z.string(), z.string()).safeParse(value)
   if (!parsed.success) throw new Error(t('err.data.badSecretsFormat'))
   return parsed.data
 }

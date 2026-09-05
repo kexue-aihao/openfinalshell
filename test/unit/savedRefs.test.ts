@@ -262,6 +262,54 @@ describe('私钥本机托管副本', () => {
     }
   })
 
+  it('修改路径但不刷新托管副本时清掉旧材料，避免新路径失效后误用旧私钥', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ofs-key-copy-'))
+    const oldPath = join(dir, 'old-key')
+    const newPath = join(dir, 'new-key')
+    writeFileSync(oldPath, 'old-material')
+    try {
+      const saved = await savePrivateKeyFromDraft({
+        name: 'managed',
+        path: oldPath,
+        storeManagedCopy: true
+      })
+      const oldMaterialRef = saved.materialRef!
+      expect(vault.getSecret(oldMaterialRef)).toBeTruthy()
+
+      const changed = await savePrivateKeyFromDraft({
+        id: saved.id,
+        name: 'managed',
+        path: newPath,
+        storeManagedCopy: false
+      })
+
+      expect(changed.materialRef).toBeUndefined()
+      expect(vault.getSecret(oldMaterialRef)).toBeNull()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('SSH/RDP 类型切换时清理不再引用的 RDP 密码', () => {
+    const rdp = conns.saveProfile({
+      ...draft('rdp'),
+      protocol: 'rdp',
+      username: '',
+      rdp: { password: 'rdp-secret' }
+    })
+    const ref = rdp.rdp?.passwordRef
+    expect(ref).toBeTruthy()
+    expect(vault.getSecret(ref!)).toBe('rdp-secret')
+
+    conns.saveProfile({
+      ...draft('ssh', { id: rdp.id }),
+      protocol: 'ssh'
+    })
+
+    expect(conns.getProfile(rdp.id)?.rdp).toBeUndefined()
+    expect(vault.getSecret(ref!)).toBeNull()
+  })
+
   it('导出配置时剥离本机托管副本引用', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ofs-key-copy-'))
     const path = join(dir, 'id_ed25519')
