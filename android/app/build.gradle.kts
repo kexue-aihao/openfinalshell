@@ -19,7 +19,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = (providers.gradleProperty("versionCode").orNull ?: "19").toInt()
-        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.19"
+        versionName = providers.gradleProperty("versionName").orNull ?: "0.20.20"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

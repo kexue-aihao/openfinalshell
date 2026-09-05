@@ -17,12 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '0.20.20-rc.1',
+    version: '0.20.20',
     items: [
       {
         type: 'feat',
-        zh: 'Windows x64 桌面端新增基于 FreeRDP Worker 的嵌入式 RDP 会话、画面渲染、键盘鼠标输入、剪贴板和证书确认；本版本为 RC，Worker 缺失时可使用系统远程桌面降级',
-        en: 'Added embedded RDP sessions on Windows x64 desktop using a FreeRDP worker, with framebuffer rendering, keyboard and mouse input, clipboard, and certificate confirmation; this RC falls back to the system remote desktop when the worker is unavailable'
+        zh: 'Windows x64 桌面端新增基于 FreeRDP Worker 的嵌入式 RDP 会话、画面渲染、键盘鼠标输入、剪贴板和证书确认；Worker 缺失时可使用系统远程桌面降级',
+        en: 'Added embedded RDP sessions on Windows x64 desktop using a FreeRDP worker, with framebuffer rendering, keyboard and mouse input, clipboard, and certificate confirmation; the app falls back to the system remote desktop when the worker is unavailable'
       }
     ]
   },
