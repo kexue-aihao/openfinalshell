@@ -159,6 +159,19 @@ function testFreeRdpStartWaitsForCredentialWithoutMockFrame() {
   );
 }
 
+function testFreeRdpReportsNetworkErrorAfterCredential() {
+  const result = run(Buffer.concat([
+    helloAck(1),
+    mainStart(2, { port: 1 }),
+    frame(0x11, 3, JSON.stringify({ op: 'credential', kind: 'password', value: 'test' }))
+  ]));
+  assert.equal(result.status, 0, 'FreeRDP network failure exits cleanly');
+  const failure = result.frames.find((entry) => entry.type === 0x20 && entry.json?.state === 'failed');
+  assert.equal(failure?.json?.errorCode, 'NETWORK_ERROR', 'connection refusal is reported as a network error');
+  assert.equal(result.frames.some((entry) => entry.json?.errorCode === 'UNSUPPORTED'), false,
+               'network failure is not misreported as unsupported');
+}
+
 function testStartUsesFrozenNestedDisplay() {
   const legacyFlat = frame(0x10, 2, JSON.stringify({
     op: 'start', host: '127.0.0.1', port: 3389, username: 'alice', domain: '', gateway: null,
@@ -240,7 +253,10 @@ if (workerVersion === 'mock') {
   testMainWorkerInteroperability();
   testKeyUnicodeScalarValidation();
 }
-else if (workerVersion === 'freerdp') testFreeRdpStartWaitsForCredentialWithoutMockFrame();
+else if (workerVersion === 'freerdp') {
+  testFreeRdpStartWaitsForCredentialWithoutMockFrame();
+  testFreeRdpReportsNetworkErrorAfterCredential();
+}
 else assert.fail(`unexpected worker backend ${workerVersion}`);
 testStartUsesFrozenNestedDisplay();
 testUnsolicitedCertificateResponsesAreNotAcknowledged();

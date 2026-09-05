@@ -5,6 +5,7 @@ const builder = readFileSync('electron-builder.yml', 'utf8')
 const releaseWorkflow = readFileSync('.github/workflows/build-windows.yml', 'utf8')
 const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8')
 const packageJson = readFileSync('package.json', 'utf8')
+const sessionManager = readFileSync('src/main/rdp/RdpSessionManager.ts', 'utf8')
 
 describe('RDP worker packaging', () => {
   it('copies the staged worker outside asar into resources/rdp-worker', () => {
@@ -46,5 +47,11 @@ describe('RDP worker packaging', () => {
       expect(scripts[name]).toContain('check:rdp-worker -- --platform win --arch x64 --require-freerdp')
       expect(scripts[name]).toContain('--app-dir release/win-unpacked --require-freerdp')
     }
+  })
+
+  it('passes the staged OpenSSL provider directory to the worker', () => {
+    expect(sessionManager).toContain("join(dirname(path), 'ossl-modules')")
+    expect(sessionManager).toContain('workerEnv.OPENSSL_MODULES = opensslModules')
+    expect(sessionManager).toContain('env: workerEnv')
   })
 })

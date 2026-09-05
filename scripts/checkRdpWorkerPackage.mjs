@@ -39,7 +39,8 @@ function runtimeEnv(workerPath) {
   const system32 = join(systemRoot, 'System32')
   return {
     ...process.env,
-    PATH: [dirname(workerPath), system32, systemRoot].filter(Boolean).join(';')
+    PATH: [dirname(workerPath), system32, systemRoot].filter(Boolean).join(';'),
+    OPENSSL_MODULES: join(dirname(workerPath), 'ossl-modules')
   }
 }
 function assertFreerdpCapability(workerPath) {

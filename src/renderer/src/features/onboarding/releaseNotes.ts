@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.21',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复嵌入式 RDP 因 FreeRDP 静态通道未注册而无法连接的问题，并补齐 Windows NLA/NTLM 所需的 OpenSSL 运行组件',
+        en: 'Fixed embedded RDP connections failing because FreeRDP static channels were not registered, and bundled the OpenSSL runtime component required by Windows NLA/NTLM'
+      }
+    ]
+  },
+  {
     version: '0.20.20',
     items: [
       {

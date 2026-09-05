@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import electron from 'electron'
 import type { MessagePortMain } from 'electron'
@@ -646,7 +646,10 @@ export class RdpSessionManager {
 
     let worker: ChildProcessWithoutNullStreams
     try {
-      worker = spawn(path, [], { stdio: 'pipe', windowsHide: true, shell: false })
+      const workerEnv = { ...process.env }
+      const opensslModules = join(dirname(path), 'ossl-modules')
+      if (existsSync(opensslModules)) workerEnv.OPENSSL_MODULES = opensslModules
+      worker = spawn(path, [], { stdio: 'pipe', windowsHide: true, shell: false, env: workerEnv })
     } catch {
       this.fail(session, 'WORKER_START_FAILED')
       return

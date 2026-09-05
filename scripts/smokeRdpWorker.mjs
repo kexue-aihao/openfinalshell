@@ -94,6 +94,7 @@ function isolatedEnv(workerDir) {
     USERPROFILE: root,
     HOME: root,
     PATH: path,
+    OPENSSL_MODULES: join(workerDir, 'ossl-modules'),
     OFS_RDP_SMOKE_HOME: root
   }
 }

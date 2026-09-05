@@ -23,6 +23,7 @@
 #endif
 
 #if OFS_RDP_HAS_FREERDP
+#include <freerdp/addin.h>
 #include <freerdp/channels/channels.h>
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/channels/disp.h>
@@ -440,6 +441,11 @@ struct FreeRdpAdapter::Impl {
   bool initialize() {
     instance = freerdp_new();
     if (!instance || !freerdp_context_new(instance)) return false;
+    // freerdp_context_new() creates the core context but does not install the
+    // client channel provider. Without it, the static cliprdr and disp
+    // add-ins cannot be resolved by freerdp_client_load_addins().
+    if (freerdp_register_addin_provider(freerdp_channels_load_static_addin_entry, 0) != 0)
+      return false;
     active = this;
     instance->PreConnect = preConnect;
     instance->PostConnect = postConnect;
@@ -467,6 +473,13 @@ struct FreeRdpAdapter::Impl {
            freerdp_settings_set_bool(settings, FreeRDP_RedirectParallelPorts, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_AudioPlayback, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_AudioCapture, FALSE) &&
+           // FreeRDP's client loader promotes these defaults to rdpdr when
+           // network autodetect, heartbeat, or multitransport is enabled.
+           // The embedded worker intentionally ships no device-redirection
+           // channel, so keep those optional features off as well.
+           freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, FALSE) &&
+           freerdp_settings_set_bool(settings, FreeRDP_SupportHeartbeatPdu, FALSE) &&
+           freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_UnicodeInput, TRUE) &&
            freerdp_settings_set_bool(settings, FreeRDP_TlsSecurity, TRUE) &&
            freerdp_settings_set_bool(settings, FreeRDP_NlaSecurity, TRUE);

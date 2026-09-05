@@ -38,6 +38,9 @@ describe('RDP native FreeRDP build contract', () => {
     expect(buildScript).toContain('add(resolve(result.stdout.trim()))')
     expect(buildScript).toContain('runtimeNamesFromLdd(executablePath, root)')
     expect(buildScript).toContain("join(rootParent, 'usr', 'bin', 'ldd.exe')")
+    expect(buildScript).toContain("join(root, 'lib', 'ossl-modules')")
+    expect(buildScript).toContain("'ossl-modules', 'legacy.dll'")
+    expect(buildScript).toContain('OpenSSL legacy provider module')
     expect(buildScript).toContain("join(base, 'share', 'licenses', name, 'LICENSE')")
     expect(buildScript).toContain("join(base, 'share', 'licenses', name, 'LICENSE.md')")
   })
@@ -45,6 +48,7 @@ describe('RDP native FreeRDP build contract', () => {
   it('self-tests runnable packaged workers when FreeRDP is required', () => {
     expect(checkScript).toContain("spawnSync(workerPath, ['--self-test']")
     expect(checkScript).toContain('PATH: [dirname(workerPath), system32, systemRoot]')
+    expect(checkScript).toContain("OPENSSL_MODULES: join(dirname(workerPath), 'ossl-modules')")
     expect(checkScript).toContain("hello.workerVersion !== 'freerdp'")
     expect(checkScript).toContain("capabilities.includes('mock')")
     expect(checkScript).toContain('if (requireFreerdp && canRunTarget(platform, arch)) assertFreerdpCapability(packagedPath)')
@@ -63,6 +67,7 @@ describe('RDP native FreeRDP build contract', () => {
   it('has an environment-gated real Windows x64 RDP backend smoke', () => {
     expect(smokeScript).toContain('OFS_TEST_RDP_HOST')
     expect(smokeScript).toContain("process.arch !== 'x64'")
+    expect(smokeScript).toContain("OPENSSL_MODULES: join(workerDir, 'ossl-modules')")
     expect(smokeScript).toContain("workerVersion, 'freerdp'")
     expect(smokeScript).toContain("{ op: 'credential', kind: 'password', value: config.password }")
     expect(smokeScript).toContain("{ op: 'certificate', requestId: entry.requestId, accept: true }")
@@ -72,7 +77,9 @@ describe('RDP native FreeRDP build contract', () => {
   it('runs native protocol CTest in mock and FreeRDP backend modes', () => {
     expect(protocolTest).toContain('detectWorkerVersion()')
     expect(protocolTest).toMatch(/if \(workerVersion === 'mock'\)\s*\{\s*testMainWorkerInteroperability\(\)/)
-    expect(protocolTest).toMatch(/else if \(workerVersion === 'freerdp'\)\s*testFreeRdpStartWaitsForCredentialWithoutMockFrame\(\)/)
+    expect(protocolTest).toContain("else if (workerVersion === 'freerdp')")
+    expect(protocolTest).toContain('testFreeRdpStartWaitsForCredentialWithoutMockFrame()')
+    expect(protocolTest).toContain('testFreeRdpReportsNetworkErrorAfterCredential()')
     expect(protocolTest).toContain("FreeRDP build never emits a mock framebuffer before authentication")
   })
 
@@ -94,7 +101,13 @@ describe('RDP native FreeRDP build contract', () => {
 
   it('uses the RDPEDISP monitor-layout API for dynamic resolution', () => {
     expect(adapter).toContain('#include <freerdp/client/disp.h>')
+    expect(adapter).toContain('#include <freerdp/addin.h>')
     expect(adapter).toContain('freerdp_client_load_addins')
+    expect(adapter).toContain('freerdp_register_addin_provider')
+    expect(adapter).toContain('freerdp_channels_load_static_addin_entry')
+    expect(adapter).toContain('FreeRDP_NetworkAutoDetect, FALSE')
+    expect(adapter).toContain('FreeRDP_SupportHeartbeatPdu, FALSE')
+    expect(adapter).toContain('FreeRDP_SupportMultitransport, FALSE')
     expect(adapter).toContain('FreeRDP_SupportDisplayControl')
     expect(adapter).toContain('SendMonitorLayout(disp, 1, &layout)')
     expect(adapter).not.toContain('freerdp_input_send_synchronize_event')

@@ -214,6 +214,32 @@ function copySiblingRuntimeDependencies(executablePath) {
   return [...copied].sort((a, b) => a.localeCompare(b))
 }
 
+function copyOpenSslProviderModules() {
+  if (!requireFreerdp || platform !== 'win') return []
+  const candidates = []
+  for (const root of [...vcpkgRoots(), ...pkgConfigRoots()]) {
+    candidates.push(join(root, 'lib', 'ossl-modules'))
+    candidates.push(join(root, 'bin', 'ossl-modules'))
+    candidates.push(join(root, 'tools', 'openssl'))
+  }
+  const copied = []
+  for (const directory of candidates) {
+    if (!existsSync(directory) || !statSync(directory).isDirectory()) continue
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isFile() || !/^legacy(?:[-.].*)?\.dll$/i.test(entry.name)) continue
+      const target = join(stageDir, 'ossl-modules', 'legacy.dll')
+      mkdirSync(dirname(target), { recursive: true })
+      copyFileSync(join(directory, entry.name), target)
+      copied.push(relative(stageDir, target).replaceAll('\\', '/'))
+    }
+  }
+  const unique = [...new Set(copied)].sort((a, b) => a.localeCompare(b))
+  if (unique.length === 0) {
+    throw new Error('Required FreeRDP Windows package is missing the OpenSSL legacy provider module')
+  }
+  return unique
+}
+
 function vcpkgTriplet() {
   if (platform !== 'win') return null
   return ({ x64: 'x64-windows', ia32: 'x86-windows', arm64: 'arm64-windows' })[arch] ?? null
@@ -316,7 +342,7 @@ function copyKnownLicenseFiles() {
   return [...new Set(copied)].sort((a, b) => a.localeCompare(b))
 }
 
-const runtimeFiles = copySiblingRuntimeDependencies(matches[0])
+const runtimeFiles = [...copySiblingRuntimeDependencies(matches[0]), ...copyOpenSslProviderModules()]
 const licenseFiles = copyKnownLicenseFiles()
 const notice = [
   'OpenFinalShell RDP worker third-party notices',
