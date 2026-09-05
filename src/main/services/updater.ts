@@ -13,6 +13,7 @@ import { transferQueue } from '../sftp/TransferQueue'
 import { monitorManager } from '../monitor/MonitorManager'
 import { forwardManager } from '../forward/ForwardManager'
 import { sshManager } from '../ssh/SshConnectionManager'
+import { rdpSessionManager } from '../rdp/RdpSessionManager'
 import { closeDatabase } from '../store/Database'
 import { scopedLogger } from '../utils/logger'
 import { checkLatestRelease } from './manualUpdateCheck'
@@ -73,7 +74,10 @@ export function updateState(): UpdateState {
 export function updateActivity(): UpdateActivity {
   const tasks = transferQueue.list()
   return {
-    sessions: sshManager.liveCount(),
+    // SSH and embedded RDP sessions both own live network resources. RDP
+    // keeps failed/closed records for explicit fallback, so its manager
+    // exposes a filtered count rather than using registry size directly.
+    sessions: sshManager.liveCount() + rdpSessionManager.liveCount(),
     transfers: tasks.filter((t) => t.state === 'running' || t.state === 'queued').length,
     forwards: forwardManager.listRuntimes().filter((r) => r.state === 'active').length
   }
@@ -174,7 +178,7 @@ export async function downloadUpdate(): Promise<void> {
  * 一个字节都不装 —— 与内置编辑器保存那三道闸门是同一套思路：
  * main 侧持有事实，界面负责问，用户确认后带着 force 再来一次。
  */
-export function installUpdate(force: boolean): UpdateInstallResult {
+export function installUpdate(force: boolean): Promise<UpdateInstallResult> {
   const activity = updateActivity()
   // 判断本身在 updateGate.ts（不 import electron-updater，所以有真正的行为用例）
   const decision = decideInstall({
@@ -185,32 +189,35 @@ export function installUpdate(force: boolean): UpdateInstallResult {
     activity
   })
   if (decision.kind === 'reject') {
-    return {
+    return Promise.resolve({
       error: {
         notPackaged: t('err.data.updateDevMode'),
         portable: t('err.data.updatePortable'),
         manual: t('err.data.updateManual'),
         notDownloaded: t('err.data.updateNotDownloaded')
       }[decision.reason]
-    }
+    })
   }
-  if (decision.kind === 'confirm') return { needsConfirm: decision.activity }
+  if (decision.kind === 'confirm') return Promise.resolve({ needsConfirm: decision.activity })
 
-  log.info(`installing update ${state.version ?? ''}: ${JSON.stringify(activity)}`)
-  /*
-   * 按顺序收摊。不能指望 before-quit —— 它是同步钩子而里面那几个 flush 是
-   * void 掉的 async，而安装器在 --updated 路径下会直接 kill 掉本进程。
-   */
-  transferQueue.cancelAll()
-  monitorManager.stopAll()
-  forwardManager.stopAll()
-  sshManager.closeAll()
-  closeDatabase()
+  return (async () => {
+    log.info(`installing update ${state.version ?? ''}: ${JSON.stringify(activity)}`)
+    /*
+     * 按顺序收摊。不能指望 before-quit：安装器在 --updated 路径下可能直接结束进程。
+     * RDP Worker 自带 2 秒关闭上限，关库和交给安装器都必须排在它完成之后。
+     */
+    transferQueue.cancelAll()
+    monitorManager.stopAll()
+    forwardManager.stopAll()
+    sshManager.closeAll()
+    await rdpSessionManager.closeAll()
+    closeDatabase()
 
-  // isSilent=false：assisted installer（oneClick:false）下让安装器自己走它那套页面；
-  // isForceRunAfter=true：装完自动把应用拉起来，用户不用自己再点一次图标
-  wire().quitAndInstall(false, true)
-  return { installing: true }
+    // isSilent=false：assisted installer（oneClick:false）下让安装器自己走它那套页面；
+    // isForceRunAfter=true：装完自动把应用拉起来，用户不用自己再点一次图标
+    wire().quitAndInstall(false, true)
+    return { installing: true }
+  })()
 }
 
 /**

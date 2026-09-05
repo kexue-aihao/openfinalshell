@@ -1,0 +1,93 @@
+cmake_minimum_required(VERSION 3.16)
+project(ofs_rdp_worker LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# FreeRDP is intentionally optional for the protocol/mock worker. Packaging
+# and platform CI can enable this switch when the SDK is available; local
+# builds remain useful without downloading native dependencies.
+option(OFS_RDP_ENABLE_FREERDP "Enable the FreeRDP backend when available" OFF)
+option(OFS_RDP_REQUIRE_FREERDP "Fail configure when the FreeRDP backend cannot be enabled" OFF)
+
+set(OFS_RDP_HAS_FREERDP 0)
+
+add_executable(ofs-rdp-worker main.cpp freerdp_adapter.cpp unicode.cpp)
+find_package(Threads REQUIRED)
+target_link_libraries(ofs-rdp-worker PRIVATE Threads::Threads)
+if (MSVC)
+  target_compile_definitions(ofs-rdp-worker PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if (OFS_RDP_ENABLE_FREERDP)
+  find_package(PkgConfig QUIET)
+  if (PkgConfig_FOUND)
+    pkg_check_modules(FREERDP2 QUIET freerdp2 freerdp-client2)
+    pkg_check_modules(FREERDP3 QUIET freerdp3 freerdp-client3)
+  endif()
+  if (FREERDP2_FOUND OR FREERDP3_FOUND)
+    # Override the default above only when the SDK and linker metadata are
+    # both present. The adapter uses libfreerdp-client symbols for cliprdr and
+    # channel loading, so the core and client packages must be found together.
+    set(OFS_RDP_HAS_FREERDP 1)
+    if (FREERDP2_FOUND)
+      set(FREERDP_INCLUDE_DIRS ${FREERDP2_INCLUDE_DIRS})
+      set(FREERDP_LIBRARY_DIRS ${FREERDP2_LIBRARY_DIRS})
+      set(FREERDP_LIBRARIES ${FREERDP2_LIBRARIES})
+      set(FREERDP_CFLAGS_OTHER ${FREERDP2_CFLAGS_OTHER})
+      set(FREERDP_LDFLAGS_OTHER ${FREERDP2_LDFLAGS_OTHER})
+    else()
+      set(FREERDP_INCLUDE_DIRS ${FREERDP3_INCLUDE_DIRS})
+      set(FREERDP_LIBRARY_DIRS ${FREERDP3_LIBRARY_DIRS})
+      set(FREERDP_LIBRARIES ${FREERDP3_LIBRARIES})
+      set(FREERDP_CFLAGS_OTHER ${FREERDP3_CFLAGS_OTHER})
+      set(FREERDP_LDFLAGS_OTHER ${FREERDP3_LDFLAGS_OTHER})
+    endif()
+    target_include_directories(ofs-rdp-worker PRIVATE ${FREERDP_INCLUDE_DIRS})
+    target_link_directories(ofs-rdp-worker PRIVATE ${FREERDP_LIBRARY_DIRS})
+    target_link_libraries(ofs-rdp-worker PRIVATE ${FREERDP_LIBRARIES})
+    target_compile_options(ofs-rdp-worker PRIVATE ${FREERDP_CFLAGS_OTHER})
+    target_link_options(ofs-rdp-worker PRIVATE ${FREERDP_LDFLAGS_OTHER})
+  else()
+    find_package(FreeRDP3 CONFIG QUIET)
+    find_package(FreeRDP-Client3 CONFIG QUIET)
+    find_package(WinPR3 CONFIG QUIET)
+    find_package(FreeRDP CONFIG QUIET)
+    find_package(FreeRDP-Client CONFIG QUIET)
+    find_package(WinPR CONFIG QUIET)
+    if (TARGET freerdp3 AND TARGET freerdp-client3 AND TARGET winpr3)
+      set(OFS_RDP_HAS_FREERDP 1)
+      target_link_libraries(ofs-rdp-worker PRIVATE freerdp3 freerdp-client3 winpr3)
+    elseif (TARGET freerdp AND TARGET freerdp-client AND TARGET winpr)
+      set(OFS_RDP_HAS_FREERDP 1)
+      target_link_libraries(ofs-rdp-worker PRIVATE freerdp freerdp-client winpr)
+    endif()
+  endif()
+
+  if (NOT OFS_RDP_HAS_FREERDP)
+    if (OFS_RDP_REQUIRE_FREERDP)
+      message(FATAL_ERROR "OFS_RDP_REQUIRE_FREERDP is ON but FreeRDP core+client 2.x/3.x pkg-config modules or CMake targets were not found")
+    endif()
+    message(WARNING "OFS_RDP_ENABLE_FREERDP is ON but FreeRDP core+client 2.x/3.x was not found; building mock worker")
+  endif()
+endif()
+
+target_compile_definitions(ofs-rdp-worker PRIVATE OFS_RDP_HAS_FREERDP=${OFS_RDP_HAS_FREERDP})
+
+include(CTest)
+if (BUILD_TESTING)
+  add_test(NAME worker_hello COMMAND ofs-rdp-worker --self-test)
+  add_executable(ofs-rdp-unicode-test test/unicode.test.cpp unicode.cpp)
+  target_include_directories(ofs-rdp-unicode-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME worker_unicode COMMAND ofs-rdp-unicode-test)
+  add_executable(ofs-rdp-frame-validation-test test/frame_validation.test.cpp)
+  target_include_directories(ofs-rdp-frame-validation-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME worker_frame_validation COMMAND ofs-rdp-frame-validation-test)
+  find_program(NODE_EXECUTABLE node)
+  if (NODE_EXECUTABLE)
+    add_test(
+      NAME worker_protocol
+      COMMAND ${NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/protocol.test.mjs $<TARGET_FILE:ofs-rdp-worker>
+    )
+  endif()
+endif()

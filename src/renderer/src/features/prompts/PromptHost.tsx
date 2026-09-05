@@ -5,6 +5,8 @@ import type {
   HostkeyPromptPayload,
   KbiPromptPayload,
   PasswordPromptPayload,
+  RdpCertificatePromptPayload,
+  RdpPasswordPromptPayload,
   SessionPrompt
 } from '@shared/types'
 import { ofs } from '@/ipc/api'
@@ -24,7 +26,7 @@ export function PromptHost(): React.JSX.Element | null {
     return ofs.on('session:prompt', (p) => {
       repliedRef.current = false
       setAnswers([])
-      setRemember(p.kind === 'password')
+      setRemember(p.kind === 'password' || p.kind === 'rdp-password')
       setPrompt(p)
     })
   }, [])
@@ -92,8 +94,8 @@ export function PromptHost(): React.JSX.Element | null {
   }
 
   // ---------- 一次性密码 ----------
-  if (prompt.kind === 'password') {
-    const p = prompt.payload as PasswordPromptPayload
+  if (prompt.kind === 'password' || prompt.kind === 'rdp-password') {
+    const p = prompt.payload as PasswordPromptPayload | RdpPasswordPromptPayload
     return (
       <Modal
         open
@@ -117,6 +119,30 @@ export function PromptHost(): React.JSX.Element | null {
         >
           {t('prompt.rememberPassword')}
         </Checkbox>
+      </Modal>
+    )
+  }
+
+  // ---------- RDP certificate (one-time approval; no persistent trust store in v1) ----------
+  if (prompt.kind === 'rdp-certificate') {
+    const p = prompt.payload as RdpCertificatePromptPayload
+    const changed = p.changed === true
+    return (
+      <Modal
+        open
+        title={changed ? t('prompt.hostkeyChangedTitle') : t('prompt.hostkeyNewTitle')}
+        okText={t('prompt.trustOnce')}
+        cancelText={t('common.cancel')}
+        okButtonProps={{ danger: changed }}
+        onOk={() => reply(true)}
+        onCancel={() => reply(false)}
+      >
+        {changed && <Alert type="warning" showIcon message={t('prompt.hostkeyChangedWarning')} />}
+        <p>{t('prompt.hostkeyTarget')}: {p.host}:{p.port}</p>
+        <p>{p.subject} ({p.issuer})</p>
+        <Typography.Paragraph copyable code style={{ wordBreak: 'break-all' }}>
+          {p.fingerprintSha256}
+        </Typography.Paragraph>
       </Modal>
     )
   }

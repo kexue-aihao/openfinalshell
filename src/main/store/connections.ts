@@ -92,6 +92,23 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
       passwordRef = vault.putSecretIfAvailable(draft.auth.password, passwordRef)
     }
 
+    let rdpPasswordRef = existing?.rdp?.passwordRef
+    if (draft.rdp?.clearPassword) {
+      vault.deleteSecret(rdpPasswordRef)
+      rdpPasswordRef = undefined
+    }
+    if (draft.rdp?.password !== undefined && draft.rdp.password !== '') {
+      rdpPasswordRef = vault.putSecretIfAvailable(draft.rdp.password, rdpPasswordRef)
+    }
+
+    // Switching an existing RDP profile back to SSH drops the RDP block below.
+    // Remove its now-unreferenced Vault entry instead of leaving an orphan.
+    const keepsRdp = draft.protocol === 'rdp' || draft.rdp !== undefined
+    if (!keepsRdp && rdpPasswordRef) {
+      vault.deleteSecret(rdpPasswordRef)
+      rdpPasswordRef = undefined
+    }
+
     const profile: ConnectionProfile = {
       id: existing?.id ?? randomUUID(),
       name: draft.name,
@@ -107,6 +124,15 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
         passwordRef,
         privateKeyId: draft.auth.privateKeyId
       },
+      rdp:
+        draft.protocol === 'rdp' || draft.rdp
+          ? {
+              domain: draft.rdp?.domain,
+              passwordRef: rdpPasswordRef,
+              clipboard: draft.rdp?.clipboard ?? true,
+              certificatePolicy: draft.rdp?.certificatePolicy ?? 'prompt'
+            }
+          : undefined,
       terminal: draft.terminal,
       options: draft.options,
       proxyMode: draft.proxyMode,
@@ -135,7 +161,10 @@ export function deleteProfile(id: ProfileId): void {
      * 共享实体的 Vault 条目由 savedRefs.ts 的 deleteProxy / deletePrivateKey 负责，
      * 而它们只在"没人引用"时才会走到删除那一步。
      */
-    if (p) vault.deleteSecret(p.auth.passwordRef)
+    if (p) {
+      vault.deleteSecret(p.auth.passwordRef)
+      vault.deleteSecret(p.rdp?.passwordRef)
+    }
     prepare('DELETE FROM profiles WHERE id = ?').run(id)
     // 该连接下的转发规则一并清掉，避免留下指向不存在 profile 的孤儿规则
     prepare('DELETE FROM forwards WHERE profile_id = ?').run(id)
@@ -165,6 +194,12 @@ export function duplicateProfile(id: ProfileId): ConnectionProfile {
         ...src.auth,
         passwordRef: copyRef(src.auth.passwordRef)
       },
+      rdp: src.rdp
+        ? {
+            ...src.rdp,
+            passwordRef: copyRef(src.rdp.passwordRef)
+          }
+        : undefined,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       lastUsedAt: undefined
@@ -187,6 +222,22 @@ export function rememberPassword(id: ProfileId, password: string): void {
     const p = getProfile(id)
     if (!p) return
     p.auth.passwordRef = vault.putSecret(password, p.auth.passwordRef)
+    upsertProfile(p)
+  })
+}
+
+/** 保存已有 RDP profile 的密码；Vault 不可用时只清掉旧引用，不落明文。 */
+export function rememberRdpPassword(id: ProfileId, password: string): void {
+  tx(() => {
+    const p = getProfile(id)
+    if (!p) return
+    const current = p.rdp ?? {}
+    p.rdp = {
+      ...current,
+      passwordRef: vault.putSecretIfAvailable(password, current.passwordRef),
+      clipboard: current.clipboard ?? true,
+      certificatePolicy: current.certificatePolicy ?? 'prompt'
+    }
     upsertProfile(p)
   })
 }

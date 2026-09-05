@@ -15,7 +15,7 @@ OpenFinalShell 是一个开源、跨平台的 SSH/SFTP 服务器运维工作台�
 - 密码、私钥口令和连接配置按平台安全存储；支持加密导入导出、局域网配对同步、可移动磁盘私钥路径恢复和应用内更新（安装前由用户确认）。
 - 桌面端和 Android 端遵循相同的 SSH、监控、端口流量、LAN Sync 及导入导出协议，不需要修改服务器配置。
 
-OpenFinalShell 专注 SSH/SFTP 运维，不提供 Telnet、串口、RDP、VNC 或 GSSAPI。项目采用 MIT 许可证，界面提供简体中文和 English。
+OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入式 RDP 远程桌面；macOS、Linux、Windows ARM64 和 Android 本版本不宣称提供原生嵌入式 RDP。Telnet、串口、VNC 或 GSSAPI 仍不在范围内。项目采用 MIT 许可证，界面提供简体中文和 English。
 
 ---
 
@@ -476,7 +476,7 @@ git tag v0.2.1 && git push origin v0.2.1
 
 **升级到 v0.1.6+ 会把"显示隐藏文件"打开一次**：该默认值从关改成开，而这个开关的旧值已显式存在库里，所以做了一次性迁移。工具栏那个眼睛按钮随时能关回去，关掉后不会再被掀开。
 
-**不做**：Telnet / 串口 / RDP / VNC、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、**解密 FinalShell 保存的密码**（连接本身能导入，见上）。
+**当前不做**：Telnet / 串口 / VNC、RDP 设备重定向（音频、打印机、磁盘、摄像头、多显示器）、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、**解密 FinalShell 保存的密码**（连接本身能导入，见上）。嵌入式 RDP 本版本仅在 Windows x64 桌面端提供，Worker 不可用时可显式改用系统远程桌面。
 
 ## 路线图
 

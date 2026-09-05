@@ -13,7 +13,7 @@ import { deleteKnownHost, listKnownHosts } from '../ssh/hostkeys'
 import { getProfile } from '../store/connections'
 import { launchRdp } from '../services/rdpLaunch'
 
-const profileDraftSchema = z.object({
+export const profileDraftSchema = z.object({
   id: z.string().optional(),
   name: z.string().min(1).max(120),
   protocol: z.enum(['ssh', 'rdp']).optional(),
@@ -22,7 +22,7 @@ const profileDraftSchema = z.object({
   flag: z.string().max(20).optional(),
   host: z.string().min(1).max(255),
   port: z.number().int().min(1).max(65535),
-  username: z.string().min(1).max(120),
+  username: z.string().max(120),
   auth: z.object({
     method: z.enum(['password', 'privateKey', 'agent']),
     password: z.string().max(1024).optional(),
@@ -43,6 +43,15 @@ const profileDraftSchema = z.object({
     monitorEnabled: z.boolean(),
     compress: z.boolean()
   }),
+  rdp: z
+    .object({
+      domain: z.string().max(120).optional(),
+      password: z.string().max(1024).optional(),
+      clearPassword: z.boolean().optional(),
+      clipboard: z.boolean().optional(),
+      certificatePolicy: z.enum(['prompt', 'strict']).optional()
+    })
+    .optional(),
   /** 代理归属：follow=跟随全局默认 / direct=强制直连 / custom=用下面的 proxyId */
   proxyMode: z.enum(['follow', 'direct', 'custom']).optional(),
   /** 引用一条已保存的代理；仅 custom 时有意义。内联代理那套已随 v0.4 迁移移除 */
@@ -50,6 +59,12 @@ const profileDraftSchema = z.object({
   jumpHostId: z.string().optional(),
   note: z.string().max(4096).optional(),
   lastUsedAt: z.number().optional()
+}).superRefine((draft, ctx) => {
+  // A missing protocol is a legacy SSH draft. RDP permits an empty username,
+  // but widening the base field must not weaken the established SSH contract.
+  if (draft.protocol !== 'rdp' && draft.username.length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['username'], message: 'SSH username is required' })
+  }
 })
 
 const groupSchema = z.object({

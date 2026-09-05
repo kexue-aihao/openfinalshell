@@ -41,6 +41,12 @@ import type {
   MonitorStaticInfo,
   PortTrafficSnapshot,
   PortTrafficState,
+  RdpDisplaySize,
+  RdpErrorCode,
+  RdpFrame,
+  RdpInput,
+  RdpPortFrameMessage,
+  RdpSessionState,
   ProfileDraft,
   ProfileId,
   RemoteFileSaveResult,
@@ -147,7 +153,7 @@ export interface InvokeMap {
   'conn:knownHosts': { args: []; result: TrustedHostkey[] }
   /** 撤销一条信任（arg 为表主键 "host:port:keyType"）。下次连接会重新弹指纹确认 */
   'conn:knownHostsDelete': { args: [string]; result: void }
-  /** RDP 连接：生成 .rdp 并交系统远程桌面打开（不建会话 tab，凭据由系统接管） */
+  /** 显式降级：生成 .rdp 并交系统远程桌面打开；默认连接走 rdp:open 应用内 tab。 */
   'conn:launchRdp': { args: [ProfileId]; result: void }
   'group:save': { args: [ConnectionGroup]; result: void }
   'group:delete': { args: [GroupId]; result: void }
@@ -157,6 +163,17 @@ export interface InvokeMap {
   'session:close': { args: [SessionId]; result: void }
   'session:reconnect': { args: [SessionId]; result: void }
   'session:promptReply': { args: [SessionPromptReply]; result: void }
+
+  // --- Embedded RDP ---
+  'rdp:open': { args: [{ profileId: ProfileId; display: RdpDisplaySize }]; result: { sessionId: SessionId } }
+  'rdp:close': { args: [SessionId]; result: void }
+  'rdp:reconnect': { args: [SessionId]; result: void }
+  'rdp:input': { args: [{ sessionId: SessionId; input: RdpInput }]; result: void }
+  'rdp:resize': { args: [{ sessionId: SessionId; display: RdpDisplaySize }]; result: void }
+  'rdp:clipboardSet': { args: [{ sessionId: SessionId; text: string }]; result: void }
+  /** Requests the current remote text clipboard; data arrives on rdp:clipboard. */
+  'rdp:clipboardGet': { args: [SessionId]; result: void }
+  'rdp:systemFallback': { args: [SessionId]; result: void }
 
   // --- 终端 ---
   'term:open': { args: [{ sessionId: SessionId; cols: number; rows: number }]; result: { termId: TermId } }
@@ -376,6 +393,10 @@ export interface EventMap {
   'session:state': { sessionId: SessionId; state: SessionState; error?: string }
   /** 认证/信任交互请求（应答走 invoke session:promptReply） */
   'session:prompt': SessionPrompt
+  'rdp:state': { sessionId: SessionId; state: RdpSessionState; errorCode?: RdpErrorCode; error?: string }
+  /** @deprecated Compatibility-only event for older dev/mock main processes; production frames use rdp:port. */
+  'rdp:frame': { sessionId: SessionId; frame: RdpFrame }
+  'rdp:clipboard': { sessionId: SessionId; text: string }
   /** 终端下行数据批量帧（Uint8Array 结构化克隆） */
   'term:data': { termId: TermId; data: Uint8Array }
   'term:exit': { termId: TermId; reason: 'closed' | 'reconnected' | 'error' }
@@ -422,6 +443,7 @@ export const CHANNEL_PREFIXES = [
   'group:',
   'session:',
   'term:',
+  'rdp:',
   'sftp:',
   'transfer:',
   'monitor:',
@@ -460,12 +482,147 @@ export type InvokeChannel = keyof InvokeMap
 export type SendChannel = keyof SendMap
 export type EventChannel = keyof EventMap
 
+function channelSet<K extends string>(channels: Record<K, true>): ReadonlySet<K> {
+  return new Set(Object.keys(channels) as K[])
+}
+
+/** Runtime preload allowlists. Record<K, true> makes omissions and extra names type errors. */
+export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
+  'i18n:bundle': true,
+  'app:getVersions': true,
+  'app:getStartupNotice': true,
+  'app:pickPath': true,
+  'app:pickPaths': true,
+  'app:openExternal': true,
+  'app:openPath': true,
+  'app:exportData': true,
+  'app:importPreview': true,
+  'app:importData': true,
+  'app:finalshellScan': true,
+  'app:finalshellImport': true,
+  'settings:get': true,
+  'settings:set': true,
+  'editor:openFile': true,
+  'editor:ready': true,
+  'editor:closeNow': true,
+  'vault:isAvailable': true,
+  'conn:list': true,
+  'conn:save': true,
+  'conn:delete': true,
+  'conn:duplicate': true,
+  'conn:knownHosts': true,
+  'conn:knownHostsDelete': true,
+  'conn:launchRdp': true,
+  'group:save': true,
+  'group:delete': true,
+  'session:open': true,
+  'session:close': true,
+  'session:reconnect': true,
+  'session:promptReply': true,
+  'rdp:open': true,
+  'rdp:close': true,
+  'rdp:reconnect': true,
+  'rdp:input': true,
+  'rdp:resize': true,
+  'rdp:clipboardSet': true,
+  'rdp:clipboardGet': true,
+  'rdp:systemFallback': true,
+  'term:open': true,
+  'term:resize': true,
+  'term:close': true,
+  'term:exec': true,
+  'sftp:readdir': true,
+  'sftp:realpath': true,
+  'sftp:mkdir': true,
+  'sftp:rename': true,
+  'sftp:delete': true,
+  'sftp:chmod': true,
+  'sftp:touch': true,
+  'sftp:fastDeletePreview': true,
+  'sftp:fastDelete': true,
+  'sftp:fileView': true,
+  'sftp:fileSave': true,
+  'transfer:probeConflicts': true,
+  'transfer:enqueue': true,
+  'transfer:control': true,
+  'transfer:controlAll': true,
+  'transfer:clearFinished': true,
+  'transfer:list': true,
+  'monitor:start': true,
+  'monitor:stop': true,
+  'monitor:setInterval': true,
+  'portTraffic:start': true,
+  'portTraffic:stop': true,
+  'forward:list': true,
+  'forward:save': true,
+  'forward:delete': true,
+  'forward:control': true,
+  'update:check': true,
+  'update:download': true,
+  'update:install': true,
+  'proxy:list': true,
+  'proxy:save': true,
+  'proxy:delete': true,
+  'key:list': true,
+  'key:save': true,
+  'key:delete': true,
+  'history:list': true,
+  'history:push': true,
+  'history:clear': true,
+  'snippet:list': true,
+  'snippet:save': true,
+  'snippet:delete': true,
+  'snippetGroup:save': true,
+  'snippetGroup:delete': true,
+  'sync:receiveStart': true,
+  'sync:receiveStop': true,
+  'sync:receiveStatus': true,
+  'sync:scan': true,
+  'sync:send': true,
+  'sync:sendCancel': true,
+  'sync:apply': true,
+  'sync:dismiss': true
+})
+
+export const SEND_CHANNELS = channelSet<SendChannel>({
+  'term:input': true,
+  'term:flow-ack': true
+})
+
+export const EVENT_CHANNELS = channelSet<EventChannel>({
+  'session:state': true,
+  'session:prompt': true,
+  'rdp:state': true,
+  'rdp:frame': true,
+  'rdp:clipboard': true,
+  'term:data': true,
+  'term:exit': true,
+  'transfer:progress': true,
+  'transfer:states': true,
+  'monitor:data': true,
+  'monitor:state': true,
+  'portTraffic:data': true,
+  'portTraffic:state': true,
+  'forward:state': true,
+  'settings:changed': true,
+  'update:state': true,
+  'editor:open': true,
+  'editor:closeRequest': true,
+  'sync:receiveState': true,
+  'sync:sendState': true
+})
+
+/** Dedicated transferable-frame channel; it is intentionally not a generic invoke/event channel. */
+export const RDP_PORT_CHANNEL = 'rdp:port' as const
+
 /** preload 暴露到 window.ofs 的 API 形状（renderer 侧通过 src/preload/index.d.ts 获得全局声明） */
 export interface OfsApi {
   invoke<K extends InvokeChannel>(channel: K, ...args: InvokeMap[K]['args']): Promise<InvokeMap[K]['result']>
   send<K extends SendChannel>(channel: K, payload: SendMap[K]): void
   /** 返回取消订阅函数 */
   on<K extends EventChannel>(channel: K, listener: (payload: EventMap[K]) => void): () => void
+  /** 建立绑定到单个 RDP session 的二进制 MessagePort；不暴露 ipcRenderer。 */
+  connectRdpPort(sessionId: SessionId, listener: (payload: RdpPortFrameMessage, ack?: (sequence: number) => void) => void): () => void
   /**
    * 拖拽上传用：取 File 对象对应的本地绝对路径。
    * Electron ≥32 起 File.path 被移除，必须经 webUtils（只能在 preload 侧调用）。

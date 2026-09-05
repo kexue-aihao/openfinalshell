@@ -64,7 +64,7 @@ const profileSchema = z.object({
   flag: z.string().max(20).optional(),
   host: z.string().min(1).max(255),
   port: z.number().int().min(1).max(65535),
-  username: z.string().min(1).max(120),
+  username: z.string().max(120),
   auth: z.object({
     method: z.enum(['password', 'privateKey', 'agent']),
     passwordRef: idSchema.optional(),
@@ -94,6 +94,15 @@ const profileSchema = z.object({
     .default({}),
   /** v0.7 起：连接协议（缺省 ssh） */
   protocol: z.enum(['ssh', 'rdp']).optional(),
+  /** Embedded RDP options. Missing fields retain the legacy defaults in main. */
+  rdp: z
+    .object({
+      domain: z.string().max(120).optional(),
+      passwordRef: idSchema.optional(),
+      clipboard: z.boolean().optional(),
+      certificatePolicy: z.enum(['prompt', 'strict']).optional()
+    })
+    .optional(),
   /** v0.7 起：代理归属方式（缺省按老规则从 proxyId 推） */
   proxyMode: z.enum(['follow', 'direct', 'custom']).optional(),
   /** v0.4 起：引用一条已保存的代理 */
@@ -112,6 +121,11 @@ const profileSchema = z.object({
   createdAt: z.number().default(() => Date.now()),
   updatedAt: z.number().default(() => Date.now()),
   lastUsedAt: z.number().optional()
+}).superRefine((profile, ctx) => {
+  // Missing protocol means a legacy SSH profile. Only RDP permits an empty username.
+  if (profile.protocol !== 'rdp' && profile.username.length === 0) {
+    ctx.addIssue({ code: 'custom', path: ['username'], message: 'SSH username is required' })
+  }
 })
 
 const groupSchema = z.object({
@@ -780,6 +794,9 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
               passphraseRef: takeRef(p.auth.passphraseRef)
             },
             protocol: p.protocol,
+            rdp: p.rdp
+              ? { ...p.rdp, passwordRef: takeRef(p.rdp.passwordRef) }
+              : undefined,
             terminal: p.terminal,
             options: p.options,
             proxyMode: p.proxyMode,
@@ -799,13 +816,15 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
               [
                 profile.auth.passwordRef,
                 profile.auth.passphraseRef,
-                profile.proxy?.passwordRef
+                profile.proxy?.passwordRef,
+                profile.rdp?.passwordRef
               ].filter(Boolean) as string[]
             )
             for (const old of [
               existing.auth.passwordRef,
               existing.auth.passphraseRef,
-              existing.proxy?.passwordRef
+              existing.proxy?.passwordRef,
+              existing.rdp?.passwordRef
             ]) {
               if (old && !kept.has(old)) vault.deleteSecret(old)
             }

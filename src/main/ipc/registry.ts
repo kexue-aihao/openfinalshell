@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
+import { ipcMain, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, type MessagePortMain } from 'electron'
 import type { ZodType } from 'zod'
 import type { EventMap, InvokeMap, SendMap } from '@shared/ipc'
 import { scopedLogger } from '../utils/logger'
@@ -62,6 +62,19 @@ export function onSend<K extends keyof SendMap>(channel: K, fn: (payload: SendMa
   ipcMain.on(channel, (event, payload) => {
     assertTrustedSender(event)
     fn(payload as SendMap[K])
+  })
+}
+
+/** 注册携带一个专用 MessagePort 的 IPC 入口；同样执行 sender 信任校验。 */
+export function onPort(
+  channel: string,
+  fn: (event: IpcMainEvent, payload: unknown, port: MessagePortMain) => void
+): void {
+  ipcMain.on(channel, (event, payload) => {
+    assertTrustedSender(event)
+    const port = event.ports?.[0]
+    if (!port) throw new Error('MessagePort missing')
+    fn(event, payload, port)
   })
 }
 

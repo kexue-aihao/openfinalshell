@@ -11,6 +11,15 @@ files:
   # package.json 必需；其余源码/测试不入包
   - package.json
 
+# The native worker is deliberately outside asar.  CI and local release
+# scripts stage exactly one architecture-specific executable here before
+# electron-builder runs; the app resolves it as resources/rdp-worker/<name>.
+extraResources:
+  - from: build/rdp-worker
+    to: rdp-worker
+    filter:
+      - '**/*'
+
 asar: true
 asarUnpack:
   # ssh2 的可选原生 crypto binding / cpu-features 存在时需解包才能 dlopen

@@ -1,12 +1,14 @@
 import { create } from 'zustand'
-import type { ConnectionProfile, SessionId, SessionState, TermId } from '@shared/types'
+import type { ConnectionProfile, RdpErrorCode, RdpFrame, RdpSessionState, SessionId, SessionState, TermId } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import { ofs } from '@/ipc/api'
+import i18n from '@/i18n'
 import { useSettingsStore } from './useSettingsStore'
 import { useMonitorStore } from './useMonitorStore'
 import { usePortTrafficStore } from './usePortTrafficStore'
+import { useConnectionStore } from './useConnectionStore'
 
-export type SessionTabKind = 'terminal' | 'portTraffic'
+export type SessionTabKind = 'terminal' | 'portTraffic' | 'rdp'
 
 export interface SessionTab {
   id: string
@@ -23,12 +25,16 @@ export interface SessionTab {
   /** idle=尚未发起；其余同 SessionState */
   state: SessionState | 'idle'
   error?: string
+  /** Stable machine-readable RDP failure classification, retained beside display text. */
+  errorCode?: RdpErrorCode
   sftpOpen: boolean
   monitorOpen: boolean
   /** 递增计数：变化时 TerminalPane 重新开 shell（重连后复用同一 tab 与 xterm 缓冲） */
   shellEpoch: number
   /** 曾经 ready 过：用于区分首次连接与重新建连，首连不打"连接已恢复"分隔线 */
   everReady?: boolean
+  /** 递增计数：RDP 重连复用 sessionId 时，驱动 preload 重新转移 MessagePort */
+  rdpPortEpoch?: number
 }
 
 interface SessionStore {
@@ -38,10 +44,11 @@ interface SessionStore {
   activateRelative: (delta: number) => void
   activateIndex: (index: number) => void
   openForProfile: (profile: ConnectionProfile) => Promise<void>
+  openRdpForProfile: (profile: ConnectionProfile) => Promise<void>
   /**
    * 从连接树/最近列表"连接"的统一入口：按协议分派。
-   * SSH → openForProfile（建会话 tab）；RDP → 交系统远程桌面，不建 tab。
-   * 返回被走的分支，让调用方对 RDP 给一句"已在系统远程桌面打开"的反馈。
+   * SSH → openForProfile（建终端 tab）；RDP → openRdpForProfile（建应用内 RDP tab）。
+   * 返回被走的分支，让调用方对 RDP 给一句"已打开嵌入式 RDP 标签页"的反馈。
    */
   launchProfile: (profile: ConnectionProfile) => Promise<'ssh' | 'rdp'>
   duplicateTab: (id: string, profiles: ConnectionProfile[]) => Promise<void>
@@ -53,6 +60,8 @@ interface SessionStore {
   updateTab: (id: string, patch: Partial<SessionTab>) => void
   /** tab 拿到 sessionId：补上开连期间错过的状态事件 */
   claimSession: (tabId: string, sessionId: SessionId) => void
+  /** RDP tab 拿到 sessionId：补上开连期间错过的状态事件 */
+  claimRdpSession: (tabId: string, sessionId: SessionId) => void
   bindTerm: (tabId: string, termId: TermId) => void
   toggleSftp: (id: string) => void
   toggleMonitor: (id: string) => void
@@ -77,6 +86,35 @@ interface SessionStore {
 const unclaimedState = new Map<SessionId, { state: SessionState; error?: string }>()
 /** session:open 失败的会话没人会来认领，留个上限免得这张表无限长 */
 const UNCLAIMED_MAX = 32
+
+const unclaimedRdpState = new Map<SessionId, { state: RdpSessionState; error?: string; errorCode?: RdpErrorCode }>()
+
+function rememberUnclaimedRdp(sessionId: SessionId, state: RdpSessionState, error?: string, errorCode?: RdpErrorCode): void {
+  const prior = unclaimedRdpState.get(sessionId)
+  unclaimedRdpState.set(sessionId, { state, error: error ?? prior?.error, errorCode: errorCode ?? prior?.errorCode })
+  for (const key of unclaimedRdpState.keys()) {
+    if (unclaimedRdpState.size <= UNCLAIMED_MAX) break
+    unclaimedRdpState.delete(key)
+  }
+}
+
+function mapRdpState(state: RdpSessionState): SessionState {
+  if (state === 'ready') return 'ready'
+  if (state === 'closed' || state === 'closing' || state === 'failed') return 'closed'
+  if (state === 'reconnecting') return 'reconnecting'
+  return state === 'authenticating' ? 'authenticating' : 'connecting'
+}
+
+export function getLatestRdpFrame(sessionId: SessionId): RdpFrame | undefined {
+  // Kept as a source-compatible no-op for the RdpPane import.
+  // Production frames are delivered only by connectRdpPort.
+  void sessionId
+  return undefined
+}
+
+export function clearLatestRdpFrame(sessionId: SessionId): void {
+  void sessionId
+}
 
 function rememberUnclaimed(sessionId: SessionId, state: SessionState, error?: string): void {
   unclaimedState.set(sessionId, { state, error })
@@ -146,10 +184,36 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     }
   },
 
+  openRdpForProfile: async (profile) => {
+    const tabId = crypto.randomUUID()
+    const tab: SessionTab = {
+      id: tabId,
+      kind: 'rdp',
+      profileId: profile.id,
+      sessionId: null,
+      termId: null,
+      title: uniqueTitle(get().tabs, profile.name),
+      color: profile.color,
+      state: 'connecting',
+      sftpOpen: false,
+      monitorOpen: false,
+      shellEpoch: 0
+    }
+    set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tabId }))
+    try {
+      const { sessionId } = await ofs.invoke('rdp:open', {
+        profileId: profile.id,
+        display: { width: 1280, height: 720, dpi: 96 }
+      })
+      get().claimRdpSession(tabId, sessionId)
+    } catch (err) {
+      get().updateTab(tabId, { state: 'closed', error: err instanceof Error ? err.message : String(err) })
+    }
+  },
+
   launchProfile: async (profile) => {
     if (profile.protocol === 'rdp') {
-      // 不建 tab、不开 SSH 会话：mstsc 是独立进程，凭据由系统接管
-      await ofs.invoke('conn:launchRdp', profile.id)
+      await get().openRdpForProfile(profile)
       return 'rdp'
     }
     await get().openForProfile(profile)
@@ -160,7 +224,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     const tab = get().tabs.find((t) => t.id === id)
     if (tab?.kind === 'portTraffic') return
     const profile = profiles.find((p) => p.id === tab?.profileId)
-    if (profile) await get().openForProfile(profile)
+    if (profile) {
+      if (profile.protocol === 'rdp') await get().openRdpForProfile(profile)
+      else await get().openForProfile(profile)
+    }
   },
 
   closeTab: async (id) => {
@@ -191,6 +258,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (tab.kind === 'portTraffic') {
         await usePortTrafficStore.getState().stop(tab.sessionId).catch(() => {})
         usePortTrafficStore.getState().clear(tab.sessionId)
+        return
+      }
+      if (tab.kind === 'rdp') {
+        await ofs.invoke('rdp:close', tab.sessionId).catch(() => {})
         return
       }
       // 不 clear 的话，关掉的会话在 useMonitorStore 里的快照与 60 点历史永不释放。
@@ -226,6 +297,35 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       if (tab.sourceTabId) await get().reconnectTab(tab.sourceTabId)
       return
     }
+    if (tab.kind === 'rdp') {
+      get().updateTab(id, { state: 'connecting', error: undefined })
+      if (tab.sessionId) {
+        try {
+          await ofs.invoke('rdp:reconnect', tab.sessionId)
+          // Main closes the old MessagePort before creating the replacement
+          // Worker. The session id is intentionally stable, so an explicit
+          // epoch is needed to make RdpPane transfer a fresh port.
+          get().updateTab(id, {
+            rdpPortEpoch: (get().tabs.find((candidate) => candidate.id === id)?.rdpPortEpoch ?? 0) + 1
+          })
+        } catch (err) {
+          get().updateTab(id, { state: 'closed', error: String(err) })
+        }
+      } else {
+        const profile = useConnectionStore.getState().profiles.find((p) => p.id === tab.profileId)
+        if (!profile) {
+          get().updateTab(id, { state: 'closed', error: i18n.t('err.rdp.profileInvalid') })
+          return
+        }
+        try {
+          const opened = await ofs.invoke('rdp:open', { profileId: profile.id, display: { width: 1280, height: 720, dpi: 96 } })
+          get().claimRdpSession(id, opened.sessionId)
+        } catch (err) {
+          get().updateTab(id, { state: 'closed', error: err instanceof Error ? err.message : String(err) })
+        }
+      }
+      return
+    }
     get().updateTab(id, { state: 'connecting', error: undefined })
     try {
       if (tab.sessionId) {
@@ -257,6 +357,19 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       sessionId,
       state,
       error: pending?.error,
+      ...(state === 'ready' ? { everReady: true } : {})
+    })
+  },
+
+  claimRdpSession: (tabId, sessionId) => {
+    const pending = unclaimedRdpState.get(sessionId)
+    unclaimedRdpState.delete(sessionId)
+    const state = mapRdpState(pending?.state ?? 'starting')
+    get().updateTab(tabId, {
+      sessionId,
+      state,
+      error: pending?.error,
+      errorCode: pending?.errorCode,
       ...(state === 'ready' ? { everReady: true } : {})
     })
   },
@@ -335,6 +448,23 @@ export function wireSessionEvents(): void {
     }
     // 还没有 tab 认领这个 sessionId（session:open 尚未 resolve）→ 存下来等认领
     if (!claimed) rememberUnclaimed(sessionId, state, error)
+  })
+
+  ofs.on('rdp:state', ({ sessionId, state, error, errorCode }) => {
+    const { tabs, updateTab } = useSessionStore.getState()
+    const mapped = mapRdpState(state)
+    let claimed = false
+    for (const tab of tabs) {
+      if (tab.kind !== 'rdp' || tab.sessionId !== sessionId) continue
+      claimed = true
+      updateTab(tab.id, {
+        state: mapped,
+        error: error ?? (mapped === 'closed' ? tab.error : undefined),
+        errorCode: errorCode ?? (mapped === 'closed' ? tab.errorCode : undefined),
+        ...(mapped === 'ready' ? { everReady: true } : {})
+      })
+    }
+    if (!claimed) rememberUnclaimedRdp(sessionId, state, error, errorCode)
   })
 
   ofs.on('term:exit', ({ termId, reason }) => {

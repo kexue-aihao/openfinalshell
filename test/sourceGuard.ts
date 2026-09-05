@@ -89,5 +89,5 @@ export function blockAfter(src: string, marker: string): string {
  */
 export function channelsOf(map: 'InvokeMap' | 'SendMap' | 'EventMap'): string[] {
   const body = blockAfter(stripComments(read('src/shared/ipc.ts')), `export interface ${map}`)
-  return [...body.matchAll(/'([A-Za-z]+:[A-Za-z][A-Za-z0-9-]*)'/g)].map((m) => m[1])
+  return [...body.matchAll(/'([A-Za-z][A-Za-z0-9]*:[A-Za-z][A-Za-z0-9-]*)'/g)].map((m) => m[1])
 }

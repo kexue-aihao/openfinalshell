@@ -109,7 +109,10 @@ jobs:
         run: |
           apt-get update
           # openssh-client 提供私钥格式测试使用的 ssh-keygen。
-          apt-get install -y --no-install-recommends ca-certificates git tar xz-utils dpkg-dev openssh-client python3 build-essential
+          apt-get install -y --no-install-recommends ca-certificates git tar xz-utils dpkg-dev openssh-client python3 build-essential cmake
+          if [ "${{ matrix.arch }}" = "armv7l" ]; then
+            apt-get install -y --no-install-recommends gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+          fi
 
       - uses: actions/setup-node@v5
         with:
@@ -120,7 +123,18 @@ jobs:
 
       # Windows job 已执行完整类型、i18n 和测试门禁；Linux job 只负责
       # Linux 原生打包和产物校验，避免在两个架构上重复跑全量测试。
+      - name: 禁用尚未移植的 RDP Worker（Linux ${{ matrix.arch }}）
+        run: |
+          npm run build:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --package-disabled
+          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --expect-absent
       - run: npm run build
       - run: npm run check:bundle
       - run: npx electron-builder --linux deb --${{ matrix.arch }} --publish never
       - run: npm run check:deb -- ${{ matrix.arch }}
+      - name: 断言解包目录不含 mock RDP Worker
+        run: |
+          unpacked="release/linux-${{ matrix.arch }}-unpacked"
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            unpacked="release/linux-unpacked"
+          fi
+          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --app-dir "$unpacked" --expect-absent

@@ -183,6 +183,7 @@ function referencedRefs(data: ExportData): string[] {
   const refs = new Set<string>()
   for (const p of data.profiles) {
     if (p.auth.passwordRef) refs.add(p.auth.passwordRef)
+    if (p.rdp?.passwordRef) refs.add(p.rdp.passwordRef)
     // 迁移前的老字段也扫一遍：库里可能还留着（迁移刻意不删旧字段）
     if (p.auth.passphraseRef) refs.add(p.auth.passphraseRef)
     if (p.proxy?.passwordRef) refs.add(p.proxy.passwordRef)

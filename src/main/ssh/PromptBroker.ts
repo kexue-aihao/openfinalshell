@@ -24,7 +24,8 @@ class PromptBroker {
   request(
     sessionId: SessionId,
     kind: SessionPromptKind,
-    payload: SessionPrompt['payload']
+    payload: SessionPrompt['payload'],
+    timeoutMs = PROMPT_TIMEOUT_MS
   ): Promise<SessionPromptReply> {
     return new Promise<SessionPromptReply>((resolve) => {
       const prompt: SessionPrompt = { requestId: randomUUID(), sessionId, kind, payload }
@@ -34,7 +35,7 @@ class PromptBroker {
         timer: setTimeout(() => {
           log.warn(`prompt timeout: ${kind} for session ${sessionId}`)
           this.finish(prompt.requestId, { requestId: prompt.requestId, ok: false })
-        }, PROMPT_TIMEOUT_MS)
+        }, timeoutMs)
       }
       this.queue.push(pending)
       this.pump()

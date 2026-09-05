@@ -1,6 +1,7 @@
 import { MAIN_ONLY_SETTINGS_PATHS, type EventMap, type OfsApi } from '@shared/ipc'
 import { DEFAULT_SETTINGS, TRANSFER_FINAL_STATES } from '@shared/constants'
 import enUSLocale from '@shared/locales/en-US.json'
+import i18n from '@/i18n'
 import type {
   CommandHistoryEntry,
   ConnectionGroup,
@@ -129,6 +130,15 @@ export function createMockOfs(): OfsApi {
   const toProfile = (draft: ProfileDraft): ConnectionProfile => ({
     id: draft.id ?? crypto.randomUUID(),
     name: draft.name,
+    protocol: draft.protocol,
+    rdp: draft.rdp
+      ? {
+          domain: draft.rdp.domain,
+          clipboard: draft.rdp.clipboard,
+          certificatePolicy: draft.rdp.certificatePolicy,
+          passwordRef: draft.rdp.password ? 'mock-rdp-ref' : undefined
+        }
+      : undefined,
     groupId: draft.groupId,
     color: draft.color,
     flag: draft.flag,
@@ -582,7 +592,7 @@ export function createMockOfs(): OfsApi {
     // --- 假会话：立刻 ready ---
     'session:open': (profileId: never) => {
       const p = profiles.find((x) => x.id === (profileId as unknown as string))
-      if (!p) throw new Error('连接配置不存在')
+      if (!p) throw new Error(i18n.t('err.ssh.profileNotFound'))
       const sessionId = crypto.randomUUID()
       sessions.set(sessionId, { label: `${p.username}@${p.host}` })
       setTimeout(() => emit('session:state', { sessionId, state: 'ready' }), 150)
@@ -593,6 +603,44 @@ export function createMockOfs(): OfsApi {
     },
     'session:reconnect': () => undefined,
     'session:promptReply': () => undefined,
+
+    'rdp:open': (arg: never) => {
+      const { profileId, display } = arg as unknown as { profileId: string; display: { width: number; height: number; dpi: number } }
+      const p = profiles.find((x) => x.id === profileId)
+      if (!p) throw new Error(i18n.t('err.rdp.profileInvalid'))
+      const sessionId = crypto.randomUUID()
+      sessions.set(sessionId, { label: `${p.username}@${p.host}` })
+      setTimeout(() => {
+        emit('rdp:state', { sessionId, state: 'ready' })
+        const pixels = new Uint8Array(display.width * display.height * 4)
+        pixels.fill(0x33)
+        // Keep the browser mock on the same rectangle-only payload as the
+        // production MessagePort path. The legacy event remains only a
+        // compatibility transport for this mock and older main processes.
+        const data = new Uint8Array(24 + pixels.byteLength)
+        const view = new DataView(data.buffer)
+        view.setInt32(0, 0, true)
+        view.setInt32(4, 0, true)
+        view.setUint32(8, display.width, true)
+        view.setUint32(12, display.height, true)
+        view.setUint32(16, display.width * 4, true)
+        view.setUint32(20, pixels.byteLength, true)
+        data.set(pixels, 24)
+        emit('rdp:frame', { sessionId, frame: { sequence: 1, canvasWidth: display.width, canvasHeight: display.height, data } })
+      }, 30)
+      return { sessionId }
+    },
+    'rdp:close': (sessionId: never) => {
+      const id = sessionId as unknown as string
+      sessions.delete(id)
+      emit('rdp:state', { sessionId: id, state: 'closed' })
+    },
+    'rdp:reconnect': () => undefined,
+    'rdp:input': () => undefined,
+    'rdp:resize': () => undefined,
+    'rdp:clipboardSet': () => undefined,
+    'rdp:clipboardGet': () => undefined,
+    'rdp:systemFallback': () => undefined,
 
     // --- 假终端：本地回显 + 少量内建命令 ---
     'term:open': (arg: never) => {
@@ -1113,6 +1161,25 @@ export function createMockOfs(): OfsApi {
       set.add(listener as (payload: unknown) => void)
       listeners.set(channel, set)
       return () => set.delete(listener as (payload: unknown) => void)
+    },
+    connectRdpPort: (sessionId, listener) => {
+      const offFrame = (payload: unknown): void => {
+        const event = payload as { sessionId: string; frame: { sequence: number; canvasWidth: number; canvasHeight: number; data: Uint8Array } }
+        if (event.sessionId !== sessionId) return
+        const data = event.frame.data
+        const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
+        listener({
+          kind: 'frame',
+          sequence: event.frame.sequence,
+          canvasWidth: event.frame.canvasWidth,
+          canvasHeight: event.frame.canvasHeight,
+          buffer
+        })
+      }
+      const frameSet = listeners.get('rdp:frame') ?? new Set()
+      frameSet.add(offFrame)
+      listeners.set('rdp:frame', frameSet)
+      return () => { frameSet.delete(offFrame) }
     },
     getPathForFile: (file) => file.name // 浏览器里拿不到真实路径
   }

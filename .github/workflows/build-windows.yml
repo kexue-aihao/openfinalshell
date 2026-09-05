@@ -125,6 +125,56 @@ jobs:
 
       - run: npm ci
 
+      - name: 安装 FreeRDP SDK（Windows x64）
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) { $vcpkgRoot = 'C:\vcpkg' }
+          $vcpkg = Join-Path $vcpkgRoot 'vcpkg.exe'
+          $toolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
+          if (-not (Test-Path -LiteralPath $vcpkg)) {
+            Write-Error "BLOCKED_EXTERNAL_ENV: vcpkg.exe was not found at $vcpkg"
+            exit 1
+          }
+          if (-not (Test-Path -LiteralPath $toolchain)) {
+            Write-Error "BLOCKED_EXTERNAL_ENV: vcpkg CMake toolchain was not found at $toolchain"
+            exit 1
+          }
+          & "$vcpkgRoot\vcpkg.exe" install freerdp:x64-windows
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "BLOCKED_EXTERNAL_ENV: vcpkg could not install freerdp:x64-windows (exit $LASTEXITCODE)"
+            exit $LASTEXITCODE
+          }
+          "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "CMAKE_PREFIX_PATH=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "$vcpkgRoot\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: 构建 RDP Worker（${{ matrix.arch }}）
+        shell: pwsh
+        run: |
+          if ('${{ matrix.arch }}' -eq 'x64') {
+            cmake --version
+            npm run build:rdp-worker -- --platform win --arch x64 --require-freerdp
+            npm run check:rdp-worker -- --platform win --arch x64 --require-freerdp
+          } else {
+            npm run build:rdp-worker -- --platform win --arch ${{ matrix.arch }} --package-disabled
+            npm run check:rdp-worker -- --platform win --arch ${{ matrix.arch }} --expect-absent
+          }
+
+      - name: 真实 RDP Worker 冒烟（Windows x64，可无环境跳过）
+        if: matrix.arch == 'x64'
+        env:
+          OFS_TEST_RDP_HOST: ${{ secrets.OFS_TEST_RDP_HOST }}
+          OFS_TEST_RDP_PORT: ${{ secrets.OFS_TEST_RDP_PORT }}
+          OFS_TEST_RDP_USERNAME: ${{ secrets.OFS_TEST_RDP_USERNAME }}
+          OFS_TEST_RDP_PASSWORD: ${{ secrets.OFS_TEST_RDP_PASSWORD }}
+          OFS_TEST_RDP_DOMAIN: ${{ secrets.OFS_TEST_RDP_DOMAIN }}
+          OFS_TEST_RDP_EXPECT_CERT_PROMPT: ${{ secrets.OFS_TEST_RDP_EXPECT_CERT_PROMPT }}
+          OFS_TEST_RDP_CERT_REJECT: ${{ secrets.OFS_TEST_RDP_CERT_REJECT }}
+        run: npm run smoke:rdp-worker -- build/rdp-worker/ofs-rdp-worker.exe
+
       - run: npm run build
 
       # 必须显式指定单一架构：一次同时给两个架构时，electron-builder 会额外产出一个
@@ -203,6 +253,16 @@ jobs:
           fi
           cat "latest-$arch.yml"
 
+      - name: 断言解包目录的 RDP Worker 发布边界
+        shell: pwsh
+        run: |
+          $unpacked = if ('${{ matrix.arch }}' -eq 'x64') { 'release/win-unpacked' } else { 'release/win-${{ matrix.arch }}-unpacked' }
+          if ('${{ matrix.arch }}' -eq 'x64') {
+            npm run check:rdp-worker -- --platform win --arch x64 --app-dir $unpacked --require-freerdp
+          } else {
+            npm run check:rdp-worker -- --platform win --arch ${{ matrix.arch }} --app-dir $unpacked --expect-absent
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
@@ -250,6 +310,10 @@ jobs:
             electron-${{ runner.os }}-${{ matrix.arch }}-
 
       - run: npm ci
+      - name: 禁用尚未移植的 RDP Worker（macOS ${{ matrix.arch }}）
+        run: |
+          npm run build:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --package-disabled
+          npm run check:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --expect-absent
       - run: npm run build
 
       - name: electron-builder (macOS ${{ matrix.arch }})
@@ -283,6 +347,14 @@ jobs:
             case "$(basename "${zips[0]}")" in *-${{ matrix.arch }}-mac.zip) ;; *) echo "::error::ZIP 架构不匹配"; exit 1 ;; esac
           fi
           ls -lh "${dmgs[@]}" "${zips[@]}"
+
+      - name: 断言解包目录不含 mock RDP Worker
+        run: |
+          unpacked="release/mac-${{ matrix.arch }}/OpenFinalShell.app"
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            unpacked="release/mac/OpenFinalShell.app"
+          fi
+          npm run check:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --app-dir "$unpacked" --expect-absent
 
       - uses: actions/upload-artifact@v4
         with:
@@ -324,8 +396,11 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential \
+            ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential cmake \
             xvfb xauth dbus-x11 procps rpm
+          if [ "${{ matrix.arch }}" = "armv7l" ]; then
+            apt-get install -y --no-install-recommends gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+          fi
 
       - uses: actions/setup-node@v5
         with:
@@ -334,12 +409,24 @@ jobs:
 
       - run: npm ci
 
+      - name: 禁用尚未移植的 RDP Worker（Linux ${{ matrix.arch }}）
+        run: |
+          npm run build:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --package-disabled
+          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --expect-absent
+
       # verify job 已执行完整类型、i18n 和测试门禁；本 job 只负责
       # Linux 原生打包、产物校验和安装冒烟，避免每个架构重复跑全量测试。
       - run: npm run build
       - run: npx electron-builder --linux deb rpm AppImage --${{ matrix.arch }} --publish never
       - run: npm run check:deb -- ${{ matrix.arch }}
       - run: npm run check:linux-artifacts -- ${{ matrix.arch }} deb rpm appImage
+      - name: 断言解包目录不含 mock RDP Worker
+        run: |
+          unpacked="release/linux-${{ matrix.arch }}-unpacked"
+          if [ "${{ matrix.arch }}" = "x64" ]; then
+            unpacked="release/linux-unpacked"
+          fi
+          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --app-dir "$unpacked" --expect-absent
 
       - name: 用 APT 安装并运行打包产物冒烟
         if: matrix.smoke
@@ -389,7 +476,7 @@ jobs:
       - name: 安装 Flatpak 构建依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder cmake
           # flatpak-bundler 按 runtime/<id>/<arch>/<branch> 安装依赖，
           # 新 runner 默认没有用户级远程仓库，必须先提供 Flathub。
           flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -400,6 +487,10 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - name: 禁用尚未移植的 RDP Worker（Linux x64 Flatpak）
+        run: |
+          npm run build:rdp-worker -- --platform linux --arch x64 --package-disabled
+          npm run check:rdp-worker -- --platform linux --arch x64 --expect-absent
       - run: npm run build
       - name: electron-builder (flatpak x64)
         env:
@@ -407,6 +498,8 @@ jobs:
           DEBUG: flatpak-bundler
         run: npx electron-builder --linux flatpak --x64 --publish never
       - run: npm run check:linux-artifacts -- x64 flatpak
+      - name: 断言解包目录不含 mock RDP Worker
+        run: npm run check:rdp-worker -- --platform linux --arch x64 --app-dir release/linux-unpacked --expect-absent
 
       - uses: actions/upload-artifact@v4
         with:

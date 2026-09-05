@@ -102,6 +102,14 @@ const PROFILE = {
   updatedAt: 1
 }
 
+const RDP_PROFILE = {
+  ...PROFILE,
+  protocol: 'rdp' as const,
+  port: 3389,
+  username: '',
+  rdp: { clipboard: true, certificatePolicy: 'prompt' as const }
+}
+
 /**
  * 真实时序：主进程先把 connecting/authenticating/ready 发出来，session:open 之后才 resolve。
  * 此时 tab 的 sessionId 还是 null —— 事件按 id 匹配会全部落空。
@@ -166,6 +174,75 @@ describe('开连期间的状态事件（tab 还不知道自己的 sessionId）',
     await useSessionStore.getState().openForProfile(PROFILE)
     expect(tab().state).toBe('ready')
     expect(tab().error).toBeUndefined()
+  })
+
+  it('RDP 也认领 open 返回前到达的状态，并且不误建 SSH 会话', async () => {
+    invokeImpl = async (channel) => {
+      if (channel !== 'rdp:open') return undefined
+      fire('rdp:state', { sessionId: 'rdp-9', state: 'connecting' })
+      fire('rdp:state', { sessionId: 'rdp-9', state: 'ready' })
+      return { sessionId: 'rdp-9' }
+    }
+
+    const kind = await useSessionStore.getState().launchProfile(RDP_PROFILE)
+
+    expect(kind).toBe('rdp')
+    expect(tab()).toMatchObject({
+      kind: 'rdp',
+      sessionId: 'rdp-9',
+      state: 'ready',
+      sftpOpen: false,
+      monitorOpen: false,
+      everReady: true
+    })
+    expect(calls.map(([channel]) => channel)).toContain('rdp:open')
+    expect(calls.map(([channel]) => channel)).not.toContain('session:open')
+    expect(calls.map(([channel]) => channel)).not.toContain('conn:launchRdp')
+  })
+
+  it('RDP failed 状态映射成可重试的 closed tab，并保留 sessionId 给显式降级', async () => {
+    invokeImpl = async (channel) => {
+      if (channel !== 'rdp:open') return undefined
+      fire('rdp:state', {
+        sessionId: 'rdp-8', state: 'failed', errorCode: 'WORKER_MISSING',
+        error: 'RDP worker is not installed'
+      })
+      return { sessionId: 'rdp-8' }
+    }
+
+    await useSessionStore.getState().openRdpForProfile(RDP_PROFILE)
+
+    expect(tab()).toMatchObject({
+      kind: 'rdp',
+      sessionId: 'rdp-8',
+      state: 'closed',
+      error: 'RDP worker is not installed',
+      errorCode: 'WORKER_MISSING'
+    })
+  })
+
+  it('retains RDP errorCode in the view-model and clears it when reconnecting', () => {
+    seedTab({ kind: 'rdp', sessionId: 'rdp-error', state: 'connecting' })
+    fire('rdp:state', {
+      sessionId: 'rdp-error', state: 'failed', errorCode: 'AUTH_FAILED', error: 'Authentication failed'
+    })
+    expect(tab()).toMatchObject({ state: 'closed', error: 'Authentication failed', errorCode: 'AUTH_FAILED' })
+
+    fire('rdp:state', { sessionId: 'rdp-error', state: 'reconnecting' })
+    expect(tab()).toMatchObject({ state: 'reconnecting', errorCode: undefined, error: undefined })
+  })
+
+  it('RDP 重连复用 sessionId 时递增端口代际，促使 renderer 重绑 MessagePort', async () => {
+    seedTab({ kind: 'rdp', sessionId: 'rdp-1', state: 'closed', rdpPortEpoch: 0 })
+    invokeImpl = async (channel) => {
+      if (channel === 'rdp:reconnect') return undefined
+      return { sessionId: 'sid-1' }
+    }
+
+    await useSessionStore.getState().reconnectTab('tab-1')
+
+    expect(calls.map(([channel]) => channel)).toContain('rdp:reconnect')
+    expect(tab().rdpPortEpoch).toBe(1)
   })
 })
 

@@ -157,10 +157,12 @@ export interface ConnectionProfile {
   id: ProfileId
   name: string
   /**
-   * 连接协议。缺省（老数据）= `'ssh'`。`'rdp'` 走系统远程桌面（生成 .rdp 交给 mstsc），
-   * 此时 auth/terminal/proxy/options 那套 SSH 字段一概不用 —— 凭据由 Windows 自己接管。
+   * 连接协议。缺省（老数据）= `'ssh'`。`'rdp'` 走应用内 FreeRDP Worker；Worker 不可用时
+   * 由用户显式选择系统远程桌面降级。此时 auth/terminal/proxy/options 那套 SSH 字段一概不用。
    */
   protocol?: 'ssh' | 'rdp'
+  /** Embedded RDP options. Ignored for SSH and optional for legacy profiles. */
+  rdp?: RdpProfileOptions
   groupId: GroupId | null
   /** 标签颜色（8 色预置之一），用于 tab 色点与树节点回退标记 */
   color?: string
@@ -219,6 +221,23 @@ export interface ConnectionProfile {
   lastUsedAt?: number
 }
 
+/** Settings used by the embedded RDP worker. Secrets remain in Vault. */
+export interface RdpProfileOptions {
+  domain?: string
+  /** Vault reference for an optional saved RDP password. */
+  passwordRef?: SecretRef
+  /** Defaults to true when absent on a legacy RDP profile. */
+  clipboard?: boolean
+  /** Defaults to prompt when absent on a legacy RDP profile. */
+  certificatePolicy?: 'prompt' | 'strict'
+}
+
+/** Renderer-side RDP draft. The password is write-only and is converted to a Vault ref in main. */
+export interface RdpProfileDraft extends Omit<RdpProfileOptions, 'passwordRef'> {
+  password?: string
+  clearPassword?: boolean
+}
+
 /**
  * renderer 提交的连接草稿：密码为明文，main 转 Vault 引用后落盘。
  *
@@ -227,7 +246,7 @@ export interface ConnectionProfile {
  * 留着它就意味着"还有第二条写代理的路"，而那正是这次改造要消掉的东西。
  */
 export interface ProfileDraft
-  extends Omit<ConnectionProfile, 'id' | 'auth' | 'proxy' | 'createdAt' | 'updatedAt'> {
+  extends Omit<ConnectionProfile, 'id' | 'auth' | 'proxy' | 'rdp' | 'createdAt' | 'updatedAt'> {
   id?: ProfileId
   auth: {
     method: AuthMethod
@@ -238,6 +257,7 @@ export interface ProfileDraft
     /** true 时清除已存密码 */
     clearPassword?: boolean
   }
+  rdp?: RdpProfileDraft
 }
 
 export interface ConnectionGroup {
@@ -250,8 +270,186 @@ export interface ConnectionGroup {
 // ---------- 会话 ----------
 export type SessionState = 'connecting' | 'authenticating' | 'ready' | 'reconnecting' | 'closed'
 
+export const RDP_SESSION_STATES = [
+  'starting',
+  'handshaking',
+  'connecting',
+  'authenticating',
+  'verifying',
+  'ready',
+  'reconnecting',
+  'failed',
+  'closing',
+  'closed'
+] as const
+
+export type RdpSessionState = (typeof RDP_SESSION_STATES)[number]
+
+export const RDP_ERROR_CODES = [
+  'WORKER_MISSING',
+  'WORKER_START_FAILED',
+  'PROTOCOL_MISMATCH',
+  'PROTOCOL_ERROR',
+  'AUTH_FAILED',
+  'CERTIFICATE_REJECTED',
+  'UNSUPPORTED',
+  'NETWORK_ERROR',
+  'WORKER_CRASHED',
+  'SESSION_NOT_READY',
+  'CANCELED'
+] as const
+
+export type RdpErrorCode = (typeof RDP_ERROR_CODES)[number]
+
+export interface RdpDisplaySize {
+  width: number
+  height: number
+  dpi: number
+}
+
+export const RDP_MIN_DISPLAY_EDGE = 320
+export const RDP_MAX_DISPLAY_EDGE = 8192
+export const RDP_MAX_DISPLAY_PIXELS = 16_777_216
+export const RDP_FRAME_FORMAT = 'rdp-frame-v1' as const
+export const RDP_FRAME_HEADER_BYTES = 16
+export const RDP_RECT_HEADER_BYTES = 24
+export const RDP_MAX_RECT_COUNT = 1024
+export const RDP_MAX_FRAME_BYTES = 64 * 1024 * 1024
+
+/** Keep renderer and main resize decisions byte-for-byte consistent. */
+export function clampRdpDisplaySize(display: RdpDisplaySize): RdpDisplaySize {
+  let width = Math.max(RDP_MIN_DISPLAY_EDGE, Math.min(RDP_MAX_DISPLAY_EDGE, Math.round(display.width)))
+  let height = Math.max(RDP_MIN_DISPLAY_EDGE, Math.min(RDP_MAX_DISPLAY_EDGE, Math.round(display.height)))
+  const dpi = Math.max(96, Math.min(384, Math.round(display.dpi)))
+  if (width * height > RDP_MAX_DISPLAY_PIXELS) {
+    const scale = Math.sqrt(RDP_MAX_DISPLAY_PIXELS / (width * height))
+    width = Math.max(RDP_MIN_DISPLAY_EDGE, Math.floor(width * scale))
+    height = Math.max(RDP_MIN_DISPLAY_EDGE, Math.floor(height * scale))
+    while (width * height > RDP_MAX_DISPLAY_PIXELS) {
+      if (width >= height && width > RDP_MIN_DISPLAY_EDGE) width--
+      else height--
+    }
+  }
+  return { width, height, dpi }
+}
+
+export interface RdpFrameV1 {
+  sequence: number
+  canvasWidth: number
+  canvasHeight: number
+  /** Canonical rdp-frame-v1 rectangle stream after the Worker frame header is removed. */
+  data: Uint8Array
+}
+
+export type RdpFrame = RdpFrameV1
+
+/**
+ * Decode the one supported RDP framebuffer representation.
+ *
+ * The returned data is copied so callers cannot retain a Worker stdout
+ * backing buffer. The 16-byte Worker frame header is normalized away; the
+ * MessagePort envelope carries sequence and canvas dimensions.
+ */
+export function parseRdpFrameV1(payload: Uint8Array): RdpFrame | null {
+  if (payload.byteLength < RDP_FRAME_HEADER_BYTES || payload.byteLength > RDP_MAX_FRAME_BYTES) return null
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  const canvasWidth = view.getUint32(0, true)
+  const canvasHeight = view.getUint32(4, true)
+  const sequence = view.getUint32(8, true)
+  const rectCount = view.getUint16(12, true)
+  if (
+    canvasWidth < RDP_MIN_DISPLAY_EDGE || canvasWidth > RDP_MAX_DISPLAY_EDGE ||
+    canvasHeight < RDP_MIN_DISPLAY_EDGE || canvasHeight > RDP_MAX_DISPLAY_EDGE ||
+    canvasWidth * canvasHeight > RDP_MAX_DISPLAY_PIXELS ||
+    rectCount < 1 || rectCount > RDP_MAX_RECT_COUNT || view.getUint16(14, true) !== 0
+  ) return null
+
+  const rectangles = payload.subarray(RDP_FRAME_HEADER_BYTES)
+  if (!validateRdpFrameV1Rects(rectangles, canvasWidth, canvasHeight, rectCount)) return null
+  return { sequence, canvasWidth, canvasHeight, data: Uint8Array.from(rectangles) }
+}
+
+/** Validate the canonical rectangle stream used by RdpFrame and MessagePort. */
+export function validateRdpFrameV1Rects(
+  payload: Uint8Array,
+  canvasWidth: number,
+  canvasHeight: number,
+  expectedRectCount?: number
+): boolean {
+  if (
+    payload.byteLength < RDP_RECT_HEADER_BYTES || payload.byteLength > RDP_MAX_FRAME_BYTES ||
+    !Number.isInteger(canvasWidth) || !Number.isInteger(canvasHeight) ||
+    canvasWidth < RDP_MIN_DISPLAY_EDGE || canvasWidth > RDP_MAX_DISPLAY_EDGE ||
+    canvasHeight < RDP_MIN_DISPLAY_EDGE || canvasHeight > RDP_MAX_DISPLAY_EDGE ||
+    canvasWidth * canvasHeight > RDP_MAX_DISPLAY_PIXELS
+  ) return false
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength)
+  let offset = 0
+  let rectCount = 0
+  while (offset < payload.byteLength) {
+    if (rectCount >= RDP_MAX_RECT_COUNT || offset + RDP_RECT_HEADER_BYTES > payload.byteLength) return false
+    const x = view.getInt32(offset, true)
+    const y = view.getInt32(offset + 4, true)
+    const width = view.getUint32(offset + 8, true)
+    const height = view.getUint32(offset + 12, true)
+    const stride = view.getUint32(offset + 16, true)
+    const byteLength = view.getUint32(offset + 20, true)
+    offset += RDP_RECT_HEADER_BYTES
+    if (
+      x < 0 || y < 0 || width < 1 || height < 1 ||
+      x + width > canvasWidth || y + height > canvasHeight ||
+      stride < width * 4 || stride > RDP_MAX_DISPLAY_EDGE * 4 ||
+      byteLength !== stride * height || byteLength > payload.byteLength - offset
+    ) return false
+    offset += byteLength
+    rectCount++
+  }
+  return offset === payload.byteLength && rectCount > 0 &&
+    (expectedRectCount === undefined || rectCount === expectedRectCount)
+}
+
+/** 专用 RDP MessagePort 消息；buffer 由端点通过 transfer list 转移所有权。 */
+export interface RdpPortFrameMessage {
+  kind: 'frame'
+  sequence: number
+  canvasWidth: number
+  canvasHeight: number
+  buffer: ArrayBuffer
+}
+
+export interface RdpPortFrameAckMessage {
+  kind: 'frameAck'
+  sequence: number
+}
+
+export type RdpPortMessage = RdpPortFrameMessage | RdpPortFrameAckMessage
+
+/** Runtime boundary used by preload before a transferred frame reaches renderer code. */
+export function isRdpPortFrameMessage(value: unknown): value is RdpPortFrameMessage {
+  if (!value || typeof value !== 'object') return false
+  const frame = value as Partial<RdpPortFrameMessage>
+  const keys = Object.keys(value as object)
+  if (keys.length !== 5 || !keys.every((key) => ['kind', 'sequence', 'canvasWidth', 'canvasHeight', 'buffer'].includes(key))) return false
+  if (frame.kind !== 'frame' || !(frame.buffer instanceof ArrayBuffer)) return false
+  if (!Number.isInteger(frame.sequence) || frame.sequence! < 0 || frame.sequence! > 0xffffffff ||
+      !Number.isInteger(frame.canvasWidth) || frame.canvasWidth! < RDP_MIN_DISPLAY_EDGE || frame.canvasWidth! > RDP_MAX_DISPLAY_EDGE ||
+      !Number.isInteger(frame.canvasHeight) || frame.canvasHeight! < RDP_MIN_DISPLAY_EDGE || frame.canvasHeight! > RDP_MAX_DISPLAY_EDGE ||
+      frame.canvasWidth! * frame.canvasHeight! > RDP_MAX_DISPLAY_PIXELS) return false
+  return validateRdpFrameV1Rects(new Uint8Array(frame.buffer), frame.canvasWidth!, frame.canvasHeight!)
+}
+
+export type RdpInput =
+  | { kind: 'key'; scanCode: number; pressed: boolean; extended?: boolean; unicode?: number }
+  | { kind: 'pointer'; x: number; y: number; buttons: number; wheelX?: number; wheelY?: number }
+
 /** 认证/信任交互（hostkey 确认、keyboard-interactive、临时密码）统一走该请求-应答协议 */
-export type SessionPromptKind = 'hostkey-new' | 'hostkey-changed' | 'kbi' | 'password'
+export type SessionPromptKind =
+  | 'hostkey-new'
+  | 'hostkey-changed'
+  | 'kbi'
+  | 'password'
+  | 'rdp-password'
+  | 'rdp-certificate'
 
 export interface HostkeyPromptPayload {
   host: string
@@ -273,11 +471,30 @@ export interface PasswordPromptPayload {
   host: string
 }
 
+export interface RdpPasswordPromptPayload {
+  username: string
+  host: string
+}
+
+export interface RdpCertificatePromptPayload {
+  host: string
+  port: number
+  subject: string
+  issuer: string
+  fingerprintSha256: string
+  changed?: boolean
+}
+
 export interface SessionPrompt {
   requestId: string
   sessionId: SessionId
   kind: SessionPromptKind
-  payload: HostkeyPromptPayload | KbiPromptPayload | PasswordPromptPayload
+  payload:
+    | HostkeyPromptPayload
+    | KbiPromptPayload
+    | PasswordPromptPayload
+    | RdpPasswordPromptPayload
+    | RdpCertificatePromptPayload
 }
 
 export interface SessionPromptReply {

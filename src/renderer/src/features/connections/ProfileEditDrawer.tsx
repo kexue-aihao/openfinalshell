@@ -25,7 +25,7 @@ import { PrivateKeyEditModal, ProxyEditModal } from '@/features/settings/SavedRe
 
 interface FormValues {
   name: string
-  /** 'ssh'（默认）或 'rdp'（走系统远程桌面）。rdp 下 SSH 那套字段全部不适用 */
+  /** 'ssh'（默认）或 'rdp'（应用内嵌入式远程桌面）。rdp 下 SSH 那套字段全部不适用 */
   protocol?: 'ssh' | 'rdp'
   groupId: string | null
   color?: string
@@ -36,6 +36,11 @@ interface FormValues {
   username: string
   authMethod: 'password' | 'privateKey' | 'agent'
   password?: string
+  rdpPassword?: string
+  rdpDomain?: string
+  rdpClipboard: boolean
+  rdpCertificatePolicy: 'prompt' | 'strict'
+  rdpClearPassword?: boolean
   /** 引用一条已保存的私钥。路径与口令都归那条记录 */
   privateKeyId?: string
   charset: string
@@ -78,6 +83,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
   )
   const open = editingId !== null
   const hasSavedPassword = Boolean(editing?.auth.passwordRef)
+  const hasSavedRdpPassword = Boolean(editing?.rdp?.passwordRef)
 
   useEffect(() => {
     if (open && !refsLoaded) void loadRefs()
@@ -97,6 +103,11 @@ export function ProfileEditDrawer(): React.JSX.Element {
         username: editing.username,
         authMethod: editing.auth.method,
         password: '',
+        rdpPassword: '',
+        rdpDomain: editing.rdp?.domain ?? '',
+        rdpClipboard: editing.rdp?.clipboard ?? true,
+        rdpCertificatePolicy: editing.rdp?.certificatePolicy ?? 'prompt',
+        rdpClearPassword: false,
         privateKeyId: editing.auth.privateKeyId,
         charset: editing.terminal.charset,
         termType: editing.terminal.termType,
@@ -130,7 +141,12 @@ export function ProfileEditDrawer(): React.JSX.Element {
   }
 
   const submit = async (): Promise<void> => {
-    await form.validateFields()
+    try {
+      await form.validateFields()
+    } catch {
+      // Ant Design 已将字段标记为错误；提交按钮调用的是 void submit()，这里必须消费校验 rejection。
+      return
+    }
     // 必须取整个 store，不能用 validateFields() 的返回值：
     // 后者只含"已挂载"的字段，而折叠面板（高级选项 / 代理）没被展开过时里面的
     // Form.Item 根本没挂载 —— 取到的全是 undefined，主进程 zod 直接拒收。
@@ -153,6 +169,16 @@ export function ProfileEditDrawer(): React.JSX.Element {
           password: v.password || undefined,
           privateKeyId: v.privateKeyId || undefined
         },
+        rdp:
+          v.protocol === 'rdp'
+            ? {
+                password: v.rdpPassword || undefined,
+                domain: v.rdpDomain?.trim() || undefined,
+                clearPassword: v.rdpClearPassword || undefined,
+                clipboard: v.rdpClipboard ?? true,
+                certificatePolicy: v.rdpCertificatePolicy ?? 'prompt'
+              }
+            : undefined,
         terminal: {
           charset: v.charset,
           termType: v.termType,
@@ -212,6 +238,11 @@ export function ProfileEditDrawer(): React.JSX.Element {
           groupId: null,
           port: 22,
           authMethod: 'password',
+          rdpPassword: '',
+          rdpDomain: '',
+          rdpClipboard: true,
+          rdpCertificatePolicy: 'prompt',
+          rdpClearPassword: false,
           charset: 'utf-8',
           termType: 'xterm-256color',
           keepaliveInterval: 15000,
@@ -275,6 +306,62 @@ export function ProfileEditDrawer(): React.JSX.Element {
             message={t('conn.rdpTitle')}
             description={t('conn.rdpDesc')}
           />
+        )}
+
+        {protocol === 'rdp' && (
+          <>
+            <Form.Item
+              name="rdpDomain"
+              label={t('conn.rdpDomain')}
+              rules={[{ max: 120, message: t('conn.rdpDomainTooLong') }]}
+              extra={t('conn.rdpDomainHint')}
+            >
+              <Input placeholder={t('conn.rdpDomainPlaceholder')} autoComplete="off" />
+            </Form.Item>
+            <Form.Item
+              name="rdpPassword"
+              label={t('conn.password')}
+              extra={hasSavedRdpPassword ? t('conn.passwordSavedHint') : t('conn.passwordEmptyHint')}
+            >
+              <Input.Password
+                placeholder={hasSavedRdpPassword ? '••••••••' : ''}
+                autoComplete="new-password"
+              />
+            </Form.Item>
+            <Space size="large" align="start" wrap>
+              <Form.Item
+                name="rdpClipboard"
+                label={t('conn.rdpClipboard')}
+                valuePropName="checked"
+                extra={t('conn.rdpClipboardHint')}
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                name="rdpCertificatePolicy"
+                label={t('conn.rdpCertificatePolicy')}
+                extra={t('conn.rdpCertificatePolicyHint')}
+              >
+                <Select
+                  style={{ minWidth: 180 }}
+                  options={[
+                    { value: 'prompt', label: t('conn.rdpCertificatePrompt') },
+                    { value: 'strict', label: t('conn.rdpCertificateStrict') }
+                  ]}
+                />
+              </Form.Item>
+            </Space>
+            {hasSavedRdpPassword && (
+              <Form.Item
+                name="rdpClearPassword"
+                label={t('conn.rdpClearPassword')}
+                valuePropName="checked"
+                extra={t('conn.rdpClearPasswordHint')}
+              >
+                <Switch />
+              </Form.Item>
+            )}
+          </>
         )}
 
         {protocol === 'ssh' && (

@@ -3,6 +3,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { TerminalPane } from '@/features/terminal/TerminalPane'
 import { SftpPane } from '@/features/sftp/SftpPane'
 import { PortTrafficTab } from '@/features/portTraffic/PortTrafficTab'
+import { RdpPane } from './RdpPane'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import type { SessionTab } from '@/stores/useSessionStore'
 import styles from './SessionView.module.css'
@@ -31,6 +32,8 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
             <ErrorBoundary label={`session:${tab.id}`}>
               {tab.kind === 'portTraffic' ? (
                 <PortTrafficTab tab={tab} />
+              ) : tab.kind === 'rdp' ? (
+                <RdpPane tab={tab} active={active} />
               ) : (
               <>
               {/*

@@ -19,6 +19,7 @@ import { closeEditorWindowIfOpen } from './editorWindow'
 import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { registerUpdateIpc } from './ipc/update.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
+import { registerRdpIpc } from './ipc/rdp.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { portTrafficManager } from './monitor/PortTrafficManager'
 import { forwardManager } from './forward/ForwardManager'
@@ -26,6 +27,7 @@ import { lanSyncManager } from './lansync/LanSyncManager'
 import { flushForwards } from './store/forwards'
 import { packTempDir, transferQueue } from './sftp/TransferQueue'
 import { sshManager } from './ssh/SshConnectionManager'
+import { rdpSessionManager } from './rdp/RdpSessionManager'
 import { closeDatabase } from './store/Database'
 import { encryptExistingRowsOnce } from './store/encryptMigration'
 import { flushConnections, migrateInlineRefsOnce } from './store/connections'
@@ -85,6 +87,9 @@ process.on('unhandledRejection', (reason) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  let quitCleanupStarted = false
+  let quitCleanupComplete = false
+
   app.on('second-instance', () => {
     const win = BrowserWindow.getAllWindows()[0]
     if (win) {
@@ -137,6 +142,7 @@ if (!app.requestSingleInstanceLock()) {
     registerUpdateIpc()
     registerEditorIpc()
     registerSyncIpc()
+    registerRdpIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
@@ -171,29 +177,38 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('before-quit', () => {
-    stopUpdateChecks()
-    transferQueue.cancelAll()
-    monitorManager.stopAll()
-    portTrafficManager.stopAll()
-    forwardManager.stopAll()
-    // 局域网同步：关监听 + 停发现应答 + 销毁连接。必须先于 closeDatabase()
-    lanSyncManager.stopAll()
-    /**
-     * 停掉每条编辑并删掉本进程那个临时根 —— 不清就是把远端文件的明文副本留在 %TEMP% 里。
-     * 它是 async 而 before-quit 是同步钩子：和下面几个 flush 一样按 best-effort 处理
-     * （拖延退出去等一次目录删除不值得，真没删掉的下次启动时 purgeStaleTempDirs 会收走）。
-     */
-    sshManager.closeAll()
-    void settingsStore().flush()
-    void flushConnections()
-    void flushSavedRefs()
-    void flushKnownHosts()
-    void flushSnippets()
-    void flushForwards()
-    void vault.flush()
-    // 关掉数据库连接：WAL 会在最后一个连接关闭时归并回主库，
-    // 不关会留下 -wal/-shm 文件（能自愈，但卸载清理与备份都更干净些）
-    closeDatabase()
+  app.on('before-quit', (event) => {
+    if (quitCleanupComplete) return
+    event.preventDefault()
+    if (quitCleanupStarted) return
+    quitCleanupStarted = true
+
+    void (async () => {
+      stopUpdateChecks()
+      transferQueue.cancelAll()
+      monitorManager.stopAll()
+      portTrafficManager.stopAll()
+      forwardManager.stopAll()
+      // 局域网同步：关监听 + 停发现应答 + 销毁连接。必须先于 closeDatabase()
+      lanSyncManager.stopAll()
+      sshManager.closeAll()
+
+      // 每个 RDP Worker 自带 2 秒关闭上限；必须等它们退出后才能关库和结束 main。
+      await rdpSessionManager.closeAll()
+
+      void settingsStore().flush()
+      void flushConnections()
+      void flushSavedRefs()
+      void flushKnownHosts()
+      void flushSnippets()
+      void flushForwards()
+      void vault.flush()
+      // 关掉数据库连接：WAL 会在最后一个连接关闭时归并回主库，
+      // 不关会留下 -wal/-shm 文件（能自愈，但卸载清理与备份都更干净些）
+      closeDatabase()
+    })().finally(() => {
+      quitCleanupComplete = true
+      app.quit()
+    })
   })
 }

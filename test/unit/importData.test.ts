@@ -214,6 +214,90 @@ describe('导入：文件识别与结构校验', () => {
 })
 
 describe('导入：往返', () => {
+  it('RDP profile 与独立 Vault 密码导出后能完整导回', async () => {
+    wipe()
+    const saved = conns.saveProfile({
+      name: '远程桌面',
+      protocol: 'rdp',
+      groupId: null,
+      host: 'rdp.example',
+      port: 3389,
+      username: '',
+      auth: { method: 'password' },
+      rdp: {
+        domain: 'CORP',
+        password: 'rdp-secret',
+        clipboard: false,
+        certificatePolicy: 'strict'
+      },
+      terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      options: defaultOptions
+    })
+    const file = await exportSeed('rdp-roundtrip.json', true)
+    wipe()
+
+    const preview = await inspectImport({ sourcePath: file })
+    expect(preview!.invalid).toBe(0)
+    expect(preview!.counts.profiles).toBe(1)
+    const result = await applyImport({
+      token: preview!.token,
+      passphrase: PASS,
+      conflict: 'skip',
+      include: ALL
+    })
+
+    expect(result.profiles).toBe(1)
+    expect(result.secrets).toBe(1)
+    const restored = conns.getProfile(saved.id)!
+    expect(restored).toMatchObject({
+      protocol: 'rdp',
+      username: '',
+      rdp: {
+        domain: 'CORP',
+        clipboard: false,
+        certificatePolicy: 'strict'
+      }
+    })
+    expect(restored.rdp?.passwordRef).toBeTruthy()
+    expect(vault.getSecret(restored.rdp!.passwordRef!)).toBe('rdp-secret')
+  })
+
+  it('overwrite RDP profile removes the no-longer-referenced local password', async () => {
+    wipe()
+    const exported = conns.saveProfile({
+      name: '远程桌面',
+      protocol: 'rdp',
+      groupId: null,
+      host: 'rdp.example',
+      port: 3389,
+      username: 'alice',
+      auth: { method: 'password' },
+      rdp: { password: 'incoming', clipboard: true, certificatePolicy: 'prompt' },
+      terminal: { charset: 'utf-8', termType: 'xterm-256color' },
+      options: defaultOptions
+    })
+    const file = await exportSeed('rdp-overwrite.json', true)
+    const incomingRef = exported.rdp!.passwordRef!
+    wipe()
+
+    const localRef = vault.putSecret('local-only')
+    conns.upsertProfile({
+      ...exported,
+      rdp: { ...exported.rdp, passwordRef: localRef }
+    })
+    const preview = await inspectImport({ sourcePath: file })
+    await applyImport({
+      token: preview!.token,
+      passphrase: PASS,
+      conflict: 'overwrite',
+      include: ALL
+    })
+
+    expect(vault.getSecret(localRef)).toBeNull()
+    expect(vault.getSecret(incomingRef)).toBe('incoming')
+    expect(conns.getProfile(exported.id)?.rdp?.passwordRef).toBe(incomingRef)
+  })
+
   it('导出再导入，连接/分组/快捷命令/转发/指纹与密码原样回来', async () => {
     seed()
     const file = await exportSeed('roundtrip.json')

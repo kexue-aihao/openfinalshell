@@ -11,7 +11,9 @@ import { blockAfter, flat, read, stripComments } from '../sourceGuard'
  *     而功能看起来"开了但没效果"，没有任何报错；
  *  2. 降级必须**可解释**（原因落进 task.notice）；判定本身出错不许把传输带下去；
  *  3. 清场必须在 `finally` 里 —— 失败时远端 /tmp 与本机 %TEMP% 各留一份大文件；
- *  4. `child_process` 只许 localTar.ts 用（这是主进程**新增**的能力，本项目此前一处都没用过）；
+ *  4. `child_process` 只许 localTar.ts、directLatency.ts 与 RDP Worker 管理器使用；新增的
+ *     Worker 路径固定来自 `process.resourcesPath`（测试覆盖时才允许显式环境变量），不会接收
+ *     renderer 提供的路径，且始终以 `shell:false` 启动。每一处都必须在这里说明边界；
  *  5. 启动清扫必须有调用点，且排在单实例锁之后；
  *  6. 界面必须真的把阶段名与 notice 显示出来（main 发了、界面没接 = 用户什么都看不到）。
  */
@@ -133,7 +135,8 @@ describe('清场', () => {
 describe('child_process 的用处清单', () => {
   /**
    * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力。现在有两处：
-   * `localTar.ts` 调 System32 的 bsdtar 列/解归档，`directLatency.ts` 调系统 ping 测 ICMP RTT。
+   * `localTar.ts` 调 System32 的 bsdtar 列/解归档，`directLatency.ts` 调系统 ping 测 ICMP RTT，
+   * `RdpSessionManager.ts` 仅启动随应用分发的固定 Worker（不接受 renderer 路径）。
    *
    * 曾经还有 `RemoteEditManager.ts`（起用户指定的那个外部编辑器 exe）——
    * 外部编辑器整条路删掉之后它也没了，之后新增的每一处都必须在这里说明风险边界。
@@ -143,6 +146,7 @@ describe('child_process 的用处清单', () => {
    * 所以要让新增者被迫改这张表、连带在评审里解释一句。
    */
   const DL = 'src/main/monitor/directLatency.ts'
+  const RDP = 'src/main/rdp/RdpSessionManager.ts'
 
   it('src/main 下引用 child_process 的文件必须全部在清单中', () => {
     const offenders: string[] = []
@@ -157,7 +161,7 @@ describe('child_process 的用处清单', () => {
       }
     }
     walk('src/main')
-    expect(offenders).toEqual([DL, LT])
+    expect(offenders).toEqual([DL, RDP, LT])
   })
 
   it('直连 Ping 使用系统绝对路径与 argv，且不经过 shell', () => {
