@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.30',
+    items: [
+      {
+        type: 'fix',
+        zh: '优化嵌入式 RDP 画面流畅度，修复增量帧丢失导致的局部黑块，并降低高分辨率渲染开销',
+        en: 'Improved embedded RDP smoothness, fixed partial black regions caused by dropped dirty frames, and reduced high-resolution rendering overhead'
+      }
+    ]
+  },
+  {
     version: '0.20.29',
     items: [
       {
