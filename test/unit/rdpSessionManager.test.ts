@@ -18,11 +18,12 @@ const promptRequest = vi.fn((_sessionId: string, _kind: string, _payload: unknow
 const cancelForSession = vi.fn()
 const launchRdp = vi.fn()
 const rememberRdpPassword = vi.fn()
+const getSecret = vi.fn(() => null as string | null)
 
 vi.mock('../../src/main/ipc/registry', () => ({ emit }))
 vi.mock('../../src/main/services/i18n', () => ({ t: (key: string) => key }))
 vi.mock('../../src/main/store/connections', () => ({ getProfile, rememberRdpPassword, upsertProfile: vi.fn() }))
-vi.mock('../../src/main/store/Vault', () => ({ vault: { getSecret: vi.fn(() => null), putSecret: vi.fn(), putSecretIfAvailable: vi.fn(), isAvailable: vi.fn(() => true) } }))
+vi.mock('../../src/main/store/Vault', () => ({ vault: { getSecret, putSecret: vi.fn(), putSecretIfAvailable: vi.fn(), isAvailable: vi.fn(() => true) } }))
 vi.mock('../../src/main/ssh/PromptBroker', () => ({ promptBroker: { request: promptRequest, cancelForSession } }))
 vi.mock('../../src/main/services/rdpLaunch', () => ({ launchRdp }))
 
@@ -116,7 +117,7 @@ async function openReady() {
 describe('RdpSessionManager protocol/state behavior', () => {
   beforeEach(() => {
     vi.resetModules()
-    emit.mockClear(); getProfile.mockClear(); promptRequest.mockClear(); cancelForSession.mockClear(); launchRdp.mockClear(); rememberRdpPassword.mockClear()
+    emit.mockClear(); getProfile.mockClear(); promptRequest.mockClear(); cancelForSession.mockClear(); launchRdp.mockClear(); rememberRdpPassword.mockClear(); getSecret.mockReset(); getSecret.mockReturnValue(null)
     spawn.mockClear(); spawnedWorkers.length = 0
     process.env.OFS_RDP_WORKER = process.execPath
   })
@@ -369,6 +370,75 @@ describe('RdpSessionManager protocol/state behavior', () => {
       username: 'alice',
       domain: 'CORP'
     }))
+  })
+
+  it('prompts for a fresh password after a saved RDP password is rejected', async () => {
+    getSecret.mockReturnValue('stale-password')
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { passwordRef: 'saved-ref', clipboard: false, certificatePolicy: 'prompt' }
+    } as ReturnType<typeof getProfile>)
+
+    const { manager, sessionId } = await openReady()
+    expect(promptRequest.mock.calls.some(([, kind]) => kind === 'rdp-password')).toBe(false)
+
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, {
+      op: 'state', state: 'failed', errorCode: 'AUTH_FAILED'
+    }))
+    const reconnecting = manager.reconnect(sessionId)
+    await Promise.resolve()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'closed' }))
+    await reconnecting
+
+    currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    }))
+    await Promise.resolve()
+    expect(promptRequest).toHaveBeenCalledWith(
+      expect.any(String), 'rdp-password', { username: 'alice', host: 'rdp.example' }, 120_000
+    )
+  })
+
+  it('uses a newly remembered RDP password on the next reconnect', async () => {
+    getSecret.mockReturnValue('stale-password')
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { passwordRef: 'saved-ref', clipboard: false, certificatePolicy: 'prompt' }
+    } as ReturnType<typeof getProfile>)
+    promptRequest.mockResolvedValueOnce({ ok: true, answers: ['fresh-password'], remember: true })
+    rememberRdpPassword.mockReturnValueOnce('saved-ref')
+
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, {
+      op: 'state', state: 'failed', errorCode: 'AUTH_FAILED'
+    }))
+    const firstReconnect = manager.reconnect(sessionId)
+    await Promise.resolve()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'closed' }))
+    await firstReconnect
+    currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    }))
+    await Promise.resolve()
+    expect(rememberRdpPassword).toHaveBeenCalledWith('profile-1', 'fresh-password')
+
+    getSecret.mockReturnValue('fresh-password')
+    const promptCount = promptRequest.mock.calls.filter(([, kind]) => kind === 'rdp-password').length
+    const secondReconnect = manager.reconnect(sessionId)
+    await Promise.resolve()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'closed' }))
+    await secondReconnect
+    currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    }))
+    await Promise.resolve()
+
+    expect(promptRequest.mock.calls.filter(([, kind]) => kind === 'rdp-password')).toHaveLength(promptCount)
+    const credential = currentWorker.writes.find((bytes) => bytes[6] === 0x11)
+    expect(credential).toBeDefined()
+    expect(JSON.parse(credential!.subarray(16).toString('utf8'))).toEqual(expect.objectContaining({ value: 'fresh-password' }))
   })
 
   it('passes audio playback to an audio-capable worker and forwards nonfatal audio state', async () => {

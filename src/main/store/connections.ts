@@ -227,21 +227,24 @@ export function rememberPassword(id: ProfileId, password: string): void {
   })
 }
 
-/** 保存已有 RDP profile 的密码；Vault 不可用时只清掉旧引用，不落明文。 */
-export function rememberRdpPassword(id: ProfileId, password: string): void {
+/** 保存已有 RDP profile 的密码；返回实际引用，Vault 不可用时返回 undefined。 */
+export function rememberRdpPassword(id: ProfileId, password: string): string | undefined {
+  let passwordRef: string | undefined
   tx(() => {
     const p = getProfile(id)
     if (!p) return
     const current = p.rdp ?? {}
+    passwordRef = vault.putSecretIfAvailable(password, current.passwordRef)
     p.rdp = {
       ...current,
-      passwordRef: vault.putSecretIfAvailable(password, current.passwordRef),
+      passwordRef,
       clipboard: current.clipboard ?? true,
       audioPlayback: current.audioPlayback ?? true,
       certificatePolicy: current.certificatePolicy ?? 'prompt'
     }
     upsertProfile(p)
   })
+  return passwordRef
 }
 
 export function saveGroup(group: ConnectionGroup): void {

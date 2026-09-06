@@ -100,6 +100,8 @@ interface Session {
   removeWhenClosed: boolean
   closeWaiters: Array<() => void>
   failureCode?: RdpErrorCode
+  /** Ask for a fresh password after the server rejects the one just tried. */
+  forcePasswordPrompt: boolean
   certificatePolicy: 'prompt' | 'strict'
   audioPlayback: boolean
   pendingCertificateRequests: Set<number>
@@ -565,6 +567,7 @@ export class RdpSessionManager {
       ? requestedCode as RdpErrorCode
       : stableWorkerError(requestedCode)
     session.failureCode = explicitCode
+    if (explicitCode === 'AUTH_FAILED') session.forcePasswordPrompt = true
     this.emitState(session, 'failed', explicitCode)
     void this.beginClose(session, 'failure', false)
   }
@@ -584,9 +587,12 @@ export class RdpSessionManager {
   private async sendPasswordIfAvailable(session: Session): Promise<void> {
     if (!this.isRunning(session)) return
     const profile = session.profile
-    let password = profile.passwordRef ? vault.getSecret(profile.passwordRef) : null
+    let password = session.forcePasswordPrompt
+      ? null
+      : profile.passwordRef ? vault.getSecret(profile.passwordRef) : null
+    const prompted = password === null
     let remember = false
-    if (password === null) {
+    if (prompted) {
       this.emitState(session, 'authenticating')
       this.armStartupTimer(session, AUTH_TIMEOUT_MS, 'NETWORK_ERROR')
       const reply = await promptBroker.request(session.id, 'rdp-password', {
@@ -602,7 +608,11 @@ export class RdpSessionManager {
       remember = reply.remember === true
     }
     if (!this.isRunning(session) || password === null) return
-    if (remember) rememberRdpPassword(profile.id, password)
+    const rememberedPasswordRef = remember ? rememberRdpPassword(profile.id, password) : undefined
+    if (prompted) {
+      session.forcePasswordPrompt = rememberedPasswordRef === undefined
+      if (remember) session.profile.passwordRef = rememberedPasswordRef
+    }
     // Keep the secret out of renderer state and clear this local as soon as
     // the Worker write is queued. Vault persistence contains only its reference.
     if (!this.write(session, 0x11, this.nextRequestId(session), { op: 'credential', kind: 'password', value: password })) return
@@ -880,7 +890,12 @@ export class RdpSessionManager {
     }
   }
 
-  private createSession(sessionId: SessionId, profile: FrozenRdpProfile, display: RdpDisplaySize): Session {
+  private createSession(
+    sessionId: SessionId,
+    profile: FrozenRdpProfile,
+    display: RdpDisplaySize,
+    forcePasswordPrompt = false
+  ): Session {
     const session: Session = {
       id: sessionId,
       profile,
@@ -903,6 +918,7 @@ export class RdpSessionManager {
       closeCompleted: false,
       removeWhenClosed: false,
       closeWaiters: [],
+      forcePasswordPrompt,
       certificatePolicy: profile.certificatePolicy,
       audioPlayback: profile.audioPlayback,
       pendingCertificateRequests: new Set(),
@@ -911,8 +927,13 @@ export class RdpSessionManager {
     return session
   }
 
-  private startSession(sessionId: SessionId, profile: FrozenRdpProfile, display: RdpDisplaySize): void {
-    const session = this.createSession(sessionId, profile, display)
+  private startSession(
+    sessionId: SessionId,
+    profile: FrozenRdpProfile,
+    display: RdpDisplaySize,
+    forcePasswordPrompt = false
+  ): void {
+    const session = this.createSession(sessionId, profile, display, forcePasswordPrompt)
     this.sessions.set(sessionId, session)
     const path = workerPath()
     if (!existsSync(path)) {
@@ -1093,10 +1114,11 @@ export class RdpSessionManager {
     if (!old) throw new Error(t('err.rdp.sessionNotFound'))
     const profile = old.profile
     const display = old.display
+    const forcePasswordPrompt = old.forcePasswordPrompt || old.failureCode === 'AUTH_FAILED'
     await this.beginClose(old, 'reconnect', false)
     if (this.sessions.get(sessionId) !== old) return
     this.emitState(old, 'reconnecting')
-    this.startSession(sessionId, profile, display)
+    this.startSession(sessionId, profile, display, forcePasswordPrompt)
   }
 
   async systemFallback(sessionId: SessionId): Promise<void> {

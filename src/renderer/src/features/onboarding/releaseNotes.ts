@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.35',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 RDP 身份验证失败后重复使用旧密码的问题；认证失败重连会重新提示密码，并正确保存新凭据',
+        en: 'Fixed embedded RDP authentication retries reusing a rejected password; failed-auth reconnects now prompt again and correctly persist new credentials'
+      }
+    ]
+  },
+  {
     version: '0.20.34',
     items: [
       {
