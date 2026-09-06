@@ -249,7 +249,7 @@ describe('RDP Canvas2D composition', () => {
   it('keeps the visible 2D fallback when WebGL initialization fails', () => {
     webglMode = 'fail'
     const canvas = document.createElement('canvas')
-    const renderer = new RdpCanvasRenderer(canvas)
+    const renderer = new RdpCanvasRenderer(canvas, { useWebgl: true })
 
     renderer.enqueue({
       sequence: 1,
@@ -263,10 +263,28 @@ describe('RDP Canvas2D composition', () => {
     renderer.dispose()
   })
 
-  it('uploads top-down RDP rows in WebGL texture order and presents the result', () => {
+  it('uses Canvas2D by default even when WebGL is available', () => {
     webglMode = 'success'
     const canvas = document.createElement('canvas')
     const renderer = new RdpCanvasRenderer(canvas)
+
+    renderer.enqueue({
+      sequence: 1,
+      canvasWidth: CANVAS_WIDTH,
+      canvasHeight: CANVAS_HEIGHT,
+      data: rectPayload({ data: new Uint8Array([0, 0, 255, 255]) })
+    })
+    rafCallbacks.shift()?.(0)
+
+    expect(putImageData).toHaveBeenCalledTimes(1)
+    expect(drawImage).not.toHaveBeenCalled()
+    renderer.dispose()
+  })
+
+  it('uploads top-down RDP rows in WebGL texture order and presents the result', () => {
+    webglMode = 'success'
+    const canvas = document.createElement('canvas')
+    const renderer = new RdpCanvasRenderer(canvas, { useWebgl: true })
     const topRow = new Uint8Array([1, 2, 3, 255])
     const bottomRow = new Uint8Array([4, 5, 6, 255])
 

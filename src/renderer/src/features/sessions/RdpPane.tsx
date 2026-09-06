@@ -168,7 +168,12 @@ interface GlRenderer {
   uv: number
 }
 
-/** A fixed backing canvas renderer with a WebGL2 BGRA swizzle fast path. */
+interface RdpCanvasRendererOptions {
+  /** Keep the stable Canvas2D path as the production default. */
+  useWebgl?: boolean
+}
+
+/** A fixed backing canvas renderer with an opt-in WebGL2 BGRA swizzle path. */
 export class RdpCanvasRenderer {
   private readonly canvas: HTMLCanvasElement
   private glRenderer: GlRenderer | null
@@ -180,7 +185,7 @@ export class RdpCanvasRenderer {
   private renderedSequence = -1
   private hasDisplayedFrame = false
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, options: RdpCanvasRendererOptions = {}) {
     this.canvas = canvas
     // Keep the visible canvas in 2D mode. A canvas cannot switch from a
     // failed WebGL context to 2D, so WebGL is deliberately isolated on an
@@ -189,12 +194,14 @@ export class RdpCanvasRenderer {
     if (!this.context2d) throw new Error('RDP canvas has no supported 2D renderer')
 
     let glRenderer: GlRenderer | null = null
-    try {
-      const glCanvas = document.createElement('canvas')
-      const gl = glCanvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: false })
-      if (gl) glRenderer = this.createGlRenderer(gl, glCanvas)
-    } catch {
-      glRenderer = null
+    if (options.useWebgl === true) {
+      try {
+        const glCanvas = document.createElement('canvas')
+        const gl = glCanvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: false })
+        if (gl) glRenderer = this.createGlRenderer(gl, glCanvas)
+      } catch {
+        glRenderer = null
+      }
     }
     this.glRenderer = glRenderer
     if (glRenderer) {

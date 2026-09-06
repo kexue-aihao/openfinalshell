@@ -335,6 +335,74 @@ struct FreeRdpAdapter::Impl {
     return TRUE;
   }
 
+  // FreeRDP may finish the initial connection without marking the GDI window
+  // invalid. The embedded client still needs a seed image in that case;
+  // otherwise the session can report ready while the renderer has nothing to
+  // paint until the remote desktop changes a pixel.
+  static BOOL emitFullFrame(rdpContext* context) {
+    Impl* self = active;
+    if (self && self->instance && self->instance->context != context) self = nullptr;
+    if (!self || !context || !context->gdi) return FALSE;
+    rdpGdi* gdi = context->gdi;
+    if (!gdi->primary_buffer || !gdi->primary || !gdi->primary->bitmap ||
+        gdi->width <= 0 || gdi->height <= 0 || gdi->stride <= 0)
+      return FALSE;
+
+    const auto width = static_cast<std::uint32_t>(gdi->width);
+    const auto height = static_cast<std::uint32_t>(gdi->height);
+    const auto stride = static_cast<std::uint32_t>(gdi->stride);
+    const auto bitmapStride = static_cast<std::uint32_t>(gdi->primary->bitmap->scanline);
+    const std::uint64_t framebufferBytes = static_cast<std::uint64_t>(stride) * height;
+    if (!ofs::rdp::frame::validCanvas(width, height) ||
+        static_cast<std::uint64_t>(width) * 4u > stride ||
+        bitmapStride != stride || bitmapStride < static_cast<std::uint64_t>(width) * 4u ||
+        gdi->primary->bitmap->data != gdi->primary_buffer ||
+        framebufferBytes > std::numeric_limits<std::uint32_t>::max())
+      return FALSE;
+
+    const std::uint64_t rowBytes = static_cast<std::uint64_t>(width) * 4u;
+    const std::uint64_t maxRows =
+        (kMaxFramePayload - kFrameHeaderSize - kRectHeaderSize) / rowBytes;
+    if (maxRows == 0) return FALSE;
+
+    std::vector<Rect> batch;
+    std::uint64_t batchBytes = kFrameHeaderSize;
+    try {
+      std::uint32_t copiedRows = 0;
+      while (copiedRows < height) {
+        const auto sliceHeight = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+            height - copiedRows, maxRows));
+        const std::uint64_t sliceBytes = rowBytes * sliceHeight;
+        if (batch.size() == kMaxFrameRects ||
+            batchBytes > kMaxFramePayload - kRectHeaderSize - sliceBytes) {
+          if (!self->emitFrame(width, height, std::move(batch))) return FALSE;
+          batch = {};
+          batchBytes = kFrameHeaderSize;
+        }
+
+        Rect rect;
+        rect.x = 0;
+        rect.y = static_cast<std::int32_t>(copiedRows);
+        rect.width = width;
+        rect.height = sliceHeight;
+        rect.stride = width * 4u;
+        rect.pixels.resize(static_cast<std::size_t>(sliceBytes));
+        for (std::uint32_t row = 0; row < sliceHeight; ++row) {
+          const auto* source = gdi->primary_buffer +
+              (static_cast<std::uint64_t>(copiedRows) + row) * stride;
+          std::memcpy(rect.pixels.data() + static_cast<std::size_t>(row) * rowBytes,
+                      source, static_cast<std::size_t>(rowBytes));
+        }
+        batchBytes += kRectHeaderSize + sliceBytes;
+        batch.emplace_back(std::move(rect));
+        copiedRows += sliceHeight;
+      }
+    } catch (const std::bad_alloc&) {
+      return FALSE;
+    }
+    return batch.empty() ? FALSE : (self->emitFrame(width, height, std::move(batch)) ? TRUE : FALSE);
+  }
+
   static BOOL desktopResize(rdpContext* context) {
     if (!context || !context->gdi || !context->settings) return FALSE;
     const UINT32 width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
@@ -815,7 +883,13 @@ struct FreeRdpAdapter::Impl {
       return;
     }
     connected = true;
-    if (instance->context && instance->context->gdi) endPaint(instance->context);
+    if (!instance->context || !emitFullFrame(instance->context)) {
+      std::cerr << "[rdp-worker] initial framebuffer publication failed\n";
+      std::cerr.flush();
+      if (!stopping.load()) emitState("failed", "PROTOCOL_ERROR");
+      cleanup();
+      return;
+    }
     emitState("ready", nullptr);
     bool transportOk = true;
     while (!stopping.load()) {

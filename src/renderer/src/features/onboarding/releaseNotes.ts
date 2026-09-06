@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.28',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 RDP 连接成功后未显示首帧导致的黑屏问题；连接后主动发布完整桌面画面，并默认使用稳定的 2D Canvas 渲染路径',
+        en: 'Fixed embedded RDP sessions staying black after a successful connection by publishing an initial full framebuffer and using the stable Canvas2D rendering path by default'
+      }
+    ]
+  },
+  {
     version: '0.20.27',
     items: [
       {

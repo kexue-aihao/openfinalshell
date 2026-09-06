@@ -100,6 +100,14 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).not.toContain('connectThread')
   })
 
+  it('publishes a complete initial framebuffer before reporting FreeRDP ready', () => {
+    expect(adapter).toContain('static BOOL emitFullFrame(rdpContext* context)')
+    expect(adapter).toContain('otherwise the session can report ready while the renderer has nothing to')
+    expect(adapter).toContain('if (!instance->context || !emitFullFrame(instance->context))')
+    expect(adapter).toContain('rect.x = 0')
+    expect(adapter).toContain('rect.y = static_cast<std::int32_t>(copiedRows)')
+  })
+
   it('uses the RDPEDISP monitor-layout API for dynamic resolution', () => {
     expect(adapter).toContain('#include <freerdp/client/disp.h>')
     expect(adapter).toContain('#include <freerdp/addin.h>')
