@@ -130,7 +130,9 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('FreeRDP_SupportMultitransport, FALSE')
     expect(adapter).toContain('FreeRDP_SupportDisplayControl')
     expect(adapter).toContain('SendMonitorLayout(disp, 1, &layout)')
-    expect(adapter).toContain('flags |= PTR_FLAGS_MOVE')
+    expect(adapter).toContain('bool ok = freerdp_input_send_mouse_event(instance->context->input, PTR_FLAGS_MOVE, px, py)')
+    expect(adapter).not.toContain('if (!positionSent) flags |= PTR_FLAGS_MOVE')
+    expect(adapter).not.toContain('bool positionSent = false')
     expect(adapter).not.toContain('freerdp_input_send_synchronize_event')
   })
 

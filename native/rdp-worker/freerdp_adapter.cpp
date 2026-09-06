@@ -742,24 +742,21 @@ struct FreeRdpAdapter::Impl {
         if (!instance->context->input) return false;
         const UINT16 px = static_cast<UINT16>(std::min<std::uint32_t>(command.x, 0xffffu));
         const UINT16 py = static_cast<UINT16>(std::min<std::uint32_t>(command.y, 0xffffu));
+        // Keep the position update as a separate PDU. Some Windows RDP
+        // servers accept PTR_FLAGS_MOVE combined with a button transition,
+        // while others do not reliably dispatch the resulting click to the
+        // target window. The separate MOVE -> button sequence is the
+        // interoperable behavior used by the previous release.
+        bool ok = freerdp_input_send_mouse_event(instance->context->input, PTR_FLAGS_MOVE, px, py);
         const std::uint32_t normalized = command.buttons & 0x7u;
         const std::uint32_t changed = lastButtons ^ normalized;
         const struct ButtonFlag { std::uint32_t mask; UINT16 flag; } buttonFlags[] = {
             {1u, PTR_FLAGS_BUTTON1}, {2u, PTR_FLAGS_BUTTON2}, {4u, PTR_FLAGS_BUTTON3}};
-        bool ok = true;
-        bool positionSent = false;
-        const auto send = [&](UINT16 flags) {
-          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
-          positionSent = true;
-        };
         for (const auto& button : buttonFlags) {
           if ((changed & button.mask) == 0) continue;
           UINT16 flags = button.flag;
           if ((normalized & button.mask) != 0) flags |= PTR_FLAGS_DOWN;
-          // MOVE may be combined with a button transition. This keeps a click
-          // to one input PDU instead of sending a standalone move first.
-          if (!positionSent) flags |= PTR_FLAGS_MOVE;
-          send(flags);
+          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
         }
         lastButtons = normalized;
         const auto wheelMagnitude = [](std::int32_t value) {
@@ -769,16 +766,13 @@ struct FreeRdpAdapter::Impl {
         if (command.wheelY != 0) {
           UINT16 flags = PTR_FLAGS_WHEEL | wheelMagnitude(command.wheelY);
           if (command.wheelY < 0) flags |= PTR_FLAGS_WHEEL_NEGATIVE;
-          if (!positionSent) flags |= PTR_FLAGS_MOVE;
-          send(flags);
+          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
         }
         if (command.wheelX != 0) {
           UINT16 flags = PTR_FLAGS_HWHEEL | wheelMagnitude(command.wheelX);
           if (command.wheelX < 0) flags |= PTR_FLAGS_WHEEL_NEGATIVE;
-          if (!positionSent) flags |= PTR_FLAGS_MOVE;
-          send(flags);
+          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
         }
-        if (!positionSent) send(PTR_FLAGS_MOVE);
         return ok;
       }
       case CommandKind::clipboardSet: {

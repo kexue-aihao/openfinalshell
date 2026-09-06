@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.33',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复嵌入式 RDP 鼠标无法正常点击远程应用的问题，恢复与 Windows RDP 服务端兼容的移动与按钮事件顺序',
+        en: 'Fixed embedded RDP mouse clicks not reaching remote applications by restoring the interoperable move-then-button event order for Windows RDP servers'
+      }
+    ]
+  },
+  {
     version: '0.20.32',
     items: [
       {
