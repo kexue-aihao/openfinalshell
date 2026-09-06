@@ -264,6 +264,26 @@ describe('RDP Canvas2D composition', () => {
     renderer.dispose()
   })
 
+  it('does not ACK a dirty frame until a failed paint is retried successfully', () => {
+    const canvas = document.createElement('canvas')
+    const ack = vi.fn()
+    putImageData.mockImplementationOnce(() => { throw new Error('paint failed') })
+    const renderer = new RdpCanvasRenderer(canvas)
+
+    renderer.enqueue({
+      sequence: 1,
+      canvasWidth: CANVAS_WIDTH,
+      canvasHeight: CANVAS_HEIGHT,
+      data: rectPayload({ data: new Uint8Array([0, 0, 255, 255]) })
+    }, ack)
+    rafCallbacks.shift()?.(0)
+
+    expect(ack).not.toHaveBeenCalled()
+    rafCallbacks.shift()?.(0)
+    expect(ack).toHaveBeenCalledTimes(1)
+    renderer.dispose()
+  })
+
   it('uses Canvas2D by default even when WebGL is available', () => {
     webglMode = 'success'
     const canvas = document.createElement('canvas')

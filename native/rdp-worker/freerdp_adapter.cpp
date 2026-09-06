@@ -263,6 +263,7 @@ struct FreeRdpAdapter::Impl {
     if (window->ninvalid <= 0 || !window->cinvalid) return TRUE;
 
     std::vector<Rect> batch;
+    batch.reserve(kMaxFrameRects);
     std::uint64_t batchBytes = kFrameHeaderSize;
     try {
       for (INT32 index = 0; index < window->ninvalid; ++index) {
@@ -306,6 +307,7 @@ struct FreeRdpAdapter::Impl {
               batchBytes > kMaxFramePayload - kRectHeaderSize - sliceBytes) {
             if (!self->emitFrame(width, height, std::move(batch))) return FALSE;
             batch = {};
+            batch.reserve(kMaxFrameRects);
             batchBytes = kFrameHeaderSize;
           }
 
@@ -373,6 +375,7 @@ struct FreeRdpAdapter::Impl {
     if (maxRows == 0) return FALSE;
 
     std::vector<Rect> batch;
+    batch.reserve(kMaxFrameRects);
     std::uint64_t batchBytes = kFrameHeaderSize;
     try {
       std::uint32_t copiedRows = 0;
@@ -384,6 +387,7 @@ struct FreeRdpAdapter::Impl {
             batchBytes > kMaxFramePayload - kRectHeaderSize - sliceBytes) {
           if (!self->emitFrame(width, height, std::move(batch))) return FALSE;
           batch = {};
+          batch.reserve(kMaxFrameRects);
           batchBytes = kFrameHeaderSize;
         }
 
@@ -420,7 +424,11 @@ struct FreeRdpAdapter::Impl {
     if (!context || !context->gdi || !context->settings) return FALSE;
     const UINT32 width = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopWidth);
     const UINT32 height = freerdp_settings_get_uint32(context->settings, FreeRDP_DesktopHeight);
-    return gdi_resize(context->gdi, width, height);
+    if (!gdi_resize(context->gdi, width, height)) return FALSE;
+    // gdi_resize() replaces the backing store. The server may follow with
+    // only partial invalidations, so publish a complete keyframe immediately
+    // or the renderer can retain black pixels outside the next dirty rect.
+    return emitFullFrame(context);
   }
 
   static DWORD verifyCertificateEx(freerdp* value, const char* host, UINT16 port,
@@ -733,6 +741,7 @@ struct FreeRdpAdapter::Impl {
                                                  static_cast<UINT16>(command.scanCode));
       }
       case CommandKind::pointer: {
+        if (!instance->context->input) return false;
         const UINT16 px = static_cast<UINT16>(std::min<std::uint32_t>(command.x, 0xffffu));
         const UINT16 py = static_cast<UINT16>(std::min<std::uint32_t>(command.y, 0xffffu));
         bool ok = freerdp_input_send_mouse_event(instance->context->input, PTR_FLAGS_MOVE, px, py);

@@ -34,6 +34,7 @@ interface QueuedFrame {
 const RECT_HEADER_SIZE = 24
 const MAX_RECT_COUNT = 1024
 const MAX_FRAME_BYTES = 64 * 1024 * 1024
+const CLIPBOARD_SETTLE_MS = 75
 
 /** Set-1 scan codes keyed by the physical DOM KeyboardEvent.code value. */
 const RDP_SCANCODES: Readonly<Record<string, { scanCode: number; extended?: true }>> = {
@@ -245,21 +246,33 @@ export class RdpCanvasRenderer {
       if (this.disposed) return
       const queued = this.frameQueue
       this.frameQueue = []
-      const acknowledgements: Array<() => void> = []
       let batchWidth = 0
       let batchHeight = 0
       let batchRects: DirtyRect[] = []
+      let batchItems: QueuedFrame[] = []
+      const failedItems: QueuedFrame[] = []
+      let paintFailed = false
       const flushBatch = (): void => {
-        if (batchRects.length === 0) return
+        if (batchItems.length === 0) return
         try {
           this.paint(batchWidth, batchHeight, batchRects)
+          this.renderedSequence = batchItems[batchItems.length - 1].frame.sequence
+          for (const item of batchItems) item.ack?.()
         } catch {
-          // Always release frame ACKs below so a transient canvas failure does
-          // not permanently pause the native Worker stream.
+          // A dirty frame is not safe to acknowledge until its pixels are on
+          // the visible canvas. Requeue the whole batch so the main process can
+          // retry it after the renderer recovers.
+          paintFailed = true
+          failedItems.push(...batchItems)
         }
         batchRects = []
+        batchItems = []
       }
       for (const item of queued) {
+        if (paintFailed) {
+          failedItems.push(item)
+          continue
+        }
         if (item.frame.sequence <= this.renderedSequence) {
           item.ack?.()
           continue
@@ -275,11 +288,13 @@ export class RdpCanvasRenderer {
         batchWidth = item.frame.canvasWidth
         batchHeight = item.frame.canvasHeight
         batchRects.push(...rects)
-        this.renderedSequence = item.frame.sequence
-        if (item.ack) acknowledgements.push(item.ack)
+        batchItems.push(item)
       }
       flushBatch()
-      for (const ack of acknowledgements) ack()
+      if (failedItems.length > 0) {
+        this.frameQueue = [...failedItems, ...this.frameQueue]
+        this.latestSequence = this.renderedSequence
+      }
       if (this.frameQueue.length > 0) this.schedule()
     })
   }
@@ -465,6 +480,11 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   const rendererRef = useRef<RdpCanvasRenderer | null>(null)
   const pendingFramesRef = useRef<QueuedFrame[]>([])
   const pressedKeysRef = useRef(new Map<string, { scanCode: number; extended?: true }>())
+  const pressedButtonsRef = useRef(0)
+  const lastPointerRef = useRef({ x: 0, y: 0 })
+  const pendingPointerMoveRef = useRef<RdpInput | null>(null)
+  const pointerMoveFrameRef = useRef<number | null>(null)
+  const clipboardShortcutRef = useRef<'KeyC' | 'KeyV' | null>(null)
   const updateTab = useSessionStore((s) => s.updateTab)
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
   const profileId = tab.profileId
@@ -474,7 +494,11 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     const canvas = canvasRef.current
     if (!canvas) return
     try {
-      const renderer = new RdpCanvasRenderer(canvas, { useWebgl: true })
+      // The experimental WebGL path uploads to an offscreen canvas and then
+      // copies the full frame back to the visible 2D canvas. Keep the stable
+      // dirty-rectangle Canvas2D path as the production default until a direct
+      // visible WebGL renderer is available.
+      const renderer = new RdpCanvasRenderer(canvas)
       rendererRef.current = renderer
       for (const queued of pendingFramesRef.current) renderer.enqueue(queued.frame, queued.ack)
       pendingFramesRef.current = []
@@ -541,7 +565,11 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   }, [tab.sessionId])
 
   useEffect(() => {
-    if (!active || tab.state !== 'ready' || !tab.sessionId) releasePressedKeys()
+    if (!active || tab.state !== 'ready' || !tab.sessionId) {
+      releasePressedKeys()
+      releasePressedButtons()
+      clipboardShortcutRef.current = null
+    }
   }, [active, tab.sessionId, tab.state])
 
   useEffect(() => {
@@ -578,6 +606,92 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     void ofs.invoke('rdp:input', { sessionId: tab.sessionId, input }).catch(() => {})
   }
 
+  const invokeRdpInput = async (sessionId: string, input: RdpInput): Promise<boolean> => {
+    try {
+      await ofs.invoke('rdp:input', { sessionId, input })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const sendRemoteClipboardShortcut = async (sessionId: string, code: 'KeyC' | 'KeyV', modifierAlreadyDown = false): Promise<boolean> => {
+    const modifier = RDP_SCANCODES.ControlLeft
+    const key = RDP_SCANCODES[code]
+    if (!modifier || !key) return false
+    let modifierDown = modifierAlreadyDown
+    let ownsModifier = false
+    let keyDown = false
+    try {
+      if (!modifierAlreadyDown) {
+        if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: true })) return false
+        modifierDown = true
+        ownsModifier = true
+      }
+      if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: true })) return false
+      keyDown = true
+      if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: false })) return false
+      keyDown = false
+      if (ownsModifier) {
+        if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: false })) return false
+        modifierDown = false
+      }
+      return true
+    } finally {
+      if (keyDown) void invokeRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: false })
+      if (ownsModifier && modifierDown) void invokeRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: false })
+    }
+  }
+
+  const sendClipboardShortcut = (code: 'KeyC' | 'KeyV', modifierAlreadyDown = false): void => {
+    const sessionId = tab.sessionId
+    if (!canControl || !sessionId) return
+    void (async () => {
+      if (code === 'KeyV') {
+        const text = await navigator.clipboard?.readText().catch(() => '')
+        if (!text) return
+        await ofs.invoke('rdp:clipboardSet', { sessionId, text })
+        const modifierIsStillDown = modifierAlreadyDown &&
+          (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))
+        await sendRemoteClipboardShortcut(sessionId, code, modifierIsStillDown)
+        return
+      }
+      if (!await sendRemoteClipboardShortcut(sessionId, code, modifierAlreadyDown)) return
+      // Allow the remote shell to publish the new selection before asking
+      // cliprdr for its data; otherwise the request can race Ctrl+C.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, CLIPBOARD_SETTLE_MS))
+      await ofs.invoke('rdp:clipboardGet', sessionId)
+    })().catch(() => {})
+  }
+
+  const flushPointerMove = (): void => {
+    pointerMoveFrameRef.current = null
+    const pending = pendingPointerMoveRef.current
+    pendingPointerMoveRef.current = null
+    if (pending) sendRdpInput(pending)
+  }
+
+  const queuePointerMove = (input: RdpInput): void => {
+    pendingPointerMoveRef.current = input
+    if (pointerMoveFrameRef.current !== null) return
+    if (typeof window.requestAnimationFrame === 'function') {
+      pointerMoveFrameRef.current = window.requestAnimationFrame(() => flushPointerMove())
+    } else {
+      pointerMoveFrameRef.current = window.setTimeout(() => flushPointerMove(), 0)
+    }
+  }
+
+  const flushQueuedPointerMove = (): void => {
+    if (pointerMoveFrameRef.current !== null) {
+      if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(pointerMoveFrameRef.current)
+      else window.clearTimeout(pointerMoveFrameRef.current)
+      pointerMoveFrameRef.current = null
+    }
+    const pending = pendingPointerMoveRef.current
+    pendingPointerMoveRef.current = null
+    if (pending) sendRdpInput(pending)
+  }
+
   const releasePressedKeys = (): void => {
     const sessionId = tab.sessionId
     if (!sessionId || pressedKeysRef.current.size === 0) {
@@ -593,6 +707,42 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       }).catch(() => {})
     }
   }
+
+  const releasePressedButtons = (): void => {
+    flushQueuedPointerMove()
+    const sessionId = tab.sessionId
+    const buttons = pressedButtonsRef.current
+    pressedButtonsRef.current = 0
+    if (!sessionId || buttons === 0) return
+    void ofs.invoke('rdp:input', {
+      sessionId,
+      input: { kind: 'pointer', x: lastPointerRef.current.x, y: lastPointerRef.current.y, buttons: 0 }
+    }).catch(() => {})
+  }
+
+  useEffect(() => {
+    const release = (): void => {
+      releasePressedKeys()
+      releasePressedButtons()
+    }
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState !== 'visible') release()
+    }
+    window.addEventListener('blur', release)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      window.removeEventListener('blur', release)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      release()
+      clipboardShortcutRef.current = null
+      pendingPointerMoveRef.current = null
+      if (pointerMoveFrameRef.current !== null) {
+        if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(pointerMoveFrameRef.current)
+        else window.clearTimeout(pointerMoveFrameRef.current)
+        pointerMoveFrameRef.current = null
+      }
+    }
+  }, [tab.sessionId])
 
   const launchSystemFallback = (): void => {
     const action = tab.sessionId
@@ -612,29 +762,67 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     event.preventDefault()
     if (pressed) pressedKeysRef.current.set(event.code, scan)
     else pressedKeysRef.current.delete(event.code)
-    const unicode = pressed && event.key.length === 1 ? event.key.codePointAt(0) : undefined
+    const unicode = pressed && event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey
+      ? event.key.codePointAt(0)
+      : undefined
     sendRdpInput({ kind: 'key', scanCode: scan.scanCode, pressed, ...(scan.extended ? { extended: true } : {}), ...(unicode !== undefined ? { unicode } : {}) })
   }
 
-  const sendPointer = (event: React.MouseEvent<HTMLCanvasElement>): void => {
-    if (!canControl) return
+  const pointerButtonMask = (button: number): number => {
+    if (button === 0) return 1 // left
+    if (button === 2) return 2 // right
+    if (button === 1) return 4 // middle
+    return 0
+  }
+
+  const pointerPosition = (clientX: number, clientY: number): { x: number; y: number } | null => {
     const canvas = canvasRef.current
     const rect = canvas?.getBoundingClientRect()
-    if (!canvas || !rect || rect.width < 1 || rect.height < 1) return
-    const x = Math.max(0, Math.min(canvas.width - 1, Math.round((event.clientX - rect.left) * canvas.width / rect.width)))
-    const y = Math.max(0, Math.min(canvas.height - 1, Math.round((event.clientY - rect.top) * canvas.height / rect.height)))
-    sendRdpInput({ kind: 'pointer', x, y, buttons: event.buttons })
+    if (!canvas || !rect || rect.width < 1 || rect.height < 1 || canvas.width < 1 || canvas.height < 1) return null
+    const canvasRatio = canvas.width / canvas.height
+    const boxRatio = rect.width / rect.height
+    const renderedWidth = boxRatio > canvasRatio ? rect.height * canvasRatio : rect.width
+    const renderedHeight = boxRatio > canvasRatio ? rect.height : rect.width / canvasRatio
+    const offsetX = (rect.width - renderedWidth) / 2
+    const offsetY = (rect.height - renderedHeight) / 2
+    const localX = clientX - rect.left - offsetX
+    const localY = clientY - rect.top - offsetY
+    if (localX < 0 || localY < 0 || localX >= renderedWidth || localY >= renderedHeight) return null
+    const x = Math.max(0, Math.min(canvas.width - 1, Math.round(localX * canvas.width / renderedWidth)))
+    const y = Math.max(0, Math.min(canvas.height - 1, Math.round(localY * canvas.height / renderedHeight)))
+    lastPointerRef.current = { x, y }
+    return { x, y }
+  }
+
+  const sendPointer = (event: React.PointerEvent<HTMLCanvasElement>, immediate = false, allowOutside = false): void => {
+    if (!canControl) return
+    const point = pointerPosition(event.clientX, event.clientY) ??
+      ((allowOutside || pressedButtonsRef.current !== 0) ? lastPointerRef.current : null)
+    if (!point) return
+    const input: RdpInput = { kind: 'pointer', ...point, buttons: pressedButtonsRef.current }
+    if (immediate) {
+      flushQueuedPointerMove()
+      sendRdpInput(input)
+    } else {
+      queuePointerMove(input)
+    }
   }
 
   const sendWheel = (event: React.WheelEvent<HTMLCanvasElement>): void => {
     if (!canControl) return
     event.preventDefault()
-    const canvas = canvasRef.current
-    const rect = canvas?.getBoundingClientRect()
-    if (!canvas || !rect || rect.width < 1 || rect.height < 1) return
-    const x = Math.max(0, Math.min(canvas.width - 1, Math.round((event.clientX - rect.left) * canvas.width / rect.width)))
-    const y = Math.max(0, Math.min(canvas.height - 1, Math.round((event.clientY - rect.top) * canvas.height / rect.height)))
-    sendRdpInput({ kind: 'pointer', x, y, buttons: 0, wheelX: Math.round(event.deltaX), wheelY: Math.round(event.deltaY) })
+    const point = pointerPosition(event.clientX, event.clientY)
+    if (!point) return
+    const scale = event.deltaMode === 1 ? 40 : event.deltaMode === 2 ? 120 : 1
+    const clampWheel = (value: number): number => Math.max(-127, Math.min(127, Math.round(value * scale)))
+    flushQueuedPointerMove()
+    sendRdpInput({
+      kind: 'pointer',
+      ...point,
+      buttons: pressedButtonsRef.current,
+      wheelX: clampWheel(event.deltaX),
+      wheelY: clampWheel(event.deltaY)
+    })
   }
 
   const sendPaste = (event: React.ClipboardEvent<HTMLCanvasElement>): void => {
@@ -642,7 +830,12 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     const text = event.clipboardData.getData('text/plain')
     if (!text) return
     event.preventDefault()
-    void ofs.invoke('rdp:clipboardSet', { sessionId: tab.sessionId, text }).catch(() => {})
+    const sessionId = tab.sessionId
+    const modifierAlreadyDown = pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight')
+    void ofs.invoke('rdp:clipboardSet', { sessionId, text })
+      .then(() => sendRemoteClipboardShortcut(sessionId, 'KeyV', modifierAlreadyDown &&
+        (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))))
+      .catch(() => {})
   }
 
   const requestClipboard = (event: React.ClipboardEvent<HTMLCanvasElement>): void => {
@@ -654,7 +847,63 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   if (tab.state === 'closed') return <div className={styles.empty}><Empty description={tab.error || t('terminal.disconnected')}><Space><Button icon={<RotateCcw size={14} />} onClick={retry}>{t('common.retry')}</Button><Button icon={<MonitorUp size={14} />} onClick={launchSystemFallback}>{t('conn.rdpSystemFallback')}</Button></Space></Empty></div>
   if (!tab.sessionId || tab.state === 'connecting') return <div className={styles.empty}><Spin size="small" /> <span>{t('terminal.connecting', { target: 'RDP' })}</span></div>
   return <div ref={hostRef} className={styles.host} data-active={active}>
-    <canvas ref={canvasRef} className={styles.canvas} tabIndex={0} onKeyDown={(e) => sendKey(e, true)} onKeyUp={(e) => sendKey(e, false)} onBlur={releasePressedKeys} onMouseMove={sendPointer} onMouseDown={(e) => { e.currentTarget.focus(); sendPointer(e) }} onMouseUp={sendPointer} onWheel={sendWheel} onPaste={sendPaste} onCopy={requestClipboard} />
+     <canvas
+       ref={canvasRef}
+       className={styles.canvas}
+       tabIndex={0}
+       onKeyDown={(e) => {
+         if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.repeat && (e.code === 'KeyC' || e.code === 'KeyV')) {
+           e.preventDefault()
+           if (clipboardShortcutRef.current) return
+           clipboardShortcutRef.current = e.code
+           const modifierAlreadyDown = pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight')
+           sendClipboardShortcut(e.code, modifierAlreadyDown)
+           return
+         }
+         if (clipboardShortcutRef.current) return
+         sendKey(e, true)
+       }}
+       onKeyUp={(e) => {
+         const shortcut = clipboardShortcutRef.current
+         if (shortcut && e.code === shortcut) {
+           e.preventDefault()
+           if (!pressedKeysRef.current.has('ControlLeft') && !pressedKeysRef.current.has('ControlRight') &&
+               !pressedKeysRef.current.has('MetaLeft') && !pressedKeysRef.current.has('MetaRight')) {
+             clipboardShortcutRef.current = null
+           }
+           return
+         }
+         if (shortcut && ['ControlLeft', 'ControlRight', 'MetaLeft', 'MetaRight'].includes(e.code)) {
+           clipboardShortcutRef.current = null
+         }
+         sendKey(e, false)
+       }}
+       onBlur={() => { releasePressedKeys(); releasePressedButtons() }}
+       onPointerMove={(e) => sendPointer(e)}
+       onPointerDown={(e) => {
+         e.preventDefault()
+         e.currentTarget.focus()
+         const mask = pointerButtonMask(e.button)
+         if (mask === 0 || !pointerPosition(e.clientX, e.clientY)) return
+         pressedButtonsRef.current |= mask
+         try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* capture may be unavailable in test DOM */ }
+         sendPointer(e, true)
+       }}
+       onPointerUp={(e) => {
+         e.preventDefault()
+         pressedButtonsRef.current &= ~pointerButtonMask(e.button)
+         sendPointer(e, true, true)
+         try {
+           if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+         } catch { /* capture may be unavailable in test DOM */ }
+       }}
+       onPointerCancel={() => releasePressedButtons()}
+       onLostPointerCapture={() => { if (pressedButtonsRef.current !== 0) releasePressedButtons() }}
+       onWheel={sendWheel}
+       onContextMenu={(e) => e.preventDefault()}
+       onPaste={sendPaste}
+       onCopy={requestClipboard}
+     />
     <span className={styles.srOnly}>{profileId}</span>
   </div>
 }

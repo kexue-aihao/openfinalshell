@@ -552,19 +552,23 @@ bool writeFreeRdpFrame(std::uint32_t canvasWidth, std::uint32_t canvasHeight, st
   if (rects.empty() || rects.size() > kMaxFrameRects ||
       !ofs::rdp::frame::validCanvas(canvasWidth, canvasHeight))
     return false;
+  std::uint64_t payloadBytes = kFrameHeaderSize;
+  for (const auto& rect : rects) {
+    if (!ofs::rdp::frame::validRect(canvasWidth, canvasHeight, rect.x, rect.y,
+                                    rect.width, rect.height, rect.stride,
+                                    rect.pixels.size(), payloadBytes))
+      return false;
+    payloadBytes += kRectHeaderSize + rect.pixels.size();
+  }
   try {
     std::vector<std::uint8_t> frame;
-    frame.reserve(kFrameHeaderSize);
+    frame.reserve(static_cast<std::size_t>(payloadBytes));
     put32(frame, canvasWidth);
     put32(frame, canvasHeight);
     put32(frame, sequence);
     put16(frame, static_cast<std::uint16_t>(rects.size()));
     put16(frame, 0);
     for (const auto& rect : rects) {
-      if (!ofs::rdp::frame::validRect(canvasWidth, canvasHeight, rect.x, rect.y,
-                                      rect.width, rect.height, rect.stride,
-                                      rect.pixels.size(), frame.size()))
-        return false;
       put32(frame, static_cast<std::uint32_t>(rect.x));
       put32(frame, static_cast<std::uint32_t>(rect.y));
       put32(frame, rect.width);

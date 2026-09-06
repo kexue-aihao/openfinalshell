@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.31',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复嵌入式 RDP 连接超时、调整分辨率后黑屏、剪贴板时序和高频输入卡顿问题，并增强大帧传输稳定性',
+        en: 'Fixed embedded RDP connection timeouts, black screens after resize, clipboard ordering, and high-frequency input lag, while improving large-frame transport stability'
+      }
+    ]
+  },
+  {
     version: '0.20.30',
     items: [
       {

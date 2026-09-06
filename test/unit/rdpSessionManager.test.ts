@@ -151,6 +151,46 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(launchRdp).toHaveBeenCalled()
   })
 
+  it('fails a worker that never completes the protocol handshake', async () => {
+    vi.useFakeTimers()
+    try {
+      const { RdpSessionManager } = await import('../../src/main/rdp/RdpSessionManager')
+      const manager = new RdpSessionManager()
+      const { sessionId } = manager.open('profile-1', { width: 1280, height: 720, dpi: 96 })
+
+      vi.advanceTimersByTime(9_999)
+      expect(emit.mock.calls.some(([channel, value]) => channel === 'rdp:state' && value.sessionId === sessionId && value.state === 'failed')).toBe(false)
+      vi.advanceTimersByTime(1)
+
+      expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({
+        sessionId,
+        state: 'failed',
+        errorCode: 'WORKER_CRASHED'
+      }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('fails a session that reports ready but never publishes its first frame', async () => {
+    vi.useFakeTimers()
+    try {
+      const { sessionId } = await openReady()
+      vi.advanceTimersByTime(14_999)
+      expect(emit.mock.calls.some(([channel, value]) => channel === 'rdp:state' && value.state === 'failed')).toBe(false)
+      vi.advanceTimersByTime(1)
+
+      expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({
+        sessionId,
+        state: 'failed',
+        errorCode: 'NETWORK_ERROR'
+      }))
+      expect(currentWorker.writes.some((bytes) => bytes[6] === 0x12)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rejects system fallback while an embedded Worker is active', async () => {
     const { manager, sessionId } = await openReady()
 
@@ -165,6 +205,21 @@ describe('RdpSessionManager protocol/state behavior', () => {
     currentWorker.stdout.emit('data', framePacket(1))
     expect(emit.mock.calls.some(([channel, value]) => channel === 'rdp:state' && value.state === 'ready')).toBe(true)
     expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).not.toThrow()
+  })
+
+  it('parses protocol frames split across many stdout chunks', async () => {
+    const { RdpSessionManager } = await import('../../src/main/rdp/RdpSessionManager')
+    const manager = new RdpSessionManager()
+    const { sessionId } = manager.open('profile-1', { width: 1280, height: 720, dpi: 96 })
+    const hello = jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    })
+    for (let index = 0; index < hello.length; index++) currentWorker.stdout.emit('data', hello.subarray(index, index + 1))
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'ready' }))
+    const frame = framePacket(1, 320, 320)
+    for (let index = 0; index < frame.length; index += 7) currentWorker.stdout.emit('data', frame.subarray(index, index + 7))
+
+    expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({ sessionId, state: 'ready' }))
   })
 
   it('bounds unacknowledged port frames at two without dropping incremental updates', async () => {
@@ -549,6 +604,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     })
     const { manager, sessionId } = await openReady()
     currentWorker.stdout.emit('data', framePacket(1))
+    manager.attachPort(sessionId, new FakePort() as never)
     manager.clipboardGet(sessionId)
     const request = currentWorker.writes.find((bytes) => bytes[6] === 0x17)
     expect(request).toBeDefined()
@@ -558,6 +614,30 @@ describe('RdpSessionManager protocol/state behavior', () => {
       op: 'clipboardGet',
       requestId
     })
+
+    currentWorker.stdout.emit('data', jsonPacket(0x22, requestId, {
+      op: 'clipboardData', mime: 'text/plain', text: 'remote text'
+    }))
+    expect(emit).toHaveBeenCalledWith('rdp:clipboard', { sessionId, text: 'remote text' })
+  })
+
+  it('rejects an uncorrelated remote clipboard response', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: true, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', framePacket(1))
+    manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', jsonPacket(0x22, 999, {
+      op: 'clipboardData', mime: 'text/plain', text: 'unexpected'
+    }))
+
+    expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({
+      sessionId, state: 'failed', errorCode: 'PROTOCOL_ERROR'
+    }))
+    expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).toThrow('SESSION_NOT_READY')
   })
 
   it('does not send or publish clipboard data when the profile disables clipboard', async () => {
@@ -599,5 +679,22 @@ describe('RdpSessionManager protocol/state behavior', () => {
       wheelX: 0,
       wheelY: -120
     })
+  })
+
+  it('coalesces pure pointer moves but flushes them before the next key event', async () => {
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', framePacket(1))
+    manager.input(sessionId, { kind: 'pointer', x: 1, y: 1, buttons: 0 })
+    manager.input(sessionId, { kind: 'pointer', x: 2, y: 2, buttons: 0 })
+    manager.input(sessionId, { kind: 'pointer', x: 3, y: 3, buttons: 0 })
+    expect(currentWorker.writes.filter((bytes) => bytes[6] === 0x15)).toHaveLength(0)
+
+    manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })
+    const pointerWrites = currentWorker.writes.filter((bytes) => bytes[6] === 0x15)
+    expect(pointerWrites).toHaveLength(1)
+    expect(JSON.parse(pointerWrites[0].subarray(16).toString('utf8'))).toEqual({
+      op: 'pointer', x: 3, y: 3, buttons: 0
+    })
+    expect(currentWorker.writes.findIndex((bytes) => bytes[6] === 0x15)).toBeLessThan(currentWorker.writes.findIndex((bytes) => bytes[6] === 0x14))
   })
 })

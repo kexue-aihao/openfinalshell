@@ -108,6 +108,12 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('rect.y = static_cast<std::int32_t>(copiedRows)')
   })
 
+  it('publishes a complete framebuffer after native desktop resize', () => {
+    expect(adapter).toContain('if (!gdi_resize(context->gdi, width, height)) return FALSE;')
+    expect(adapter).toContain('publish a complete keyframe immediately')
+    expect(adapter).toContain('return emitFullFrame(context)')
+  })
+
   it('uses the RDPEDISP monitor-layout API for dynamic resolution', () => {
     expect(adapter).toContain('#include <freerdp/client/disp.h>')
     expect(adapter).toContain('#include <freerdp/addin.h>')

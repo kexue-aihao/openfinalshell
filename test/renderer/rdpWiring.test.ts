@@ -55,7 +55,9 @@ describe('RDP：分派', () => {
   it('输入只从 active+ready 的 RDP canvas 进入 main，失焦会释放已按下的键', () => {
     expect(pane).toContain("const canControl = active && tab.state === 'ready' && !!tab.sessionId")
     expect(pane).toContain('pressedKeysRef')
-    expect(pane).toContain('onBlur={releasePressedKeys}')
+    expect(pane).toContain('releasePressedButtons')
+    expect(pane).toContain('onPointerDown')
+    expect(pane).toContain("window.addEventListener('blur'")
     expect(pane).toContain("ofs.invoke('rdp:clipboardGet'")
   })
 })

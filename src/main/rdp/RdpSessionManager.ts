@@ -33,6 +33,12 @@ const ACK_TIMEOUT_MS = 500
 const CLOSE_TIMEOUT_MS = 2000
 const RESIZE_INTERVAL_MS = 100
 const MAX_IN_FLIGHT_FRAMES = 2
+const HELLO_TIMEOUT_MS = 10_000
+const CONNECTION_TIMEOUT_MS = 30_000
+const FIRST_FRAME_TIMEOUT_MS = 15_000
+const AUTH_TIMEOUT_MS = 120_000
+const CERTIFICATE_TIMEOUT_MS = 60_000
+const CLIPBOARD_TIMEOUT_MS = 5_000
 const DEFAULT_DISPLAY: RdpDisplaySize = { width: 1280, height: 720, dpi: 96 }
 const MAX_WORKER_STDERR_BYTES = 16 * 1024
 const REQUIRED_CAPABILITIES = new Set(['framebuffer', 'input', 'resize'])
@@ -58,13 +64,15 @@ interface FrozenRdpProfile {
   certificatePolicy: 'prompt' | 'strict'
 }
 
+type RdpPointerInput = Extract<RdpInput, { kind: 'pointer' }>
+
 interface Session {
   id: SessionId
   profile: FrozenRdpProfile
   display: RdpDisplaySize
   worker?: ChildProcessWithoutNullStreams
   workerStderr: string
-  inputBuffer: Buffer
+  inputBuffer: RdpInputBuffer
   processEnded: boolean
   state: RdpSessionState
   helloReceived: boolean
@@ -79,6 +87,10 @@ interface Session {
   lastResizeSentAt: number
   pendingResize?: RdpDisplaySize
   resizeTimer?: NodeJS.Timeout
+  startupTimer?: NodeJS.Timeout
+  pendingPointerMove?: RdpPointerInput
+  pendingPointerTimer?: NodeJS.Immediate
+  lastPointerButtons: number
   closeReason?: 'user' | 'reconnect' | 'shutdown' | 'failure'
   closeTimer?: NodeJS.Timeout
   closeCompleted: boolean
@@ -88,6 +100,8 @@ interface Session {
   certificatePolicy: 'prompt' | 'strict'
   pendingCertificateRequests: Set<number>
   seenCertificateRequests: Set<number>
+  pendingClipboardRequests: Set<number>
+  clipboardTimer?: NodeJS.Timeout
 }
 
 interface RdpSessionManagerOptions {
@@ -167,6 +181,74 @@ function errorDescription(errorCode: RdpErrorCode): string {
   return descriptions[errorCode]
 }
 
+/**
+ * Keeps stdout chunks as a list until a complete protocol frame is available.
+ * A child-process pipe may split one frame across many chunks; concatenating
+ * the accumulated prefix for every chunk turns a large frame into O(n^2)
+ * copying work.
+ */
+class RdpInputBuffer {
+  private readonly chunks: Buffer[] = []
+  private headOffset = 0
+  private bufferedBytes = 0
+
+  get length(): number {
+    return this.bufferedBytes
+  }
+
+  append(chunk: Buffer): void {
+    if (chunk.length === 0) return
+    this.chunks.push(chunk)
+    this.bufferedBytes += chunk.length
+  }
+
+  clear(): void {
+    this.chunks.length = 0
+    this.headOffset = 0
+    this.bufferedBytes = 0
+  }
+
+  peek(length: number): Buffer | null {
+    if (length < 0 || this.bufferedBytes < length) return null
+    if (length === 0) return Buffer.alloc(0)
+    const first = this.chunks[0]
+    if (!first) return null
+    const available = first.length - this.headOffset
+    if (available >= length) return first.subarray(this.headOffset, this.headOffset + length)
+    const out = Buffer.allocUnsafe(length)
+    let copied = 0
+    for (let index = 0; index < this.chunks.length && copied < length; index++) {
+      const chunk = this.chunks[index]
+      const offset = index === 0 ? this.headOffset : 0
+      const take = Math.min(chunk.length - offset, length - copied)
+      chunk.copy(out, copied, offset, offset + take)
+      copied += take
+    }
+    return out
+  }
+
+  consume(length: number): Buffer {
+    const out = this.peek(length)
+    if (!out) throw new Error('RDP input buffer underflow')
+    let remaining = length
+    while (remaining > 0) {
+      const first = this.chunks[0]
+      if (!first) throw new Error('RDP input buffer underflow')
+      const available = first.length - this.headOffset
+      if (available <= remaining) {
+        this.chunks.shift()
+        this.headOffset = 0
+        remaining -= available
+      } else {
+        this.headOffset += remaining
+        remaining = 0
+      }
+    }
+    this.bufferedBytes -= length
+    return out
+  }
+}
+
 export class RdpSessionManager {
   private readonly sessions = new Map<SessionId, Session>()
   private readonly requireFreerdpWorker: boolean
@@ -234,6 +316,55 @@ export class RdpSessionManager {
     if (session.resizeTimer) clearTimeout(session.resizeTimer)
     session.resizeTimer = undefined
     session.pendingResize = undefined
+  }
+
+  private clearStartupTimer(session: Session): void {
+    if (session.startupTimer) clearTimeout(session.startupTimer)
+    session.startupTimer = undefined
+  }
+
+  private armStartupTimer(session: Session, timeoutMs: number, errorCode: RdpErrorCode): void {
+    this.clearStartupTimer(session)
+    if (!this.isRunning(session)) return
+    session.startupTimer = setTimeout(() => {
+      session.startupTimer = undefined
+      if (!this.isRunning(session)) return
+      log.warn(`RDP session ${session.id}: startup watchdog expired (${errorCode})`)
+      this.fail(session, errorCode)
+    }, timeoutMs)
+    session.startupTimer.unref()
+  }
+
+  private clearPendingPointerMove(session: Session): void {
+    if (session.pendingPointerTimer) clearImmediate(session.pendingPointerTimer)
+    session.pendingPointerTimer = undefined
+    session.pendingPointerMove = undefined
+  }
+
+  private clearClipboardRequests(session: Session): void {
+    if (session.clipboardTimer) clearTimeout(session.clipboardTimer)
+    session.clipboardTimer = undefined
+    session.pendingClipboardRequests.clear()
+  }
+
+  private flushPendingPointerMove(session: Session): void {
+    if (!session.pendingPointerMove) return
+    const input = session.pendingPointerMove
+    session.pendingPointerMove = undefined
+    if (this.isRunning(session) && session.state === 'ready') {
+      const { kind: _kind, ...payload } = input
+      this.write(session, 0x15, this.nextRequestId(session), { op: 'pointer', ...payload })
+    }
+  }
+
+  private queuePointerMove(session: Session, input: RdpPointerInput): void {
+    session.pendingPointerMove = input
+    if (session.pendingPointerTimer) return
+    session.pendingPointerTimer = setImmediate(() => {
+      session.pendingPointerTimer = undefined
+      this.flushPendingPointerMove(session)
+    })
+    session.pendingPointerTimer.unref()
   }
 
   private pauseStdout(session: Session): void {
@@ -345,9 +476,13 @@ export class RdpSessionManager {
     if (session.closeCompleted) return
     session.closeCompleted = true
     session.queuedFrames = []
+    session.inputBuffer.clear()
     this.clearFrameLedger(session)
     this.clearResizeTimer(session)
+    this.clearStartupTimer(session)
+    this.clearPendingPointerMove(session)
     session.pendingCertificateRequests.clear()
+    this.clearClipboardRequests(session)
     promptBroker.cancelForSession(session.id)
     session.port?.close()
     session.port = undefined
@@ -373,7 +508,10 @@ export class RdpSessionManager {
     session.queuedFrames = []
     this.clearFrameLedger(session)
     this.clearResizeTimer(session)
+    this.clearStartupTimer(session)
+    this.clearPendingPointerMove(session)
     session.pendingCertificateRequests.clear()
+    this.clearClipboardRequests(session)
     promptBroker.cancelForSession(session.id)
     session.port?.close()
     session.port = undefined
@@ -433,6 +571,7 @@ export class RdpSessionManager {
     let remember = false
     if (password === null) {
       this.emitState(session, 'authenticating')
+      this.armStartupTimer(session, AUTH_TIMEOUT_MS, 'NETWORK_ERROR')
       const reply = await promptBroker.request(session.id, 'rdp-password', {
         username: profile.username,
         host: profile.host
@@ -449,7 +588,13 @@ export class RdpSessionManager {
     if (remember) rememberRdpPassword(profile.id, password)
     // Keep the secret out of renderer state and clear this local as soon as
     // the Worker write is queued. Vault persistence contains only its reference.
-    this.write(session, 0x11, this.nextRequestId(session), { op: 'credential', kind: 'password', value: password })
+    if (!this.write(session, 0x11, this.nextRequestId(session), { op: 'credential', kind: 'password', value: password })) return
+    if (session.workerReady) {
+      if (session.firstFrameReceived) this.clearStartupTimer(session)
+      else this.armStartupTimer(session, FIRST_FRAME_TIMEOUT_MS, 'NETWORK_ERROR')
+    } else {
+      this.armStartupTimer(session, CONNECTION_TIMEOUT_MS, 'NETWORK_ERROR')
+    }
     password = ''
   }
 
@@ -462,6 +607,7 @@ export class RdpSessionManager {
     session.helloReceived = true
     if (!this.write(session, 0x02, requestId, { op: 'helloAck', protocol: VERSION, sessionId: session.id, maxPayload: MAX_PAYLOAD })) return
     this.emitState(session, 'connecting')
+    this.armStartupTimer(session, CONNECTION_TIMEOUT_MS, 'NETWORK_ERROR')
     if (!this.write(session, 0x10, this.nextRequestId(session), {
       op: 'start',
       host: profile.host,
@@ -530,6 +676,8 @@ export class RdpSessionManager {
       if (session.workerReady) return
       session.workerReady = true
       this.publishReadyIfComplete(session)
+      if (session.firstFrameReceived) this.clearStartupTimer(session)
+      else this.armStartupTimer(session, FIRST_FRAME_TIMEOUT_MS, 'NETWORK_ERROR')
     } else if (state === 'connecting' || state === 'authenticating' || state === 'verifying') {
       if (session.workerReady || session.state === 'ready') return this.fail(session, 'PROTOCOL_ERROR')
       this.emitState(session, state)
@@ -558,6 +706,7 @@ export class RdpSessionManager {
     }
     session.pendingCertificateRequests.add(requestId)
     this.emitState(session, 'verifying')
+    this.armStartupTimer(session, CERTIFICATE_TIMEOUT_MS, 'CERTIFICATE_REJECTED')
     void promptBroker.request(session.id, 'rdp-certificate', {
       host: data.host,
       port: data.port as number,
@@ -569,15 +718,29 @@ export class RdpSessionManager {
       const pending = session.pendingCertificateRequests.delete(requestId)
       if (!pending) return
       if (!this.isRunning(session)) return
-      this.write(session, 0x11, requestId, { op: 'certificate', requestId, accept: reply.ok === true })
+      if (this.write(session, 0x11, requestId, { op: 'certificate', requestId, accept: reply.ok === true })) {
+        if (session.workerReady) {
+          if (session.firstFrameReceived) this.clearStartupTimer(session)
+          else this.armStartupTimer(session, FIRST_FRAME_TIMEOUT_MS, 'NETWORK_ERROR')
+        } else {
+          this.armStartupTimer(session, CONNECTION_TIMEOUT_MS, 'NETWORK_ERROR')
+        }
+      }
     }).catch(() => {
       session.pendingCertificateRequests.delete(requestId)
       this.fail(session, 'CERTIFICATE_REJECTED')
     })
   }
 
-  private handleClipboard(session: Session, payload: Buffer): void {
+  private handleClipboard(session: Session, requestId: number, payload: Buffer): void {
     if (session.state !== 'ready' || !session.profile.clipboard) return
+    if (requestId === 0 || !session.pendingClipboardRequests.delete(requestId)) {
+      log.warn(`RDP session ${session.id}: unsolicited clipboard response ${requestId}`)
+      this.fail(session, 'PROTOCOL_ERROR')
+      return
+    }
+    if (session.clipboardTimer) clearTimeout(session.clipboardTimer)
+    session.clipboardTimer = undefined
     const value = parseJsonObject(payload)
     if (!value || value.op !== 'clipboardData' || value.mime !== 'text/plain' || typeof value.text !== 'string' || value.text.length > 1_000_000) {
       this.fail(session, 'PROTOCOL_ERROR')
@@ -596,6 +759,7 @@ export class RdpSessionManager {
       session.firstFrameReceived = true
       this.queueFrame(session, parsed)
       this.publishReadyIfComplete(session)
+      if (session.workerReady) this.clearStartupTimer(session)
     }
   }
 
@@ -606,7 +770,7 @@ export class RdpSessionManager {
     if (type === 0x01) this.handleHello(session, requestId, payload)
     else if (type === 0x20) this.handleWorkerState(session, payload)
     else if (type === 0x21) this.handleCertificatePrompt(session, requestId, payload)
-    else if (type === 0x22) this.handleClipboard(session, payload)
+    else if (type === 0x22) this.handleClipboard(session, requestId, payload)
     else if (type === 0x30) this.handleFrame(session, payload)
     else if (type === 0x7f) {
       const value = parseJsonObject(payload)
@@ -625,22 +789,23 @@ export class RdpSessionManager {
 
   private consumeFrames(session: Session): void {
     while (this.isCurrent(session) && !session.stdoutPaused && session.inputBuffer.length >= HEADER_SIZE) {
-      if (!session.inputBuffer.subarray(0, 4).equals(MAGIC) || session.inputBuffer.readUInt16LE(4) !== VERSION || session.inputBuffer[7] !== 0) {
+      const header = session.inputBuffer.peek(HEADER_SIZE)
+      if (!header || !header.subarray(0, 4).equals(MAGIC) || header.readUInt16LE(4) !== VERSION || header[7] !== 0) {
         log.warn(`RDP session ${session.id}: invalid Worker frame header`)
         this.fail(session, 'PROTOCOL_ERROR')
         return
       }
-      const length = session.inputBuffer.readUInt32LE(8)
+      const length = header.readUInt32LE(8)
       if (length > MAX_PAYLOAD) {
         log.warn(`RDP session ${session.id}: Worker payload exceeds limit (${length} bytes)`)
         this.fail(session, 'PROTOCOL_ERROR')
         return
       }
       if (session.inputBuffer.length < HEADER_SIZE + length) return
-      const type = session.inputBuffer[6]
-      const requestId = session.inputBuffer.readUInt32LE(12)
-      const payload = session.inputBuffer.subarray(HEADER_SIZE, HEADER_SIZE + length)
-      session.inputBuffer = session.inputBuffer.subarray(HEADER_SIZE + length)
+      const type = header[6]
+      const requestId = header.readUInt32LE(12)
+      session.inputBuffer.consume(HEADER_SIZE)
+      const payload = session.inputBuffer.consume(length)
       this.handleProtocolFrame(session, type, requestId, payload)
     }
   }
@@ -651,7 +816,7 @@ export class RdpSessionManager {
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
-    session.inputBuffer = session.inputBuffer.length === 0 ? chunk : Buffer.concat([session.inputBuffer, chunk])
+    session.inputBuffer.append(chunk)
     this.consumeFrames(session)
   }
 
@@ -684,7 +849,8 @@ export class RdpSessionManager {
       id: sessionId,
       profile,
       display: clampRdpDisplaySize(display),
-      inputBuffer: Buffer.alloc(0),
+      inputBuffer: new RdpInputBuffer(),
+      pendingClipboardRequests: new Set(),
       processEnded: true,
       state: 'starting',
       helloReceived: false,
@@ -697,6 +863,7 @@ export class RdpSessionManager {
       stdoutPaused: false,
       lastFrameSequence: -1,
       lastResizeSentAt: -RESIZE_INTERVAL_MS,
+      lastPointerButtons: 0,
       closeCompleted: false,
       removeWhenClosed: false,
       closeWaiters: [],
@@ -728,6 +895,7 @@ export class RdpSessionManager {
     }
     session.worker = worker
     session.processEnded = false
+    this.armStartupTimer(session, HELLO_TIMEOUT_MS, 'WORKER_CRASHED')
     this.emitState(session, 'starting')
     this.emitState(session, 'handshaking')
     worker.stdout.on('data', (chunk: Buffer) => this.onData(session, chunk))
@@ -807,10 +975,19 @@ export class RdpSessionManager {
   input(sessionId: SessionId, input: RdpInput): void {
     const session = this.requireReady(sessionId)
     if (input.kind === 'key') {
+      this.flushPendingPointerMove(session)
       const { kind: _kind, ...payload } = input
       this.write(session, 0x14, this.nextRequestId(session), { op: 'key', ...payload })
       return
     }
+    const previousButtons = session.lastPointerButtons
+    session.lastPointerButtons = input.buttons & 0x7
+    const hasWheel = (input.wheelX ?? 0) !== 0 || (input.wheelY ?? 0) !== 0
+    if (!hasWheel && previousButtons === session.lastPointerButtons) {
+      this.queuePointerMove(session, input)
+      return
+    }
+    this.flushPendingPointerMove(session)
     const { kind: _kind, ...payload } = input
     this.write(session, 0x15, this.nextRequestId(session), { op: 'pointer', ...payload })
   }
@@ -851,8 +1028,19 @@ export class RdpSessionManager {
   clipboardGet(sessionId: SessionId): void {
     const session = this.requireReady(sessionId)
     if (!session.profile.clipboard) throw new Error('UNSUPPORTED')
+    if (session.pendingClipboardRequests.size > 0) return
     const requestId = this.nextRequestId(session)
-    this.write(session, 0x17, requestId, { op: 'clipboardGet', requestId })
+    session.pendingClipboardRequests.add(requestId)
+    session.clipboardTimer = setTimeout(() => {
+      session.clipboardTimer = undefined
+      session.pendingClipboardRequests.delete(requestId)
+    }, CLIPBOARD_TIMEOUT_MS)
+    session.clipboardTimer.unref()
+    if (!this.write(session, 0x17, requestId, { op: 'clipboardGet', requestId })) {
+      session.pendingClipboardRequests.delete(requestId)
+      if (session.clipboardTimer) clearTimeout(session.clipboardTimer)
+      session.clipboardTimer = undefined
+    }
   }
 
   async close(sessionId: SessionId): Promise<void> {
