@@ -337,7 +337,7 @@ export interface RdpFrameV1 {
   sequence: number
   canvasWidth: number
   canvasHeight: number
-  /** Canonical rdp-frame-v1 rectangle stream after the Worker frame header is removed. */
+  /** Canonical RGBA8888 rdp-frame-v1 rectangle stream after the Worker frame header is removed. */
   data: Uint8Array
 }
 
@@ -408,7 +408,7 @@ export function validateRdpFrameV1Rects(
     (expectedRectCount === undefined || rectCount === expectedRectCount)
 }
 
-/** 专用 RDP MessagePort 消息；buffer 由端点通过 transfer list 转移所有权。 */
+/** 专用 RDP MessagePort 消息；Electron MessagePortMain 会结构化克隆 buffer。 */
 export interface RdpPortFrameMessage {
   kind: 'frame'
   sequence: number

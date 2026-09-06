@@ -320,8 +320,15 @@ struct FreeRdpAdapter::Impl {
             const auto* source = gdi->primary_buffer +
                 (static_cast<std::uint64_t>(rect.y) + row) * stride +
                 static_cast<std::uint64_t>(rect.x) * 4u;
-            std::memcpy(rect.pixels.data() + static_cast<std::size_t>(row) * rowBytes,
-                        source, static_cast<std::size_t>(rowBytes));
+            auto* destination = rect.pixels.data() + static_cast<std::size_t>(row) * rowBytes;
+            // FreeRDP's GDI buffer is BGRA32; the wire format is RGBA8888 so
+            // Canvas2D can upload rows without a per-pixel JS conversion.
+            for (std::uint64_t column = 0; column < rowBytes; column += 4) {
+              destination[column] = source[column + 2];
+              destination[column + 1] = source[column + 1];
+              destination[column + 2] = source[column];
+              destination[column + 3] = source[column + 3];
+            }
           }
           batchBytes += kRectHeaderSize + sliceBytes;
           batch.emplace_back(std::move(rect));
@@ -390,8 +397,14 @@ struct FreeRdpAdapter::Impl {
         for (std::uint32_t row = 0; row < sliceHeight; ++row) {
           const auto* source = gdi->primary_buffer +
               (static_cast<std::uint64_t>(copiedRows) + row) * stride;
-          std::memcpy(rect.pixels.data() + static_cast<std::size_t>(row) * rowBytes,
-                      source, static_cast<std::size_t>(rowBytes));
+          auto* destination = rect.pixels.data() + static_cast<std::size_t>(row) * rowBytes;
+          // FreeRDP's GDI buffer is BGRA32; the wire format is RGBA8888.
+          for (std::uint64_t column = 0; column < rowBytes; column += 4) {
+            destination[column] = source[column + 2];
+            destination[column + 1] = source[column + 1];
+            destination[column + 2] = source[column];
+            destination[column + 3] = source[column + 3];
+          }
         }
         batchBytes += kRectHeaderSize + sliceBytes;
         batch.emplace_back(std::move(rect));

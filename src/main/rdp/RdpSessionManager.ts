@@ -32,6 +32,7 @@ const MAX_BUFFERED_BYTES = MAX_PAYLOAD + HEADER_SIZE + 128 * 1024
 const ACK_TIMEOUT_MS = 500
 const CLOSE_TIMEOUT_MS = 2000
 const RESIZE_INTERVAL_MS = 100
+const MAX_IN_FLIGHT_FRAMES = 2
 const DEFAULT_DISPLAY: RdpDisplaySize = { width: 1280, height: 720, dpi: 96 }
 const MAX_WORKER_STDERR_BYTES = 16 * 1024
 const REQUIRED_CAPABILITIES = new Set(['framebuffer', 'input', 'resize'])
@@ -71,8 +72,8 @@ interface Session {
   firstFrameReceived: boolean
   requestId: number
   port?: MessagePortMain
-  pendingPortFrames: Map<number, NodeJS.Timeout>
-  latestFrame?: RdpFrame
+  pendingPortFrames: Map<number, { frame: RdpFrame; timer: NodeJS.Timeout }>
+  queuedFrames: RdpFrame[]
   stdoutPaused: boolean
   lastFrameSequence: number
   lastResizeSentAt: number
@@ -210,9 +211,23 @@ export class RdpSessionManager {
     }
   }
 
-  private clearFrameLedger(session: Session): void {
-    for (const timer of session.pendingPortFrames.values()) clearTimeout(timer)
+  private clearFrameLedger(session: Session, preserveFrames = false): void {
+    const inFlight = preserveFrames
+      ? [...session.pendingPortFrames.values()].map(({ frame }) => frame)
+      : []
+    for (const { timer } of session.pendingPortFrames.values()) clearTimeout(timer)
     session.pendingPortFrames.clear()
+    if (inFlight.length > 0) {
+      session.queuedFrames = [...inFlight, ...session.queuedFrames]
+      this.sortQueuedFrames(session)
+    }
+  }
+
+  private sortQueuedFrames(session: Session): void {
+    // Retries can reinsert an older sequence after a newer frame was sent.
+    // Reconnecting the MessagePort must restore logical RDP order, not Map
+    // insertion order.
+    session.queuedFrames.sort((left, right) => left.sequence - right.sequence)
   }
 
   private clearResizeTimer(session: Session): void {
@@ -228,31 +243,34 @@ export class RdpSessionManager {
   }
 
   private resumeStdout(session: Session): void {
-    if (!session.stdoutPaused || !this.isRunning(session) || !session.worker || !session.port || session.latestFrame) return
+    if (!session.stdoutPaused || !this.isRunning(session) || !session.worker || !session.port ||
+        session.queuedFrames.length > 0 || session.pendingPortFrames.size >= MAX_IN_FLIGHT_FRAMES) return
     session.stdoutPaused = false
     session.worker.stdout.resume()
     this.consumeFrames(session)
   }
 
   private expireFrame(session: Session, sequence: number): void {
-    if (!this.isRunning(session) || !session.pendingPortFrames.has(sequence)) return
+    if (!this.isRunning(session)) return
+    const pending = session.pendingPortFrames.get(sequence)
+    if (!pending) return
+    // A framebuffer frame is a dirty-rectangle delta, so timing it out must
+    // not discard it. Requeue the same delta and let the normal pump retry it;
+    // dropping it would permanently leave stale pixels in the canvas.
     session.pendingPortFrames.delete(sequence)
-    this.flushLatestFrame(session)
-    this.resumeStdout(session)
+    session.queuedFrames.unshift(pending.frame)
+    this.sortQueuedFrames(session)
+    this.pumpFrames(session)
   }
 
-  private sendToPort(session: Session, parsed: RdpFrame): void {
+  private sendToPort(session: Session, parsed: RdpFrame): boolean {
     const port = session.port
-    if (!port || !this.isRunning(session)) {
-      session.latestFrame = parsed
-      this.pauseStdout(session)
-      return
-    }
+    if (!port || !this.isRunning(session)) return false
     const copied = Uint8Array.from(parsed.data)
     const buffer = copied.buffer
     const timer = setTimeout(() => this.expireFrame(session, parsed.sequence), ACK_TIMEOUT_MS)
     timer.unref()
-    session.pendingPortFrames.set(parsed.sequence, timer)
+    session.pendingPortFrames.set(parsed.sequence, { frame: parsed, timer })
     try {
       // Electron's MessagePortMain transfer list accepts MessagePortMain
       // instances, not ArrayBuffer values. Passing the framebuffer there throws
@@ -271,30 +289,46 @@ export class RdpSessionManager {
       log.warn(`RDP session ${session.id}: framebuffer delivery failed: ${error instanceof Error ? error.message : String(error)}`)
       clearTimeout(timer)
       session.pendingPortFrames.delete(parsed.sequence)
-      session.latestFrame = parsed
       this.pauseStdout(session)
+      return false
     }
+    return true
   }
 
   private queueFrame(session: Session, parsed: RdpFrame): void {
     if (!this.isRunning(session)) return
     if (parsed.sequence <= session.lastFrameSequence) return
     session.lastFrameSequence = parsed.sequence
-    if (!session.port || session.pendingPortFrames.size >= 2) {
-      // Only one replacement frame is retained locally. It replaces an older
-      // unsent frame so a stalled renderer observes the latest desktop state.
-      session.latestFrame = parsed
+    if (!session.port || session.pendingPortFrames.size >= MAX_IN_FLIGHT_FRAMES) {
+      // RDP FRAME payloads contain dirty rectangles, not complete framebuffer
+      // snapshots. Every frame must remain in order; dropping an intermediate
+      // frame leaves stale or black regions in the composed desktop.
+      session.queuedFrames.push(parsed)
       this.pauseStdout(session)
       return
     }
-    this.sendToPort(session, parsed)
+    if (!this.sendToPort(session, parsed)) {
+      session.queuedFrames.push(parsed)
+      this.pauseStdout(session)
+      return
+    }
+    if (session.pendingPortFrames.size >= MAX_IN_FLIGHT_FRAMES) this.pauseStdout(session)
   }
 
-  private flushLatestFrame(session: Session): void {
-    if (!this.isRunning(session) || !session.port || !session.latestFrame || session.pendingPortFrames.size >= 2) return
-    const latest = session.latestFrame
-    session.latestFrame = undefined
-    this.sendToPort(session, latest)
+  private pumpFrames(session: Session): void {
+    if (!this.isRunning(session) || !session.port) return
+    while (session.pendingPortFrames.size < MAX_IN_FLIGHT_FRAMES && session.queuedFrames.length > 0) {
+      const next = session.queuedFrames.shift()!
+      if (!this.sendToPort(session, next)) {
+        session.queuedFrames.unshift(next)
+        break
+      }
+    }
+    if (session.pendingPortFrames.size >= MAX_IN_FLIGHT_FRAMES || session.queuedFrames.length > 0) {
+      this.pauseStdout(session)
+    } else {
+      this.resumeStdout(session)
+    }
   }
 
   private waitForClose(session: Session): Promise<void> {
@@ -310,7 +344,7 @@ export class RdpSessionManager {
     }
     if (session.closeCompleted) return
     session.closeCompleted = true
-    session.latestFrame = undefined
+    session.queuedFrames = []
     this.clearFrameLedger(session)
     this.clearResizeTimer(session)
     session.pendingCertificateRequests.clear()
@@ -336,7 +370,7 @@ export class RdpSessionManager {
     }
     session.closeReason = reason
     this.emitState(session, 'closing', session.failureCode)
-    session.latestFrame = undefined
+    session.queuedFrames = []
     this.clearFrameLedger(session)
     this.clearResizeTimer(session)
     session.pendingCertificateRequests.clear()
@@ -590,7 +624,7 @@ export class RdpSessionManager {
   }
 
   private consumeFrames(session: Session): void {
-    while (this.isCurrent(session) && session.inputBuffer.length >= HEADER_SIZE) {
+    while (this.isCurrent(session) && !session.stdoutPaused && session.inputBuffer.length >= HEADER_SIZE) {
       if (!session.inputBuffer.subarray(0, 4).equals(MAGIC) || session.inputBuffer.readUInt16LE(4) !== VERSION || session.inputBuffer[7] !== 0) {
         log.warn(`RDP session ${session.id}: invalid Worker frame header`)
         this.fail(session, 'PROTOCOL_ERROR')
@@ -659,6 +693,7 @@ export class RdpSessionManager {
       workerStderr: '',
       requestId: 1,
       pendingPortFrames: new Map(),
+      queuedFrames: [],
       stdoutPaused: false,
       lastFrameSequence: -1,
       lastResizeSentAt: -RESIZE_INTERVAL_MS,
@@ -731,7 +766,7 @@ export class RdpSessionManager {
       return
     }
     if (session.port) session.port.close()
-    this.clearFrameLedger(session)
+    this.clearFrameLedger(session, true)
     session.port = port
     port.on('message', (event: { data: unknown }) => {
       if (!this.isRunning(session) || session.port !== port) return
@@ -739,22 +774,20 @@ export class RdpSessionManager {
       if (!data || typeof data !== 'object' || Object.keys(data).length !== 2 || data.kind !== 'frameAck' ||
           !Number.isInteger(data.sequence) || (data.sequence as number) < 0 || (data.sequence as number) > 0xffffffff) return
       const sequence = data.sequence as number
-      const timer = session.pendingPortFrames.get(sequence)
-      if (!timer) return
-      clearTimeout(timer)
+      const pending = session.pendingPortFrames.get(sequence)
+      if (!pending) return
+      clearTimeout(pending.timer)
       session.pendingPortFrames.delete(sequence)
-      this.flushLatestFrame(session)
-      this.resumeStdout(session)
+      this.pumpFrames(session)
     })
     port.on('close', () => {
       if (!this.isRunning(session) || session.port !== port) return
       session.port = undefined
-      this.clearFrameLedger(session)
+      this.clearFrameLedger(session, true)
       this.pauseStdout(session)
     })
     port.start()
-    this.flushLatestFrame(session)
-    this.resumeStdout(session)
+    this.pumpFrames(session)
   }
 
   open(profileId: string, display: RdpDisplaySize = DEFAULT_DISPLAY): { sessionId: SessionId } {

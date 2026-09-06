@@ -507,10 +507,11 @@ bool writeMockFrame(const Display& display, std::uint32_t sequence) {
     put32(frame, rectWidth * 4u);
     put32(frame, static_cast<std::uint32_t>(bytes));
     frame.resize(frame.size() + static_cast<std::size_t>(bytes));
+    // rdp-frame-v1 carries canonical RGBA8888 pixels.
     for (std::size_t i = kFrameMetadataSize; i < frame.size(); i += 4) {
-      frame[i] = 0x22;
+      frame[i] = 0x66;
       frame[i + 1] = 0x44;
-      frame[i + 2] = 0x66;
+      frame[i + 2] = 0x22;
       frame[i + 3] = 0xff;
     }
     return writeFrame(FRAME, 0, frame);

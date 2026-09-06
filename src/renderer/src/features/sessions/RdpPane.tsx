@@ -173,7 +173,7 @@ interface RdpCanvasRendererOptions {
   useWebgl?: boolean
 }
 
-/** A fixed backing canvas renderer with an opt-in WebGL2 BGRA swizzle path. */
+/** A fixed backing canvas renderer with an opt-in WebGL2 upload path. */
 export class RdpCanvasRenderer {
   private readonly canvas: HTMLCanvasElement
   private glRenderer: GlRenderer | null
@@ -183,14 +183,14 @@ export class RdpCanvasRenderer {
   private disposed = false
   private latestSequence = -1
   private renderedSequence = -1
-  private hasDisplayedFrame = false
+  private scratchImageData: ImageData | null = null
 
   constructor(canvas: HTMLCanvasElement, options: RdpCanvasRendererOptions = {}) {
     this.canvas = canvas
     // Keep the visible canvas in 2D mode. A canvas cannot switch from a
     // failed WebGL context to 2D, so WebGL is deliberately isolated on an
     // offscreen canvas and can be abandoned at any point.
-    this.context2d = canvas.getContext('2d', { alpha: false })
+    this.context2d = canvas.getContext('2d', { alpha: false, desynchronized: true })
     if (!this.context2d) throw new Error('RDP canvas has no supported 2D renderer')
 
     let glRenderer: GlRenderer | null = null
@@ -221,15 +221,10 @@ export class RdpCanvasRenderer {
       return
     }
     this.latestSequence = frame.sequence
-    // Keep at most two frames including the one currently displayed. Once a
-    // backing canvas exists, only one newer frame may wait behind it; the
-    // render tick consumes that newest frame and makes this latest-wins.
+    // FRAME payloads are dirty-rectangle deltas, not complete snapshots. Keep
+    // every queued delta in sequence; dropping one can leave stale or black
+    // regions even when a newer frame is successfully rendered.
     this.frameQueue.push({ frame, ack })
-    const maxPending = this.hasDisplayedFrame ? 1 : 2
-    if (this.frameQueue.length > maxPending) {
-      const dropped = this.frameQueue.splice(0, this.frameQueue.length - maxPending)
-      for (const item of dropped) item.ack?.()
-    }
     this.schedule()
   }
 
@@ -238,6 +233,7 @@ export class RdpCanvasRenderer {
     const queued = this.frameQueue
     this.frameQueue = []
     for (const item of queued) item.ack?.()
+    this.scratchImageData = null
     this.releaseGlRenderer()
   }
 
@@ -247,27 +243,43 @@ export class RdpCanvasRenderer {
     schedulePaint(() => {
       this.scheduled = false
       if (this.disposed) return
-      const queued = this.frameQueue.pop()
-      const skipped = this.frameQueue
+      const queued = this.frameQueue
       this.frameQueue = []
-      for (const item of skipped) item.ack?.()
-      if (queued && queued.frame.sequence > this.renderedSequence) {
-        const frame = queued.frame
-        const rects = decodeRdpRects(frame)
+      const acknowledgements: Array<() => void> = []
+      let batchWidth = 0
+      let batchHeight = 0
+      let batchRects: DirtyRect[] = []
+      const flushBatch = (): void => {
+        if (batchRects.length === 0) return
         try {
-          if (rects) {
-            this.paint(frame.canvasWidth, frame.canvasHeight, rects)
-            this.renderedSequence = frame.sequence
-            this.hasDisplayedFrame = true
-          }
-        } finally {
-          // ACK after texture upload / putImageData. Invalid frames are
-          // consumed as well, preventing a malformed frame from stalling main.
-          queued.ack?.()
+          this.paint(batchWidth, batchHeight, batchRects)
+        } catch {
+          // Always release frame ACKs below so a transient canvas failure does
+          // not permanently pause the native Worker stream.
         }
-      } else if (queued) {
-        queued.ack?.()
+        batchRects = []
       }
+      for (const item of queued) {
+        if (item.frame.sequence <= this.renderedSequence) {
+          item.ack?.()
+          continue
+        }
+        const rects = decodeRdpRects(item.frame)
+        if (!rects) {
+          item.ack?.()
+          continue
+        }
+        if (batchRects.length > 0 && (batchWidth !== item.frame.canvasWidth || batchHeight !== item.frame.canvasHeight)) {
+          flushBatch()
+        }
+        batchWidth = item.frame.canvasWidth
+        batchHeight = item.frame.canvasHeight
+        batchRects.push(...rects)
+        this.renderedSequence = item.frame.sequence
+        if (item.ack) acknowledgements.push(item.ack)
+      }
+      flushBatch()
+      for (const ack of acknowledgements) ack()
       if (this.frameQueue.length > 0) this.schedule()
     })
   }
@@ -278,6 +290,7 @@ export class RdpCanvasRenderer {
       // texture storage is recreated below before the first rectangle upload.
       this.canvas.width = canvasWidth
       this.canvas.height = canvasHeight
+      this.scratchImageData = null
       if (this.glRenderer) {
         const glCanvas = this.glRenderer.canvas
         glCanvas.width = canvasWidth
@@ -306,23 +319,31 @@ export class RdpCanvasRenderer {
   private paint2d(rects: DirtyRect[]): void {
     const ctx = this.context2d
     if (!ctx) return
+    const largestRect = rects.reduce<DirtyRect | null>((largest, rect) => {
+      if (!largest || rect.width * rect.height > largest.width * largest.height) return rect
+      return largest
+    }, null)
+    if (!largestRect) return
+    if (!this.scratchImageData || this.scratchImageData.width < largestRect.width || this.scratchImageData.height < largestRect.height) {
+      this.scratchImageData = ctx.createImageData(largestRect.width, largestRect.height)
+    }
+    const image = this.scratchImageData
     for (const rect of rects) {
-      const rgba = new Uint8ClampedArray(rect.width * rect.height * 4)
-      for (let row = 0; row < rect.height; row++) {
-        const sourceOffset = row * rect.stride
-        const targetOffset = row * rect.width * 4
-        for (let col = 0; col < rect.width; col++) {
-          const source = sourceOffset + col * 4
-          const target = targetOffset + col * 4
-          rgba[target] = rect.data[source + 2]
-          rgba[target + 1] = rect.data[source + 1]
-          rgba[target + 2] = rect.data[source]
-          rgba[target + 3] = rect.data[source + 3]
+      const rowBytes = rect.width * 4
+      if (rect.stride === rowBytes && image.width === rect.width) {
+        // The native Worker publishes canonical RGBA rows. A bulk typed-array
+        // copy avoids a JavaScript loop over every pixel on the UI thread.
+        image.data.set(new Uint8ClampedArray(rect.data.buffer, rect.data.byteOffset, rowBytes * rect.height), 0)
+      } else {
+        for (let row = 0; row < rect.height; row++) {
+          const sourceOffset = row * rect.stride
+          image.data.set(rect.data.subarray(sourceOffset, sourceOffset + rowBytes), row * image.width * 4)
         }
       }
-      const image = ctx.createImageData(rect.width, rect.height)
-      image.data.set(rgba)
-      ctx.putImageData(image, rect.x, rect.y)
+      // Reuse one ImageData allocation and restrict the upload to the current
+      // dirty rectangle. This removes per-rectangle GC pressure without
+      // copying stale scratch pixels outside the requested dirty area.
+      ctx.putImageData(image, rect.x, rect.y, 0, 0, rect.width, rect.height)
     }
   }
 
@@ -334,8 +355,8 @@ export class RdpCanvasRenderer {
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, texture)
     for (const rect of rects) {
-      // The shader swaps sampled BGRA into displayed RGBA, so no per-pixel
-      // conversion or temporary full-frame buffer is needed on the fast path.
+      // The Worker publishes canonical RGBA bytes, so no per-pixel color
+      // conversion is needed on the upload path.
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
       // RDP coordinates are top-left based while WebGL texture coordinates are
       // bottom-left based. Destination Y and the packed row order are both
@@ -369,7 +390,7 @@ export class RdpCanvasRenderer {
       uniform sampler2D u_texture;
       in vec2 v_uv;
       out vec4 outColor;
-      void main() { vec4 bgra = texture(u_texture, v_uv); outColor = bgra.bgra; }
+      void main() { outColor = texture(u_texture, v_uv); }
     `)
     const program = gl.createProgram()
     if (!program) throw new Error('RDP WebGL program allocation failed')
@@ -453,7 +474,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     const canvas = canvasRef.current
     if (!canvas) return
     try {
-      const renderer = new RdpCanvasRenderer(canvas)
+      const renderer = new RdpCanvasRenderer(canvas, { useWebgl: true })
       rendererRef.current = renderer
       for (const queued of pendingFramesRef.current) renderer.enqueue(queued.frame, queued.ack)
       pendingFramesRef.current = []
@@ -472,8 +493,9 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   useEffect(() => {
     if (!tab.sessionId) return
     const sessionId = tab.sessionId
-    // The production path uses a dedicated MessagePort so frame buffers can be
-    // transferred without cloning. Register it before the legacy event below.
+    // The production path uses a dedicated MessagePort so frame buffers do not
+    // travel through the generic event bus. Electron 43 structured-clones the
+    // ArrayBuffer at this boundary; the main process keeps its own frame copy.
     let portDeliveredFrame = false
     const offPort = ofs.connectRdpPort(sessionId, (message: RdpPortMessage, ack) => {
       if (message.kind !== 'frame') return
@@ -502,10 +524,6 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
         renderer.enqueue(frame, ack)
       } else {
         pendingFramesRef.current.push({ frame, ack })
-        if (pendingFramesRef.current.length > 2) {
-          const dropped = pendingFramesRef.current.splice(0, pendingFramesRef.current.length - 2)
-          for (const item of dropped) item.ack?.()
-        }
       }
     }
   // A reconnect deliberately reuses sessionId, while main closes the old

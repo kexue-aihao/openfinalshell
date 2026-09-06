@@ -206,7 +206,7 @@ describe('RDP Canvas2D composition', () => {
     vi.unstubAllGlobals()
   })
 
-  it('keeps latest-wins semantics and ACKs only after skipped frames or the displayed upload are consumed', () => {
+  it('preserves incremental dirty frames and ACKs them after the composed batch is painted', () => {
     const canvas = document.createElement('canvas')
     const renderer = new RdpCanvasRenderer(canvas)
     const ack1 = vi.fn()
@@ -232,17 +232,18 @@ describe('RDP Canvas2D composition', () => {
       data: rectPayload({ data: new Uint8Array([255, 0, 0, 255]) })
     }, ack3)
 
-    expect(ack1).toHaveBeenCalledTimes(1)
+    expect(ack1).not.toHaveBeenCalled()
     expect(ack2).not.toHaveBeenCalled()
     expect(ack3).not.toHaveBeenCalled()
 
     rafCallbacks.shift()?.(0)
 
+    expect(ack1).toHaveBeenCalledTimes(1)
     expect(ack2).toHaveBeenCalledTimes(1)
     expect(ack3).toHaveBeenCalledTimes(1)
-    expect(putImageData).toHaveBeenCalledTimes(1)
-    const image = putImageData.mock.calls[0][0] as ImageData
-    expect([...image.data]).toEqual([0, 0, 255, 255])
+    expect(putImageData).toHaveBeenCalledTimes(3)
+    const image = putImageData.mock.calls[2][0] as ImageData
+    expect([...image.data]).toEqual([255, 0, 0, 255])
     renderer.dispose()
   })
 

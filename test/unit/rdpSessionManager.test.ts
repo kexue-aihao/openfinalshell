@@ -167,7 +167,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).not.toThrow()
   })
 
-  it('bounds unacknowledged port frames at two and flushes only the latest stalled frame on ACK', async () => {
+  it('bounds unacknowledged port frames at two without dropping incremental updates', async () => {
     const { manager, sessionId } = await openReady()
     const port = new FakePort()
     manager.attachPort(sessionId, port as never)
@@ -184,7 +184,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(currentWorker.stdout.pause).toHaveBeenCalledTimes(1)
 
     port.ack(1)
-    expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 4])
+    expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 3])
     expect(currentWorker.stdout.resume).toHaveBeenCalledTimes(1)
   })
 
@@ -199,7 +199,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(port.transferLists).toEqual([[]])
   })
 
-  it('recovers a stalled renderer when a frame ACK times out after 500ms', async () => {
+  it('retries dirty frames when a renderer ACK times out after 500ms', async () => {
     vi.useFakeTimers()
     try {
       const { manager, sessionId } = await openReady()
@@ -216,8 +216,14 @@ describe('RdpSessionManager protocol/state behavior', () => {
       vi.advanceTimersByTime(499)
       expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2])
       vi.advanceTimersByTime(1)
-      expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 3])
-      expect(currentWorker.stdout.resume).toHaveBeenCalledTimes(1)
+      expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 1, 2])
+
+      // Once the renderer recovers, the retried deltas are acknowledged and
+      // the queued next delta is delivered without skipping any sequence.
+      port.ack(1)
+      expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 1, 2, 3])
+      port.ack(2)
+      expect(currentWorker.stdout.resume).toHaveBeenCalled()
     } finally {
       vi.useRealTimers()
     }
@@ -236,7 +242,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
 
     manager.attachPort(sessionId, newPort as never)
     expect(oldPort.closed).toBe(true)
-    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([3])
+    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([1, 2])
     currentWorker.stdout.emit('data', Buffer.concat([
       framePacket(4, 4, 4),
       framePacket(5, 4, 4)
@@ -246,13 +252,34 @@ describe('RdpSessionManager protocol/state behavior', () => {
 
     oldPort.ack(3)
     oldPort.remoteClose()
-    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([3, 4])
+    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([1, 2])
     expect(currentWorker.stdout.pause).toHaveBeenCalledTimes(pauseCount)
     expect(currentWorker.stdout.resume).toHaveBeenCalledTimes(resumeCount)
 
-    newPort.ack(3)
-    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([3, 4, 5])
-    expect(currentWorker.stdout.resume).toHaveBeenCalledTimes(resumeCount + 1)
+    newPort.ack(1)
+    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 3])
+    newPort.ack(2)
+    expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4])
+    expect(currentWorker.stdout.resume).toHaveBeenCalledTimes(resumeCount + 2)
+  })
+
+  it('restores frame order when replacing a port after ACK retries', async () => {
+    vi.useFakeTimers()
+    try {
+      const { manager, sessionId } = await openReady()
+      const oldPort = new FakePort()
+      const newPort = new FakePort()
+      manager.attachPort(sessionId, oldPort as never)
+      currentWorker.stdout.emit('data', framePacket(1, 4, 4))
+      vi.advanceTimersByTime(100)
+      currentWorker.stdout.emit('data', Buffer.concat([framePacket(2, 4, 4), framePacket(3, 4, 4)]))
+      vi.advanceTimersByTime(400)
+      manager.attachPort(sessionId, newPort as never)
+
+      expect(newPort.posted.map(({ sequence }) => sequence)).toEqual([1, 2])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects a mock worker hello when a real FreeRDP backend is required', async () => {
