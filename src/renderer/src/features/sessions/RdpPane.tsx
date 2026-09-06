@@ -140,11 +140,15 @@ function compileShader(gl: WebGL2RenderingContext, type: number, source: string)
   return shader
 }
 
-function packRows(rect: DirtyRect): Uint8Array {
+function packRowsForTexture(rect: DirtyRect): Uint8Array {
   const packed = new Uint8Array(rect.width * rect.height * 4)
   const rowBytes = rect.width * 4
-  for (let row = 0; row < rect.height; row++) {
-    packed.set(rect.data.subarray(row * rect.stride, row * rect.stride + rowBytes), row * rowBytes)
+  // RDP rows are top-to-bottom while WebGL texture rows are addressed from
+  // the bottom. Reverse rows explicitly instead of relying on
+  // UNPACK_FLIP_Y_WEBGL, whose behavior differs for typed-array uploads.
+  for (let targetRow = 0; targetRow < rect.height; targetRow++) {
+    const sourceRow = rect.height - targetRow - 1
+    packed.set(rect.data.subarray(sourceRow * rect.stride, sourceRow * rect.stride + rowBytes), targetRow * rowBytes)
   }
   return packed
 }
@@ -156,6 +160,7 @@ function schedulePaint(callback: () => void): void {
 
 interface GlRenderer {
   gl: WebGL2RenderingContext
+  canvas: HTMLCanvasElement
   program: WebGLProgram
   texture: WebGLTexture
   buffer: WebGLBuffer
@@ -166,7 +171,7 @@ interface GlRenderer {
 /** A fixed backing canvas renderer with a WebGL2 BGRA swizzle fast path. */
 export class RdpCanvasRenderer {
   private readonly canvas: HTMLCanvasElement
-  private readonly glRenderer: GlRenderer | null
+  private glRenderer: GlRenderer | null
   private readonly context2d: CanvasRenderingContext2D | null
   private frameQueue: QueuedFrame[] = []
   private scheduled = false
@@ -177,17 +182,30 @@ export class RdpCanvasRenderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    // Keep the visible canvas in 2D mode. A canvas cannot switch from a
+    // failed WebGL context to 2D, so WebGL is deliberately isolated on an
+    // offscreen canvas and can be abandoned at any point.
+    this.context2d = canvas.getContext('2d', { alpha: false })
+    if (!this.context2d) throw new Error('RDP canvas has no supported 2D renderer')
+
     let glRenderer: GlRenderer | null = null
     try {
-      const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: false })
-      if (gl) glRenderer = this.createGlRenderer(gl)
+      const glCanvas = document.createElement('canvas')
+      const gl = glCanvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: false })
+      if (gl) glRenderer = this.createGlRenderer(gl, glCanvas)
     } catch {
       glRenderer = null
     }
     this.glRenderer = glRenderer
-    this.context2d = glRenderer ? null : canvas.getContext('2d', { alpha: false })
-    if (!this.glRenderer && !this.context2d) throw new Error('RDP canvas has no supported renderer')
-    if (this.glRenderer) this.allocateTexture(canvas.width, canvas.height)
+    if (glRenderer) {
+      try {
+        glRenderer.canvas.width = canvas.width
+        glRenderer.canvas.height = canvas.height
+        this.allocateTexture(canvas.width, canvas.height)
+      } catch {
+        this.releaseGlRenderer()
+      }
+    }
   }
 
   enqueue(frame: RdpFrame, ack?: () => void): void {
@@ -213,12 +231,7 @@ export class RdpCanvasRenderer {
     const queued = this.frameQueue
     this.frameQueue = []
     for (const item of queued) item.ack?.()
-    if (this.glRenderer) {
-      const { gl, program, texture } = this.glRenderer
-      gl.deleteTexture(texture)
-      gl.deleteProgram(program)
-      gl.deleteBuffer(this.glRenderer.buffer)
-    }
+    this.releaseGlRenderer()
   }
 
   private schedule(): void {
@@ -258,13 +271,29 @@ export class RdpCanvasRenderer {
       // texture storage is recreated below before the first rectangle upload.
       this.canvas.width = canvasWidth
       this.canvas.height = canvasHeight
-      if (this.glRenderer) this.allocateTexture(canvasWidth, canvasHeight)
+      if (this.glRenderer) {
+        const glCanvas = this.glRenderer.canvas
+        glCanvas.width = canvasWidth
+        glCanvas.height = canvasHeight
+        try {
+          this.allocateTexture(canvasWidth, canvasHeight)
+        } catch {
+          this.releaseGlRenderer()
+        }
+      }
     }
     if (this.glRenderer) {
-      this.paintGl(canvasWidth, canvasHeight, rects)
-    } else if (this.context2d) {
-      this.paint2d(rects)
+      try {
+        this.paintGl(canvasWidth, canvasHeight, rects)
+        return
+      } catch {
+        // GPU contexts can compile successfully and still fail on the first
+        // upload (driver policy, context loss, or an unsupported format).
+        // Keep the current frame visible through the already-live 2D path.
+        this.releaseGlRenderer()
+      }
     }
+    this.paint2d(rects)
   }
 
   private paint2d(rects: DirtyRect[]): void {
@@ -294,15 +323,18 @@ export class RdpCanvasRenderer {
     const state = this.glRenderer
     if (!state) return
     const { gl, texture, program, position, uv } = state
+    if (gl.isContextLost()) throw new Error('RDP WebGL context lost')
+    gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, texture)
     for (const rect of rects) {
       // The shader swaps sampled BGRA into displayed RGBA, so no per-pixel
       // conversion or temporary full-frame buffer is needed on the fast path.
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
       // RDP coordinates are top-left based while WebGL texture coordinates are
-      // bottom-left based. Flip each upload and invert its destination row.
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
-      const packed = rect.stride === rect.width * 4 ? rect.data : packRows(rect)
+      // bottom-left based. Destination Y and the packed row order are both
+      // converted explicitly in packRowsForTexture().
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+      const packed = packRowsForTexture(rect)
       gl.texSubImage2D(gl.TEXTURE_2D, 0, rect.x, canvasHeight - rect.y - rect.height, rect.width, rect.height, gl.RGBA, gl.UNSIGNED_BYTE, packed)
     }
     gl.viewport(0, 0, canvasWidth, canvasHeight)
@@ -311,9 +343,14 @@ export class RdpCanvasRenderer {
     gl.enableVertexAttribArray(position)
     gl.enableVertexAttribArray(uv)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    const error = gl.getError()
+    if (error !== gl.NO_ERROR) throw new Error(`RDP WebGL draw failed: 0x${error.toString(16)}`)
+    const context2d = this.context2d
+    if (!context2d) throw new Error('RDP 2D presentation context unavailable')
+    context2d.drawImage(state.canvas, 0, 0, canvasWidth, canvasHeight)
   }
 
-  private createGlRenderer(gl: WebGL2RenderingContext): GlRenderer {
+  private createGlRenderer(gl: WebGL2RenderingContext, canvas: HTMLCanvasElement): GlRenderer {
     const vertex = compileShader(gl, gl.VERTEX_SHADER, `#version 300 es
       in vec2 a_position;
       in vec2 a_uv;
@@ -362,17 +399,33 @@ export class RdpCanvasRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    return { gl, program, texture, buffer, position, uv }
+    return { gl, canvas, program, texture, buffer, position, uv }
   }
 
   private allocateTexture(width: number, height: number): void {
     const state = this.glRenderer
     if (!state) return
-    const { gl, texture } = state
+    const { gl, texture, program, buffer, position, uv } = state
+    gl.useProgram(program)
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
+    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 16, 0)
+    gl.vertexAttribPointer(uv, 2, gl.FLOAT, false, 16, 8)
+    gl.enableVertexAttribArray(position)
+    gl.enableVertexAttribArray(uv)
+    gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, texture)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
-    gl.clearColor(0.06, 0.07, 0.09, 1)
-    gl.clear(gl.COLOR_BUFFER_BIT)
+    const error = gl.getError()
+    if (error !== gl.NO_ERROR) throw new Error(`RDP WebGL texture allocation failed: 0x${error.toString(16)}`)
+  }
+
+  private releaseGlRenderer(): void {
+    const state = this.glRenderer
+    if (!state) return
+    this.glRenderer = null
+    state.gl.deleteTexture(state.texture)
+    state.gl.deleteProgram(state.program)
+    state.gl.deleteBuffer(state.buffer)
   }
 }
 

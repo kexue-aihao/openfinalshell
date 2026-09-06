@@ -90,24 +90,111 @@ describe('RDP frame decoding', () => {
 describe('RDP Canvas2D composition', () => {
   const rafCallbacks: Array<FrameRequestCallback> = []
   const putImageData = vi.fn()
+  const drawImage = vi.fn()
+  let webglMode: 'none' | 'fail' | 'success' = 'none'
+  let uploadedRows: Uint8Array | undefined
+  let uploadPosition: [number, number] | undefined
+  let contextKinds: WeakMap<HTMLCanvasElement, string>
 
   beforeEach(() => {
     rafCallbacks.length = 0
     putImageData.mockClear()
+    drawImage.mockClear()
+    webglMode = 'none'
+    uploadedRows = undefined
+    uploadPosition = undefined
+    contextKinds = new WeakMap()
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       rafCallbacks.push(callback)
       return rafCallbacks.length
     })
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((kind: string) => {
-      if (kind === 'webgl2') return null
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, kind: string) {
+      const existingKind = contextKinds.get(this)
+      if (existingKind && existingKind !== kind) return null
+      if (kind === 'webgl2') {
+        if (webglMode === 'none') return null
+        contextKinds.set(this, kind)
+        if (webglMode === 'fail') {
+          return {
+            createShader: () => ({}),
+            shaderSource: vi.fn(),
+            compileShader: vi.fn(),
+            getShaderParameter: () => false,
+            getShaderInfoLog: () => 'shader failure',
+            deleteShader: vi.fn()
+          } as unknown as WebGL2RenderingContext
+        }
+        return {
+          VERTEX_SHADER: 1,
+          FRAGMENT_SHADER: 2,
+          COMPILE_STATUS: 3,
+          LINK_STATUS: 4,
+          ARRAY_BUFFER: 5,
+          STATIC_DRAW: 6,
+          FLOAT: 7,
+          TEXTURE_2D: 8,
+          TEXTURE0: 9,
+          TEXTURE_MIN_FILTER: 10,
+          TEXTURE_MAG_FILTER: 11,
+          TEXTURE_WRAP_S: 12,
+          TEXTURE_WRAP_T: 13,
+          NEAREST: 14,
+          CLAMP_TO_EDGE: 15,
+          RGBA: 16,
+          UNSIGNED_BYTE: 17,
+          UNPACK_ALIGNMENT: 18,
+          UNPACK_FLIP_Y_WEBGL: 19,
+          TRIANGLE_STRIP: 20,
+          NO_ERROR: 0,
+          createShader: () => ({}),
+          shaderSource: vi.fn(),
+          compileShader: vi.fn(),
+          getShaderParameter: () => true,
+          getShaderInfoLog: () => '',
+          deleteShader: vi.fn(),
+          createProgram: () => ({}),
+          attachShader: vi.fn(),
+          linkProgram: vi.fn(),
+          getProgramParameter: () => true,
+          getProgramInfoLog: () => '',
+          deleteProgram: vi.fn(),
+          getAttribLocation: (_program: unknown, name: string) => name === 'a_position' ? 0 : 1,
+          createTexture: () => ({}),
+          createBuffer: () => ({}),
+          bindBuffer: vi.fn(),
+          bufferData: vi.fn(),
+          vertexAttribPointer: vi.fn(),
+          useProgram: vi.fn(),
+          getUniformLocation: () => ({}),
+          uniform1i: vi.fn(),
+          activeTexture: vi.fn(),
+          bindTexture: vi.fn(),
+          texParameteri: vi.fn(),
+          texImage2D: vi.fn(),
+          pixelStorei: vi.fn(),
+          texSubImage2D: (_target: unknown, _level: unknown, x: number, y: number, ...args: unknown[]) => {
+            uploadPosition = [x, y]
+            uploadedRows = args[4] as Uint8Array
+          },
+          viewport: vi.fn(),
+          enableVertexAttribArray: vi.fn(),
+          drawArrays: vi.fn(),
+          getError: () => 0,
+          isContextLost: () => false,
+          deleteTexture: vi.fn(),
+          deleteBuffer: vi.fn()
+        } as unknown as WebGL2RenderingContext
+      }
       if (kind === '2d') {
+        contextKinds.set(this, kind)
         return {
           createImageData: (width: number, height: number) => ({
             width,
             height,
             data: new Uint8ClampedArray(width * height * 4)
           }),
-          putImageData
+          putImageData,
+          drawImage
         } as unknown as CanvasRenderingContext2D
       }
       return null
@@ -156,6 +243,45 @@ describe('RDP Canvas2D composition', () => {
     expect(putImageData).toHaveBeenCalledTimes(1)
     const image = putImageData.mock.calls[0][0] as ImageData
     expect([...image.data]).toEqual([0, 0, 255, 255])
+    renderer.dispose()
+  })
+
+  it('keeps the visible 2D fallback when WebGL initialization fails', () => {
+    webglMode = 'fail'
+    const canvas = document.createElement('canvas')
+    const renderer = new RdpCanvasRenderer(canvas)
+
+    renderer.enqueue({
+      sequence: 1,
+      canvasWidth: CANVAS_WIDTH,
+      canvasHeight: CANVAS_HEIGHT,
+      data: rectPayload({ data: new Uint8Array([0, 0, 255, 255]) })
+    })
+    rafCallbacks.shift()?.(0)
+
+    expect(putImageData).toHaveBeenCalledTimes(1)
+    renderer.dispose()
+  })
+
+  it('uploads top-down RDP rows in WebGL texture order and presents the result', () => {
+    webglMode = 'success'
+    const canvas = document.createElement('canvas')
+    const renderer = new RdpCanvasRenderer(canvas)
+    const topRow = new Uint8Array([1, 2, 3, 255])
+    const bottomRow = new Uint8Array([4, 5, 6, 255])
+
+    renderer.enqueue({
+      sequence: 1,
+      canvasWidth: CANVAS_WIDTH,
+      canvasHeight: CANVAS_HEIGHT,
+      data: rectPayload({ x: 7, y: 11, width: 1, height: 2, data: new Uint8Array([...topRow, ...bottomRow]) })
+    })
+    rafCallbacks.shift()?.(0)
+
+    expect(uploadPosition).toEqual([7, CANVAS_HEIGHT - 11 - 2])
+    expect([...uploadedRows!]).toEqual([...bottomRow, ...topRow])
+    expect(drawImage).toHaveBeenCalledTimes(1)
+    expect(putImageData).not.toHaveBeenCalled()
     renderer.dispose()
   })
 })
