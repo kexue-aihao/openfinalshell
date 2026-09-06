@@ -37,6 +37,9 @@
 #include <freerdp/input.h>
 #include <freerdp/settings.h>
 #include <winpr/crt.h>
+#if defined(_WIN32)
+#include <winpr/winsock.h>
+#endif
 #endif
 
 struct FreeRdpAdapter::Impl {
@@ -91,6 +94,7 @@ struct FreeRdpAdapter::Impl {
   bool displayControlReady = false;
   std::uint64_t maximumMonitorArea = 0;
   bool certificateRejected = false;
+  bool winsockInitialized = false;
   std::uint32_t nextSequence = 0;
   std::uint32_t nextCertificateRequest = 1;
   std::uint32_t pendingCertificateRequest = 0;
@@ -410,6 +414,30 @@ struct FreeRdpAdapter::Impl {
     if (state) state(value, errorCode);
   }
 
+  const char* connectionErrorCode() const {
+    if (certificateRejected) return "CERTIFICATE_REJECTED";
+    if (!instance || !instance->context) return "NETWORK_ERROR";
+    switch (freerdp_get_last_error(instance->context)) {
+      case FREERDP_ERROR_AUTHENTICATION_FAILED:
+      case FREERDP_ERROR_CONNECT_LOGON_FAILURE:
+      case FREERDP_ERROR_CONNECT_WRONG_PASSWORD:
+      case FREERDP_ERROR_CONNECT_ACCESS_DENIED:
+      case FREERDP_ERROR_CONNECT_NO_OR_MISSING_CREDENTIALS:
+      case FREERDP_ERROR_CONNECT_PASSWORD_EXPIRED:
+      case FREERDP_ERROR_CONNECT_PASSWORD_MUST_CHANGE:
+      case FREERDP_ERROR_CONNECT_ACCOUNT_DISABLED:
+      case FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT:
+      case FREERDP_ERROR_CONNECT_ACCOUNT_EXPIRED:
+      case FREERDP_ERROR_CONNECT_LOGON_TYPE_NOT_GRANTED:
+      case FREERDP_ERROR_CONNECT_ACCOUNT_RESTRICTION:
+        return "AUTH_FAILED";
+      case FREERDP_ERROR_CONNECT_CANCELLED:
+        return "CANCELED";
+      default:
+        return "NETWORK_ERROR";
+    }
+  }
+
   static bool sendUnicodeScalar(rdpInput* input, std::uint32_t value, bool pressed) {
     if (!input || !ofs::rdp::isUnicodeScalar(value)) return false;
     const UINT16 flags = pressed ? 0 : KBD_FLAGS_RELEASE;
@@ -439,6 +467,11 @@ struct FreeRdpAdapter::Impl {
   }
 
   bool initialize() {
+#if defined(_WIN32)
+    WSADATA winsockData{};
+    if (WSAStartup(MAKEWORD(2, 2), &winsockData) != 0) return false;
+    winsockInitialized = true;
+#endif
     instance = freerdp_new();
     if (!instance || !freerdp_context_new(instance)) return false;
     // freerdp_context_new() creates the core context but does not install the
@@ -705,6 +738,12 @@ struct FreeRdpAdapter::Impl {
     clipboardText.clear();
     pendingClipboardRequests.clear();
     failPendingCommands();
+#if defined(_WIN32)
+    if (winsockInitialized) {
+      WSACleanup();
+      winsockInitialized = false;
+    }
+#endif
   }
 
   void run(std::shared_ptr<std::promise<bool>> initialized) {
@@ -724,7 +763,7 @@ struct FreeRdpAdapter::Impl {
     }
     if (!freerdp_connect(instance)) {
       if (!stopping.load())
-        emitState("failed", certificateRejected ? "CERTIFICATE_REJECTED" : "NETWORK_ERROR");
+        emitState("failed", connectionErrorCode());
       cleanup();
       return;
     }

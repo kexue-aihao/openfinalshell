@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.24',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 Windows 嵌入式 RDP Worker 未初始化 Winsock 导致主机地址无法解析的问题，并将认证失败正确区分为登录错误',
+        en: 'Fixed Windows embedded RDP connections failing to resolve the host because the Worker did not initialize Winsock, and mapped authentication failures separately from network errors'
+      }
+    ]
+  },
+  {
     version: '0.20.23',
     items: [
       {
