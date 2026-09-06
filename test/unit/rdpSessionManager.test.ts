@@ -45,10 +45,14 @@ class FakeWorker extends EventEmitter {
 
 class FakePort extends EventEmitter {
   readonly posted: Array<{ kind: string; sequence: number }> = []
+  readonly transferLists: unknown[][] = []
   closed = false
   started = false
 
-  postMessage(value: { kind: string; sequence: number }): void { this.posted.push(value) }
+  postMessage(value: { kind: string; sequence: number }, transfer?: unknown[]): void {
+    this.posted.push(value)
+    this.transferLists.push(transfer ?? [])
+  }
   close(): void { this.closed = true }
   start(): void { this.started = true }
   ack(sequence: number): void { this.emit('message', { data: { kind: 'frameAck', sequence } }) }
@@ -182,6 +186,17 @@ describe('RdpSessionManager protocol/state behavior', () => {
     port.ack(1)
     expect(port.posted.map(({ sequence }) => sequence)).toEqual([1, 2, 4])
     expect(currentWorker.stdout.resume).toHaveBeenCalledTimes(1)
+  })
+
+  it('structured-clones framebuffer ArrayBuffers instead of transferring them as MessagePortMain values', async () => {
+    const { manager, sessionId } = await openReady()
+    const port = new FakePort()
+    manager.attachPort(sessionId, port as never)
+
+    currentWorker.stdout.emit('data', framePacket(1, 4, 4))
+
+    expect(port.posted).toHaveLength(1)
+    expect(port.transferLists).toEqual([[]])
   })
 
   it('recovers a stalled renderer when a frame ACK times out after 500ms', async () => {

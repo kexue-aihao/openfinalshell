@@ -254,16 +254,21 @@ export class RdpSessionManager {
     timer.unref()
     session.pendingPortFrames.set(parsed.sequence, timer)
     try {
-      // Electron accepts ArrayBuffer in a transfer list. Its current declaration
-      // is narrower than the runtime API, hence the local cast.
+      // Electron's MessagePortMain transfer list accepts MessagePortMain
+      // instances, not ArrayBuffer values. Passing the framebuffer there throws
+      // at runtime ("Port at index 0 is not a valid port") and leaves the
+      // session ready with a permanently paused stdout. Structured cloning the
+      // ArrayBuffer is intentional here; it is already isolated from the Worker
+      // buffer by the copy above.
       port.postMessage({
         kind: 'frame',
         sequence: parsed.sequence,
         canvasWidth: parsed.canvasWidth,
         canvasHeight: parsed.canvasHeight,
         buffer
-      }, [buffer as unknown as MessagePortMain])
-    } catch {
+      })
+    } catch (error) {
+      log.warn(`RDP session ${session.id}: framebuffer delivery failed: ${error instanceof Error ? error.message : String(error)}`)
       clearTimeout(timer)
       session.pendingPortFrames.delete(parsed.sequence)
       session.latestFrame = parsed

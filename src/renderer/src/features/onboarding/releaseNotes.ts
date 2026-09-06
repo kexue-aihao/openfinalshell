@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.29',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复嵌入式 RDP 连接成功后因 framebuffer 跨进程传输错误导致的黑屏问题',
+        en: 'Fixed embedded RDP sessions staying black because framebuffer delivery failed across the Electron MessagePort boundary'
+      }
+    ]
+  },
+  {
     version: '0.20.28',
     items: [
       {
