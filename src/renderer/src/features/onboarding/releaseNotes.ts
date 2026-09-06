@@ -17,6 +17,26 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.27',
+    items: [
+      {
+        type: 'fix',
+        zh: '重新发布嵌入式 RDP 黑屏修复版本，补齐桌面端正式安装包构建与发布流程',
+        en: 'Reissued the embedded RDP black-screen fix with the desktop release build and publishing flow completed'
+      }
+    ]
+  },
+  {
+    version: '0.20.26',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复嵌入式 RDP 在 WebGL 初始化失败或上下文丢失时连接成功但画面黑屏的问题，并修正画面行序与尺寸变化处理',
+        en: 'Fixed embedded RDP sessions showing a black screen after a successful connection when WebGL initialization failed or the context was lost, and corrected row ordering and resize handling'
+      }
+    ]
+  },
+  {
     version: '0.20.25',
     items: [
       {
