@@ -7,14 +7,15 @@ import '@/i18n'
 import { RdpPane } from '@/features/sessions/RdpPane'
 import type { SessionTab } from '@/stores/useSessionStore'
 
-const { invoke } = vi.hoisted(() => ({
-  invoke: vi.fn(async () => undefined)
+const { invoke, send } = vi.hoisted(() => ({
+  invoke: vi.fn(async () => undefined),
+  send: vi.fn()
 }))
 
 vi.mock('@/ipc/api', () => ({
   ofs: {
     invoke: (...args: unknown[]) => invoke(...args),
-    send: vi.fn(),
+    send,
     on: vi.fn(() => () => {}),
     connectRdpPort: vi.fn(() => () => {})
   }
@@ -44,6 +45,7 @@ function renderPane(overrides: Partial<SessionTab> = {}, active = true): HTMLCan
 
 beforeEach(() => {
   invoke.mockClear()
+  send.mockClear()
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((kind: string) => {
     if (kind === 'webgl2') return null
     if (kind === '2d') {
@@ -72,11 +74,11 @@ describe('RdpPane input gating', () => {
     fireEvent.keyDown(canvas, { code: 'KeyA', key: 'a' })
     fireEvent.blur(canvas)
 
-    expect(invoke).toHaveBeenNthCalledWith(1, 'rdp:input', {
+    expect(send).toHaveBeenNthCalledWith(1, 'rdp:input', {
       sessionId: 'rdp-1',
       input: { kind: 'key', scanCode: 0x1e, pressed: true, unicode: 97 }
     })
-    expect(invoke).toHaveBeenNthCalledWith(2, 'rdp:input', {
+    expect(send).toHaveBeenNthCalledWith(2, 'rdp:input', {
       sessionId: 'rdp-1',
       input: { kind: 'key', scanCode: 0x1e, pressed: false }
     })
@@ -89,6 +91,7 @@ describe('RdpPane input gating', () => {
     fireEvent.paste(canvas, { clipboardData: { getData: () => 'secret' } })
 
     expect(invoke).not.toHaveBeenCalled()
+    expect(send).not.toHaveBeenCalled()
   })
 
   it('bridges text paste and copy requests through the typed RDP clipboard IPC', () => {
@@ -111,7 +114,7 @@ describe('RdpPane input gating', () => {
     })
 
     fireEvent.pointerDown(canvas, { clientX: 500, clientY: 350, button: 0, pointerId: 1 })
-    expect(invoke).toHaveBeenCalledWith('rdp:input', {
+    expect(send).toHaveBeenCalledWith('rdp:input', {
       sessionId: 'rdp-1',
       input: { kind: 'pointer', x: 960, y: 540, buttons: 1 }
     })
@@ -128,11 +131,11 @@ describe('RdpPane input gating', () => {
     fireEvent.wheel(canvas, { clientX: 80, clientY: 40, deltaY: 3, deltaMode: 1 })
     fireEvent.pointerUp(canvas, { clientX: 80, clientY: 40, button: 0, pointerId: 2 })
 
-    expect(invoke).toHaveBeenCalledWith('rdp:input', expect.objectContaining({
+    expect(send).toHaveBeenCalledWith('rdp:input', expect.objectContaining({
       sessionId: 'rdp-1',
       input: expect.objectContaining({ kind: 'pointer', buttons: 1, wheelY: 120 })
     }))
-    expect(invoke).toHaveBeenLastCalledWith('rdp:input', {
+    expect(send).toHaveBeenLastCalledWith('rdp:input', {
       sessionId: 'rdp-1',
       input: { kind: 'pointer', x: 80, y: 40, buttons: 0 }
     })
@@ -144,7 +147,7 @@ describe('RdpPane input gating', () => {
     fireEvent.keyDown(canvas, { code: 'ControlLeft', key: 'Control' })
     fireEvent.keyDown(canvas, { code: 'KeyA', key: 'a', ctrlKey: true })
 
-    expect(invoke).toHaveBeenLastCalledWith('rdp:input', {
+    expect(send).toHaveBeenLastCalledWith('rdp:input', {
       sessionId: 'rdp-1',
       input: { kind: 'key', scanCode: 0x1e, pressed: true }
     })
@@ -159,7 +162,7 @@ describe('RdpPane input gating', () => {
     fireEvent.keyUp(canvas, { code: 'ControlLeft', key: 'Control' })
 
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('rdp:clipboardGet', 'rdp-1'))
-    const remoteInputs = invoke.mock.calls
+    const remoteInputs = [...send.mock.calls, ...invoke.mock.calls]
       .filter(([channel]) => channel === 'rdp:input')
       .map(([, value]) => value.input)
     expect(remoteInputs).toEqual(expect.arrayContaining([
@@ -185,13 +188,16 @@ describe('RdpPane input gating', () => {
     await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('rdp:clipboardSet', {
       sessionId: 'rdp-1', text: 'local text'
     }))
-    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('rdp:input', {
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith('rdp:input', {
       sessionId: 'rdp-1', input: { kind: 'key', scanCode: 0x2f, pressed: true }
     }))
     const setIndex = invoke.mock.calls.findIndex(([channel]) => channel === 'rdp:clipboardSet')
-    const pasteIndex = invoke.mock.calls.findIndex(([, value]) => value?.input?.scanCode === 0x2f && value?.input?.pressed === true)
+    const pasteIndex = send.mock.calls.findIndex(([channel, value]) =>
+      channel === 'rdp:input' && value.input.scanCode === 0x2f && value.input.pressed === true
+    )
     expect(setIndex).toBeGreaterThanOrEqual(0)
-    expect(pasteIndex).toBeGreaterThan(setIndex)
+    expect(pasteIndex).toBeGreaterThanOrEqual(0)
+    expect(send.mock.invocationCallOrder[pasteIndex]).toBeGreaterThan(invoke.mock.invocationCallOrder[setIndex])
   })
 
   it('shows an explicit system-client fallback label on failed RDP tabs', () => {

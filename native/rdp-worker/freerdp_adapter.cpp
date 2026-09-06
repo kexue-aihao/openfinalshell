@@ -318,20 +318,18 @@ struct FreeRdpAdapter::Impl {
           rect.height = sliceHeight;
           rect.stride = static_cast<std::uint32_t>(rowBytes);
           rect.pixels.resize(static_cast<std::size_t>(sliceBytes));
-          for (std::uint32_t row = 0; row < sliceHeight; ++row) {
-            const auto* source = gdi->primary_buffer +
-                (static_cast<std::uint64_t>(rect.y) + row) * stride +
-                static_cast<std::uint64_t>(rect.x) * 4u;
-            auto* destination = rect.pixels.data() + static_cast<std::size_t>(row) * rowBytes;
-            // FreeRDP's GDI buffer is BGRA32; the wire format is RGBA8888 so
-            // Canvas2D can upload rows without a per-pixel JS conversion.
-            for (std::uint64_t column = 0; column < rowBytes; column += 4) {
-              destination[column] = source[column + 2];
-              destination[column + 1] = source[column + 1];
-              destination[column + 2] = source[column];
-              destination[column + 3] = source[column + 3];
-            }
-          }
+          const auto* source = gdi->primary_buffer +
+              static_cast<std::uint64_t>(rect.y) * stride +
+              static_cast<std::uint64_t>(rect.x) * 4u;
+          // FreeRDP's GDI buffer is BGRA32; use its optimized image copy for
+          // the wire RGBA8888 conversion instead of swapping every pixel in
+          // this callback. The destination is a fresh rectangle buffer, so
+          // the non-overlapping copy contract is satisfied.
+          if (!freerdp_image_copy(rect.pixels.data(), PIXEL_FORMAT_RGBA32,
+                                   static_cast<UINT32>(rowBytes), 0, 0, rectWidth,
+                                   sliceHeight, source, PIXEL_FORMAT_BGRA32, stride,
+                                   0, 0, nullptr, FREERDP_FLIP_NONE))
+            return FALSE;
           batchBytes += kRectHeaderSize + sliceBytes;
           batch.emplace_back(std::move(rect));
           copiedRows += sliceHeight;
@@ -657,7 +655,7 @@ struct FreeRdpAdapter::Impl {
         result = true;
         stopping.store(true);
       }
-      command.completion->set_value(result);
+      if (command.completion) command.completion->set_value(result);
       if (command.kind == CommandKind::password) return result;
       if (command.kind == CommandKind::stop) return false;
       lock.lock();
@@ -744,16 +742,24 @@ struct FreeRdpAdapter::Impl {
         if (!instance->context->input) return false;
         const UINT16 px = static_cast<UINT16>(std::min<std::uint32_t>(command.x, 0xffffu));
         const UINT16 py = static_cast<UINT16>(std::min<std::uint32_t>(command.y, 0xffffu));
-        bool ok = freerdp_input_send_mouse_event(instance->context->input, PTR_FLAGS_MOVE, px, py);
         const std::uint32_t normalized = command.buttons & 0x7u;
         const std::uint32_t changed = lastButtons ^ normalized;
         const struct ButtonFlag { std::uint32_t mask; UINT16 flag; } buttonFlags[] = {
             {1u, PTR_FLAGS_BUTTON1}, {2u, PTR_FLAGS_BUTTON2}, {4u, PTR_FLAGS_BUTTON3}};
+        bool ok = true;
+        bool positionSent = false;
+        const auto send = [&](UINT16 flags) {
+          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
+          positionSent = true;
+        };
         for (const auto& button : buttonFlags) {
           if ((changed & button.mask) == 0) continue;
           UINT16 flags = button.flag;
           if ((normalized & button.mask) != 0) flags |= PTR_FLAGS_DOWN;
-          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
+          // MOVE may be combined with a button transition. This keeps a click
+          // to one input PDU instead of sending a standalone move first.
+          if (!positionSent) flags |= PTR_FLAGS_MOVE;
+          send(flags);
         }
         lastButtons = normalized;
         const auto wheelMagnitude = [](std::int32_t value) {
@@ -763,13 +769,16 @@ struct FreeRdpAdapter::Impl {
         if (command.wheelY != 0) {
           UINT16 flags = PTR_FLAGS_WHEEL | wheelMagnitude(command.wheelY);
           if (command.wheelY < 0) flags |= PTR_FLAGS_WHEEL_NEGATIVE;
-          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
+          if (!positionSent) flags |= PTR_FLAGS_MOVE;
+          send(flags);
         }
         if (command.wheelX != 0) {
           UINT16 flags = PTR_FLAGS_HWHEEL | wheelMagnitude(command.wheelX);
           if (command.wheelX < 0) flags |= PTR_FLAGS_WHEEL_NEGATIVE;
-          ok = freerdp_input_send_mouse_event(instance->context->input, flags, px, py) && ok;
+          if (!positionSent) flags |= PTR_FLAGS_MOVE;
+          send(flags);
         }
+        if (!positionSent) send(PTR_FLAGS_MOVE);
         return ok;
       }
       case CommandKind::clipboardSet: {
@@ -825,7 +834,7 @@ struct FreeRdpAdapter::Impl {
         commands.pop_front();
       }
       const bool result = execute(command);
-      command.completion->set_value(result);
+      if (command.completion) command.completion->set_value(result);
       std::fill(command.text.begin(), command.text.end(), '\0');
       if (stopping.load()) return;
     }
@@ -840,7 +849,7 @@ struct FreeRdpAdapter::Impl {
     }
     for (auto& command : pending) {
       std::fill(command.text.begin(), command.text.end(), '\0');
-      command.completion->set_value(false);
+      if (command.completion) command.completion->set_value(false);
     }
     commandCv.notify_all();
   }
@@ -933,16 +942,37 @@ struct FreeRdpAdapter::Impl {
     cleanup();
   }
 
+  static bool isPurePointerMove(const Command& command) {
+    return command.kind == CommandKind::pointer && command.wheelX == 0 && command.wheelY == 0;
+  }
+
+  bool enqueueCommand(Command command) {
+    {
+      std::lock_guard<std::mutex> lock(commandMutex);
+      if (!running || stopping.load()) return false;
+      // Pointer moves are high-frequency state updates. Coalesce only adjacent
+      // moves with the same button state; button transitions and wheel events
+      // remain ordered and are never discarded.
+      if (isPurePointerMove(command) && !commands.empty() &&
+          isPurePointerMove(commands.back()) && !commands.back().completion &&
+          (commands.back().buttons & 0x7u) == (command.buttons & 0x7u)) {
+        commands.back().x = command.x;
+        commands.back().y = command.y;
+        return true;
+      }
+      commands.emplace_back(std::move(command));
+    }
+    commandCv.notify_all();
+    return true;
+  }
+
+  bool enqueue(Command command) { return enqueueCommand(std::move(command)); }
+
   bool submit(Command command) {
     auto completion = std::make_shared<std::promise<bool>>();
     auto result = completion->get_future();
     command.completion = completion;
-    {
-      std::lock_guard<std::mutex> lock(commandMutex);
-      if (!running || stopping.load()) return false;
-      commands.emplace_back(std::move(command));
-    }
-    commandCv.notify_all();
+    if (!enqueueCommand(std::move(command))) return false;
     return result.get();
   }
 #endif
@@ -1020,7 +1050,7 @@ bool FreeRdpAdapter::resize(Display display) {
 }
 
 bool FreeRdpAdapter::key(std::uint32_t scanCode, bool pressed, bool extended,
-                         std::optional<std::uint32_t> unicode) {
+                          std::optional<std::uint32_t> unicode) {
 #if OFS_RDP_HAS_FREERDP
   if (!impl_) return false;
   Impl::Command command;
@@ -1029,7 +1059,7 @@ bool FreeRdpAdapter::key(std::uint32_t scanCode, bool pressed, bool extended,
   command.value = pressed;
   command.extended = extended;
   command.unicode = unicode;
-  return impl_->submit(std::move(command));
+  return impl_->enqueue(std::move(command));
 #else
   (void)scanCode;
   (void)pressed;
@@ -1050,7 +1080,7 @@ bool FreeRdpAdapter::pointer(std::uint32_t x, std::uint32_t y, std::uint32_t but
   command.buttons = buttons;
   command.wheelX = wheelX;
   command.wheelY = wheelY;
-  return impl_->submit(std::move(command));
+  return impl_->enqueue(std::move(command));
 #else
   (void)x;
   (void)y;

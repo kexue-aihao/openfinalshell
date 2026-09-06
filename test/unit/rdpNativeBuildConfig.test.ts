@@ -96,8 +96,13 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('std::thread eventThread')
     expect(adapter).toContain('std::deque<Command> commands')
     expect(adapter).toContain('bool submit(Command command)')
+    expect(adapter).toContain('bool enqueue(Command command)')
     expect(adapter).toContain('void processCommands()')
     expect(adapter).not.toContain('connectThread')
+  })
+
+  it('keeps fire-and-forget input off the worker stdout ACK path', () => {
+    expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('if (frame.requestId != 0) ack(frame.requestId)')
   })
 
   it('publishes a complete initial framebuffer before reporting FreeRDP ready', () => {
@@ -125,6 +130,7 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('FreeRDP_SupportMultitransport, FALSE')
     expect(adapter).toContain('FreeRDP_SupportDisplayControl')
     expect(adapter).toContain('SendMonitorLayout(disp, 1, &layout)')
+    expect(adapter).toContain('flags |= PTR_FLAGS_MOVE')
     expect(adapter).not.toContain('freerdp_input_send_synchronize_event')
   })
 

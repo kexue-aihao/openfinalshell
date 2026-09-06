@@ -664,6 +664,8 @@ describe('RdpSessionManager protocol/state behavior', () => {
     const pointer = currentWorker.writes.find((bytes) => bytes[6] === 0x15)
     expect(key).toBeDefined()
     expect(pointer).toBeDefined()
+    expect(key!.readUInt32LE(12)).toBe(0)
+    expect(pointer!.readUInt32LE(12)).toBe(0)
     expect(JSON.parse(key!.subarray(16).toString('utf8'))).toEqual({
       op: 'key',
       scanCode: 30,

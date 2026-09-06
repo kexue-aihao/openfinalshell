@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.32',
+    items: [
+      {
+        type: 'fix',
+        zh: '优化嵌入式 RDP 键鼠输入响应，减少 IPC 与网络事件开销，并增强高负载下的操作稳定性',
+        en: 'Improved embedded RDP keyboard and mouse responsiveness by reducing IPC and network-event overhead, with better stability under load'
+      }
+    ]
+  },
+  {
     version: '0.20.31',
     items: [
       {

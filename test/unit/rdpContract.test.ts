@@ -104,11 +104,12 @@ describe('RDP shared runtime contract', () => {
     expect(registry).toMatch(/function onPort[\s\S]*?assertTrustedSender\(event\)[\s\S]*?event\.ports/)
 
     for (const channel of [
-      'open', 'close', 'reconnect', 'input', 'resize',
+      'open', 'close', 'reconnect', 'resize',
       'clipboardSet', 'clipboardGet', 'systemFallback'
     ]) {
       expect(rdpIpc).toMatch(new RegExp(`handle\\('rdp:${channel}'[\\s\\S]*?z\\.tuple`))
     }
+    expect(rdpIpc).toMatch(/onSend\('rdp:input'/)
     expect(rdpIpc).toMatch(/onPort\(RDP_PORT_CHANNEL[\s\S]*?safeParse\(payload\)/)
     expect(sessionStore).not.toContain("ofs.on('rdp:frame'")
     expect(sessionStore).not.toContain('latestRdpFrame.set')

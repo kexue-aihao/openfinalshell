@@ -636,7 +636,6 @@ export function createMockOfs(): OfsApi {
       emit('rdp:state', { sessionId: id, state: 'closed' })
     },
     'rdp:reconnect': () => undefined,
-    'rdp:input': () => undefined,
     'rdp:resize': () => undefined,
     'rdp:clipboardSet': () => undefined,
     'rdp:clipboardGet': () => undefined,

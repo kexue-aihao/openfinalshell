@@ -397,8 +397,12 @@ export class RdpSessionManager {
   private sendToPort(session: Session, parsed: RdpFrame): boolean {
     const port = session.port
     if (!port || !this.isRunning(session)) return false
-    const copied = Uint8Array.from(parsed.data)
-    const buffer = copied.buffer
+    // parseRdpFrameV1 already returns an owned, exact-sized Uint8Array. Reuse
+    // that ArrayBuffer for the MessagePort structured clone; keep a fallback
+    // for frames constructed by tests or future callers with a subview.
+    const buffer = parsed.data.byteOffset === 0 && parsed.data.byteLength === parsed.data.buffer.byteLength
+      ? parsed.data.buffer
+      : parsed.data.slice().buffer
     const timer = setTimeout(() => this.expireFrame(session, parsed.sequence), ACK_TIMEOUT_MS)
     timer.unref()
     session.pendingPortFrames.set(parsed.sequence, { frame: parsed, timer })
@@ -407,8 +411,8 @@ export class RdpSessionManager {
       // instances, not ArrayBuffer values. Passing the framebuffer there throws
       // at runtime ("Port at index 0 is not a valid port") and leaves the
       // session ready with a permanently paused stdout. Structured cloning the
-      // ArrayBuffer is intentional here; it is already isolated from the Worker
-      // buffer by the copy above.
+      // ArrayBuffer is intentional here; parseRdpFrameV1 owns this buffer and
+      // the fallback above isolates subviews before the post.
       port.postMessage({
         kind: 'frame',
         sequence: parsed.sequence,
@@ -977,7 +981,9 @@ export class RdpSessionManager {
     if (input.kind === 'key') {
       this.flushPendingPointerMove(session)
       const { kind: _kind, ...payload } = input
-      this.write(session, 0x14, this.nextRequestId(session), { op: 'key', ...payload })
+      // Key/mouse input is fire-and-forget. A zero request id tells the worker
+      // not to send an ACK back through the framebuffer stdout pipe.
+      this.write(session, 0x14, 0, { op: 'key', ...payload })
       return
     }
     const previousButtons = session.lastPointerButtons
@@ -989,7 +995,7 @@ export class RdpSessionManager {
     }
     this.flushPendingPointerMove(session)
     const { kind: _kind, ...payload } = input
-    this.write(session, 0x15, this.nextRequestId(session), { op: 'pointer', ...payload })
+    this.write(session, 0x15, 0, { op: 'pointer', ...payload })
   }
 
   resize(sessionId: SessionId, display: RdpDisplaySize): void {

@@ -168,7 +168,6 @@ export interface InvokeMap {
   'rdp:open': { args: [{ profileId: ProfileId; display: RdpDisplaySize }]; result: { sessionId: SessionId } }
   'rdp:close': { args: [SessionId]; result: void }
   'rdp:reconnect': { args: [SessionId]; result: void }
-  'rdp:input': { args: [{ sessionId: SessionId; input: RdpInput }]; result: void }
   'rdp:resize': { args: [{ sessionId: SessionId; display: RdpDisplaySize }]; result: void }
   'rdp:clipboardSet': { args: [{ sessionId: SessionId; text: string }]; result: void }
   /** Requests the current remote text clipboard; data arrives on rdp:clipboard. */
@@ -384,6 +383,8 @@ export interface SendMap {
   'term:input': { termId: TermId; data: string }
   /** 终端下行背压确认：renderer 已消费 bytes 字节（见计划 4.2） */
   'term:flow-ack': { termId: TermId; bytes: number }
+  /** RDP 高频键鼠输入；不等待主进程 Promise 返回，降低每次操作的 IPC 延迟。 */
+  'rdp:input': { sessionId: SessionId; input: RdpInput }
 }
 
 // ---------------------------------------------------------------------------
@@ -522,7 +523,6 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'rdp:open': true,
   'rdp:close': true,
   'rdp:reconnect': true,
-  'rdp:input': true,
   'rdp:resize': true,
   'rdp:clipboardSet': true,
   'rdp:clipboardGet': true,
@@ -586,7 +586,8 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
 
 export const SEND_CHANNELS = channelSet<SendChannel>({
   'term:input': true,
-  'term:flow-ack': true
+  'term:flow-ack': true,
+  'rdp:input': true
 })
 
 export const EVENT_CHANNELS = channelSet<EventChannel>({

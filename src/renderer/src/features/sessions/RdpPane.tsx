@@ -603,12 +603,12 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
 
   const sendRdpInput = (input: RdpInput): void => {
     if (!canControl || !tab.sessionId) return
-    void ofs.invoke('rdp:input', { sessionId: tab.sessionId, input }).catch(() => {})
+    postRdpInput(tab.sessionId, input)
   }
 
-  const invokeRdpInput = async (sessionId: string, input: RdpInput): Promise<boolean> => {
+  const postRdpInput = (sessionId: string, input: RdpInput): boolean => {
     try {
-      await ofs.invoke('rdp:input', { sessionId, input })
+      ofs.send('rdp:input', { sessionId, input })
       return true
     } catch {
       return false
@@ -624,22 +624,22 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     let keyDown = false
     try {
       if (!modifierAlreadyDown) {
-        if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: true })) return false
+        if (!postRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: true })) return false
         modifierDown = true
         ownsModifier = true
       }
-      if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: true })) return false
+      if (!postRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: true })) return false
       keyDown = true
-      if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: false })) return false
+      if (!postRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: false })) return false
       keyDown = false
       if (ownsModifier) {
-        if (!await invokeRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: false })) return false
+        if (!postRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: false })) return false
         modifierDown = false
       }
       return true
     } finally {
-      if (keyDown) void invokeRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: false })
-      if (ownsModifier && modifierDown) void invokeRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: false })
+      if (keyDown) postRdpInput(sessionId, { kind: 'key', scanCode: key.scanCode, pressed: false })
+      if (ownsModifier && modifierDown) postRdpInput(sessionId, { kind: 'key', scanCode: modifier.scanCode, pressed: false })
     }
   }
 
@@ -701,10 +701,9 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     const pressed = [...pressedKeysRef.current.values()]
     pressedKeysRef.current.clear()
     for (const key of pressed) {
-      void ofs.invoke('rdp:input', {
-        sessionId,
-        input: { kind: 'key', scanCode: key.scanCode, pressed: false, ...(key.extended ? { extended: true } : {}) }
-      }).catch(() => {})
+      postRdpInput(sessionId, {
+        kind: 'key', scanCode: key.scanCode, pressed: false, ...(key.extended ? { extended: true } : {})
+      })
     }
   }
 
@@ -714,10 +713,9 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     const buttons = pressedButtonsRef.current
     pressedButtonsRef.current = 0
     if (!sessionId || buttons === 0) return
-    void ofs.invoke('rdp:input', {
-      sessionId,
-      input: { kind: 'pointer', x: lastPointerRef.current.x, y: lastPointerRef.current.y, buttons: 0 }
-    }).catch(() => {})
+    postRdpInput(sessionId, {
+      kind: 'pointer', x: lastPointerRef.current.x, y: lastPointerRef.current.y, buttons: 0
+    })
   }
 
   useEffect(() => {

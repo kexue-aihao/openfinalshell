@@ -918,7 +918,7 @@ int main(int argc, char** argv) {
         continue;
       }
 #endif
-      ack(frame.requestId);
+      if (frame.requestId != 0) ack(frame.requestId);
       continue;
     }
 
@@ -939,7 +939,7 @@ int main(int argc, char** argv) {
         continue;
       }
 #endif
-      ack(frame.requestId);
+      if (frame.requestId != 0) ack(frame.requestId);
       continue;
     }
 
