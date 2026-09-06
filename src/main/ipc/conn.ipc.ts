@@ -49,6 +49,7 @@ export const profileDraftSchema = z.object({
       password: z.string().max(1024).optional(),
       clearPassword: z.boolean().optional(),
       clipboard: z.boolean().optional(),
+      audioPlayback: z.boolean().optional(),
       certificatePolicy: z.enum(['prompt', 'strict']).optional()
     })
     .optional(),

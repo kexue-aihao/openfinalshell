@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => {
       domain: 'OLD',
       passwordRef: 'rdp-secret',
       clipboard: false,
+      audioPlayback: false,
       certificatePolicy: 'strict'
     },
     auth: { method: 'password' },
@@ -109,11 +110,12 @@ describe('RDP profile editor', () => {
     expect(screen.getByDisplayValue('OLD')).toBeTruthy()
     const switches = screen.getAllByRole('switch')
     expect(switches[0].getAttribute('aria-checked')).toBe('false')
+    expect(switches[1].getAttribute('aria-checked')).toBe('false')
     expect(screen.getByText('拒绝不受信任的证书')).toBeTruthy()
 
     fireEvent.change(screen.getByDisplayValue('OLD'), { target: { value: 'NEW' } })
     fireEvent.click(switches[0])
-    fireEvent.click(switches[1])
+    fireEvent.click(switches[2])
     fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
 
     await waitFor(() => expect(mocks.connection.save).toHaveBeenCalledTimes(1))
@@ -123,6 +125,7 @@ describe('RDP profile editor', () => {
         rdp: expect.objectContaining({
           domain: 'NEW',
           clipboard: true,
+          audioPlayback: false,
           certificatePolicy: 'strict',
           clearPassword: true,
           password: undefined
@@ -149,6 +152,7 @@ describe('RDP profile editor', () => {
         rdp: expect.objectContaining({
           domain: undefined,
           clipboard: true,
+          audioPlayback: true,
           certificatePolicy: 'prompt',
           clearPassword: undefined,
           password: undefined

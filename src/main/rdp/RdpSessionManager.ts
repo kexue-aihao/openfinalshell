@@ -7,6 +7,7 @@ import type { MessagePortMain } from 'electron'
 import {
   clampRdpDisplaySize,
   type ConnectionProfile,
+  type RdpAudioState,
   type RdpDisplaySize,
   type RdpErrorCode,
   type RdpFrame,
@@ -42,7 +43,8 @@ const CLIPBOARD_TIMEOUT_MS = 5_000
 const DEFAULT_DISPLAY: RdpDisplaySize = { width: 1280, height: 720, dpi: 96 }
 const MAX_WORKER_STDERR_BYTES = 16 * 1024
 const REQUIRED_CAPABILITIES = new Set(['framebuffer', 'input', 'resize'])
-const KNOWN_CAPABILITIES = new Set(['framebuffer', 'input', 'resize', 'clipboard', 'mock', 'freerdp'])
+const KNOWN_CAPABILITIES = new Set(['framebuffer', 'input', 'resize', 'clipboard', 'audio', 'mock', 'freerdp'])
+const WORKER_AUDIO_STATES = new Set<RdpAudioState>(['disabled', 'enabled', 'connected', 'unavailable', 'stopped'])
 const WORKER_ERROR_CODES = new Set([
   'AUTH_FAILED', 'CERTIFICATE_REJECTED', 'NETWORK_ERROR', 'PROTOCOL_ERROR',
   'SESSION_NOT_READY', 'UNSUPPORTED', 'WORKER_CRASHED', 'CANCELED'
@@ -61,6 +63,7 @@ interface FrozenRdpProfile {
   domain: string
   passwordRef?: string
   clipboard: boolean
+  audioPlayback: boolean
   certificatePolicy: 'prompt' | 'strict'
 }
 
@@ -98,6 +101,7 @@ interface Session {
   closeWaiters: Array<() => void>
   failureCode?: RdpErrorCode
   certificatePolicy: 'prompt' | 'strict'
+  audioPlayback: boolean
   pendingCertificateRequests: Set<number>
   seenCertificateRequests: Set<number>
   pendingClipboardRequests: Set<number>
@@ -278,6 +282,15 @@ export class RdpSessionManager {
       sessionId: session.id,
       state,
       ...(errorCode ? { errorCode, error: errorDescription(errorCode) } : {})
+    })
+  }
+
+  private emitAudio(session: Session, state: RdpAudioState, errorCode?: string): void {
+    if (!this.isCurrent(session)) return
+    emit('rdp:audio', {
+      sessionId: session.id,
+      state,
+      ...(errorCode ? { errorCode } : {})
     })
   }
 
@@ -607,6 +620,8 @@ export class RdpSessionManager {
     if (!capabilities) return this.fail(session, 'PROTOCOL_MISMATCH')
     const profile = session.profile
     if (profile.clipboard && !capabilities.includes('clipboard')) return this.fail(session, 'UNSUPPORTED')
+    const audioSupported = capabilities.includes('audio')
+    if (profile.audioPlayback && !audioSupported) this.emitAudio(session, 'unavailable', 'AUDIO_UNSUPPORTED')
     session.certificatePolicy = profile.certificatePolicy
     session.helloReceived = true
     if (!this.write(session, 0x02, requestId, { op: 'helloAck', protocol: VERSION, sessionId: session.id, maxPayload: MAX_PAYLOAD })) return
@@ -622,7 +637,8 @@ export class RdpSessionManager {
       display: session.display,
       features: {
         clipboard: profile.clipboard,
-        certificatePolicy: session.certificatePolicy
+        certificatePolicy: session.certificatePolicy,
+        ...(audioSupported ? { audioPlayback: profile.audioPlayback } : {})
       }
     })) return
     void this.sendPasswordIfAvailable(session)
@@ -688,6 +704,19 @@ export class RdpSessionManager {
     } else {
       this.fail(session, 'PROTOCOL_ERROR')
     }
+  }
+
+  private handleAudio(session: Session, payload: Buffer): void {
+    const value = parseJsonObject(payload)
+    if (!value || value.op !== 'audio' || typeof value.state !== 'string' ||
+        !WORKER_AUDIO_STATES.has(value.state as RdpAudioState) ||
+        (value.errorCode !== undefined && typeof value.errorCode !== 'string')) {
+      log.warn(`RDP session ${session.id}: invalid Worker audio payload`)
+      this.fail(session, 'PROTOCOL_ERROR')
+      return
+    }
+    this.emitAudio(session, value.state as RdpAudioState,
+                   typeof value.errorCode === 'string' ? value.errorCode : undefined)
   }
 
   private handleCertificatePrompt(session: Session, requestId: number, payload: Buffer): void {
@@ -775,6 +804,7 @@ export class RdpSessionManager {
     else if (type === 0x20) this.handleWorkerState(session, payload)
     else if (type === 0x21) this.handleCertificatePrompt(session, requestId, payload)
     else if (type === 0x22) this.handleClipboard(session, requestId, payload)
+    else if (type === 0x23) this.handleAudio(session, payload)
     else if (type === 0x30) this.handleFrame(session, payload)
     else if (type === 0x7f) {
       const value = parseJsonObject(payload)
@@ -830,6 +860,7 @@ export class RdpSessionManager {
     const certificatePolicy = rawRdp?.certificatePolicy ?? 'prompt'
     if (certificatePolicy !== 'prompt' && certificatePolicy !== 'strict') return null
     if (rawRdp?.clipboard !== undefined && typeof rawRdp.clipboard !== 'boolean') return null
+    if (rawRdp?.audioPlayback !== undefined && typeof rawRdp.audioPlayback !== 'boolean') return null
     if (rawRdp?.domain !== undefined && typeof rawRdp.domain !== 'string') return null
     if (rawRdp?.passwordRef !== undefined && typeof rawRdp.passwordRef !== 'string') return null
     if (typeof profile.host !== 'string' || profile.host.trim().length === 0) return null
@@ -844,6 +875,7 @@ export class RdpSessionManager {
       domain: typeof rawRdp?.domain === 'string' ? rawRdp.domain.trim() : '',
       passwordRef: typeof rawRdp?.passwordRef === 'string' ? rawRdp.passwordRef : undefined,
       clipboard: typeof rawRdp?.clipboard === 'boolean' ? rawRdp.clipboard : true,
+      audioPlayback: typeof rawRdp?.audioPlayback === 'boolean' ? rawRdp.audioPlayback : true,
       certificatePolicy
     }
   }
@@ -872,6 +904,7 @@ export class RdpSessionManager {
       removeWhenClosed: false,
       closeWaiters: [],
       certificatePolicy: profile.certificatePolicy,
+      audioPlayback: profile.audioPlayback,
       pendingCertificateRequests: new Set(),
       seenCertificateRequests: new Set()
     }

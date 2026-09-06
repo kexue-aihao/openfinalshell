@@ -395,6 +395,7 @@ export interface EventMap {
   /** 认证/信任交互请求（应答走 invoke session:promptReply） */
   'session:prompt': SessionPrompt
   'rdp:state': { sessionId: SessionId; state: RdpSessionState; errorCode?: RdpErrorCode; error?: string }
+  'rdp:audio': { sessionId: SessionId; state: import('./types').RdpAudioState; errorCode?: string }
   /** @deprecated Compatibility-only event for older dev/mock main processes; production frames use rdp:port. */
   'rdp:frame': { sessionId: SessionId; frame: RdpFrame }
   'rdp:clipboard': { sessionId: SessionId; text: string }
@@ -594,6 +595,7 @@ export const EVENT_CHANNELS = channelSet<EventChannel>({
   'session:state': true,
   'session:prompt': true,
   'rdp:state': true,
+  'rdp:audio': true,
   'rdp:frame': true,
   'rdp:clipboard': true,
   'term:data': true,

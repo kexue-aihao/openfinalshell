@@ -228,6 +228,8 @@ export interface RdpProfileOptions {
   passwordRef?: SecretRef
   /** Defaults to true when absent on a legacy RDP profile. */
   clipboard?: boolean
+  /** Defaults to true when absent on a legacy RDP profile. Plays remote audio locally. */
+  audioPlayback?: boolean
   /** Defaults to prompt when absent on a legacy RDP profile. */
   certificatePolicy?: 'prompt' | 'strict'
 }
@@ -284,6 +286,10 @@ export const RDP_SESSION_STATES = [
 ] as const
 
 export type RdpSessionState = (typeof RDP_SESSION_STATES)[number]
+
+export const RDP_AUDIO_STATES = ['disabled', 'enabled', 'connected', 'unavailable', 'stopped'] as const
+
+export type RdpAudioState = (typeof RDP_AUDIO_STATES)[number]
 
 export const RDP_ERROR_CODES = [
   'WORKER_MISSING',

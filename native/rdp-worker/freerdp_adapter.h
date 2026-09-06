@@ -25,6 +25,7 @@ class FreeRdpAdapter {
     std::string domain;
     Display display;
     bool clipboard = false;
+    bool audioPlayback = true;
     std::string certificatePolicy = "prompt";
   };
 
@@ -45,6 +46,7 @@ class FreeRdpAdapter {
   using FrameCallback = std::function<void(std::uint32_t width, std::uint32_t height,
                                            std::uint32_t sequence, std::vector<Rect> rects)>;
   using ClipboardCallback = std::function<void(std::uint32_t requestId, std::string text)>;
+  using AudioCallback = std::function<void(const char* state, const char* errorCode)>;
 
   FreeRdpAdapter();
   ~FreeRdpAdapter();
@@ -53,7 +55,7 @@ class FreeRdpAdapter {
   FreeRdpAdapter& operator=(const FreeRdpAdapter&) = delete;
 
   bool start(Config config, StateCallback state, PromptCallback prompt, FrameCallback frame,
-             ClipboardCallback clipboard);
+             ClipboardCallback clipboard, AudioCallback audio);
   bool providePassword(std::string_view password);
   bool provideCertificate(std::uint32_t requestId, bool accept);
   bool resize(Display display);

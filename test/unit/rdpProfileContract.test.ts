@@ -61,7 +61,7 @@ describe('RDP profile contract compatibility', () => {
       ...baseDraft,
       protocol: 'rdp',
       port: 3389,
-      rdp: { domain: 'CORP', clipboard: false, certificatePolicy: 'strict' }
+      rdp: { domain: 'CORP', clipboard: false, audioPlayback: false, certificatePolicy: 'strict' }
     }).success).toBe(true)
   })
 })

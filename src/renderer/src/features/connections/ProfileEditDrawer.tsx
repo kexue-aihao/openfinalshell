@@ -39,6 +39,7 @@ interface FormValues {
   rdpPassword?: string
   rdpDomain?: string
   rdpClipboard: boolean
+  rdpAudioPlayback: boolean
   rdpCertificatePolicy: 'prompt' | 'strict'
   rdpClearPassword?: boolean
   /** 引用一条已保存的私钥。路径与口令都归那条记录 */
@@ -106,6 +107,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
         rdpPassword: '',
         rdpDomain: editing.rdp?.domain ?? '',
         rdpClipboard: editing.rdp?.clipboard ?? true,
+        rdpAudioPlayback: editing.rdp?.audioPlayback ?? true,
         rdpCertificatePolicy: editing.rdp?.certificatePolicy ?? 'prompt',
         rdpClearPassword: false,
         privateKeyId: editing.auth.privateKeyId,
@@ -176,6 +178,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
                 domain: v.rdpDomain?.trim() || undefined,
                 clearPassword: v.rdpClearPassword || undefined,
                 clipboard: v.rdpClipboard ?? true,
+                audioPlayback: v.rdpAudioPlayback ?? true,
                 certificatePolicy: v.rdpCertificatePolicy ?? 'prompt'
               }
             : undefined,
@@ -241,6 +244,7 @@ export function ProfileEditDrawer(): React.JSX.Element {
           rdpPassword: '',
           rdpDomain: '',
           rdpClipboard: true,
+          rdpAudioPlayback: true,
           rdpCertificatePolicy: 'prompt',
           rdpClearPassword: false,
           charset: 'utf-8',
@@ -334,6 +338,14 @@ export function ProfileEditDrawer(): React.JSX.Element {
                 label={t('conn.rdpClipboard')}
                 valuePropName="checked"
                 extra={t('conn.rdpClipboardHint')}
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                name="rdpAudioPlayback"
+                label={t('conn.rdpAudioPlayback')}
+                valuePropName="checked"
+                extra={t('conn.rdpAudioPlaybackHint')}
               >
                 <Switch />
               </Form.Item>

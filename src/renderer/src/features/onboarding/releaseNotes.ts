@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.34',
+    items: [
+      {
+        type: 'feat',
+        zh: '嵌入式 RDP 新增远程音频播放：通过 FreeRDP rdpsnd 和 Windows 本机音频设备输出，并在没有音频设备时自动降级而不影响桌面连接',
+        en: 'Added remote audio playback to embedded RDP through FreeRDP rdpsnd and the local Windows audio device, with graceful fallback when no playback device is available'
+      }
+    ]
+  },
+  {
     version: '0.20.33',
     items: [
       {

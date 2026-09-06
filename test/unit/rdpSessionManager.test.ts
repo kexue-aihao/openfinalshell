@@ -371,6 +371,29 @@ describe('RdpSessionManager protocol/state behavior', () => {
     }))
   })
 
+  it('passes audio playback to an audio-capable worker and forwards nonfatal audio state', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { audioPlayback: true, clipboard: false, certificatePolicy: 'prompt' }
+    } as ReturnType<typeof getProfile>)
+    const { manager, sessionId } = await import('../../src/main/rdp/RdpSessionManager').then(({ RdpSessionManager }) => {
+      const instance = new RdpSessionManager()
+      const opened = instance.open('profile-1', { width: 1280, height: 720, dpi: 96 })
+      return { manager: instance, sessionId: opened.sessionId }
+    })
+    currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'freerdp',
+      capabilities: ['freerdp', 'framebuffer', 'input', 'resize', 'clipboard', 'audio']
+    }))
+    await Promise.resolve()
+    const start = currentWorker.writes.find((bytes) => bytes[6] === 0x10)
+    expect(JSON.parse(start!.subarray(16).toString('utf8')).features.audioPlayback).toBe(true)
+    currentWorker.stdout.emit('data', jsonPacket(0x23, 0, { op: 'audio', state: 'connected' }))
+    expect(emit).toHaveBeenCalledWith('rdp:audio', { sessionId, state: 'connected' })
+    void manager
+  })
+
   it('waits for worker close before publishing closed and removes only after user close', async () => {
     const { manager, sessionId } = await openReady()
     currentWorker.stdout.emit('data', framePacket(1))

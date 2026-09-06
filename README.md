@@ -476,7 +476,7 @@ git tag v0.2.1 && git push origin v0.2.1
 
 **升级到 v0.1.6+ 会把"显示隐藏文件"打开一次**：该默认值从关改成开，而这个开关的旧值已显式存在库里，所以做了一次性迁移。工具栏那个眼睛按钮随时能关回去，关掉后不会再被掀开。
 
-**当前不做**：Telnet / 串口 / VNC、RDP 设备重定向（音频、打印机、磁盘、摄像头、多显示器）、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、**解密 FinalShell 保存的密码**（连接本身能导入，见上）。嵌入式 RDP 本版本仅在 Windows x64 桌面端提供，Worker 不可用时可显式改用系统远程桌面。
+**当前不做**：Telnet / 串口 / VNC、RDP 打印机、磁盘、摄像头和多显示器重定向、音频采集、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、**解密 FinalShell 保存的密码**（连接本身能导入，见上）。嵌入式 RDP 音频播放通过 FreeRDP `rdpsnd`/Windows WinMM 输出到本机默认播放设备；没有可用播放设备时仅关闭音频，不影响桌面连接。嵌入式 RDP 本版本仅在 Windows x64 桌面端提供，Worker 不可用时可显式改用系统远程桌面。
 
 ## 路线图
 

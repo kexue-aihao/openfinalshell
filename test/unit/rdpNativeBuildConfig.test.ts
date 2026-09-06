@@ -140,4 +140,15 @@ describe('RDP native FreeRDP build contract', () => {
     expect(cmake).toContain('add_executable(ofs-rdp-unicode-test')
     expect(cmake).toContain('add_test(NAME worker_unicode COMMAND ofs-rdp-unicode-test)')
   })
+
+  it('enables the FreeRDP rdpsnd channel and Windows WinMM playback path', () => {
+    expect(cmake).toContain('target_link_libraries(ofs-rdp-worker PRIVATE winmm)')
+    expect(adapter).toContain('#include <freerdp/channels/rdpsnd.h>')
+    expect(adapter).toContain('FreeRDP_AudioPlayback')
+    expect(adapter).toContain('config.audioPlayback ? TRUE : FALSE')
+    expect(adapter).toContain('waveOutGetNumDevs()')
+    expect(adapter).toContain('AUDIO_DEVICE_UNAVAILABLE')
+    expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('"audio"')
+    expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('audioPlayback')
+  })
 })

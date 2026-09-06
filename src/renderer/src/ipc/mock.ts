@@ -135,6 +135,7 @@ export function createMockOfs(): OfsApi {
       ? {
           domain: draft.rdp.domain,
           clipboard: draft.rdp.clipboard,
+          audioPlayback: draft.rdp.audioPlayback,
           certificatePolicy: draft.rdp.certificatePolicy,
           passwordRef: draft.rdp.password ? 'mock-rdp-ref' : undefined
         }

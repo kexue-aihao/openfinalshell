@@ -100,6 +100,7 @@ const profileSchema = z.object({
       domain: z.string().max(120).optional(),
       passwordRef: idSchema.optional(),
       clipboard: z.boolean().optional(),
+      audioPlayback: z.boolean().optional(),
       certificatePolicy: z.enum(['prompt', 'strict']).optional()
     })
     .optional(),

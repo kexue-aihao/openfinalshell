@@ -130,6 +130,7 @@ export function saveProfile(draft: ProfileDraft): ConnectionProfile {
               domain: draft.rdp?.domain,
               passwordRef: rdpPasswordRef,
               clipboard: draft.rdp?.clipboard ?? true,
+              audioPlayback: draft.rdp?.audioPlayback ?? true,
               certificatePolicy: draft.rdp?.certificatePolicy ?? 'prompt'
             }
           : undefined,
@@ -236,6 +237,7 @@ export function rememberRdpPassword(id: ProfileId, password: string): void {
       ...current,
       passwordRef: vault.putSecretIfAvailable(password, current.passwordRef),
       clipboard: current.clipboard ?? true,
+      audioPlayback: current.audioPlayback ?? true,
       certificatePolicy: current.certificatePolicy ?? 'prompt'
     }
     upsertProfile(p)

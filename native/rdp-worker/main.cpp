@@ -56,6 +56,7 @@ enum MessageType : std::uint8_t {
   STATE = 0x20,
   PROMPT = 0x21,
   CLIPBOARD_DATA = 0x22,
+  AUDIO_STATE = 0x23,
   FRAME = 0x30,
   ERROR = 0x7f
 };
@@ -619,7 +620,7 @@ ReadResult readFrame(InputFrame& frame) {
 
 void selfTest() {
 #if OFS_RDP_HAS_FREERDP
-  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard"]})");
+  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard","audio"]})");
 #else
   writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"mock","capabilities":["mock","framebuffer","input","resize","clipboard"]})");
 #endif
@@ -637,7 +638,7 @@ int main(int argc, char** argv) {
   }
 
 #if OFS_RDP_HAS_FREERDP
-  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard"]})");
+  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard","audio"]})");
 #else
   writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"mock","capabilities":["mock","framebuffer","input","resize","clipboard"]})");
 #endif
@@ -721,14 +722,17 @@ int main(int argc, char** argv) {
       }
       std::uint32_t width = 0, height = 0, dpi = 0;
       bool clipboard = false;
+      bool audioPlayback = true;
       std::string nextCertificatePolicy;
+      const JsonValue* audioPlaybackValue = jsonMember(*features, "audioPlayback");
       if (!jsonHasOnlyMembers(*displayValue, {"width", "height", "dpi"}) ||
           !jsonUint(*displayValue, "width", width) || !jsonUint(*displayValue, "height", height) ||
           !jsonUint(*displayValue, "dpi", dpi) ||
-          !jsonHasOnlyMembers(*features, {"clipboard", "certificatePolicy"}) ||
+          !jsonHasUniqueKnownMembers(*features, {"clipboard", "certificatePolicy", "audioPlayback"}) ||
           !jsonBool(*features, "clipboard", clipboard) ||
           !jsonString(*features, "certificatePolicy", nextCertificatePolicy) ||
-          (nextCertificatePolicy != "prompt" && nextCertificatePolicy != "strict")) {
+          (nextCertificatePolicy != "prompt" && nextCertificatePolicy != "strict") ||
+          (audioPlaybackValue != nullptr && !jsonBool(*features, "audioPlayback", audioPlayback))) {
         protocolError(frame.requestId, "display is required");
         return 2;
       }
@@ -750,6 +754,7 @@ int main(int argc, char** argv) {
       config.domain = domain;
       config.display = {display.width, display.height, display.dpi};
       config.clipboard = clipboard;
+      config.audioPlayback = audioPlayback;
       config.certificatePolicy = certificatePolicy;
       const bool backendStarted = backend->start(
           std::move(config),
@@ -784,6 +789,13 @@ int main(int argc, char** argv) {
           [&](std::uint32_t requestId, std::string text) {
             const std::string escaped = jsonEscape(text);
             writeJson(CLIPBOARD_DATA, requestId, std::string("{\"op\":\"clipboardData\",\"mime\":\"text/plain\",\"text\":\"") + escaped + "\"}");
+          },
+          [&](const char* audioState, const char* errorCode) {
+            std::string payload = std::string("{\"op\":\"audio\",\"state\":\"") +
+                jsonEscape(audioState ? audioState : "stopped") + "\"";
+            if (errorCode != nullptr) payload += std::string(",\"errorCode\":\"") + jsonEscape(errorCode) + "\"";
+            payload += "}";
+            writeJson(AUDIO_STATE, 0, payload);
           });
       if (!backendStarted) {
         std::cerr << "[rdp-worker] FreeRDP backend initialization failed\n";

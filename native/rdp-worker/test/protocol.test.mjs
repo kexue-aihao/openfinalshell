@@ -192,6 +192,17 @@ function testStartUsesFrozenNestedDisplay() {
     frame(0x12, 8, JSON.stringify({ op: 'close', reason: 'user' }))
   ]));
   assert.equal(strict.status, 0, 'strict certificate policy is accepted as a frozen START feature');
+
+  const audioDisabled = run(Buffer.concat([
+    helloAck(9),
+    mainStart(10, { features: { clipboard: true, audioPlayback: false, certificatePolicy: 'prompt' } }),
+    frame(0x12, 11, JSON.stringify({ op: 'close', reason: 'user' }))
+  ]));
+  assert.equal(audioDisabled.status, 0, 'audioPlayback false is accepted as a frozen START feature');
+  expectError(run(Buffer.concat([
+    helloAck(12),
+    mainStart(13, { features: { clipboard: true, audioPlayback: 'yes', certificatePolicy: 'prompt' } })
+  ])), 13);
 }
 
 function testUnsolicitedCertificateResponsesAreNotAcknowledged() {

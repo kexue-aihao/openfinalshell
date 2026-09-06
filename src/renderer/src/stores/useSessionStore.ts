@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ConnectionProfile, RdpErrorCode, RdpFrame, RdpSessionState, SessionId, SessionState, TermId } from '@shared/types'
+import type { ConnectionProfile, RdpAudioState, RdpErrorCode, RdpFrame, RdpSessionState, SessionId, SessionState, TermId } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import { ofs } from '@/ipc/api'
 import i18n from '@/i18n'
@@ -27,6 +27,8 @@ export interface SessionTab {
   error?: string
   /** Stable machine-readable RDP failure classification, retained beside display text. */
   errorCode?: RdpErrorCode
+  audioState?: RdpAudioState
+  audioErrorCode?: string
   sftpOpen: boolean
   monitorOpen: boolean
   /** 递增计数：变化时 TerminalPane 重新开 shell（重连后复用同一 tab 与 xterm 缓冲） */
@@ -88,6 +90,7 @@ const unclaimedState = new Map<SessionId, { state: SessionState; error?: string 
 const UNCLAIMED_MAX = 32
 
 const unclaimedRdpState = new Map<SessionId, { state: RdpSessionState; error?: string; errorCode?: RdpErrorCode }>()
+const unclaimedRdpAudio = new Map<SessionId, { state: RdpAudioState; errorCode?: string }>()
 
 function rememberUnclaimedRdp(sessionId: SessionId, state: RdpSessionState, error?: string, errorCode?: RdpErrorCode): void {
   const prior = unclaimedRdpState.get(sessionId)
@@ -95,6 +98,14 @@ function rememberUnclaimedRdp(sessionId: SessionId, state: RdpSessionState, erro
   for (const key of unclaimedRdpState.keys()) {
     if (unclaimedRdpState.size <= UNCLAIMED_MAX) break
     unclaimedRdpState.delete(key)
+  }
+}
+
+function rememberUnclaimedRdpAudio(sessionId: SessionId, state: RdpAudioState, errorCode?: string): void {
+  unclaimedRdpAudio.set(sessionId, { state, ...(errorCode ? { errorCode } : {}) })
+  for (const key of unclaimedRdpAudio.keys()) {
+    if (unclaimedRdpAudio.size <= UNCLAIMED_MAX) break
+    unclaimedRdpAudio.delete(key)
   }
 }
 
@@ -363,13 +374,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   claimRdpSession: (tabId, sessionId) => {
     const pending = unclaimedRdpState.get(sessionId)
+    const pendingAudio = unclaimedRdpAudio.get(sessionId)
     unclaimedRdpState.delete(sessionId)
+    unclaimedRdpAudio.delete(sessionId)
     const state = mapRdpState(pending?.state ?? 'starting')
     get().updateTab(tabId, {
       sessionId,
       state,
       error: pending?.error,
       errorCode: pending?.errorCode,
+      audioState: pendingAudio?.state,
+      audioErrorCode: pendingAudio?.errorCode,
       ...(state === 'ready' ? { everReady: true } : {})
     })
   },
@@ -465,6 +480,17 @@ export function wireSessionEvents(): void {
       })
     }
     if (!claimed) rememberUnclaimedRdp(sessionId, state, error, errorCode)
+  })
+
+  ofs.on('rdp:audio', ({ sessionId, state, errorCode }) => {
+    const { tabs, updateTab } = useSessionStore.getState()
+    let claimed = false
+    for (const tab of tabs) {
+      if (tab.kind !== 'rdp' || tab.sessionId !== sessionId) continue
+      claimed = true
+      updateTab(tab.id, { audioState: state, audioErrorCode: errorCode })
+    }
+    if (!claimed) rememberUnclaimedRdpAudio(sessionId, state, errorCode)
   })
 
   ofs.on('term:exit', ({ termId, reason }) => {

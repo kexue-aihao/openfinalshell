@@ -29,6 +29,7 @@
 #include <freerdp/channels/channels.h>
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/channels/disp.h>
+#include <freerdp/channels/rdpsnd.h>
 #include <freerdp/client/channels.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/cmdline.h>
@@ -41,6 +42,7 @@
 #include <winpr/crt.h>
 #include <winpr/wlog.h>
 #if defined(_WIN32)
+#include <mmsystem.h>
 #include <winpr/winsock.h>
 #endif
 #endif
@@ -51,6 +53,7 @@ struct FreeRdpAdapter::Impl {
   PromptCallback prompt;
   FrameCallback frame;
   ClipboardCallback clipboard;
+  AudioCallback audio;
 
 #if OFS_RDP_HAS_FREERDP
   enum class CommandKind {
@@ -104,6 +107,7 @@ struct FreeRdpAdapter::Impl {
   std::string clipboardText;
   std::deque<std::uint32_t> pendingClipboardRequests;
   std::uint32_t lastButtons = 0;
+  bool audioChannelConnected = false;
   static inline Impl* active = nullptr;
 
   static constexpr std::uint32_t kMaxFramePayload = ofs::rdp::frame::kMaxPayload;
@@ -113,6 +117,22 @@ struct FreeRdpAdapter::Impl {
 
   static Impl* self(freerdp* value) {
     return active && value == active->instance ? active : nullptr;
+  }
+
+  static bool isAudioChannel(const char* name) {
+    if (!name) return false;
+    if (std::strcmp(name, RDPSND_CHANNEL_NAME) == 0) return true;
+#if defined(RDPSND_DVC_CHANNEL_NAME)
+    if (std::strcmp(name, RDPSND_DVC_CHANNEL_NAME) == 0) return true;
+#endif
+#if defined(RDPSND_LOSSY_DVC_CHANNEL_NAME)
+    if (std::strcmp(name, RDPSND_LOSSY_DVC_CHANNEL_NAME) == 0) return true;
+#endif
+    return false;
+  }
+
+  void emitAudio(const char* stateValue, const char* errorCode) {
+    if (audio) audio(stateValue, errorCode);
   }
 
   static BOOL preConnect(freerdp* value) {
@@ -152,6 +172,9 @@ struct FreeRdpAdapter::Impl {
         self->disp->custom = self;
         self->disp->DisplayControlCaps = displayControlCaps;
       }
+    } else if (isAudioChannel(event->name)) {
+      self->audioChannelConnected = true;
+      self->emitAudio("connected", nullptr);
     }
   }
 
@@ -164,6 +187,9 @@ struct FreeRdpAdapter::Impl {
       self->disp = nullptr;
       self->displayControlReady = false;
       self->maximumMonitorArea = 0;
+    } else if (isAudioChannel(event->name)) {
+      self->audioChannelConnected = false;
+      self->emitAudio("stopped", nullptr);
     }
   }
 
@@ -582,6 +608,26 @@ struct FreeRdpAdapter::Impl {
     }
     winsockInitialized = true;
 #endif
+    // The bundled Windows backend is FreeRDP's WinMM device. Probe it before
+    // loading channels so a machine without a playback device still gets a
+    // working desktop session with audio gracefully disabled.
+#if defined(_WIN32)
+    bool audioUnavailable = false;
+    if (config.audioPlayback && waveOutGetNumDevs() == 0) {
+      config.audioPlayback = false;
+      audioUnavailable = true;
+      emitAudio("unavailable", "AUDIO_DEVICE_UNAVAILABLE");
+    }
+#else
+    constexpr bool audioUnavailable = false;
+#endif
+    if (audioUnavailable) {
+      // The unavailable event already explains why playback was disabled.
+    } else if (!config.audioPlayback) {
+      emitAudio("disabled", nullptr);
+    } else {
+      emitAudio("enabled", nullptr);
+    }
     // stdout is the binary OFSR protocol stream. FreeRDP's console logger is
     // otherwise allowed to write diagnostic text into that stream on Windows.
     if (wLog* root = WLog_GetRoot()) WLog_SetLogLevel(root, WLOG_OFF);
@@ -624,12 +670,12 @@ struct FreeRdpAdapter::Impl {
            freerdp_settings_set_bool(settings, FreeRDP_RedirectPrinters, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectSerialPorts, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectParallelPorts, FALSE) &&
-           freerdp_settings_set_bool(settings, FreeRDP_AudioPlayback, FALSE) &&
+           freerdp_settings_set_bool(settings, FreeRDP_AudioPlayback,
+                                      config.audioPlayback ? TRUE : FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_AudioCapture, FALSE) &&
-           // FreeRDP's client loader promotes these defaults to rdpdr when
-           // network autodetect, heartbeat, or multitransport is enabled.
-           // The embedded worker intentionally ships no device-redirection
-           // channel, so keep those optional features off as well.
+           // FreeRDP's client loader promotes AudioPlayback to rdpdr because
+           // rdpsnd is an RDPDR-dependent channel. Other device redirection
+           // features remain disabled below.
            freerdp_settings_set_bool(settings, FreeRDP_NetworkAutoDetect, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_SupportHeartbeatPdu, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_SupportMultitransport, FALSE) &&
@@ -865,6 +911,7 @@ struct FreeRdpAdapter::Impl {
     }
     cliprdr = nullptr;
     disp = nullptr;
+    audioChannelConnected = false;
     displayControlReady = false;
     maximumMonitorArea = 0;
     active = nullptr;
@@ -981,13 +1028,15 @@ FreeRdpAdapter::~FreeRdpAdapter() {
 }
 
 bool FreeRdpAdapter::start(Config config, StateCallback state, PromptCallback prompt,
-                           FrameCallback frame, ClipboardCallback clipboard) {
+                           FrameCallback frame, ClipboardCallback clipboard,
+                           AudioCallback audio) {
   if (!impl_) return false;
   impl_->config = std::move(config);
   impl_->state = std::move(state);
   impl_->prompt = std::move(prompt);
   impl_->frame = std::move(frame);
   impl_->clipboard = std::move(clipboard);
+  impl_->audio = std::move(audio);
 #if OFS_RDP_HAS_FREERDP
   if (impl_->eventThread.joinable()) return false;
   auto initialized = std::make_shared<std::promise<bool>>();

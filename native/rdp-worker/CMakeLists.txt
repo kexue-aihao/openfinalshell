@@ -17,6 +17,9 @@ find_package(Threads REQUIRED)
 target_link_libraries(ofs-rdp-worker PRIVATE Threads::Threads)
 if (WIN32)
   target_link_libraries(ofs-rdp-worker PRIVATE ws2_32)
+  # The native adapter probes the default playback device before enabling
+  # FreeRDP rdpsnd, and the bundled FreeRDP backend uses WinMM waveOut.
+  target_link_libraries(ofs-rdp-worker PRIVATE winmm)
 endif()
 if (MSVC)
   target_compile_definitions(ofs-rdp-worker PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
