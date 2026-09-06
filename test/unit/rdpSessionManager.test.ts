@@ -259,6 +259,21 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(currentWorker.writes.some((bytes) => bytes[6] === 0x10)).toBe(false)
   })
 
+  it('trims RDP username and domain before sending the start payload', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: '  alice  ', auth: { method: 'password' },
+      rdp: { domain: '  CORP  ', clipboard: false, certificatePolicy: 'prompt' }
+    } as ReturnType<typeof getProfile>)
+    await openReady()
+    const start = currentWorker.writes.find((bytes) => bytes[6] === 0x10)
+    expect(start).toBeDefined()
+    expect(JSON.parse(start!.subarray(16).toString('utf8'))).toEqual(expect.objectContaining({
+      username: 'alice',
+      domain: 'CORP'
+    }))
+  })
+
   it('waits for worker close before publishing closed and removes only after user close', async () => {
     const { manager, sessionId } = await openReady()
     currentWorker.stdout.emit('data', framePacket(1))

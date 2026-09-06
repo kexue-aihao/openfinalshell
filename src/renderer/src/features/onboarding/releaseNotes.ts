@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.25',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复嵌入式 RDP Worker 的诊断日志污染二进制协议、目标服务器不支持动态分辨率或剪贴板时错误断开的问题，并增加连接失败诊断',
+        en: 'Fixed embedded RDP sessions failing when Worker diagnostics corrupted the binary protocol or when the server lacked dynamic display or clipboard support, and added connection failure diagnostics'
+      }
+    ]
+  },
+  {
     version: '0.20.24',
     items: [
       {

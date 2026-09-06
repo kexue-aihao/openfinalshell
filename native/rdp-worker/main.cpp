@@ -769,6 +769,10 @@ int main(int argc, char** argv) {
           [&](std::uint32_t canvasWidth, std::uint32_t canvasHeight, std::uint32_t frameSequence,
               std::vector<FreeRdpAdapter::Rect> rects) {
             if (!writeFreeRdpFrame(canvasWidth, canvasHeight, frameSequence, rects)) {
+              std::cerr << "[rdp-worker] rejected framebuffer update: canvas=" << canvasWidth << 'x'
+                        << canvasHeight << ", sequence=" << frameSequence << ", rects=" << rects.size()
+                        << '\n';
+              std::cerr.flush();
               writeJson(ERROR, 0, R"({"op":"error","code":"PROTOCOL_ERROR","message":"invalid framebuffer update"})");
             }
           },
@@ -777,6 +781,8 @@ int main(int argc, char** argv) {
             writeJson(CLIPBOARD_DATA, requestId, std::string("{\"op\":\"clipboardData\",\"mime\":\"text/plain\",\"text\":\"") + escaped + "\"}");
           });
       if (!backendStarted) {
+        std::cerr << "[rdp-worker] FreeRDP backend initialization failed\n";
+        std::cerr.flush();
         writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"FreeRDP backend initialization failed"})");
         state(frame.requestId, "failed");
         return 2;
@@ -795,6 +801,8 @@ int main(int argc, char** argv) {
         // Password bytes are intentionally consumed only in-process and never logged.
 #if OFS_RDP_HAS_FREERDP
         if (!backend || !backend->providePassword(value)) {
+          std::cerr << "[rdp-worker] password delivery failed\n";
+          std::cerr.flush();
           writeJson(ERROR, frame.requestId, R"({"op":"error","code":"AUTH_FAILED","message":"RDP credentials were rejected"})");
           return 2;
         }
@@ -810,6 +818,8 @@ int main(int argc, char** argv) {
 #if OFS_RDP_HAS_FREERDP
         if (backend && backend->provideCertificate(requestId, accept)) {
           if (!accept) {
+            std::cerr << "[rdp-worker] certificate rejected by user, request=" << requestId << '\n';
+            std::cerr.flush();
             writeJson(ERROR, frame.requestId, R"({"op":"error","code":"CERTIFICATE_REJECTED","message":"certificate rejected"})");
             return 2;
           }

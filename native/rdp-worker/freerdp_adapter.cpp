@@ -11,6 +11,8 @@
 #include <cstring>
 #include <deque>
 #include <future>
+#include <iomanip>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -37,6 +39,7 @@
 #include <freerdp/input.h>
 #include <freerdp/settings.h>
 #include <winpr/crt.h>
+#include <winpr/wlog.h>
 #if defined(_WIN32)
 #include <winpr/winsock.h>
 #endif
@@ -116,11 +119,16 @@ struct FreeRdpAdapter::Impl {
     Impl* self = Impl::self(value);
     if (!self) return FALSE;
     if (PubSub_SubscribeChannelConnected(value->context->pubSub, channelConnected) < 0 ||
-        PubSub_SubscribeChannelDisconnected(value->context->pubSub, channelDisconnected) < 0)
+        PubSub_SubscribeChannelDisconnected(value->context->pubSub, channelDisconnected) < 0) {
+      std::cerr << "[rdp-worker] FreeRDP channel subscription failed\n";
+      std::cerr.flush();
       return FALSE;
+    }
     // This loader registers cliprdr as a static channel and disp through
     // drdynvc according to the settings frozen during initialize().
     if (!freerdp_client_load_addins(value->context->channels, value->context->settings)) {
+      std::cerr << "[rdp-worker] FreeRDP channel add-in loading failed\n";
+      std::cerr.flush();
       self->emitState("failed", "UNSUPPORTED");
       return FALSE;
     }
@@ -214,8 +222,11 @@ struct FreeRdpAdapter::Impl {
   static BOOL postConnect(freerdp* value) {
     Impl* self = Impl::self(value);
     if (!self || !value->context || !value->context->update ||
-        !gdi_init(value, PIXEL_FORMAT_BGRA32))
+        !gdi_init(value, PIXEL_FORMAT_BGRA32)) {
+      std::cerr << "[rdp-worker] FreeRDP GDI initialization failed\n";
+      std::cerr.flush();
       return FALSE;
+    }
     value->context->update->BeginPaint = beginPaint;
     value->context->update->EndPaint = endPaint;
     value->context->update->DesktopResize = desktopResize;
@@ -377,6 +388,10 @@ struct FreeRdpAdapter::Impl {
                    subjectValue.c_str(), issuerValue.c_str(), fingerprintValue.c_str(), changed);
     }
     const bool accepted = self->waitForCertificateDecision(requestId);
+    std::cerr << "[rdp-worker] certificate decision request=" << requestId
+              << " accepted=" << (accepted ? "true" : "false")
+              << " changed=" << (changed ? "true" : "false") << '\n';
+    std::cerr.flush();
     self->pendingCertificateRequest = 0;
     if (!accepted) self->certificateRejected = true;
     return accepted;
@@ -411,6 +426,10 @@ struct FreeRdpAdapter::Impl {
   }
 
   void emitState(const char* value, const char* errorCode = nullptr) {
+    std::cerr << "[rdp-worker] state=" << (value ? value : "(null)");
+    if (errorCode) std::cerr << " errorCode=" << errorCode;
+    std::cerr << '\n';
+    std::cerr.flush();
     if (state) state(value, errorCode);
   }
 
@@ -469,16 +488,30 @@ struct FreeRdpAdapter::Impl {
   bool initialize() {
 #if defined(_WIN32)
     WSADATA winsockData{};
-    if (WSAStartup(MAKEWORD(2, 2), &winsockData) != 0) return false;
+    if (WSAStartup(MAKEWORD(2, 2), &winsockData) != 0) {
+      std::cerr << "[rdp-worker] WSAStartup failed\n";
+      std::cerr.flush();
+      return false;
+    }
     winsockInitialized = true;
 #endif
+    // stdout is the binary OFSR protocol stream. FreeRDP's console logger is
+    // otherwise allowed to write diagnostic text into that stream on Windows.
+    if (wLog* root = WLog_GetRoot()) WLog_SetLogLevel(root, WLOG_OFF);
     instance = freerdp_new();
-    if (!instance || !freerdp_context_new(instance)) return false;
+    if (!instance || !freerdp_context_new(instance)) {
+      std::cerr << "[rdp-worker] FreeRDP context initialization failed\n";
+      std::cerr.flush();
+      return false;
+    }
     // freerdp_context_new() creates the core context but does not install the
     // client channel provider. Without it, the static cliprdr and disp
     // add-ins cannot be resolved by freerdp_client_load_addins().
-    if (freerdp_register_addin_provider(freerdp_channels_load_static_addin_entry, 0) != 0)
+    if (freerdp_register_addin_provider(freerdp_channels_load_static_addin_entry, 0) != 0) {
+      std::cerr << "[rdp-worker] FreeRDP static add-in provider registration failed\n";
+      std::cerr.flush();
       return false;
+    }
     active = this;
     instance->PreConnect = preConnect;
     instance->PostConnect = postConnect;
@@ -544,9 +577,12 @@ struct FreeRdpAdapter::Impl {
   }
 
   bool sendMonitorLayout(Display next) {
-    if (!connected || !instance || !instance->context || !waitForChannel([&] {
-          return disp && disp->SendMonitorLayout && displayControlReady;
-        }))
+    if (!connected || !instance || !instance->context) return false;
+    // Display Control is optional on the remote server. A valid resize from
+    // the renderer is still acknowledged when that channel is unavailable;
+    // the framebuffer remains usable at the negotiated desktop size.
+    if (!disp || !disp->SendMonitorLayout || !displayControlReady) return true;
+    if (!waitForChannel([&] { return disp && disp->SendMonitorLayout && displayControlReady; }))
       return false;
     if (maximumMonitorArea != 0 &&
         static_cast<std::uint64_t>(next.width) * next.height > maximumMonitorArea)
@@ -647,10 +683,10 @@ struct FreeRdpAdapter::Impl {
         return ok;
       }
       case CommandKind::clipboardSet: {
-        if (!config.clipboard || !waitForChannel([&] {
-              return cliprdr && cliprdr->ClientFormatList;
-            }))
-          return false;
+        if (!config.clipboard) return false;
+        if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }))
+          return true;
+        if (!cliprdr || !cliprdr->ClientFormatList) return true;
         std::vector<std::uint8_t> validated;
         if (!ofs::rdp::utf8ToUtf16Le(command.text, validated)) return false;
         clipboardText = command.text;
@@ -663,10 +699,15 @@ struct FreeRdpAdapter::Impl {
         return cliprdr->ClientFormatList(cliprdr, &list) == 0;
       }
       case CommandKind::clipboardGet: {
-        if (!config.clipboard || command.requestId == 0 || !waitForChannel([&] {
-              return cliprdr && cliprdr->ClientFormatDataRequest;
-            }))
-          return false;
+        if (!config.clipboard || command.requestId == 0) return false;
+        if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatDataRequest; })) {
+          if (clipboard) clipboard(command.requestId, {});
+          return true;
+        }
+        if (!cliprdr || !cliprdr->ClientFormatDataRequest) {
+          if (clipboard) clipboard(command.requestId, {});
+          return true;
+        }
         pendingClipboardRequests.push_back(command.requestId);
         CLIPRDR_FORMAT_DATA_REQUEST request{};
         request.common.msgType = CB_FORMAT_DATA_REQUEST;
@@ -748,6 +789,8 @@ struct FreeRdpAdapter::Impl {
 
   void run(std::shared_ptr<std::promise<bool>> initialized) {
     if (!initialize()) {
+      std::cerr << "[rdp-worker] backend thread initialization failed\n";
+      std::cerr.flush();
       initialized->set_value(false);
       cleanup();
       return;
@@ -762,8 +805,12 @@ struct FreeRdpAdapter::Impl {
       return;
     }
     if (!freerdp_connect(instance)) {
-      if (!stopping.load())
-        emitState("failed", connectionErrorCode());
+      const auto lastError = instance && instance->context ? freerdp_get_last_error(instance->context) : 0;
+      const char* errorCode = connectionErrorCode();
+      std::cerr << "[rdp-worker] freerdp_connect failed: lastError=0x"
+                << std::hex << lastError << std::dec << " mapped=" << errorCode << '\n';
+      std::cerr.flush();
+      if (!stopping.load()) emitState("failed", errorCode);
       cleanup();
       return;
     }
@@ -775,6 +822,10 @@ struct FreeRdpAdapter::Impl {
       processCommands();
       if (stopping.load()) break;
       if (!freerdp_check_fds(instance)) {
+        const auto lastError = instance && instance->context ? freerdp_get_last_error(instance->context) : 0;
+        std::cerr << "[rdp-worker] freerdp_check_fds failed: lastError=0x"
+                  << std::hex << lastError << std::dec << '\n';
+        std::cerr.flush();
         transportOk = false;
         break;
       }

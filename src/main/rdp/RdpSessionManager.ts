@@ -22,6 +22,7 @@ import { promptBroker } from '../ssh/PromptBroker'
 import { emit } from '../ipc/registry'
 import { t } from '../services/i18n'
 import { launchRdp } from '../services/rdpLaunch'
+import { scopedLogger } from '../utils/logger'
 
 const MAGIC = Buffer.from('OFSR')
 const VERSION = 1
@@ -32,6 +33,7 @@ const ACK_TIMEOUT_MS = 500
 const CLOSE_TIMEOUT_MS = 2000
 const RESIZE_INTERVAL_MS = 100
 const DEFAULT_DISPLAY: RdpDisplaySize = { width: 1280, height: 720, dpi: 96 }
+const MAX_WORKER_STDERR_BYTES = 16 * 1024
 const REQUIRED_CAPABILITIES = new Set(['framebuffer', 'input', 'resize'])
 const KNOWN_CAPABILITIES = new Set(['framebuffer', 'input', 'resize', 'clipboard', 'mock', 'freerdp'])
 const WORKER_ERROR_CODES = new Set([
@@ -41,6 +43,7 @@ const WORKER_ERROR_CODES = new Set([
 const WORKER_STATES = new Set<RdpSessionState>([
   'connecting', 'authenticating', 'verifying', 'ready', 'failed', 'closing', 'closed'
 ])
+const log = scopedLogger('rdp')
 
 interface FrozenRdpProfile {
   id: string
@@ -59,6 +62,7 @@ interface Session {
   profile: FrozenRdpProfile
   display: RdpDisplaySize
   worker?: ChildProcessWithoutNullStreams
+  workerStderr: string
   inputBuffer: Buffer
   processEnded: boolean
   state: RdpSessionState
@@ -135,6 +139,14 @@ function stableWorkerError(value: unknown): RdpErrorCode {
   return typeof value === 'string' && WORKER_ERROR_CODES.has(value)
     ? value as RdpErrorCode
     : 'NETWORK_ERROR'
+}
+
+function redactWorkerStderr(value: string): string {
+  return value
+    .replace(/((?:password|passwd|pwd)\s*[:=]\s*)[^\s,;]+/gi, '$1[redacted]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_WORKER_STDERR_BYTES)
 }
 
 function errorDescription(errorCode: RdpErrorCode): string {
@@ -438,10 +450,16 @@ export class RdpSessionManager {
     // have no renderer-visible state transition and are otherwise ignored.
     if (value?.op === 'ack') return
     if (!value || value.op !== 'state' || typeof value.state !== 'string' || !WORKER_STATES.has(value.state as RdpSessionState)) {
+      log.warn(`RDP session ${session.id}: invalid Worker state payload`)
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
     const state = value.state as RdpSessionState
+    if (state === 'failed') {
+      log.warn(`RDP session ${session.id}: Worker reported failed state (${String(value.errorCode ?? 'none')})`)
+    } else {
+      log.info(`RDP session ${session.id}: Worker state ${state}`)
+    }
     if (session.closeReason) {
       if (state === 'closed') {
         try { session.worker?.stdin.end() } catch { /* process may already be gone */ }
@@ -531,7 +549,10 @@ export class RdpSessionManager {
 
   private handleFrame(session: Session, payload: Buffer): void {
     const parsed = parseRdpFrameV1(payload)
-    if (!parsed) this.fail(session, 'PROTOCOL_ERROR')
+    if (!parsed) {
+      log.warn(`RDP session ${session.id}: rejected framebuffer payload (${payload.byteLength} bytes)`)
+      this.fail(session, 'PROTOCOL_ERROR')
+    }
     else {
       session.firstFrameReceived = true
       this.queueFrame(session, parsed)
@@ -550,19 +571,29 @@ export class RdpSessionManager {
     else if (type === 0x30) this.handleFrame(session, payload)
     else if (type === 0x7f) {
       const value = parseJsonObject(payload)
-      if (!value || value.op !== 'error') this.fail(session, 'PROTOCOL_ERROR')
-      else this.fail(session, stableWorkerError(value.code))
-    } else this.fail(session, 'PROTOCOL_ERROR')
+      if (!value || value.op !== 'error') {
+        log.warn(`RDP session ${session.id}: invalid Worker error payload`)
+        this.fail(session, 'PROTOCOL_ERROR')
+      } else {
+        log.warn(`RDP session ${session.id}: Worker error ${String(value.code ?? 'unknown')}: ${String(value.message ?? '')}`)
+        this.fail(session, stableWorkerError(value.code))
+      }
+    } else {
+      log.warn(`RDP session ${session.id}: unknown Worker message type 0x${type.toString(16)}`)
+      this.fail(session, 'PROTOCOL_ERROR')
+    }
   }
 
   private consumeFrames(session: Session): void {
     while (this.isCurrent(session) && session.inputBuffer.length >= HEADER_SIZE) {
       if (!session.inputBuffer.subarray(0, 4).equals(MAGIC) || session.inputBuffer.readUInt16LE(4) !== VERSION || session.inputBuffer[7] !== 0) {
+        log.warn(`RDP session ${session.id}: invalid Worker frame header`)
         this.fail(session, 'PROTOCOL_ERROR')
         return
       }
       const length = session.inputBuffer.readUInt32LE(8)
       if (length > MAX_PAYLOAD) {
+        log.warn(`RDP session ${session.id}: Worker payload exceeds limit (${length} bytes)`)
         this.fail(session, 'PROTOCOL_ERROR')
         return
       }
@@ -601,8 +632,8 @@ export class RdpSessionManager {
       fallbackProfile: structuredClone(profile),
       host: profile.host.trim(),
       port: profile.port,
-      username: profile.username,
-      domain: typeof rawRdp?.domain === 'string' ? rawRdp.domain : '',
+      username: profile.username.trim(),
+      domain: typeof rawRdp?.domain === 'string' ? rawRdp.domain.trim() : '',
       passwordRef: typeof rawRdp?.passwordRef === 'string' ? rawRdp.passwordRef : undefined,
       clipboard: typeof rawRdp?.clipboard === 'boolean' ? rawRdp.clipboard : true,
       certificatePolicy
@@ -620,6 +651,7 @@ export class RdpSessionManager {
       helloReceived: false,
       workerReady: false,
       firstFrameReceived: false,
+      workerStderr: '',
       requestId: 1,
       pendingPortFrames: new Map(),
       stdoutPaused: false,
@@ -667,7 +699,10 @@ export class RdpSessionManager {
     }
     worker.stdout.once('end', onUnexpectedStdoutEnd)
     worker.stdout.once('close', onUnexpectedStdoutEnd)
-    worker.stderr.on('data', () => {})
+    worker.stderr.on('data', (chunk: Buffer) => {
+      if (session.workerStderr.length >= MAX_WORKER_STDERR_BYTES) return
+      session.workerStderr += chunk.toString('utf8').slice(0, MAX_WORKER_STDERR_BYTES - session.workerStderr.length)
+    })
     worker.on('error', () => {
       // An exit/error pair can arrive in either order. Once exit has marked
       // this generation ended, its handler owns the terminal transition.
@@ -676,6 +711,8 @@ export class RdpSessionManager {
     })
     worker.on('exit', () => {
       session.processEnded = true
+      const stderr = redactWorkerStderr(session.workerStderr)
+      if (stderr) log.warn(`RDP session ${session.id}: Worker stderr: ${stderr}`)
       if (!this.isCurrent(session)) return
       if (session.closeReason) this.finishClose(session, true)
       else this.fail(session, 'WORKER_CRASHED')
