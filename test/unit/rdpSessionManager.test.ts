@@ -400,7 +400,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     )
   })
 
-  it('preserves account lockout and does not treat it as a rejected password on retry', async () => {
+  it('treats account lockout errors as authentication failures', async () => {
     getSecret.mockReturnValue('saved-password')
     getProfile.mockReturnValueOnce({
       id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
@@ -409,11 +409,11 @@ describe('RdpSessionManager protocol/state behavior', () => {
     } as ReturnType<typeof getProfile>)
     const { manager, sessionId } = await openReady()
     currentWorker.stdout.emit('data', jsonPacket(0x20, 0, {
-      op: 'state', state: 'failed', errorCode: 'ACCOUNT_LOCKED_OUT'
+      op: 'state', state: 'failed', errorCode: 'AUTH_FAILED'
     }))
     expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({
-      sessionId, state: 'failed', errorCode: 'ACCOUNT_LOCKED_OUT',
-      error: 'err.rdp.accountLockedOut'
+      sessionId, state: 'failed', errorCode: 'AUTH_FAILED',
+      error: 'err.rdp.authFailed'
     }))
     expect(spawnedWorkers).toHaveLength(1)
     const reconnecting = manager.reconnect(sessionId)
@@ -424,8 +424,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
       op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
     }))
     await Promise.resolve()
-    expect(promptRequest.mock.calls.some(([, kind]) => kind === 'rdp-password')).toBe(false)
-    expect(rememberRdpPassword).not.toHaveBeenCalled()
+    expect(promptRequest.mock.calls.some(([, kind]) => kind === 'rdp-password')).toBe(true)
     await manager.close(sessionId)
   })
 

@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.38',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复 RDP 登录被错误提示为远程账户已锁定的问题',
+        en: 'Fixed RDP logins being incorrectly reported as a locked remote account'
+      }
+    ]
+  },
+  {
     version: '0.20.37',
     items: [
       {
