@@ -743,6 +743,7 @@
       "execTimeout": "El comando remoto agotó el tiempo de espera ({{seconds}}s), abortado"
     },
     "rdp": {
+      "accountLockedOut": "La cuenta remota de Windows está bloqueada. Ni siquiera la contraseña correcta permite iniciar sesión. Espere a que termine el bloqueo o pida a un administrador que la desbloquee antes de reintentar.",
       "authFailed": "Error de autenticación.",
       "certificateRejected": "No se aceptó el certificado de Escritorio remoto.",
       "networkError": "La conexión de Escritorio remoto falló.",

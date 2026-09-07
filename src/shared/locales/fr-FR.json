@@ -743,6 +743,7 @@
       "execTimeout": "Délai de la commande distante dépassé ({{seconds}}s), abandonnée"
     },
     "rdp": {
+      "accountLockedOut": "Le compte Windows distant est verrouillé. Même le bon mot de passe ne permet pas la connexion. Attendez la fin du verrouillage ou demandez à un administrateur de déverrouiller le compte avant de réessayer.",
       "authFailed": "Échec de l'authentification.",
       "certificateRejected": "Le certificat du Bureau à distance n'a pas été accepté.",
       "networkError": "La connexion au Bureau à distance a échoué.",

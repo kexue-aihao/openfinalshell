@@ -743,6 +743,7 @@
       "execTimeout": "Zeitüberschreitung beim entfernten Befehl ({{seconds}}s), abgebrochen"
     },
     "rdp": {
+      "accountLockedOut": "Das Windows-Remotekonto ist gesperrt. Auch das richtige Passwort erlaubt keine Anmeldung. Warten Sie auf das Ende der Sperre oder lassen Sie das Konto vor einem erneuten Versuch entsperren.",
       "authFailed": "Authentifizierung fehlgeschlagen.",
       "certificateRejected": "Das Remotedesktop-Zertifikat wurde nicht akzeptiert.",
       "networkError": "Die Remotedesktopverbindung ist fehlgeschlagen.",

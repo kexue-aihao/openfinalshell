@@ -743,6 +743,7 @@
       "execTimeout": "원격 명령 시간 초과 ({{seconds}}초), 중단됨"
     },
     "rdp": {
+      "accountLockedOut": "원격 Windows 계정이 잠겼습니다. 올바른 비밀번호로도 로그인할 수 없습니다. 잠금 기간이 끝나거나 관리자가 잠금을 해제한 후 다시 시도하세요.",
       "authFailed": "인증에 실패했습니다.",
       "certificateRejected": "원격 데스크톱 인증서가 승인되지 않았습니다.",
       "networkError": "원격 데스크톱 연결에 실패했습니다.",

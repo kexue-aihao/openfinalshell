@@ -743,6 +743,7 @@
       "execTimeout": "Comando remoto expirou ({{seconds}}s), abortado"
     },
     "rdp": {
+      "accountLockedOut": "A conta remota do Windows está bloqueada. Mesmo a senha correta não permite entrar. Aguarde o fim do bloqueio ou peça a um administrador para desbloqueá-la antes de tentar novamente.",
       "authFailed": "Falha na autenticação.",
       "certificateRejected": "O certificado da Área de Trabalho Remota não foi aceito.",
       "networkError": "A conexão da Área de Trabalho Remota falhou.",

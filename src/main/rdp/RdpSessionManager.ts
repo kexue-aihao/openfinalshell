@@ -51,7 +51,7 @@ const REQUIRED_CAPABILITIES = new Set(['framebuffer', 'input', 'resize'])
 const KNOWN_CAPABILITIES = new Set(['framebuffer', 'input', 'resize', 'clipboard', 'audio', 'mock', 'freerdp'])
 const WORKER_AUDIO_STATES = new Set<RdpAudioState>(['disabled', 'enabled', 'connected', 'unavailable', 'stopped'])
 const WORKER_ERROR_CODES = new Set([
-  'AUTH_FAILED', 'CERTIFICATE_REJECTED', 'NETWORK_ERROR', 'PROTOCOL_ERROR',
+  'AUTH_FAILED', 'ACCOUNT_LOCKED_OUT', 'CERTIFICATE_REJECTED', 'NETWORK_ERROR', 'PROTOCOL_ERROR',
   'SESSION_NOT_READY', 'UNSUPPORTED', 'WORKER_CRASHED', 'CANCELED'
 ])
 const WORKER_STATES = new Set<RdpSessionState>([
@@ -184,6 +184,7 @@ function redactWorkerStderr(value: string): string {
 function errorDescription(errorCode: RdpErrorCode): string {
   const descriptions = {
     AUTH_FAILED: t('err.rdp.authFailed'),
+    ACCOUNT_LOCKED_OUT: t('err.rdp.accountLockedOut'),
     CERTIFICATE_REJECTED: t('err.rdp.certificateRejected'),
     NETWORK_ERROR: t('err.rdp.networkError'),
     PROTOCOL_ERROR: t('err.rdp.protocolError'),

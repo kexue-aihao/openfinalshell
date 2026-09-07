@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.37',
+    items: [
+      {
+        type: 'fix',
+        zh: '修复远程 Windows 账户锁定被误报为身份验证失败的问题，明确提示解锁后重试，并避免因锁定强制要求更换密码；服务器账户仍需由管理员解锁或等待锁定期结束',
+        en: 'Report locked remote Windows accounts explicitly instead of generic authentication failures, without forcing a password change on retry. Server accounts still require administrator unlock or lockout expiry.'
+      }
+    ]
+  },
+  {
     version: '0.20.36',
     items: [
       {

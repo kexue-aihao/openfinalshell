@@ -743,6 +743,7 @@
       "execTimeout": "遠端命令逾時（{{seconds}} 秒），已中止"
     },
     "rdp": {
+      "accountLockedOut": "遠端 Windows 帳戶已鎖定，正確密碼也無法登入。請等待鎖定期結束或聯絡管理員解鎖後再重試。",
       "authFailed": "身分驗證失敗。",
       "certificateRejected": "遠端桌面憑證未被接受。",
       "networkError": "遠端桌面連線失敗。",
