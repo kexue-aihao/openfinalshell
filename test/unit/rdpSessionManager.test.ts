@@ -696,8 +696,8 @@ describe('RdpSessionManager protocol/state behavior', () => {
       rdp: { clipboard: true, certificatePolicy: 'prompt' }
     })
     const { manager, sessionId } = await openReady()
-    currentWorker.stdout.emit('data', framePacket(1))
     manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', framePacket(1))
     manager.clipboardGet(sessionId)
     const request = currentWorker.writes.find((bytes) => bytes[6] === 0x17)
     expect(request).toBeDefined()
@@ -712,6 +712,64 @@ describe('RdpSessionManager protocol/state behavior', () => {
       op: 'clipboardData', mime: 'text/plain', text: 'remote text'
     }))
     expect(emit).toHaveBeenCalledWith('rdp:clipboard', { sessionId, text: 'remote text' })
+  })
+
+  it('waits for Worker acknowledgement before allowing a local file clipboard paste', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: true, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', framePacket(1))
+
+    const announced = manager.clipboardFilesSet(sessionId, ['package.json'])
+    const request = currentWorker.writes.find((bytes) => bytes[6] === 0x18)
+    expect(request).toBeDefined()
+    const requestId = request!.readUInt32LE(12)
+    expect(JSON.parse(request!.subarray(16).toString('utf8'))).toEqual(expect.objectContaining({
+      op: 'clipboardFilesSet',
+      files: [expect.objectContaining({ name: 'package.json', size: expect.any(Number) })]
+    }))
+    let resolved = false
+    void announced.then(() => { resolved = true })
+    await Promise.resolve()
+    expect(resolved).toBe(false)
+
+    currentWorker.stdout.emit('data', jsonPacket(0x20, requestId, { op: 'ack' }))
+    await announced
+    expect(resolved).toBe(true)
+    expect(emit).toHaveBeenCalledWith('rdp:clipboardProgress', expect.objectContaining({
+      sessionId, state: 'preparing', fileCount: 1
+    }))
+  })
+
+  it('reports a file clipboard error without failing an otherwise ready RDP session', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: true, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', framePacket(1))
+
+    const announced = manager.clipboardFilesSet(sessionId, ['package.json'])
+    const request = currentWorker.writes.find((bytes) => bytes[6] === 0x18)
+    expect(request).toBeDefined()
+    currentWorker.stdout.emit('data', jsonPacket(0x7f, request!.readUInt32LE(12), {
+      op: 'error', code: 'UNSUPPORTED', message: 'file clipboard is unavailable'
+    }))
+
+    await expect(announced).rejects.toThrow('UNSUPPORTED')
+    expect(emit).toHaveBeenCalledWith('rdp:clipboardProgress', expect.objectContaining({
+      sessionId, state: 'failed', error: 'UNSUPPORTED'
+    }))
+    expect(emit.mock.calls.some(([channel, value]) =>
+      channel === 'rdp:state' && value.sessionId === sessionId && value.state === 'failed'
+    )).toBe(false)
+    expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).not.toThrow()
   })
 
   it('rejects an uncorrelated remote clipboard response', async () => {

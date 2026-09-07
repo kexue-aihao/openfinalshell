@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
+import { clipboard, contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import {
   EVENT_CHANNELS,
   INVOKE_CHANNELS,
@@ -21,6 +21,58 @@ function assertChannel(channel: string, allowed: ReadonlySet<string>): void {
 }
 
 const rdpPortDisposers = new Map<SessionId, () => void>()
+
+function splitClipboardPaths(text: string): string[] {
+  return text.replace(/^\uFEFF/, '').split('\u0000').filter((value) => value.length > 0)
+}
+
+function readDropFiles(buffer: Buffer): string[] {
+  // Windows CF_HDROP is a DROPFILES header followed by a double-null
+  // terminated path list. Explorer normally uses the Unicode form.
+  if (buffer.length < 20) return []
+  const offset = buffer.readUInt32LE(0)
+  const wide = buffer.readUInt32LE(16) !== 0
+  if (offset < 20 || offset >= buffer.length || (wide && (offset & 1) !== 0)) return []
+  const list = buffer.subarray(offset)
+  if (wide) {
+    const evenLength = list.length - (list.length % 2)
+    return splitClipboardPaths(list.subarray(0, evenLength).toString('utf16le'))
+  }
+  return splitClipboardPaths(list.toString('latin1'))
+}
+
+function readClipboardFilePaths(): string[] {
+  if (process.platform !== 'win32') return []
+  const formats = clipboard.availableFormats()
+  const candidates = ['CF_HDROP', 'FileNameW', 'FileName'].filter((format) =>
+    format === 'CF_HDROP' || formats.includes(format))
+  for (const format of candidates) {
+    try {
+      const buffer = clipboard.readBuffer(format)
+      if (buffer.length === 0) continue
+      if (format === 'CF_HDROP') {
+        const paths = readDropFiles(buffer)
+        if (paths.length > 0) return paths
+        continue
+      }
+      const text = format === 'FileNameW'
+        ? buffer.toString('utf16le').replace(/^\uFEFF/, '')
+        : buffer.toString('latin1')
+      // Electron normally returns null-separated names without DROPFILES, but
+      // accepting the native header keeps older Electron/Windows builds usable.
+      const offset = format === 'FileNameW' && buffer.length >= 20 &&
+        buffer.readUInt32LE(0) >= 20 && buffer.readUInt32LE(0) < buffer.length
+        ? Math.floor(buffer.readUInt32LE(0) / 2)
+        : 0
+      const paths = splitClipboardPaths(text.slice(offset))
+      if (paths.length > 0) return paths
+    } catch {
+      // A format can disappear between availableFormats() and readBuffer().
+      // Continue with the other native file representations.
+    }
+  }
+  return []
+}
 
 const ofs: OfsApi = {
   invoke: (channel, ...args) => {
@@ -78,7 +130,8 @@ const ofs: OfsApi = {
     return dispose
   },
   // 拖拽上传：File → 本地绝对路径（Electron ≥32 只能在 preload 里取）
-  getPathForFile: (file) => webUtils.getPathForFile(file)
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+  getClipboardFilePaths: readClipboardFilePaths
 }
 
 contextBridge.exposeInMainWorld('ofs', ofs)

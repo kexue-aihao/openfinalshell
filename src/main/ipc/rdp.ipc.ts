@@ -77,6 +77,10 @@ export function registerRdpIpc(): void {
   })
   handle('rdp:resize', ({ sessionId, display }) => rdpSessionManager.resize(sessionId, display), z.tuple([z.object({ sessionId: rdpSessionIdSchema, display: rdpDisplaySchema })]))
   handle('rdp:clipboardSet', ({ sessionId, text }) => rdpSessionManager.clipboardSet(sessionId, text), z.tuple([z.object({ sessionId: rdpSessionIdSchema, text: z.string().max(1_000_000) })]))
+  handle('rdp:clipboardFilesSet', ({ sessionId, files }) => rdpSessionManager.clipboardFilesSet(sessionId, files), z.tuple([z.object({
+    sessionId: rdpSessionIdSchema,
+    files: z.array(z.string().min(1).max(32_768)).min(1).max(64)
+  })]))
   handle('rdp:clipboardGet', (sessionId) => rdpSessionManager.clipboardGet(sessionId), z.tuple([rdpSessionIdSchema]))
   handle('rdp:systemFallback', (sessionId) => rdpSessionManager.systemFallback(sessionId), z.tuple([rdpSessionIdSchema]))
   onPort(RDP_PORT_CHANNEL, (_event, payload, port) => {

@@ -45,6 +45,7 @@ import type {
   RdpErrorCode,
   RdpFrame,
   RdpInput,
+  RdpClipboardProgress,
   RdpPortFrameMessage,
   RdpSessionState,
   ProfileDraft,
@@ -170,6 +171,8 @@ export interface InvokeMap {
   'rdp:reconnect': { args: [SessionId]; result: void }
   'rdp:resize': { args: [{ sessionId: SessionId; display: RdpDisplaySize }]; result: void }
   'rdp:clipboardSet': { args: [{ sessionId: SessionId; text: string }]; result: void }
+  /** Announces local files to cliprdr; remote Ctrl+V pulls the contents on demand. */
+  'rdp:clipboardFilesSet': { args: [{ sessionId: SessionId; files: string[] }]; result: void }
   /** Requests the current remote text clipboard; data arrives on rdp:clipboard. */
   'rdp:clipboardGet': { args: [SessionId]; result: void }
   'rdp:systemFallback': { args: [SessionId]; result: void }
@@ -399,6 +402,7 @@ export interface EventMap {
   /** @deprecated Compatibility-only event for older dev/mock main processes; production frames use rdp:port. */
   'rdp:frame': { sessionId: SessionId; frame: RdpFrame }
   'rdp:clipboard': { sessionId: SessionId; text: string }
+  'rdp:clipboardProgress': RdpClipboardProgress
   /** 终端下行数据批量帧（Uint8Array 结构化克隆） */
   'term:data': { termId: TermId; data: Uint8Array }
   'term:exit': { termId: TermId; reason: 'closed' | 'reconnected' | 'error' }
@@ -526,6 +530,7 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'rdp:reconnect': true,
   'rdp:resize': true,
   'rdp:clipboardSet': true,
+  'rdp:clipboardFilesSet': true,
   'rdp:clipboardGet': true,
   'rdp:systemFallback': true,
   'term:open': true,
@@ -598,6 +603,7 @@ export const EVENT_CHANNELS = channelSet<EventChannel>({
   'rdp:audio': true,
   'rdp:frame': true,
   'rdp:clipboard': true,
+  'rdp:clipboardProgress': true,
   'term:data': true,
   'term:exit': true,
   'transfer:progress': true,
@@ -631,4 +637,6 @@ export interface OfsApi {
    * Electron ≥32 起 File.path 被移除，必须经 webUtils（只能在 preload 侧调用）。
    */
   getPathForFile(file: File): string
+  /** Reads file paths from the native local clipboard without exposing file contents. */
+  getClipboardFilePaths(): string[]
 }

@@ -291,6 +291,29 @@ export const RDP_AUDIO_STATES = ['disabled', 'enabled', 'connected', 'unavailabl
 
 export type RdpAudioState = (typeof RDP_AUDIO_STATES)[number]
 
+export const RDP_CLIPBOARD_TRANSFER_STATES = [
+  'preparing',
+  'transferring',
+  'completed',
+  'failed',
+  'canceled'
+] as const
+
+export type RdpClipboardTransferState = (typeof RDP_CLIPBOARD_TRANSFER_STATES)[number]
+
+/** Progress metadata for a local-file → embedded RDP clipboard transfer. */
+export interface RdpClipboardProgress {
+  sessionId: SessionId
+  state: RdpClipboardTransferState
+  fileIndex: number
+  fileCount: number
+  fileName?: string
+  transferred: number
+  total: number
+  speedBps: number
+  error?: string
+}
+
 export const RDP_ERROR_CODES = [
   'WORKER_MISSING',
   'WORKER_START_FAILED',

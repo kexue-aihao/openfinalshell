@@ -1,23 +1,32 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { App as AntdApp } from 'antd'
 import React from 'react'
 import '@/i18n'
 import { RdpPane } from '@/features/sessions/RdpPane'
 import type { SessionTab } from '@/stores/useSessionStore'
 
-const { invoke, send } = vi.hoisted(() => ({
+const { invoke, send, clipboardFilePaths, listeners } = vi.hoisted(() => ({
   invoke: vi.fn(async () => undefined),
-  send: vi.fn()
+  send: vi.fn(),
+  clipboardFilePaths: vi.fn(() => [] as string[]),
+  listeners: new Map<string, Set<(payload: unknown) => void>>()
 }))
 
 vi.mock('@/ipc/api', () => ({
   ofs: {
     invoke: (...args: unknown[]) => invoke(...args),
     send,
-    on: vi.fn(() => () => {}),
-    connectRdpPort: vi.fn(() => () => {})
+    on: vi.fn((channel: string, listener: (payload: unknown) => void) => {
+      const set = listeners.get(channel) ?? new Set<(payload: unknown) => void>()
+      set.add(listener)
+      listeners.set(channel, set)
+      return () => set.delete(listener)
+    }),
+    connectRdpPort: vi.fn(() => () => {}),
+    getClipboardFilePaths: () => clipboardFilePaths(),
+    getPathForFile: () => ''
   }
 }))
 
@@ -46,6 +55,9 @@ function renderPane(overrides: Partial<SessionTab> = {}, active = true): HTMLCan
 beforeEach(() => {
   invoke.mockClear()
   send.mockClear()
+  clipboardFilePaths.mockReset()
+  clipboardFilePaths.mockReturnValue([])
+  listeners.clear()
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((kind: string) => {
     if (kind === 'webgl2') return null
     if (kind === '2d') {
@@ -198,6 +210,42 @@ describe('RdpPane input gating', () => {
     expect(setIndex).toBeGreaterThanOrEqual(0)
     expect(pasteIndex).toBeGreaterThanOrEqual(0)
     expect(send.mock.invocationCallOrder[pasteIndex]).toBeGreaterThan(invoke.mock.invocationCallOrder[setIndex])
+  })
+
+  it('announces copied local files before executing Ctrl+V remotely', async () => {
+    clipboardFilePaths.mockReturnValue(['C:\\Users\\alice\\Desktop\\report.pdf'])
+    const canvas = renderPane()
+
+    fireEvent.keyDown(canvas, { code: 'ControlLeft', key: 'Control' })
+    fireEvent.keyDown(canvas, { code: 'KeyV', key: 'v', ctrlKey: true })
+
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('rdp:clipboardFilesSet', {
+      sessionId: 'rdp-1', files: ['C:\\Users\\alice\\Desktop\\report.pdf']
+    }))
+    expect(invoke).not.toHaveBeenCalledWith('rdp:clipboardSet', expect.anything())
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith('rdp:input', {
+      sessionId: 'rdp-1', input: { kind: 'key', scanCode: 0x2f, pressed: true }
+    }))
+    const announceIndex = invoke.mock.calls.findIndex(([channel]) => channel === 'rdp:clipboardFilesSet')
+    const pasteIndex = send.mock.calls.findIndex(([channel, value]) =>
+      channel === 'rdp:input' && value.input.scanCode === 0x2f && value.input.pressed === true
+    )
+    expect(send.mock.invocationCallOrder[pasteIndex]).toBeGreaterThan(invoke.mock.invocationCallOrder[announceIndex])
+  })
+
+  it('shows file clipboard upload progress inside the RDP pane', async () => {
+    renderPane()
+    await act(async () => {
+      for (const listener of listeners.get('rdp:clipboardProgress') ?? []) {
+        listener({
+          sessionId: 'rdp-1', state: 'transferring', fileIndex: 1, fileCount: 2,
+          fileName: 'report.pdf', transferred: 1024, total: 2048, speedBps: 1024
+        })
+      }
+    })
+
+    expect(screen.getByRole('status').textContent).toContain('report.pdf')
+    expect(screen.getByRole('status').textContent).toContain('1.00 KB / 2.00 KB')
   })
 
   it('shows an explicit system-client fallback label on failed RDP tabs', () => {

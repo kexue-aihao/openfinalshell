@@ -639,6 +639,7 @@ export function createMockOfs(): OfsApi {
     'rdp:reconnect': () => undefined,
     'rdp:resize': () => undefined,
     'rdp:clipboardSet': () => undefined,
+    'rdp:clipboardFilesSet': () => undefined,
     'rdp:clipboardGet': () => undefined,
     'rdp:systemFallback': () => undefined,
 
@@ -1181,6 +1182,7 @@ export function createMockOfs(): OfsApi {
       listeners.set('rdp:frame', frameSet)
       return () => { frameSet.delete(offFrame) }
     },
-    getPathForFile: (file) => file.name // 浏览器里拿不到真实路径
+    getPathForFile: (file) => file.name, // 浏览器里拿不到真实路径
+    getClipboardFilePaths: () => []
   }
 }

@@ -105,7 +105,7 @@ describe('RDP shared runtime contract', () => {
 
     for (const channel of [
       'open', 'close', 'reconnect', 'resize',
-      'clipboardSet', 'clipboardGet', 'systemFallback'
+      'clipboardSet', 'clipboardFilesSet', 'clipboardGet', 'systemFallback'
     ]) {
       expect(rdpIpc).toMatch(new RegExp(`handle\\('rdp:${channel}'[\\s\\S]*?z\\.tuple`))
     }

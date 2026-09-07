@@ -8,6 +8,7 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  position: relative;
 }
 
 /* The backing store is set to the remote desktop size by RdpCanvasRenderer;
@@ -31,6 +32,57 @@
   justify-content: center;
   gap: 10px;
   color: var(--ofs-text-secondary);
+}
+
+.clipboardProgress {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: min(360px, calc(100% - 28px));
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(22, 24, 29, 0.94);
+  color: var(--ofs-text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.clipboardProgressTitle,
+.clipboardProgressMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.clipboardProgressTitle {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.clipboardFileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ofs-text-secondary);
+}
+
+.clipboardProgressMeta {
+  margin-top: 4px;
+  color: var(--ofs-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.clipboardProgressError {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: #ff7875;
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .srOnly {

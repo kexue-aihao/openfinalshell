@@ -17,6 +17,16 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.36',
+    items: [
+      {
+        type: 'feat',
+        zh: '嵌入式 RDP 支持从本地复制文件后粘贴到远程 Windows，并显示多文件上传进度、速度和失败状态',
+        en: 'Added local file copy and paste to remote Windows in embedded RDP, with multi-file upload progress, speed, and failure status'
+      }
+    ]
+  },
+  {
     version: '0.20.35',
     items: [
       {

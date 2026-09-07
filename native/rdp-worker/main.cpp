@@ -53,9 +53,11 @@ enum MessageType : std::uint8_t {
   POINTER = 0x15,
   CLIPBOARD_SET = 0x16,
   CLIPBOARD_GET = 0x17,
+  CLIPBOARD_FILES_SET = 0x18,
   STATE = 0x20,
   PROMPT = 0x21,
   CLIPBOARD_DATA = 0x22,
+  CLIPBOARD_PROGRESS = 0x24,
   AUDIO_STATE = 0x23,
   FRAME = 0x30,
   ERROR = 0x7f
@@ -401,6 +403,20 @@ bool jsonUint(const JsonValue& object, std::string_view key, std::uint32_t& valu
   return true;
 }
 
+bool jsonUint64(const JsonValue& object, std::string_view key, std::uint64_t& value) {
+  const JsonValue* member = jsonMember(object, key);
+  if (member == nullptr || member->type != JsonValue::Type::number || member->scalar.empty()) return false;
+  std::uint64_t parsed = 0;
+  for (const char digit : member->scalar) {
+    if (digit < '0' || digit > '9') return false;
+    const auto next = static_cast<std::uint64_t>(digit - '0');
+    if (parsed > (std::numeric_limits<std::uint64_t>::max() - next) / 10u) return false;
+    parsed = parsed * 10u + next;
+  }
+  value = parsed;
+  return true;
+}
+
 bool jsonInt(const JsonValue& object, std::string_view key, std::int32_t& value) {
   const JsonValue* member = jsonMember(object, key);
   if (member == nullptr || member->type != JsonValue::Type::number || member->scalar.empty()) return false;
@@ -661,7 +677,8 @@ int main(int argc, char** argv) {
       return 2;
     }
     if (frame.type != HELLO_ACK && frame.type != START && frame.type != CREDENTIAL && frame.type != CLOSE &&
-        frame.type != RESIZE && frame.type != KEY && frame.type != POINTER && frame.type != CLIPBOARD_SET && frame.type != CLIPBOARD_GET) {
+        frame.type != RESIZE && frame.type != KEY && frame.type != POINTER && frame.type != CLIPBOARD_SET &&
+        frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET) {
       protocolError(frame.requestId, "unknown message type");
       return 2;
     }
@@ -786,11 +803,24 @@ int main(int argc, char** argv) {
               writeJson(ERROR, 0, R"({"op":"error","code":"PROTOCOL_ERROR","message":"invalid framebuffer update"})");
             }
           },
-          [&](std::uint32_t requestId, std::string text) {
-            const std::string escaped = jsonEscape(text);
-            writeJson(CLIPBOARD_DATA, requestId, std::string("{\"op\":\"clipboardData\",\"mime\":\"text/plain\",\"text\":\"") + escaped + "\"}");
-          },
-          [&](const char* audioState, const char* errorCode) {
+           [&](std::uint32_t requestId, std::string text) {
+             const std::string escaped = jsonEscape(text);
+             writeJson(CLIPBOARD_DATA, requestId, std::string("{\"op\":\"clipboardData\",\"mime\":\"text/plain\",\"text\":\"") + escaped + "\"}");
+           },
+           [&](const char* progressState, std::uint32_t fileIndex, std::uint32_t fileCount,
+               const char* fileName, std::uint64_t transferred, std::uint64_t total,
+               double speedBps, const char* errorCode) {
+             std::string payload = std::string("{\"op\":\"clipboardProgress\",\"state\":\"") +
+                 jsonEscape(progressState ? progressState : "failed") + "\",\"fileIndex\":" +
+                 std::to_string(fileIndex) + ",\"fileCount\":" + std::to_string(fileCount) +
+                 ",\"transferred\":" + std::to_string(transferred) + ",\"total\":" +
+                 std::to_string(total) + ",\"speedBps\":" + std::to_string(speedBps);
+             if (fileName != nullptr) payload += std::string(",\"fileName\":\"") + jsonEscape(fileName) + "\"";
+             if (errorCode != nullptr) payload += std::string(",\"error\":\"") + jsonEscape(errorCode) + "\"";
+             payload += "}";
+             writeJson(CLIPBOARD_PROGRESS, 0, payload);
+           },
+           [&](const char* audioState, const char* errorCode) {
             std::string payload = std::string("{\"op\":\"audio\",\"state\":\"") +
                 jsonEscape(audioState ? audioState : "stopped") + "\"";
             if (errorCode != nullptr) payload += std::string(",\"errorCode\":\"") + jsonEscape(errorCode) + "\"";
@@ -966,6 +996,42 @@ int main(int argc, char** argv) {
         writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"clipboard is unavailable"})");
         continue;
       }
+#endif
+      ack(frame.requestId);
+      continue;
+    }
+
+    if (frame.type == CLIPBOARD_FILES_SET) {
+      const JsonValue* filesValue = jsonMember(control, "files");
+      if (op != "clipboardFilesSet" || filesValue == nullptr || filesValue->type != JsonValue::Type::array ||
+          filesValue->array.empty() || filesValue->array.size() > 64 ||
+          !jsonHasOnlyMembers(control, {"op", "files"})) {
+        protocolError(frame.requestId, "invalid clipboard files payload");
+        return 2;
+      }
+#if OFS_RDP_HAS_FREERDP
+      std::vector<FreeRdpAdapter::ClipboardFile> files;
+      files.reserve(filesValue->array.size());
+      for (const auto& value : filesValue->array) {
+        std::string path;
+        std::string name;
+        std::uint64_t size = 0;
+        if (!jsonHasOnlyMembers(value, {"path", "name", "size"}) ||
+            !jsonString(value, "path", path) || !jsonString(value, "name", name) ||
+            !jsonUint64(value, "size", size) || path.empty() || path.size() > 32768 ||
+            name.empty() || name.size() > 2048 || size > 8ull * 1024ull * 1024ull * 1024ull) {
+          protocolError(frame.requestId, "invalid clipboard file entry");
+          return 2;
+        }
+        files.push_back({std::move(path), std::move(name), size});
+      }
+      if (!backend || !backend->clipboardFilesSet(std::move(files))) {
+        writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"file clipboard is unavailable"})");
+        continue;
+      }
+#else
+      writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"file clipboard is unavailable"})");
+      continue;
 #endif
       ack(frame.requestId);
       continue;

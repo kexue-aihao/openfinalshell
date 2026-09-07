@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, realpathSync, statSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import electron from 'electron'
 import type { MessagePortMain } from 'electron'
@@ -8,6 +8,8 @@ import {
   clampRdpDisplaySize,
   type ConnectionProfile,
   type RdpAudioState,
+  type RdpClipboardProgress,
+  type RdpClipboardTransferState,
   type RdpDisplaySize,
   type RdpErrorCode,
   type RdpFrame,
@@ -40,6 +42,9 @@ const FIRST_FRAME_TIMEOUT_MS = 15_000
 const AUTH_TIMEOUT_MS = 120_000
 const CERTIFICATE_TIMEOUT_MS = 60_000
 const CLIPBOARD_TIMEOUT_MS = 5_000
+const MAX_CLIPBOARD_FILES = 64
+const MAX_CLIPBOARD_FILE_BYTES = 8 * 1024 * 1024 * 1024
+const MAX_CLIPBOARD_TOTAL_BYTES = 32 * 1024 * 1024 * 1024
 const DEFAULT_DISPLAY: RdpDisplaySize = { width: 1280, height: 720, dpi: 96 }
 const MAX_WORKER_STDERR_BYTES = 16 * 1024
 const REQUIRED_CAPABILITIES = new Set(['framebuffer', 'input', 'resize'])
@@ -108,6 +113,12 @@ interface Session {
   seenCertificateRequests: Set<number>
   pendingClipboardRequests: Set<number>
   clipboardTimer?: NodeJS.Timeout
+  clipboardTransfer?: { total: number; fileCount: number; active: boolean }
+  pendingClipboardFileRequests: Map<number, {
+    timer: NodeJS.Timeout
+    resolve: () => void
+    reject: (error: Error) => void
+  }>
 }
 
 interface RdpSessionManagerOptions {
@@ -362,6 +373,54 @@ export class RdpSessionManager {
     session.pendingClipboardRequests.clear()
   }
 
+  private clearClipboardFileRequests(session: Session, errorCode = 'CANCELED'): void {
+    for (const pending of session.pendingClipboardFileRequests.values()) {
+      clearTimeout(pending.timer)
+      pending.reject(new Error(errorCode))
+    }
+    session.pendingClipboardFileRequests.clear()
+  }
+
+  private emitClipboardProgress(
+    session: Session,
+    state: RdpClipboardTransferState,
+    details: Partial<Omit<RdpClipboardProgress, 'sessionId' | 'state'>> = {}
+  ): void {
+    if (!this.isCurrent(session)) return
+    emit('rdp:clipboardProgress', {
+      sessionId: session.id,
+      state,
+      fileIndex: details.fileIndex ?? 0,
+      fileCount: details.fileCount ?? session.clipboardTransfer?.fileCount ?? 0,
+      ...(details.fileName ? { fileName: details.fileName } : {}),
+      transferred: details.transferred ?? 0,
+      total: details.total ?? session.clipboardTransfer?.total ?? 0,
+      speedBps: details.speedBps ?? 0,
+      ...(details.error ? { error: details.error } : {})
+    })
+  }
+
+  private clearClipboardTransfer(session: Session, state: 'canceled' | 'completed' = 'canceled'): void {
+    const transfer = session.clipboardTransfer
+    if (!transfer) return
+    if (transfer.active) this.emitClipboardProgress(session, state, {
+      fileCount: transfer.fileCount,
+      total: transfer.total
+    })
+    session.clipboardTransfer = undefined
+  }
+
+  private failClipboardTransfer(session: Session, error: string): void {
+    const transfer = session.clipboardTransfer
+    if (!transfer || !transfer.active) return
+    transfer.active = false
+    this.emitClipboardProgress(session, 'failed', {
+      fileCount: transfer.fileCount,
+      total: transfer.total,
+      error
+    })
+  }
+
   private flushPendingPointerMove(session: Session): void {
     if (!session.pendingPointerMove) return
     const input = session.pendingPointerMove
@@ -501,6 +560,8 @@ export class RdpSessionManager {
     this.clearStartupTimer(session)
     this.clearPendingPointerMove(session)
     session.pendingCertificateRequests.clear()
+    this.clearClipboardTransfer(session)
+    this.clearClipboardFileRequests(session)
     this.clearClipboardRequests(session)
     promptBroker.cancelForSession(session.id)
     session.port?.close()
@@ -530,6 +591,8 @@ export class RdpSessionManager {
     this.clearStartupTimer(session)
     this.clearPendingPointerMove(session)
     session.pendingCertificateRequests.clear()
+    this.clearClipboardTransfer(session)
+    this.clearClipboardFileRequests(session)
     this.clearClipboardRequests(session)
     promptBroker.cancelForSession(session.id)
     session.port?.close()
@@ -659,11 +722,19 @@ export class RdpSessionManager {
     this.emitState(session, 'ready')
   }
 
-  private handleWorkerState(session: Session, payload: Buffer): void {
+  private handleWorkerState(session: Session, requestId: number, payload: Buffer): void {
     const value = parseJsonObject(payload)
     // Control acknowledgements share the STATE envelope in protocol v1. They
     // have no renderer-visible state transition and are otherwise ignored.
-    if (value?.op === 'ack') return
+    if (value?.op === 'ack') {
+      const pending = session.pendingClipboardFileRequests.get(requestId)
+      if (pending) {
+        clearTimeout(pending.timer)
+        session.pendingClipboardFileRequests.delete(requestId)
+        pending.resolve()
+      }
+      return
+    }
     if (!value || value.op !== 'state' || typeof value.state !== 'string' || !WORKER_STATES.has(value.state as RdpSessionState)) {
       log.warn(`RDP session ${session.id}: invalid Worker state payload`)
       this.fail(session, 'PROTOCOL_ERROR')
@@ -792,6 +863,44 @@ export class RdpSessionManager {
     emit('rdp:clipboard', { sessionId: session.id, text: value.text })
   }
 
+  private handleClipboardProgress(session: Session, payload: Buffer): void {
+    if (!session.profile.clipboard) return
+    const value = parseJsonObject(payload)
+    const states = new Set(['preparing', 'transferring', 'completed', 'failed', 'canceled'])
+    const isSafeInteger = (input: unknown): input is number =>
+      typeof input === 'number' && Number.isSafeInteger(input) && input >= 0
+    const isSafeNumber = (input: unknown): input is number =>
+      typeof input === 'number' && Number.isFinite(input) && input >= 0
+    const transfer = session.clipboardTransfer
+    if (!value || value.op !== 'clipboardProgress' || typeof value.state !== 'string' ||
+        !states.has(value.state) || !isSafeInteger(value.fileIndex) || !isSafeInteger(value.fileCount) ||
+        value.fileCount < 1 || value.fileCount > MAX_CLIPBOARD_FILES || value.fileIndex > value.fileCount ||
+        !isSafeInteger(value.transferred) || !isSafeInteger(value.total) ||
+        !isSafeNumber(value.speedBps) || value.transferred > value.total ||
+        !transfer || value.fileCount !== transfer.fileCount || value.total !== transfer.total ||
+        (value.fileName !== undefined && (typeof value.fileName !== 'string' || value.fileName.length > 2048)) ||
+        (value.error !== undefined && typeof value.error !== 'string')) {
+      log.warn(`RDP session ${session.id}: invalid clipboard progress payload`)
+      this.fail(session, 'PROTOCOL_ERROR')
+      return
+    }
+    const state = value.state as RdpClipboardTransferState
+    emit('rdp:clipboardProgress', {
+      sessionId: session.id,
+      state,
+      fileIndex: value.fileIndex,
+      fileCount: value.fileCount,
+      ...(typeof value.fileName === 'string' ? { fileName: value.fileName } : {}),
+      transferred: value.transferred,
+      total: value.total,
+      speedBps: value.speedBps,
+      ...(typeof value.error === 'string' ? { error: value.error } : {})
+    })
+    if (state === 'completed' || state === 'failed' || state === 'canceled') {
+      if (session.clipboardTransfer) session.clipboardTransfer.active = false
+    }
+  }
+
   private handleFrame(session: Session, payload: Buffer): void {
     const parsed = parseRdpFrameV1(payload)
     if (!parsed) {
@@ -811,9 +920,10 @@ export class RdpSessionManager {
     if (!session.helloReceived && type !== 0x01) return this.fail(session, 'PROTOCOL_MISMATCH')
     if (session.closeReason && type !== 0x20) return
     if (type === 0x01) this.handleHello(session, requestId, payload)
-    else if (type === 0x20) this.handleWorkerState(session, payload)
+    else if (type === 0x20) this.handleWorkerState(session, requestId, payload)
     else if (type === 0x21) this.handleCertificatePrompt(session, requestId, payload)
     else if (type === 0x22) this.handleClipboard(session, requestId, payload)
+    else if (type === 0x24) this.handleClipboardProgress(session, payload)
     else if (type === 0x23) this.handleAudio(session, payload)
     else if (type === 0x30) this.handleFrame(session, payload)
     else if (type === 0x7f) {
@@ -822,6 +932,15 @@ export class RdpSessionManager {
         log.warn(`RDP session ${session.id}: invalid Worker error payload`)
         this.fail(session, 'PROTOCOL_ERROR')
       } else {
+        const pending = session.pendingClipboardFileRequests.get(requestId)
+        if (pending) {
+          clearTimeout(pending.timer)
+          session.pendingClipboardFileRequests.delete(requestId)
+          const error = typeof value.code === 'string' ? value.code : 'FILE_TRANSFER_FAILED'
+          this.failClipboardTransfer(session, error)
+          pending.reject(new Error(error))
+          return
+        }
         log.warn(`RDP session ${session.id}: Worker error ${String(value.code ?? 'unknown')}: ${String(value.message ?? '')}`)
         this.fail(session, stableWorkerError(value.code))
       }
@@ -902,6 +1021,7 @@ export class RdpSessionManager {
       display: clampRdpDisplaySize(display),
       inputBuffer: new RdpInputBuffer(),
       pendingClipboardRequests: new Set(),
+      pendingClipboardFileRequests: new Map(),
       processEnded: true,
       state: 'starting',
       helloReceived: false,
@@ -1083,6 +1203,52 @@ export class RdpSessionManager {
     const session = this.requireReady(sessionId)
     if (!session.profile.clipboard || text.length > 1_000_000) throw new Error('UNSUPPORTED')
     this.write(session, 0x16, this.nextRequestId(session), { op: 'clipboardSet', mime: 'text/plain', text })
+  }
+
+  clipboardFilesSet(sessionId: SessionId, paths: string[]): Promise<void> {
+    const session = this.requireReady(sessionId)
+    if (!session.profile.clipboard || !Array.isArray(paths) || paths.length < 1 || paths.length > MAX_CLIPBOARD_FILES) {
+      throw new Error('UNSUPPORTED')
+    }
+    const files: Array<{ path: string; name: string; size: number }> = []
+    const seen = new Set<string>()
+    let total = 0
+    for (const rawPath of paths) {
+      if (typeof rawPath !== 'string' || rawPath.length < 1 || rawPath.length > 32_768) throw new Error('UNSUPPORTED')
+      let normalized: string
+      try { normalized = realpathSync(rawPath) } catch { throw new Error('UNSUPPORTED') }
+      if (seen.has(normalized)) continue
+      seen.add(normalized)
+      let stats
+      try { stats = statSync(normalized) } catch { throw new Error('UNSUPPORTED') }
+      if (!stats.isFile() || stats.size > MAX_CLIPBOARD_FILE_BYTES || !Number.isSafeInteger(stats.size)) throw new Error('UNSUPPORTED')
+      total += stats.size
+      if (total > MAX_CLIPBOARD_TOTAL_BYTES) throw new Error('UNSUPPORTED')
+      files.push({ path: normalized, name: basename(normalized).slice(0, 259), size: stats.size })
+    }
+    if (files.length < 1) throw new Error('UNSUPPORTED')
+    if (session.clipboardTransfer?.active) throw new Error('TRANSFER_IN_PROGRESS')
+    session.clipboardTransfer = { total, fileCount: files.length, active: true }
+    this.emitClipboardProgress(session, 'preparing', { fileCount: files.length, total })
+    const requestId = this.nextRequestId(session)
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        const pending = session.pendingClipboardFileRequests.get(requestId)
+        if (!pending) return
+        session.pendingClipboardFileRequests.delete(requestId)
+        this.failClipboardTransfer(session, 'CLIPBOARD_TIMEOUT')
+        pending.reject(new Error('CLIPBOARD_TIMEOUT'))
+      }, CLIPBOARD_TIMEOUT_MS)
+      timer.unref()
+      session.pendingClipboardFileRequests.set(requestId, { timer, resolve, reject })
+      if (this.write(session, 0x18, requestId, { op: 'clipboardFilesSet', files })) return
+      const pending = session.pendingClipboardFileRequests.get(requestId)
+      if (!pending) return
+      clearTimeout(pending.timer)
+      session.pendingClipboardFileRequests.delete(requestId)
+      this.failClipboardTransfer(session, 'WORKER_CRASHED')
+      pending.reject(new Error('WORKER_CRASHED'))
+    })
   }
 
   clipboardGet(sessionId: SessionId): void {

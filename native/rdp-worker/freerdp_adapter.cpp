@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <iomanip>
 #include <iostream>
@@ -39,6 +41,7 @@
 #include <freerdp/gdi/gdi.h>
 #include <freerdp/input.h>
 #include <freerdp/settings.h>
+#include <freerdp/utils/cliprdr_utils.h>
 #include <winpr/crt.h>
 #include <winpr/wlog.h>
 #if defined(_WIN32)
@@ -53,6 +56,7 @@ struct FreeRdpAdapter::Impl {
   PromptCallback prompt;
   FrameCallback frame;
   ClipboardCallback clipboard;
+  ClipboardProgressCallback clipboardProgress;
   AudioCallback audio;
 
 #if OFS_RDP_HAS_FREERDP
@@ -64,6 +68,7 @@ struct FreeRdpAdapter::Impl {
     pointer,
     clipboardSet,
     clipboardGet,
+    clipboardFilesSet,
     stop
   };
 
@@ -71,6 +76,7 @@ struct FreeRdpAdapter::Impl {
     CommandKind kind = CommandKind::stop;
     std::shared_ptr<std::promise<bool>> completion;
     std::string text;
+    std::vector<ClipboardFile> files;
     Display display;
     std::uint32_t requestId = 0;
     std::uint32_t scanCode = 0;
@@ -105,6 +111,16 @@ struct FreeRdpAdapter::Impl {
   std::uint32_t nextCertificateRequest = 1;
   std::uint32_t pendingCertificateRequest = 0;
   std::string clipboardText;
+  std::vector<ClipboardFile> clipboardFiles;
+  std::vector<std::uint64_t> clipboardFileTransferred;
+  std::vector<std::vector<std::pair<std::uint64_t, std::uint64_t>>> clipboardFileRanges;
+  std::vector<std::uint8_t> clipboardFileDescriptorData;
+  std::uint32_t clipboardFileDescriptorFormatId = 0;
+  std::uint32_t clipboardFileContentsFormatId = 0;
+  std::uint64_t clipboardTotalTransferred = 0;
+  std::uint64_t clipboardTotal = 0;
+  bool clipboardTransferActive = false;
+  std::chrono::steady_clock::time_point clipboardTransferStarted;
   std::deque<std::uint32_t> pendingClipboardRequests;
   std::uint32_t lastButtons = 0;
   bool audioChannelConnected = false;
@@ -166,6 +182,7 @@ struct FreeRdpAdapter::Impl {
       self->cliprdr->ServerFormatList = serverFormatList;
       self->cliprdr->ServerFormatDataRequest = serverFormatDataRequest;
       self->cliprdr->ServerFormatDataResponse = serverFormatDataResponse;
+      self->cliprdr->ServerFileContentsRequest = serverFileContentsRequest;
     } else if (std::strcmp(event->name, DISP_DVC_CHANNEL_NAME) == 0) {
       self->disp = static_cast<DispClientContext*>(event->pInterface);
       if (self->disp) {
@@ -213,9 +230,18 @@ struct FreeRdpAdapter::Impl {
   static UINT serverFormatDataRequest(CliprdrClientContext* context,
                                       const CLIPRDR_FORMAT_DATA_REQUEST* request) {
     Impl* self = context ? static_cast<Impl*>(context->custom) : nullptr;
-    if (!self || !request || request->requestedFormatId != 13 ||
-        !context->ClientFormatDataResponse)
+    if (!self || !request || !context->ClientFormatDataResponse)
       return 1;
+    if (request->requestedFormatId == self->clipboardFileDescriptorFormatId &&
+        !self->clipboardFileDescriptorData.empty()) {
+      CLIPRDR_FORMAT_DATA_RESPONSE response{};
+      response.common.msgType = CB_FORMAT_DATA_RESPONSE;
+      response.common.msgFlags = CB_RESPONSE_OK;
+      response.common.dataLen = static_cast<UINT32>(self->clipboardFileDescriptorData.size());
+      response.requestedFormatData = self->clipboardFileDescriptorData.data();
+      return context->ClientFormatDataResponse(context, &response);
+    }
+    if (request->requestedFormatId != 13) return 1;
     std::vector<std::uint8_t> utf16;
     if (!ofs::rdp::utf8ToUtf16Le(self->clipboardText, utf16)) return 1;
     CLIPRDR_FORMAT_DATA_RESPONSE response{};
@@ -243,6 +269,163 @@ struct FreeRdpAdapter::Impl {
       return 1;
     if (requestId != 0 && self->clipboard) self->clipboard(requestId, std::move(text));
     return 0;
+  }
+
+  static void failClipboardTransfer(Impl* self, std::uint32_t fileIndex, const char* errorCode) {
+    if (!self || !self->clipboardTransferActive) return;
+    self->clipboardTransferActive = false;
+    if (self->clipboardProgress) {
+      const char* fileName = fileIndex < self->clipboardFiles.size()
+          ? self->clipboardFiles[fileIndex].name.c_str() : nullptr;
+      self->clipboardProgress("failed", fileIndex < self->clipboardFiles.size() ? fileIndex + 1u : 0u,
+                              static_cast<std::uint32_t>(self->clipboardFiles.size()), fileName,
+                              self->clipboardTotalTransferred, self->clipboardTotal, 0.0,
+                              errorCode ? errorCode : "FILE_TRANSFER_FAILED");
+    }
+  }
+
+  static UINT sendFileContentsFailure(Impl* self, CliprdrClientContext* context,
+                                      std::uint32_t streamId, std::uint32_t fileIndex = 0) {
+    failClipboardTransfer(self, fileIndex, "FILE_READ_FAILED");
+    if (!context || !context->ClientFileContentsResponse) return 1;
+    CLIPRDR_FILE_CONTENTS_RESPONSE response{};
+    response.common.msgType = CB_FILECONTENTS_RESPONSE;
+    response.common.msgFlags = CB_RESPONSE_FAIL;
+    response.streamId = streamId;
+    return context->ClientFileContentsResponse(context, &response);
+  }
+
+  static bool fillFileDescriptor(const ClipboardFile& file, FILEDESCRIPTORW& descriptor) {
+    descriptor = FILEDESCRIPTORW{};
+    if (file.size > std::numeric_limits<std::uint64_t>::max()) return false;
+    descriptor.dwFlags = FD_FILESIZE | FD_UNICODE;
+    descriptor.nFileSizeHigh = static_cast<DWORD>(file.size >> 32);
+    descriptor.nFileSizeLow = static_cast<DWORD>(file.size & 0xffffffffu);
+    std::vector<std::uint8_t> utf16;
+    if (!ofs::rdp::utf8ToUtf16Le(file.name, utf16, false) || utf16.size() > 259u * 2u) return false;
+    for (std::size_t index = 0; index < utf16.size() / 2u; ++index) {
+      descriptor.cFileName[index] = static_cast<WCHAR>(
+          static_cast<std::uint16_t>(utf16[index * 2u]) |
+          (static_cast<std::uint16_t>(utf16[index * 2u + 1u]) << 8));
+    }
+    return true;
+  }
+
+  static UINT serverFileContentsRequest(CliprdrClientContext* context,
+                                         const CLIPRDR_FILE_CONTENTS_REQUEST* request) {
+    Impl* self = context ? static_cast<Impl*>(context->custom) : nullptr;
+    if (!self || !request || !context || !context->ClientFileContentsResponse) {
+      if (self) failClipboardTransfer(self, 0, "FILE_TRANSFER_FAILED");
+      return 1;
+    }
+    if (request->listIndex >= self->clipboardFiles.size())
+      return sendFileContentsFailure(self, context, request->streamId);
+    const bool sizeRequest = (request->dwFlags & FILECONTENTS_SIZE) != 0;
+    const bool rangeRequest = (request->dwFlags & FILECONTENTS_RANGE) != 0;
+    if (sizeRequest == rangeRequest) return sendFileContentsFailure(
+        self, context, request->streamId, request->listIndex);
+
+    const auto& file = self->clipboardFiles[request->listIndex];
+    std::vector<std::uint8_t> data;
+    std::uint64_t offset = (static_cast<std::uint64_t>(request->nPositionHigh) << 32) |
+                           request->nPositionLow;
+    if (sizeRequest) {
+      data.resize(sizeof(std::uint64_t));
+      for (std::size_t index = 0; index < sizeof(std::uint64_t); ++index)
+        data[index] = static_cast<std::uint8_t>(file.size >> (index * 8u));
+    } else {
+      constexpr std::uint32_t kMaxFileChunk = 1024u * 1024u;
+      if (request->cbRequested > kMaxFileChunk || offset > file.size)
+        return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
+      const auto count = static_cast<std::uint32_t>(std::min<std::uint64_t>(
+          request->cbRequested, file.size - offset));
+      if (count > 0) {
+        std::error_code fileSizeError;
+        const auto currentSize = std::filesystem::file_size(
+            std::filesystem::u8path(file.path), fileSizeError);
+        if (fileSizeError || currentSize != file.size)
+          return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
+        std::ifstream input(std::filesystem::u8path(file.path), std::ios::binary);
+        if (!input) return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
+        input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (!input) return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
+        data.resize(count);
+        input.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(count));
+        const auto actual = static_cast<std::size_t>(input.gcount());
+        if (actual != count) return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
+        data.resize(actual);
+      }
+    }
+
+    CLIPRDR_FILE_CONTENTS_RESPONSE response{};
+    response.common.msgType = CB_FILECONTENTS_RESPONSE;
+    response.common.msgFlags = CB_RESPONSE_OK;
+    response.streamId = request->streamId;
+    response.cbRequested = static_cast<UINT32>(data.size());
+    response.requestedData = data.data();
+    const UINT result = context->ClientFileContentsResponse(context, &response);
+    if (result != 0) {
+      failClipboardTransfer(self, request->listIndex, "FILE_TRANSFER_FAILED");
+      return result;
+    }
+    if (!self->clipboardTransferActive) return result;
+
+    // A zero-byte file has no range request on some Windows clients. Once
+    // its size has been acknowledged, the all-zero transfer is complete.
+    if (sizeRequest && self->clipboardTotal == 0) {
+      if (self->clipboardProgress) {
+        self->clipboardProgress("completed", static_cast<std::uint32_t>(request->listIndex + 1u),
+                                static_cast<std::uint32_t>(self->clipboardFiles.size()),
+                                file.name.c_str(), 0, 0, 0.0, nullptr);
+      }
+      self->clipboardTransferActive = false;
+      return result;
+    }
+    if (!rangeRequest) return result;
+
+    auto& ranges = self->clipboardFileRanges[request->listIndex];
+    if (!data.empty()) {
+      const std::uint64_t end = offset + data.size();
+      std::pair<std::uint64_t, std::uint64_t> merged{offset, end};
+      std::vector<std::pair<std::uint64_t, std::uint64_t>> next;
+      next.reserve(ranges.size() + 1u);
+      bool inserted = false;
+      for (const auto& range : ranges) {
+        if (range.second < merged.first) {
+          next.emplace_back(range);
+        } else if (merged.second < range.first) {
+          if (!inserted) {
+            next.emplace_back(merged);
+            inserted = true;
+          }
+          next.emplace_back(range);
+        } else {
+          merged.first = std::min(merged.first, range.first);
+          merged.second = std::max(merged.second, range.second);
+        }
+      }
+      if (!inserted) next.emplace_back(merged);
+      ranges = std::move(next);
+    }
+    std::uint64_t covered = 0;
+    for (const auto& range : ranges) covered += range.second - range.first;
+    self->clipboardFileTransferred[request->listIndex] = std::min(file.size, covered);
+    self->clipboardTotalTransferred = 0;
+    for (const auto transferred : self->clipboardFileTransferred)
+      self->clipboardTotalTransferred += transferred;
+    const auto elapsed = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - self->clipboardTransferStarted).count();
+    const double speed = elapsed > 0.0 ? self->clipboardTotalTransferred / elapsed : 0.0;
+    const bool completed = self->clipboardTotalTransferred >= self->clipboardTotal;
+    if (self->clipboardProgress) {
+      self->clipboardProgress(completed ? "completed" : "transferring",
+                              static_cast<std::uint32_t>(request->listIndex + 1u),
+                              static_cast<std::uint32_t>(self->clipboardFiles.size()),
+                              file.name.c_str(), self->clipboardTotalTransferred,
+                              self->clipboardTotal, speed, nullptr);
+    }
+    if (completed) self->clipboardTransferActive = false;
+    return result;
   }
 
   static BOOL postConnect(freerdp* value) {
@@ -662,8 +845,12 @@ struct FreeRdpAdapter::Impl {
            freerdp_settings_set_bool(settings, FreeRDP_DesktopResize, TRUE) &&
            freerdp_settings_set_bool(settings, FreeRDP_SupportDisplayControl, TRUE) &&
            freerdp_settings_set_bool(settings, FreeRDP_DynamicResolutionUpdate, TRUE) &&
-           freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard,
-                                     config.clipboard ? TRUE : FALSE) &&
+            freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard,
+                                      config.clipboard ? TRUE : FALSE) &&
+            freerdp_settings_set_uint32(settings, FreeRDP_ClipboardFeatureMask,
+                                        CLIPRDR_FLAG_LOCAL_TO_REMOTE |
+                                        CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES |
+                                        CLIPRDR_FLAG_REMOTE_TO_LOCAL) &&
            freerdp_settings_set_bool(settings, FreeRDP_DeviceRedirection, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectDrives, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectSmartCards, FALSE) &&
@@ -829,6 +1016,13 @@ struct FreeRdpAdapter::Impl {
         std::vector<std::uint8_t> validated;
         if (!ofs::rdp::utf8ToUtf16Le(command.text, validated)) return false;
         clipboardText = command.text;
+        clipboardFiles.clear();
+        clipboardFileTransferred.clear();
+        clipboardFileRanges.clear();
+        clipboardFileDescriptorData.clear();
+        clipboardTransferActive = false;
+        clipboardTotalTransferred = 0;
+        clipboardTotal = 0;
         CLIPRDR_FORMAT format{};
         format.formatId = 13;
         CLIPRDR_FORMAT_LIST list{};
@@ -836,6 +1030,62 @@ struct FreeRdpAdapter::Impl {
         list.numFormats = 1;
         list.formats = &format;
         return cliprdr->ClientFormatList(cliprdr, &list) == 0;
+      }
+      case CommandKind::clipboardFilesSet: {
+        if (!config.clipboard || command.files.empty() ||
+            !waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }) ||
+            !cliprdr || !cliprdr->ClientFormatList)
+          return false;
+#if defined(_WIN32)
+        const UINT descriptorId = RegisterClipboardFormatW(L"FileGroupDescriptorW");
+        const UINT contentsId = RegisterClipboardFormatW(L"FileContents");
+        if (descriptorId == 0 || contentsId == 0) return false;
+        std::vector<FILEDESCRIPTORW> descriptors(command.files.size());
+        for (std::size_t index = 0; index < command.files.size(); ++index) {
+          if (!fillFileDescriptor(command.files[index], descriptors[index])) {
+            failClipboardTransfer(this, static_cast<std::uint32_t>(index), "FILE_DESCRIPTOR_FAILED");
+            return false;
+          }
+        }
+        BYTE* serialized = nullptr;
+        UINT32 serializedLength = 0;
+        if (cliprdr_serialize_file_list_ex(CB_STREAM_FILECLIP_ENABLED | CB_HUGE_FILE_SUPPORT_ENABLED,
+                                            descriptors.data(), static_cast<UINT32>(descriptors.size()),
+                                            &serialized, &serializedLength) != 0 || !serialized) {
+          failClipboardTransfer(this, 0, "FILE_DESCRIPTOR_FAILED");
+          return false;
+        }
+        clipboardFiles = std::move(command.files);
+        clipboardFileTransferred.assign(clipboardFiles.size(), 0);
+        clipboardFileRanges.assign(clipboardFiles.size(), {});
+        clipboardFileDescriptorData.assign(serialized, serialized + serializedLength);
+        free(serialized);
+        clipboardFileDescriptorFormatId = descriptorId;
+        clipboardFileContentsFormatId = contentsId;
+        clipboardText.clear();
+        clipboardTotal = 0;
+        for (const auto& file : clipboardFiles) clipboardTotal += file.size;
+        clipboardTotalTransferred = 0;
+        clipboardTransferStarted = std::chrono::steady_clock::now();
+        clipboardTransferActive = true;
+        CLIPRDR_FORMAT formats[2]{};
+        formats[0].formatId = descriptorId;
+        formats[0].formatName = const_cast<char*>("FileGroupDescriptorW");
+        formats[1].formatId = contentsId;
+        formats[1].formatName = const_cast<char*>("FileContents");
+        CLIPRDR_FORMAT_LIST list{};
+        list.common.msgType = CB_FORMAT_LIST;
+        list.numFormats = 2;
+        list.formats = formats;
+        if (clipboardProgress) clipboardProgress("preparing", 0,
+                                                  static_cast<std::uint32_t>(clipboardFiles.size()),
+                                                  nullptr, 0, clipboardTotal, 0.0, nullptr);
+        const bool sent = cliprdr->ClientFormatList(cliprdr, &list) == 0;
+        if (!sent) failClipboardTransfer(this, 0, "CLIPBOARD_CHANNEL_FAILED");
+        return sent;
+#else
+        return false;
+#endif
       }
       case CommandKind::clipboardGet: {
         if (!config.clipboard || command.requestId == 0) return false;
@@ -917,6 +1167,15 @@ struct FreeRdpAdapter::Impl {
     active = nullptr;
     std::fill(clipboardText.begin(), clipboardText.end(), '\0');
     clipboardText.clear();
+    clipboardFiles.clear();
+    clipboardFileTransferred.clear();
+    clipboardFileRanges.clear();
+    clipboardFileDescriptorData.clear();
+    clipboardFileDescriptorFormatId = 0;
+    clipboardFileContentsFormatId = 0;
+    clipboardTotalTransferred = 0;
+    clipboardTotal = 0;
+    clipboardTransferActive = false;
     pendingClipboardRequests.clear();
     failPendingCommands();
 #if defined(_WIN32)
@@ -1028,14 +1287,15 @@ FreeRdpAdapter::~FreeRdpAdapter() {
 }
 
 bool FreeRdpAdapter::start(Config config, StateCallback state, PromptCallback prompt,
-                           FrameCallback frame, ClipboardCallback clipboard,
-                           AudioCallback audio) {
+                            FrameCallback frame, ClipboardCallback clipboard,
+                            ClipboardProgressCallback clipboardProgress, AudioCallback audio) {
   if (!impl_) return false;
   impl_->config = std::move(config);
   impl_->state = std::move(state);
   impl_->prompt = std::move(prompt);
   impl_->frame = std::move(frame);
   impl_->clipboard = std::move(clipboard);
+  impl_->clipboardProgress = std::move(clipboardProgress);
   impl_->audio = std::move(audio);
 #if OFS_RDP_HAS_FREERDP
   if (impl_->eventThread.joinable()) return false;
@@ -1156,6 +1416,19 @@ bool FreeRdpAdapter::clipboardGet(std::uint32_t requestId) {
   return impl_->submit(std::move(command));
 #else
   (void)requestId;
+  return false;
+#endif
+}
+
+bool FreeRdpAdapter::clipboardFilesSet(std::vector<ClipboardFile> files) {
+#if OFS_RDP_HAS_FREERDP
+  if (!impl_ || files.empty()) return false;
+  Impl::Command command;
+  command.kind = Impl::CommandKind::clipboardFilesSet;
+  command.files = std::move(files);
+  return impl_->submit(std::move(command));
+#else
+  (void)files;
   return false;
 #endif
 }

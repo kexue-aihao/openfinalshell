@@ -1,14 +1,16 @@
-import { useEffect, useRef } from 'react'
-import { App as AntdApp, Button, Empty, Space, Spin } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { App as AntdApp, Button, Empty, Progress, Space, Spin } from 'antd'
 import { MonitorUp, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ofs } from '@/ipc/api'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
+import { formatBytes, formatSpeed } from '@/utils/format'
 import {
   RDP_MAX_DISPLAY_EDGE,
   RDP_MAX_DISPLAY_PIXELS,
   RDP_MIN_DISPLAY_EDGE,
   clampRdpDisplaySize,
+  type RdpClipboardProgress,
   type RdpFrame,
   type RdpInput,
   type RdpPortMessage
@@ -485,6 +487,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   const pendingPointerMoveRef = useRef<RdpInput | null>(null)
   const pointerMoveFrameRef = useRef<number | null>(null)
   const clipboardShortcutRef = useRef<'KeyC' | 'KeyV' | null>(null)
+  const [clipboardProgress, setClipboardProgress] = useState<RdpClipboardProgress | null>(null)
   const updateTab = useSessionStore((s) => s.updateTab)
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
   const profileId = tab.profileId
@@ -561,6 +564,22 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     return ofs.on('rdp:clipboard', (event) => {
       if (event.sessionId !== sessionId || !navigator.clipboard) return
       void navigator.clipboard.writeText(event.text).catch(() => {})
+    })
+  }, [tab.sessionId])
+
+  useEffect(() => {
+    const sessionId = tab.sessionId
+    if (!sessionId) {
+      setClipboardProgress(null)
+      return
+    }
+    return ofs.on('rdp:clipboardProgress', (event) => {
+      if (event.sessionId !== sessionId) return
+      setClipboardProgress(event)
+      if (event.state === 'completed' || event.state === 'failed' || event.state === 'canceled') {
+        window.setTimeout(() => setClipboardProgress((current) =>
+          current?.sessionId === sessionId && current.state === event.state ? null : current), 4_000)
+      }
     })
   }, [tab.sessionId])
 
@@ -648,6 +667,19 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     if (!canControl || !sessionId) return
     void (async () => {
       if (code === 'KeyV') {
+        // Older preload builds and lightweight test/dev mocks may not expose
+        // the file-aware clipboard bridge yet. Text paste must keep working
+        // in that case.
+        const files = typeof ofs.getClipboardFilePaths === 'function'
+          ? ofs.getClipboardFilePaths()
+          : []
+        if (files.length > 0) {
+          await ofs.invoke('rdp:clipboardFilesSet', { sessionId, files })
+          const modifierIsStillDown = modifierAlreadyDown &&
+            (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))
+          await sendRemoteClipboardShortcut(sessionId, code, modifierIsStillDown)
+          return
+        }
         const text = await navigator.clipboard?.readText().catch(() => '')
         if (!text) return
         await ofs.invoke('rdp:clipboardSet', { sessionId, text })
@@ -825,6 +857,30 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
 
   const sendPaste = (event: React.ClipboardEvent<HTMLCanvasElement>): void => {
     if (!canControl || !tab.sessionId) return
+    const files = Array.from(event.clipboardData.files ?? [])
+      .map((file) => ofs.getPathForFile(file))
+      .filter((path) => path.length > 0)
+    if (files.length > 0) {
+      event.preventDefault()
+      const sessionId = tab.sessionId
+      const modifierAlreadyDown = pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight')
+      void ofs.invoke('rdp:clipboardFilesSet', { sessionId, files })
+        .then(() => sendRemoteClipboardShortcut(sessionId, 'KeyV', modifierAlreadyDown &&
+          (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))))
+        .catch((error: unknown) => {
+          setClipboardProgress({
+            sessionId,
+            state: 'failed',
+            fileIndex: 0,
+            fileCount: files.length,
+            transferred: 0,
+            total: 0,
+            speedBps: 0,
+            error: error instanceof Error ? error.message : t('conn.clipboardUploadFailed')
+          })
+        })
+      return
+    }
     const text = event.clipboardData.getData('text/plain')
     if (!text) return
     event.preventDefault()
@@ -901,7 +957,32 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
        onContextMenu={(e) => e.preventDefault()}
        onPaste={sendPaste}
        onCopy={requestClipboard}
-     />
-    <span className={styles.srOnly}>{profileId}</span>
+      />
+      {clipboardProgress && (
+        <div className={styles.clipboardProgress} role="status">
+          <div className={styles.clipboardProgressTitle}>
+            <span>{clipboardProgress.state === 'completed' ? t('conn.clipboardUploadComplete') :
+              clipboardProgress.state === 'failed' ? t('conn.clipboardUploadFailed') :
+              t('conn.clipboardUploading')}</span>
+            {clipboardProgress.fileName && <span className={styles.clipboardFileName}>{clipboardProgress.fileName}</span>}
+          </div>
+          <Progress
+            percent={clipboardProgress.total > 0
+              ? Math.min(100, Math.round(clipboardProgress.transferred * 100 / clipboardProgress.total))
+              : clipboardProgress.state === 'completed' ? 100 : 0}
+            status={clipboardProgress.state === 'failed' ? 'exception' : clipboardProgress.state === 'completed' ? 'success' : 'active'}
+            showInfo={false}
+            size="small"
+          />
+          <div className={styles.clipboardProgressMeta}>
+            <span>{clipboardProgress.total > 0
+              ? `${formatBytes(clipboardProgress.transferred)} / ${formatBytes(clipboardProgress.total)}`
+              : `${clipboardProgress.fileIndex} / ${clipboardProgress.fileCount}`}</span>
+            <span>{clipboardProgress.speedBps > 0 ? formatSpeed(clipboardProgress.speedBps) : ''}</span>
+          </div>
+          {clipboardProgress.error && <div className={styles.clipboardProgressError}>{clipboardProgress.error}</div>}
+        </div>
+      )}
+      <span className={styles.srOnly}>{profileId}</span>
   </div>
 }

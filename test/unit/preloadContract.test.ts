@@ -13,7 +13,9 @@ const electron = vi.hoisted(() => ({
   send: vi.fn(),
   on: vi.fn(),
   removeListener: vi.fn(),
-  postMessage: vi.fn()
+  postMessage: vi.fn(),
+  clipboardAvailableFormats: vi.fn(() => [] as string[]),
+  clipboardReadBuffer: vi.fn(() => Buffer.alloc(0))
 }))
 
 vi.mock('electron', () => ({
@@ -27,7 +29,11 @@ vi.mock('electron', () => ({
     removeListener: electron.removeListener,
     postMessage: electron.postMessage
   },
-  webUtils: { getPathForFile: (file: File) => file.name }
+  webUtils: { getPathForFile: (file: File) => file.name },
+  clipboard: {
+    availableFormats: electron.clipboardAvailableFormats,
+    readBuffer: electron.clipboardReadBuffer
+  }
 }))
 
 await import('../../src/preload/index')
@@ -76,11 +82,26 @@ const unsafe = ofs as unknown as {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  electron.clipboardAvailableFormats.mockReturnValue([])
+  electron.clipboardReadBuffer.mockReturnValue(Buffer.alloc(0))
   FakeMessageChannel.instances.length = 0
   vi.stubGlobal('MessageChannel', FakeMessageChannel)
 })
 
 describe('preload runtime contract', () => {
+  it('reads Windows Explorer CF_HDROP file paths from the native clipboard', () => {
+    if (process.platform !== 'win32') return
+    const filePath = 'C:\\Users\\alice\\Desktop\\report.pdf'
+    const header = Buffer.alloc(20)
+    header.writeUInt32LE(20, 0)
+    header.writeUInt32LE(1, 16)
+    const list = Buffer.from(`${filePath}\u0000\u0000`, 'utf16le')
+    electron.clipboardAvailableFormats.mockReturnValue(['CF_HDROP'])
+    electron.clipboardReadBuffer.mockReturnValue(Buffer.concat([header, list]))
+
+    expect(ofs.getClipboardFilePaths()).toEqual([filePath])
+  })
+
   it('keeps exact runtime allowlists in sync with all three typed channel maps', () => {
     expect([...INVOKE_CHANNELS].sort()).toEqual(channelsOf('InvokeMap').sort())
     expect([...SEND_CHANNELS].sort()).toEqual(channelsOf('SendMap').sort())
