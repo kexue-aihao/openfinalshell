@@ -81,6 +81,7 @@ export function registerRdpIpc(): void {
     sessionId: rdpSessionIdSchema,
     files: z.array(z.string().min(1).max(32_768)).min(1).max(64)
   })]))
+  handle('rdp:clipboardLocalFiles', (sessionId) => rdpSessionManager.clipboardLocalFiles(sessionId), z.tuple([rdpSessionIdSchema]))
   handle('rdp:clipboardGet', (sessionId) => rdpSessionManager.clipboardGet(sessionId), z.tuple([rdpSessionIdSchema]))
   handle('rdp:systemFallback', (sessionId) => rdpSessionManager.systemFallback(sessionId), z.tuple([rdpSessionIdSchema]))
   onPort(RDP_PORT_CHANNEL, (_event, payload, port) => {

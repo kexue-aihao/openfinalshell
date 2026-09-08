@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.39',
+    items: [{
+      type: 'feat',
+      zh: '新增 Windows RDP 双向文件和文件夹复制粘贴；远程文件在本地粘贴时按需传输，并修复上传确认时序和超时重试',
+      en: 'Add bidirectional Windows RDP file and folder copy/paste with on-demand remote file streams; fix upload acknowledgement timing and timeout recovery'
+    }]
+  },
+  {
     version: '0.20.38',
     items: [
       {

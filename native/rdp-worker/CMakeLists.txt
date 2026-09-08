@@ -12,11 +12,11 @@ option(OFS_RDP_REQUIRE_FREERDP "Fail configure when the FreeRDP backend cannot b
 
 set(OFS_RDP_HAS_FREERDP 0)
 
-add_executable(ofs-rdp-worker main.cpp freerdp_adapter.cpp unicode.cpp)
+add_executable(ofs-rdp-worker main.cpp freerdp_adapter.cpp unicode.cpp file_clipboard.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(ofs-rdp-worker PRIVATE Threads::Threads)
 if (WIN32)
-  target_link_libraries(ofs-rdp-worker PRIVATE ws2_32)
+  target_link_libraries(ofs-rdp-worker PRIVATE ws2_32 ole32 shell32 uuid)
   # The native adapter probes the default playback device before enabling
   # FreeRDP rdpsnd, and the bundled FreeRDP backend uses WinMM waveOut.
   target_link_libraries(ofs-rdp-worker PRIVATE winmm)
@@ -82,6 +82,17 @@ target_compile_definitions(ofs-rdp-worker PRIVATE OFS_RDP_HAS_FREERDP=${OFS_RDP_
 
 include(CTest)
 if (BUILD_TESTING)
+  if (WIN32)
+    add_executable(ofs-rdp-file-clipboard-test test/file_clipboard.test.cpp)
+    target_link_libraries(ofs-rdp-file-clipboard-test PRIVATE ole32 shell32 uuid)
+    # Assertions are the test oracle even in release builds.
+    if (MSVC)
+      target_compile_options(ofs-rdp-file-clipboard-test PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(ofs-rdp-file-clipboard-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME worker_file_clipboard COMMAND ofs-rdp-file-clipboard-test)
+  endif()
   add_test(NAME worker_hello COMMAND ofs-rdp-worker --self-test)
   add_executable(ofs-rdp-unicode-test test/unicode.test.cpp unicode.cpp)
   target_include_directories(ofs-rdp-unicode-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

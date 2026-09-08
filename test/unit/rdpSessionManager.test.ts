@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -742,6 +745,24 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(emit).toHaveBeenCalledWith('rdp:clipboard', { sessionId, text: 'remote text' })
   })
 
+  it('does not overwrite native remote files with an empty text clipboard', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: true, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', framePacket(1))
+    manager.clipboardGet(sessionId)
+    const request = currentWorker.writes.find((bytes) => bytes[6] === 0x17)!
+    currentWorker.stdout.emit('data', jsonPacket(0x22, request.readUInt32LE(12), {
+      op: 'clipboardData', mime: 'application/x-ofs-rdp-files'
+    }))
+    expect(emit.mock.calls.some(([channel]) => channel === 'rdp:clipboard')).toBe(false)
+    expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).not.toThrow()
+  })
+
   it('waits for Worker acknowledgement before allowing a local file clipboard paste', async () => {
     getProfile.mockReturnValueOnce({
       id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
@@ -771,6 +792,59 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(emit).toHaveBeenCalledWith('rdp:clipboardProgress', expect.objectContaining({
       sessionId, state: 'preparing', fileCount: 1
     }))
+  })
+
+  it('announces nested directories, empty folders and their relative file names', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ofs-rdp-folders-'))
+    try {
+      mkdirSync(join(root, 'empty'))
+      mkdirSync(join(root, 'nested'))
+      writeFileSync(join(root, 'nested', 'hello.txt'), 'hello')
+      getProfile.mockReturnValueOnce({
+        id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+        username: 'alice', auth: { method: 'password' },
+        rdp: { clipboard: true, certificatePolicy: 'prompt' }
+      })
+      const { manager, sessionId } = await openReady()
+      manager.attachPort(sessionId, new FakePort() as never)
+      currentWorker.stdout.emit('data', framePacket(1))
+      const pending = manager.clipboardFilesSet(sessionId, [root])
+      const request = currentWorker.writes.find((bytes) => bytes[6] === 0x18)!
+      const { files } = JSON.parse(request.subarray(16).toString('utf8'))
+      expect(files).toHaveLength(4)
+      expect(files.filter((file: { directory?: boolean }) => file.directory)).toHaveLength(3)
+      expect(files[3]).toEqual(expect.objectContaining({
+        name: expect.stringMatching(/nested\\hello\.txt$/), size: 5
+      }))
+      currentWorker.stdout.emit('data', jsonPacket(0x20, request.readUInt32LE(12), { op: 'ack' }))
+      await pending
+    } finally { rmSync(root, { recursive: true, force: true }) }
+  })
+
+  it('releases an acknowledged transfer after inactivity so paste can retry', async () => {
+    vi.useFakeTimers()
+    try {
+      getProfile.mockReturnValueOnce({
+        id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+        username: 'alice', auth: { method: 'password' },
+        rdp: { clipboard: true, certificatePolicy: 'prompt' }
+      })
+      const { manager, sessionId } = await openReady()
+      manager.attachPort(sessionId, new FakePort() as never)
+      currentWorker.stdout.emit('data', framePacket(1))
+      const announce = () => {
+        const pending = manager.clipboardFilesSet(sessionId, ['package.json'])
+        const request = currentWorker.writes.filter((bytes) => bytes[6] === 0x18).at(-1)!
+        currentWorker.stdout.emit('data', jsonPacket(0x20, request.readUInt32LE(12), { op: 'ack' }))
+        return pending
+      }
+      await announce()
+      await vi.advanceTimersByTimeAsync(30_001)
+      expect(emit).toHaveBeenCalledWith('rdp:clipboardProgress', expect.objectContaining({
+        state: 'failed', error: 'CLIPBOARD_TIMEOUT'
+      }))
+      await expect(announce()).resolves.toBeUndefined()
+    } finally { vi.useRealTimers() }
   })
 
   it('reports a file clipboard error without failing an otherwise ready RDP session', async () => {

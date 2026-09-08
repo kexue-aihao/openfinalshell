@@ -33,6 +33,7 @@ class FreeRdpAdapter {
     std::string path;
     std::string name;
     std::uint64_t size = 0;
+    bool directory = false;
   };
 
   struct Rect {
@@ -51,7 +52,7 @@ class FreeRdpAdapter {
                                              bool changed)>;
   using FrameCallback = std::function<void(std::uint32_t width, std::uint32_t height,
                                            std::uint32_t sequence, std::vector<Rect> rects)>;
-  using ClipboardCallback = std::function<void(std::uint32_t requestId, std::string text)>;
+  using ClipboardCallback = std::function<void(std::uint32_t requestId, std::string text, bool files)>;
   using ClipboardProgressCallback = std::function<void(const char* state, std::uint32_t fileIndex,
                                                        std::uint32_t fileCount, const char* fileName,
                                                        std::uint64_t transferred, std::uint64_t total,

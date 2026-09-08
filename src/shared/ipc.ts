@@ -170,6 +170,7 @@ export interface InvokeMap {
   'rdp:close': { args: [SessionId]; result: void }
   'rdp:reconnect': { args: [SessionId]; result: void }
   'rdp:resize': { args: [{ sessionId: SessionId; display: RdpDisplaySize }]; result: void }
+  'rdp:clipboardLocalFiles': { args: [SessionId]; result: string[] }
   'rdp:clipboardSet': { args: [{ sessionId: SessionId; text: string }]; result: void }
   /** Announces local files to cliprdr; remote Ctrl+V pulls the contents on demand. */
   'rdp:clipboardFilesSet': { args: [{ sessionId: SessionId; files: string[] }]; result: void }
@@ -529,6 +530,7 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'rdp:close': true,
   'rdp:reconnect': true,
   'rdp:resize': true,
+  'rdp:clipboardLocalFiles': true,
   'rdp:clipboardSet': true,
   'rdp:clipboardFilesSet': true,
   'rdp:clipboardGet': true,

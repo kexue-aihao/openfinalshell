@@ -667,12 +667,10 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     if (!canControl || !sessionId) return
     void (async () => {
       if (code === 'KeyV') {
-        // Older preload builds and lightweight test/dev mocks may not expose
-        // the file-aware clipboard bridge yet. Text paste must keep working
-        // in that case.
-        const files = typeof ofs.getClipboardFilePaths === 'function'
-          ? ofs.getClipboardFilePaths()
-          : []
+        // Read CF_HDROP through Windows; registered-format aliases can lose multiple files.
+        const nativeFiles = await ofs.invoke('rdp:clipboardLocalFiles', sessionId)
+        const files = Array.isArray(nativeFiles) ? nativeFiles :
+          typeof ofs.getClipboardFilePaths === 'function' ? ofs.getClipboardFilePaths() : []
         if (files.length > 0) {
           await ofs.invoke('rdp:clipboardFilesSet', { sessionId, files })
           const modifierIsStillDown = modifierAlreadyDown &&
@@ -693,7 +691,10 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       // cliprdr for its data; otherwise the request can race Ctrl+C.
       await new Promise<void>((resolve) => window.setTimeout(resolve, CLIPBOARD_SETTLE_MS))
       await ofs.invoke('rdp:clipboardGet', sessionId)
-    })().catch(() => {})
+    })().catch(() => {
+      setClipboardProgress({ sessionId, state: 'failed', fileIndex: 0, fileCount: 0,
+        transferred: 0, total: 0, speedBps: 0, error: t('conn.clipboardUploadFailed') })
+    })
   }
 
   const flushPointerMove = (): void => {

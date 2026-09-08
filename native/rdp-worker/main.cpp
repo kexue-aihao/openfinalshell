@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "unicode.h"
+#include "file_clipboard.h"
 #include "frame_protocol.h"
 
 #if defined(_WIN32)
@@ -54,6 +55,8 @@ enum MessageType : std::uint8_t {
   CLIPBOARD_SET = 0x16,
   CLIPBOARD_GET = 0x17,
   CLIPBOARD_FILES_SET = 0x18,
+  CLIPBOARD_LOCAL_FILES = 0x19,
+  CLIPBOARD_LOCAL_DATA = 0x25,
   STATE = 0x20,
   PROMPT = 0x21,
   CLIPBOARD_DATA = 0x22,
@@ -678,7 +681,7 @@ int main(int argc, char** argv) {
     }
     if (frame.type != HELLO_ACK && frame.type != START && frame.type != CREDENTIAL && frame.type != CLOSE &&
         frame.type != RESIZE && frame.type != KEY && frame.type != POINTER && frame.type != CLIPBOARD_SET &&
-        frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET) {
+        frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET && frame.type != CLIPBOARD_LOCAL_FILES) {
       protocolError(frame.requestId, "unknown message type");
       return 2;
     }
@@ -803,7 +806,11 @@ int main(int argc, char** argv) {
               writeJson(ERROR, 0, R"({"op":"error","code":"PROTOCOL_ERROR","message":"invalid framebuffer update"})");
             }
           },
-           [&](std::uint32_t requestId, std::string text) {
+           [&](std::uint32_t requestId, std::string text, bool files) {
+             if (files) {
+               writeJson(CLIPBOARD_DATA, requestId, R"({"op":"clipboardData","mime":"application/x-ofs-rdp-files"})");
+               return;
+             }
              const std::string escaped = jsonEscape(text);
              writeJson(CLIPBOARD_DATA, requestId, std::string("{\"op\":\"clipboardData\",\"mime\":\"text/plain\",\"text\":\"") + escaped + "\"}");
            },
@@ -1001,6 +1008,20 @@ int main(int argc, char** argv) {
       continue;
     }
 
+    if (frame.type == CLIPBOARD_LOCAL_FILES) {
+      if (op != "clipboardLocalFiles" || !jsonHasOnlyMembers(control, {"op"})) {
+        protocolError(frame.requestId, "invalid local clipboard request"); return 2;
+      }
+      std::string payload = "{\"op\":\"clipboardLocalFiles\",\"files\":[";
+      bool first = true;
+      for (const auto& path : ofs::rdp::localClipboardFiles()) {
+        if (!first) payload += ",";
+        first = false; payload += "\"" + jsonEscape(path) + "\"";
+      }
+      writeJson(CLIPBOARD_LOCAL_DATA, frame.requestId, payload + "]}");
+      continue;
+    }
+
     if (frame.type == CLIPBOARD_FILES_SET) {
       const JsonValue* filesValue = jsonMember(control, "files");
       if (op != "clipboardFilesSet" || filesValue == nullptr || filesValue->type != JsonValue::Type::array ||
@@ -1016,14 +1037,16 @@ int main(int argc, char** argv) {
         std::string path;
         std::string name;
         std::uint64_t size = 0;
-        if (!jsonHasOnlyMembers(value, {"path", "name", "size"}) ||
+        bool directory = false;
+        if (!jsonHasOnlyMembers(value, {"path", "name", "size", "directory"}) ||
+            (jsonMember(value, "directory") && !jsonBool(value, "directory", directory)) ||
             !jsonString(value, "path", path) || !jsonString(value, "name", name) ||
             !jsonUint64(value, "size", size) || path.empty() || path.size() > 32768 ||
             name.empty() || name.size() > 2048 || size > 8ull * 1024ull * 1024ull * 1024ull) {
           protocolError(frame.requestId, "invalid clipboard file entry");
           return 2;
         }
-        files.push_back({std::move(path), std::move(name), size});
+        files.push_back({std::move(path), std::move(name), size, directory});
       }
       if (!backend || !backend->clipboardFilesSet(std::move(files))) {
         writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"file clipboard is unavailable"})");

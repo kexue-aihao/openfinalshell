@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, statSync, readdirSync, lstatSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import electron from 'electron'
@@ -113,7 +113,9 @@ interface Session {
   seenCertificateRequests: Set<number>
   pendingClipboardRequests: Set<number>
   clipboardTimer?: NodeJS.Timeout
+  clipboardTransferTimer?: NodeJS.Timeout
   clipboardTransfer?: { total: number; fileCount: number; active: boolean }
+  pendingLocalClipboard?: { id: number; timer: NodeJS.Timeout; resolve: (paths: string[]) => void; reject: (error: Error) => void }
   pendingClipboardFileRequests: Map<number, {
     timer: NodeJS.Timeout
     resolve: () => void
@@ -375,6 +377,11 @@ export class RdpSessionManager {
   }
 
   private clearClipboardFileRequests(session: Session, errorCode = 'CANCELED'): void {
+    if (session.pendingLocalClipboard) {
+      clearTimeout(session.pendingLocalClipboard.timer)
+      session.pendingLocalClipboard.reject(new Error('CANCELED'))
+      session.pendingLocalClipboard = undefined
+    }
     for (const pending of session.pendingClipboardFileRequests.values()) {
       clearTimeout(pending.timer)
       pending.reject(new Error(errorCode))
@@ -402,6 +409,7 @@ export class RdpSessionManager {
   }
 
   private clearClipboardTransfer(session: Session, state: 'canceled' | 'completed' = 'canceled'): void {
+    clearTimeout(session.clipboardTransferTimer)
     const transfer = session.clipboardTransfer
     if (!transfer) return
     if (transfer.active) this.emitClipboardProgress(session, state, {
@@ -411,7 +419,16 @@ export class RdpSessionManager {
     session.clipboardTransfer = undefined
   }
 
+  private armClipboardTransferTimeout(session: Session): void {
+    clearTimeout(session.clipboardTransferTimer)
+    session.clipboardTransferTimer = setTimeout(() => {
+      this.failClipboardTransfer(session, 'CLIPBOARD_TIMEOUT')
+    }, 30_000)
+    session.clipboardTransferTimer.unref()
+  }
+
   private failClipboardTransfer(session: Session, error: string): void {
+    clearTimeout(session.clipboardTransferTimer)
     const transfer = session.clipboardTransfer
     if (!transfer || !transfer.active) return
     transfer.active = false
@@ -857,6 +874,8 @@ export class RdpSessionManager {
     if (session.clipboardTimer) clearTimeout(session.clipboardTimer)
     session.clipboardTimer = undefined
     const value = parseJsonObject(payload)
+    // The native OLE object already owns this selection; a text write would destroy it.
+    if (value?.op === 'clipboardData' && value.mime === 'application/x-ofs-rdp-files') return
     if (!value || value.op !== 'clipboardData' || value.mime !== 'text/plain' || typeof value.text !== 'string' || value.text.length > 1_000_000) {
       this.fail(session, 'PROTOCOL_ERROR')
       return
@@ -885,6 +904,8 @@ export class RdpSessionManager {
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
+    if (!transfer.active) return
+    this.armClipboardTransferTimeout(session)
     const state = value.state as RdpClipboardTransferState
     emit('rdp:clipboardProgress', {
       sessionId: session.id,
@@ -898,6 +919,7 @@ export class RdpSessionManager {
       ...(typeof value.error === 'string' ? { error: value.error } : {})
     })
     if (state === 'completed' || state === 'failed' || state === 'canceled') {
+      clearTimeout(session.clipboardTransferTimer)
       if (session.clipboardTransfer) session.clipboardTransfer.active = false
     }
   }
@@ -924,6 +946,17 @@ export class RdpSessionManager {
     else if (type === 0x20) this.handleWorkerState(session, requestId, payload)
     else if (type === 0x21) this.handleCertificatePrompt(session, requestId, payload)
     else if (type === 0x22) this.handleClipboard(session, requestId, payload)
+    else if (type === 0x25) {
+      const pending = session.pendingLocalClipboard
+      if (!pending || pending.id !== requestId) return
+      clearTimeout(pending.timer)
+      session.pendingLocalClipboard = undefined
+      const value = parseJsonObject(payload)
+      if (value?.op !== 'clipboardLocalFiles' || !Array.isArray(value.files) || value.files.length > 64 ||
+          !value.files.every((p) => typeof p === 'string' && p.length > 0 && p.length <= 32_768)) {
+        pending.reject(new Error('PROTOCOL_ERROR'))
+      } else pending.resolve(value.files as string[])
+    }
     else if (type === 0x24) this.handleClipboardProgress(session, payload)
     else if (type === 0x23) this.handleAudio(session, payload)
     else if (type === 0x30) this.handleFrame(session, payload)
@@ -1206,30 +1239,59 @@ export class RdpSessionManager {
     this.write(session, 0x16, this.nextRequestId(session), { op: 'clipboardSet', mime: 'text/plain', text })
   }
 
+  clipboardLocalFiles(sessionId: SessionId): Promise<string[]> {
+    const session = this.requireReady(sessionId)
+    if (!session.profile.clipboard || session.pendingLocalClipboard) return Promise.reject(new Error('UNSUPPORTED'))
+    return new Promise((resolve, reject) => {
+      const id = this.nextRequestId(session)
+      const timer = setTimeout(() => {
+        session.pendingLocalClipboard = undefined
+        reject(new Error('CLIPBOARD_TIMEOUT'))
+      }, CLIPBOARD_TIMEOUT_MS)
+      timer.unref()
+      session.pendingLocalClipboard = { id, timer, resolve, reject }
+      if (!this.write(session, 0x19, id, { op: 'clipboardLocalFiles' })) {
+        clearTimeout(timer); session.pendingLocalClipboard = undefined
+        reject(new Error('WORKER_CRASHED'))
+      }
+    })
+  }
+
   clipboardFilesSet(sessionId: SessionId, paths: string[]): Promise<void> {
     const session = this.requireReady(sessionId)
     if (!session.profile.clipboard || !Array.isArray(paths) || paths.length < 1 || paths.length > MAX_CLIPBOARD_FILES) {
       throw new Error('UNSUPPORTED')
     }
-    const files: Array<{ path: string; name: string; size: number }> = []
+    const files: Array<{ path: string; name: string; size: number; directory?: boolean }> = []
     const seen = new Set<string>()
     let total = 0
-    for (const rawPath of paths) {
-      if (typeof rawPath !== 'string' || rawPath.length < 1 || rawPath.length > 32_768) throw new Error('UNSUPPORTED')
-      let normalized: string
-      try { normalized = realpathSync(rawPath) } catch { throw new Error('UNSUPPORTED') }
-      if (seen.has(normalized)) continue
+    const append = (rawPath: string, name: string): void => {
+      if (rawPath.length < 1 || rawPath.length > 32_768 || name.length > 259 ||
+          files.length >= MAX_CLIPBOARD_FILES) throw new Error('UNSUPPORTED')
+      // Do not traverse junctions or symlinks outside the user's selection.
+      if (lstatSync(rawPath).isSymbolicLink()) throw new Error('UNSUPPORTED')
+      const normalized = realpathSync(rawPath)
+      if (seen.has(normalized)) return
       seen.add(normalized)
-      let stats
-      try { stats = statSync(normalized) } catch { throw new Error('UNSUPPORTED') }
+      const stats = statSync(normalized)
+      if (stats.isDirectory()) {
+        files.push({ path: normalized, name, size: 0, directory: true })
+        for (const child of readdirSync(normalized)) append(join(normalized, child), name + '\\' + child)
+        return
+      }
       if (!stats.isFile() || stats.size > MAX_CLIPBOARD_FILE_BYTES || !Number.isSafeInteger(stats.size)) throw new Error('UNSUPPORTED')
       total += stats.size
       if (total > MAX_CLIPBOARD_TOTAL_BYTES) throw new Error('UNSUPPORTED')
-      files.push({ path: normalized, name: basename(normalized).slice(0, 259), size: stats.size })
+      files.push({ path: normalized, name, size: stats.size })
+    }
+    for (const rawPath of paths) {
+      if (typeof rawPath !== 'string') throw new Error('UNSUPPORTED')
+      append(rawPath, basename(rawPath))
     }
     if (files.length < 1) throw new Error('UNSUPPORTED')
     if (session.clipboardTransfer?.active) throw new Error('TRANSFER_IN_PROGRESS')
     session.clipboardTransfer = { total, fileCount: files.length, active: true }
+    this.armClipboardTransferTimeout(session)
     this.emitClipboardProgress(session, 'preparing', { fileCount: files.length, total })
     const requestId = this.nextRequestId(session)
     return new Promise<void>((resolve, reject) => {
