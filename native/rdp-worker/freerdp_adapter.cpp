@@ -974,8 +974,12 @@ struct FreeRdpAdapter::Impl {
       case FREERDP_ERROR_CONNECT_LOGON_TYPE_NOT_GRANTED:
       case FREERDP_ERROR_CONNECT_ACCOUNT_RESTRICTION:
         return "AUTH_FAILED";
+      // FreeRDP may report 0x20018 for transient NLA/session state as well as
+      // a real Windows lockout.  The worker has no access to the server
+      // security log, so preserve the raw code in diagnostics but expose the
+      // conservative authentication failure state to the UI.
       case FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT:
-        return "ACCOUNT_LOCKED_OUT";
+        return "AUTH_FAILED";
       case FREERDP_ERROR_CONNECT_CANCELLED:
         return "CANCELED";
       default:
