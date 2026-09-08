@@ -275,4 +275,21 @@ describe('RdpPane input gating', () => {
     expect(invoke).toHaveBeenCalledWith('rdp:clipboardSync', { sessionId: 'rdp-1', enabled: false })
     focusSpy.mockRestore()
   })
+
+  it('shows a download action when the remote clipboard holds files and starts a folder download', async () => {
+    renderPane()
+    act(() => {
+      for (const cb of listeners.get('rdp:clipboardRemoteFiles') ?? []) {
+        cb({ sessionId: 'rdp-1', files: [{ name: 'a.txt', size: 5, directory: false }] })
+      }
+    })
+    expect(screen.getByText(/a\.txt/)).toBeTruthy()
+
+    invoke.mockResolvedValueOnce('/chosen/dir')
+    await act(async () => {
+      screen.getByRole('button', { name: /下载到文件夹/ }).click()
+    })
+    expect(invoke).toHaveBeenCalledWith('app:pickPath', { mode: 'openDirectory', title: '选择下载文件夹' })
+    expect(invoke).toHaveBeenCalledWith('rdp:clipboardRemoteFilesDownload', { sessionId: 'rdp-1', directory: '/chosen/dir' })
+  })
 })

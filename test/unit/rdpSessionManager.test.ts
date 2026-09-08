@@ -997,6 +997,43 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(currentWorker.writes.some((bytes) => bytes[6] === 0x1a)).toBe(false)
   })
 
+  it('publishes the remote file clipboard manifest and download result to the renderer', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: true, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', framePacket(1))
+    manager.attachPort(sessionId, new FakePort() as never)
+
+    currentWorker.stdout.emit('data', jsonPacket(0x26, 0, {
+      op: 'remoteFiles',
+      files: [{ name: 'a.txt', size: 10, directory: false }, { name: 'd', size: 0, directory: true }]
+    }))
+    expect(emit).toHaveBeenCalledWith('rdp:clipboardRemoteFiles', {
+      sessionId,
+      files: [{ name: 'a.txt', size: 10, directory: false }, { name: 'd', size: 0, directory: true }]
+    })
+
+    currentWorker.stdout.emit('data', jsonPacket(0x27, 0, {
+      op: 'downloadResult', state: 'completed', fileCount: 2
+    }))
+    expect(emit).toHaveBeenCalledWith('rdp:clipboardDownloadResult', {
+      sessionId, state: 'completed', fileCount: 2
+    })
+  })
+
+  it('rejects malformed remote files manifest and download result payloads', async () => {
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', framePacket(1))
+    manager.attachPort(sessionId, new FakePort() as never)
+
+    currentWorker.stdout.emit('data', jsonPacket(0x26, 0, { op: 'remoteFiles', files: [{ name: '', size: 0, directory: false }] }))
+    expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({ sessionId, state: 'failed', errorCode: 'PROTOCOL_ERROR' }))
+    expect(spawnedWorkers[spawnedWorkers.length - 1].writes.some((bytes) => bytes[6] === 0x12)).toBe(true)
+  })
+
   it('serializes renderer input as the frozen worker protocol payloads', async () => {
     const { manager, sessionId } = await openReady()
     currentWorker.stdout.emit('data', framePacket(1))

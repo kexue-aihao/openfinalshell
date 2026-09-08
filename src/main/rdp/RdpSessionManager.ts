@@ -939,6 +939,50 @@ export class RdpSessionManager {
     }
   }
 
+  /** 远端文件剪贴板清单（FileGroupDescriptorW 已解析）。渲染层据此提供"下载到目录"。 */
+  private handleRemoteFiles(session: Session, payload: Buffer): void {
+    const value = parseJsonObject(payload)
+    const validFile = (item: unknown): boolean => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return false
+      const record = item as Record<string, unknown>
+      return typeof record.name === 'string' && record.name.length > 0 && record.name.length <= 2048 &&
+        Number.isSafeInteger(record.size) && (record.size as number) >= 0 &&
+        typeof record.directory === 'boolean'
+    }
+    if (!value || value.op !== 'remoteFiles' || !Array.isArray(value.files) ||
+        value.files.length > MAX_CLIPBOARD_FILES || !value.files.every(validFile)) {
+      log.warn(`RDP session ${session.id}: invalid remote files payload`)
+      this.fail(session, 'PROTOCOL_ERROR')
+      return
+    }
+    emit('rdp:clipboardRemoteFiles', {
+      sessionId: session.id,
+      files: (value.files as Array<Record<string, unknown>>).map((f) => ({
+        name: f.name as string,
+        size: f.size as number,
+        directory: f.directory as boolean
+      }))
+    })
+  }
+
+  /** 显式"远端文件下载到目录"命令的终态（0x27）。 */
+  private handleDownloadResult(session: Session, payload: Buffer): void {
+    const value = parseJsonObject(payload)
+    if (!value || value.op !== 'downloadResult' || (value.state !== 'completed' && value.state !== 'failed') ||
+        !Number.isSafeInteger(value.fileCount) || (value.fileCount as number) < 0 ||
+        (value.error !== undefined && typeof value.error !== 'string')) {
+      log.warn(`RDP session ${session.id}: invalid download result payload`)
+      this.fail(session, 'PROTOCOL_ERROR')
+      return
+    }
+    emit('rdp:clipboardDownloadResult', {
+      sessionId: session.id,
+      state: value.state as 'completed' | 'failed',
+      fileCount: value.fileCount as number,
+      ...(typeof value.error === 'string' ? { error: value.error } : {})
+    })
+  }
+
   private handleFrame(session: Session, payload: Buffer): void {
     const parsed = parseRdpFrameV1(payload)
     if (!parsed) {
@@ -973,6 +1017,8 @@ export class RdpSessionManager {
       } else pending.resolve(value.files as string[])
     }
     else if (type === 0x24) this.handleClipboardProgress(session, payload)
+    else if (type === 0x26) this.handleRemoteFiles(session, payload)
+    else if (type === 0x27) this.handleDownloadResult(session, payload)
     else if (type === 0x23) this.handleAudio(session, payload)
     else if (type === 0x30) this.handleFrame(session, payload)
     else if (type === 0x7f) {
@@ -1357,6 +1403,23 @@ export class RdpSessionManager {
     const session = this.sessions.get(sessionId)
     if (!session || !this.isRunning(session) || !session.profile.clipboard) return
     this.write(session, 0x1a, this.nextRequestId(session), { op: 'clipboardSync', enabled })
+  }
+
+  /**
+   * Explicit "remote file clipboard -> local folder" download. The destination
+   * directory is chosen by the renderer through the OS directory picker. The
+   * Worker iterates its current remote file manifest and streams each file via
+   * CB_FILECONTENTS requests. This resolves once the command is queued to the
+   * Worker; real progress/outcome arrives on rdp:clipboardProgress.
+   */
+  remoteFilesDownload(sessionId: SessionId, directory: string): Promise<void> {
+    const session = this.requireReady(sessionId)
+    if (!session.profile.clipboard) return Promise.reject(new Error('UNSUPPORTED'))
+    const requestId = this.nextRequestId(session)
+    if (this.write(session, 0x1b, requestId, { op: 'remoteFilesDownload', directory })) {
+      return Promise.resolve()
+    }
+    return Promise.reject(new Error('WORKER_CRASHED'))
   }
 
   async close(sessionId: SessionId): Promise<void> {

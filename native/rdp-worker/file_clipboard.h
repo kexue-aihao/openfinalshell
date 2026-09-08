@@ -6,6 +6,12 @@
 #include <string>
 namespace ofs::rdp {
 std::vector<std::string> localClipboardFiles();
+// Accepts a single relative file/folder name as received from a remote desktop
+// FileGroupDescriptorW payload. Rejects absolute paths, drive letters, "..",
+// empty or trailing-dot/space segments and characters Windows cannot store.
+// Every segment of a multi-level remote path must pass this check before the
+// name is written to a local download directory.
+bool clipboardFileNameSafeUtf8(const char* name, std::size_t length);
 // Best-effort local system clipboard text (CF_UNICODETEXT) as UTF-8. Empty on
 // non-Windows or when the clipboard holds no readable text.
 std::string readLocalClipboardText();

@@ -85,6 +85,25 @@
   line-height: 16px;
 }
 
+/* The remote-file download card hosts interactive controls, so it opts back
+   into pointer events while keeping the same look as the progress card. */
+.clipboardProgress.remoteFilesCard {
+  pointer-events: auto;
+}
+
+.remoteFilesSummary {
+  margin: 4px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.remoteFilesActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;

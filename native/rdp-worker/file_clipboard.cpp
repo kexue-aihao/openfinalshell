@@ -310,6 +310,24 @@ class FileObject final : public IDataObject {
   HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA**) override { return OLE_E_ADVISENOTSUPPORTED; }
 };
 }
+
+bool clipboardFileNameSafeUtf8(const char* name, std::size_t length) {
+  if (name == nullptr || length == 0) return false;
+  // Decode to UTF-16 so the same rules that protect OLE publishing apply.
+  std::wstring wide;
+  try {
+    wide.resize(length);
+  } catch (const std::bad_alloc&) {
+    return false;
+  }
+  const int wideLength = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                             name, static_cast<int>(length),
+                                             wide.data(), static_cast<int>(wide.size()));
+  if (wideLength <= 0) return false;
+  wide.resize(static_cast<std::size_t>(wideLength));
+  return safeName(wide);
+}
+
 struct FileClipboard::Impl {
   std::mutex mutex;
   std::shared_ptr<Selection> selection;
@@ -366,6 +384,7 @@ void FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader) {
 }
 #else
 namespace ofs::rdp {
+bool clipboardFileNameSafeUtf8(const char*, std::size_t) { return false; }
 std::vector<std::string> localClipboardFiles() { return {}; }
 std::string readLocalClipboardText() { return {}; }
 std::uint32_t writeLocalClipboardText(const std::string&) { return 0; }

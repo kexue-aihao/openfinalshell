@@ -11,6 +11,7 @@ import {
   RDP_MIN_DISPLAY_EDGE,
   clampRdpDisplaySize,
   type RdpClipboardProgress,
+  type RdpClipboardRemoteFile,
   type RdpFrame,
   type RdpInput,
   type RdpPortMessage
@@ -488,6 +489,8 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   const pointerMoveFrameRef = useRef<number | null>(null)
   const clipboardShortcutRef = useRef<'KeyC' | 'KeyV' | null>(null)
   const [clipboardProgress, setClipboardProgress] = useState<RdpClipboardProgress | null>(null)
+  const [remoteFiles, setRemoteFiles] = useState<RdpClipboardRemoteFile[] | null>(null)
+  const [downloading, setDownloading] = useState(false)
   const updateTab = useSessionStore((s) => s.updateTab)
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
   const profileId = tab.profileId
@@ -636,6 +639,47 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     resize()
     return () => { observer.disconnect(); if (timer) clearTimeout(timer) }
   }, [tab.sessionId, tab.state])
+
+  useEffect(() => {
+    const sessionId = tab.sessionId
+    if (!sessionId) return
+    const off = ofs.on('rdp:clipboardRemoteFiles', (event) => {
+      if (event.sessionId !== sessionId) return
+      setRemoteFiles(event.files.length > 0 ? event.files : null)
+      setDownloading(false)
+    })
+    return off
+  }, [tab.sessionId])
+
+  useEffect(() => {
+    const sessionId = tab.sessionId
+    if (!sessionId) return
+    const off = ofs.on('rdp:clipboardDownloadResult', (event) => {
+      if (event.sessionId !== sessionId) return
+      setDownloading(false)
+      if (event.state === 'completed') {
+        void message.success(t('conn.clipboardDownloadComplete', { count: event.fileCount }))
+      } else {
+        void message.error(event.error ? t('conn.clipboardDownloadFailedWith', { error: event.error }) : t('conn.clipboardDownloadFailed'))
+      }
+      setRemoteFiles(null)
+    })
+    return off
+  }, [tab.sessionId])
+
+  const downloadRemoteFiles = async (): Promise<void> => {
+    const sessionId = tab.sessionId
+    if (!sessionId || !remoteFiles || downloading) return
+    try {
+      const directory = await ofs.invoke('app:pickPath', { mode: 'openDirectory', title: t('conn.clipboardPickFolder') })
+      if (!directory) return
+      setDownloading(true)
+      await ofs.invoke('rdp:clipboardRemoteFilesDownload', { sessionId, directory })
+    } catch (error) {
+      setDownloading(false)
+      void message.error(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   const retry = (): void => {
     updateTab(tab.id, { state: 'connecting', error: undefined })
@@ -1017,6 +1061,27 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
             <span>{clipboardProgress.speedBps > 0 ? formatSpeed(clipboardProgress.speedBps) : ''}</span>
           </div>
           {clipboardProgress.error && <div className={styles.clipboardProgressError}>{clipboardProgress.error}</div>}
+        </div>
+      )}
+      {remoteFiles && !clipboardProgress && (
+        <div className={`${styles.clipboardProgress} ${styles.remoteFilesCard}`} role="status">
+          <div className={styles.clipboardProgressTitle}>
+            <span>{downloading ? t('conn.clipboardDownloading') : t('conn.clipboardRemoteFilesReady', { count: remoteFiles.length })}</span>
+          </div>
+          <div className={styles.remoteFilesSummary}>
+            {remoteFiles.slice(0, 3).map((f) => (
+              <div key={f.name} className={styles.clipboardFileName}>
+                {f.directory ? '📁 ' : ''}{f.name}{!f.directory ? ` · ${formatBytes(f.size)}` : ''}
+              </div>
+            ))}
+            {remoteFiles.length > 3 && <div className={styles.clipboardFileName}>+{remoteFiles.length - 3}</div>}
+          </div>
+          <div className={styles.remoteFilesActions}>
+            <Button size="small" loading={downloading} onClick={() => void downloadRemoteFiles()}>
+              {t('conn.clipboardDownloadToFolder')}
+            </Button>
+            <Button size="small" onClick={() => setRemoteFiles(null)}>{t('common.close')}</Button>
+          </div>
         </div>
       )}
       <span className={styles.srOnly}>{profileId}</span>

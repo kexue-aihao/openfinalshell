@@ -57,6 +57,12 @@ class FreeRdpAdapter {
                                                        std::uint32_t fileCount, const char* fileName,
                                                        std::uint64_t transferred, std::uint64_t total,
                                                        double speedBps, const char* errorCode)>;
+  struct RemoteFileEntry {
+    std::string name;
+    std::uint64_t size = 0;
+    bool directory = false;
+  };
+  using RemoteFilesCallback = std::function<void(std::vector<RemoteFileEntry> files)>;
   using AudioCallback = std::function<void(const char* state, const char* errorCode)>;
 
   FreeRdpAdapter();
@@ -67,7 +73,7 @@ class FreeRdpAdapter {
 
   bool start(Config config, StateCallback state, PromptCallback prompt, FrameCallback frame,
              ClipboardCallback clipboard, ClipboardProgressCallback clipboardProgress,
-             AudioCallback audio);
+             AudioCallback audio, RemoteFilesCallback remoteFiles = {});
   bool providePassword(std::string_view password);
   bool provideCertificate(std::uint32_t requestId, bool accept);
   bool resize(Display display);
@@ -80,6 +86,8 @@ class FreeRdpAdapter {
   bool clipboardGet(std::uint32_t requestId);
   bool setClipboardSync(bool enabled);
   bool notifyLocalClipboardChanged();
+  bool remoteFilesDownload(std::string destinationDir);
+  std::uint32_t remoteClipboardFileCount() const;
   void close();
 
  private:

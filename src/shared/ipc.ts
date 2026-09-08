@@ -46,6 +46,8 @@ import type {
   RdpFrame,
   RdpInput,
   RdpClipboardProgress,
+  RdpClipboardRemoteFile,
+  RdpClipboardDownloadResult,
   RdpPortFrameMessage,
   RdpSessionState,
   ProfileDraft,
@@ -178,6 +180,8 @@ export interface InvokeMap {
   'rdp:clipboardGet': { args: [SessionId]; result: void }
   /** Toggles automatic local<->remote clipboard mirroring while the tab is focused. */
   'rdp:clipboardSync': { args: [{ sessionId: SessionId; enabled: boolean }]; result: void }
+  /** Explicitly downloads the remote file clipboard selection into a local folder. */
+  'rdp:clipboardRemoteFilesDownload': { args: [{ sessionId: SessionId; directory: string }]; result: void }
   'rdp:systemFallback': { args: [SessionId]; result: void }
 
   // --- 终端 ---
@@ -406,6 +410,8 @@ export interface EventMap {
   'rdp:frame': { sessionId: SessionId; frame: RdpFrame }
   'rdp:clipboard': { sessionId: SessionId; text: string }
   'rdp:clipboardProgress': RdpClipboardProgress
+  'rdp:clipboardRemoteFiles': { sessionId: SessionId; files: RdpClipboardRemoteFile[] }
+  'rdp:clipboardDownloadResult': RdpClipboardDownloadResult
   /** 终端下行数据批量帧（Uint8Array 结构化克隆） */
   'term:data': { termId: TermId; data: Uint8Array }
   'term:exit': { termId: TermId; reason: 'closed' | 'reconnected' | 'error' }
@@ -536,6 +542,8 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'rdp:clipboardSet': true,
   'rdp:clipboardFilesSet': true,
   'rdp:clipboardGet': true,
+  'rdp:clipboardSync': true,
+  'rdp:clipboardRemoteFilesDownload': true,
   'rdp:systemFallback': true,
   'term:open': true,
   'term:resize': true,
@@ -608,6 +616,8 @@ export const EVENT_CHANNELS = channelSet<EventChannel>({
   'rdp:frame': true,
   'rdp:clipboard': true,
   'rdp:clipboardProgress': true,
+  'rdp:clipboardRemoteFiles': true,
+  'rdp:clipboardDownloadResult': true,
   'term:data': true,
   'term:exit': true,
   'transfer:progress': true,

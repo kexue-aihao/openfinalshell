@@ -314,6 +314,21 @@ export interface RdpClipboardProgress {
   error?: string
 }
 
+/** One entry of the remote desktop file clipboard selection. */
+export interface RdpClipboardRemoteFile {
+  name: string
+  size: number
+  directory: boolean
+}
+
+/** Result of an explicit remote-file → local-folder download. */
+export interface RdpClipboardDownloadResult {
+  sessionId: SessionId
+  state: 'completed' | 'failed'
+  fileCount: number
+  error?: string
+}
+
 export const RDP_ERROR_CODES = [
   'WORKER_MISSING',
   'WORKER_START_FAILED',

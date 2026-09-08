@@ -57,11 +57,14 @@ enum MessageType : std::uint8_t {
   CLIPBOARD_FILES_SET = 0x18,
   CLIPBOARD_LOCAL_FILES = 0x19,
   CLIPBOARD_SYNC = 0x1a,
+  CLIPBOARD_FILES_DOWNLOAD = 0x1b,
   CLIPBOARD_LOCAL_DATA = 0x25,
   STATE = 0x20,
   PROMPT = 0x21,
   CLIPBOARD_DATA = 0x22,
   CLIPBOARD_PROGRESS = 0x24,
+  REMOTE_FILES = 0x26,
+  DOWNLOAD_RESULT = 0x27,
   AUDIO_STATE = 0x23,
   FRAME = 0x30,
   ERROR = 0x7f
@@ -661,7 +664,7 @@ int main(int argc, char** argv) {
     if (frame.type != HELLO_ACK && frame.type != START && frame.type != CREDENTIAL && frame.type != CLOSE &&
         frame.type != RESIZE && frame.type != KEY && frame.type != POINTER && frame.type != CLIPBOARD_SET &&
         frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET && frame.type != CLIPBOARD_LOCAL_FILES &&
-        frame.type != CLIPBOARD_SYNC) {
+        frame.type != CLIPBOARD_SYNC && frame.type != CLIPBOARD_FILES_DOWNLOAD) {
       protocolError(frame.requestId, "unknown message type");
       return 2;
     }
@@ -813,7 +816,20 @@ int main(int argc, char** argv) {
             if (errorCode != nullptr) payload += std::string(",\"errorCode\":\"") + jsonEscape(errorCode) + "\"";
             payload += "}";
             writeJson(AUDIO_STATE, 0, payload);
-          });
+          },
+           [&](std::vector<FreeRdpAdapter::RemoteFileEntry> files) {
+             std::string payload = "{\"op\":\"remoteFiles\",\"files\":[";
+             bool first = true;
+             for (const auto& file : files) {
+               if (!first) payload += ",";
+               first = false;
+               payload += "{\"name\":\"" + jsonEscape(file.name) + "\",\"size\":" +
+                          std::to_string(file.size) + ",\"directory\":" +
+                          (file.directory ? "true" : "false") + "}";
+             }
+             payload += "]}";
+             writeJson(REMOTE_FILES, 0, payload);
+           });
       if (!backendStarted) {
         std::cerr << "[rdp-worker] FreeRDP backend initialization failed\n";
         std::cerr.flush();
@@ -886,6 +902,25 @@ int main(int argc, char** argv) {
       if (backend) backend->setClipboardSync(enabled);
 #endif
       ack(frame.requestId);
+      continue;
+    }
+
+    if (frame.type == CLIPBOARD_FILES_DOWNLOAD) {
+      std::string directory;
+      if (op != "remoteFilesDownload" || !jsonString(control, "directory", directory) ||
+          directory.empty() || directory.size() > 32768) {
+        protocolError(frame.requestId, "invalid remoteFilesDownload payload");
+        return 2;
+      }
+      std::string result = "{\"op\":\"downloadResult\",\"state\":\"failed\",\"fileCount\":0,\"error\":\"DOWNLOAD_UNAVAILABLE\"}";
+#if OFS_RDP_HAS_FREERDP
+      const bool ok = backend && backend->remoteFilesDownload(directory);
+      if (ok) {
+        result = "{\"op\":\"downloadResult\",\"state\":\"completed\",\"fileCount\":" +
+            std::to_string(backend->remoteClipboardFileCount()) + "}";
+      }
+#endif
+      writeJson(DOWNLOAD_RESULT, frame.requestId, result);
       continue;
     }
 
