@@ -151,4 +151,15 @@ describe('RDP native FreeRDP build contract', () => {
     expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('"audio"')
     expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('audioPlayback')
   })
+
+  it('advertises all four clipboard directions so remote-to-local files are not filtered', () => {
+    // FreeRDP filters a server format list by ClipboardFeatureMask before the
+    // ServerFormatList callback runs. Omitting REMOTE_TO_LOCAL_FILES silently
+    // strips file formats from remote->local copies, so every direction must
+    // stay advertised.
+    expect(adapter).toContain('CLIPRDR_FLAG_LOCAL_TO_REMOTE')
+    expect(adapter).toContain('CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES')
+    expect(adapter).toContain('CLIPRDR_FLAG_REMOTE_TO_LOCAL')
+    expect(adapter).toContain('CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES')
+  })
 })

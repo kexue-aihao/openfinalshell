@@ -445,6 +445,7 @@
     "clipboardUploading": "正在上傳檔案到遠端桌面",
     "clipboardUploadComplete": "檔案已上傳到遠端桌面",
     "clipboardUploadFailed": "檔案上傳失敗",
+    "rdpClipboardCopyFailed": "無法讀取遠端剪貼簿文字",
     "rdpSystemFallback": "使用系統遠端桌面",
     "rdpSystemFallbackLaunched": "已在系統遠端桌面中開啟",
     "proxy": "代理伺服器",

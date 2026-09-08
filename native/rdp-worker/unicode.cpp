@@ -32,6 +32,29 @@ bool isUnicodeScalar(std::uint32_t value) {
   return value <= 0x10ffffu && !(value >= 0xd800u && value <= 0xdfffu);
 }
 
+bool validUtf8(const std::uint8_t* input, std::size_t length) {
+  if (length != 0 && input == nullptr) return false;
+  for (std::size_t i = 0; i < length;) {
+    const auto lead = input[i++];
+    if (lead < 0x80u) continue;
+    std::size_t continuation = 0;
+    std::uint32_t minimum = 0;
+    std::uint32_t codepoint = 0;
+    if ((lead & 0xe0u) == 0xc0u) { continuation = 1; minimum = 0x80; codepoint = lead & 0x1fu; }
+    else if ((lead & 0xf0u) == 0xe0u) { continuation = 2; minimum = 0x800; codepoint = lead & 0x0fu; }
+    else if ((lead & 0xf8u) == 0xf0u) { continuation = 3; minimum = 0x10000; codepoint = lead & 0x07u; }
+    else return false;
+    if (i + continuation > length) return false;
+    for (std::size_t j = 0; j < continuation; ++j) {
+      const auto part = input[i++];
+      if ((part & 0xc0u) != 0x80u) return false;
+      codepoint = (codepoint << 6) | (part & 0x3fu);
+    }
+    if (codepoint < minimum || codepoint > 0x10ffffu || !isUnicodeScalar(codepoint)) return false;
+  }
+  return true;
+}
+
 bool utf8ToUtf16Le(std::string_view input, std::vector<std::uint8_t>& output,
                    bool appendNull) {
   output.clear();

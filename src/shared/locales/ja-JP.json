@@ -445,6 +445,7 @@
     "clipboardUploading": "リモートデスクトップにファイルをアップロード中",
     "clipboardUploadComplete": "リモートデスクトップへのファイルアップロード完了",
     "clipboardUploadFailed": "ファイルのアップロードに失敗しました",
+    "rdpClipboardCopyFailed": "リモートのクリップボードテキストを取得できませんでした",
     "rdpSystemFallback": "システムのリモートデスクトップを使用",
     "rdpSystemFallbackLaunched": "システムのリモートデスクトップで開きました",
     "proxy": "プロキシ",

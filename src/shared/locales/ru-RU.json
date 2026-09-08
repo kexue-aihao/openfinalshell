@@ -445,6 +445,7 @@
     "clipboardUploading": "Загрузка файлов на удалённый рабочий стол",
     "clipboardUploadComplete": "Файлы загружены на удалённый рабочий стол",
     "clipboardUploadFailed": "Не удалось загрузить файл",
+    "rdpClipboardCopyFailed": "Не удалось получить текст из удалённого буфера обмена",
     "rdpSystemFallback": "Использовать системный удалённый рабочий стол",
     "rdpSystemFallbackLaunched": "Открыто в системном удалённом рабочем столе",
     "proxy": "Прокси",

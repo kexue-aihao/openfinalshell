@@ -445,6 +445,7 @@
     "clipboardUploading": "Subiendo archivos al escritorio remoto",
     "clipboardUploadComplete": "Archivos subidos al escritorio remoto",
     "clipboardUploadFailed": "Error al subir el archivo",
+    "rdpClipboardCopyFailed": "No se pudo obtener el texto del portapapeles remoto",
     "rdpSystemFallback": "Usar Escritorio remoto del sistema",
     "rdpSystemFallbackLaunched": "Abierto en el Escritorio remoto del sistema",
     "proxy": "Proxy",

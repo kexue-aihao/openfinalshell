@@ -137,6 +137,7 @@ struct FreeRdpAdapter::Impl {
   bool clipboardTransferActive = false;
   std::chrono::steady_clock::time_point clipboardTransferStarted;
   std::deque<std::uint32_t> pendingClipboardRequests;
+  std::uint32_t remoteTextFormatId = 0;
   std::uint32_t lastButtons = 0;
   bool audioChannelConnected = false;
   static inline Impl* active = nullptr;
@@ -274,10 +275,20 @@ struct FreeRdpAdapter::Impl {
     ++self->remoteGeneration;
     self->remoteDescriptorId = 0;
     if (self->nativeClipboard) self->nativeClipboard->clear();
+    self->remoteTextFormatId = 0;
     for (UINT32 i = 0; i < formatList->numFormats; ++i) {
       const auto& format = formatList->formats[i];
       if (format.formatName && std::strcmp(format.formatName, "FileGroupDescriptorW") == 0)
         self->remoteDescriptorId = format.formatId;
+      // CF_UNICODETEXT is the canonical Windows text clipboard format. Some
+      // servers (xrdp, non-Windows stacks) advertise a differently-numbered
+      // text format id; remember it so a later text pull asks for the format
+      // the server actually offered instead of hardcoding 13.
+      else if (self->remoteTextFormatId == 0 && format.formatName &&
+               std::strcmp(format.formatName, "CF_UNICODETEXT") == 0)
+        self->remoteTextFormatId = format.formatId;
+      else if (self->remoteTextFormatId == 0 && format.formatId == 13)
+        self->remoteTextFormatId = format.formatId;
     }
     CLIPRDR_FORMAT_LIST_RESPONSE response{};
     response.common.msgType = CB_FORMAT_LIST_RESPONSE;
@@ -373,15 +384,15 @@ struct FreeRdpAdapter::Impl {
     if (!self || !response || !response->requestedFormatData ||
         response->common.dataLen > 4u * 1024u * 1024u)
       return 1;
+    std::string text;
+    if (!ofs::rdp::utf16LeToUtf8(response->requestedFormatData,
+                                 response->common.dataLen, text))
+      return 1;
     std::uint32_t requestId = 0;
     if (!self->pendingClipboardRequests.empty()) {
       requestId = self->pendingClipboardRequests.front();
       self->pendingClipboardRequests.pop_front();
     }
-    std::string text;
-    if (!ofs::rdp::utf16LeToUtf8(response->requestedFormatData,
-                                 response->common.dataLen, text))
-      return 1;
     if (requestId != 0 && self->clipboard) self->clipboard(requestId, std::move(text), false);
     self->requestRemoteDescriptors();
     return 0;
@@ -965,10 +976,11 @@ struct FreeRdpAdapter::Impl {
            freerdp_settings_set_bool(settings, FreeRDP_DynamicResolutionUpdate, TRUE) &&
             freerdp_settings_set_bool(settings, FreeRDP_RedirectClipboard,
                                       config.clipboard ? TRUE : FALSE) &&
-            freerdp_settings_set_uint32(settings, FreeRDP_ClipboardFeatureMask,
-                                        CLIPRDR_FLAG_LOCAL_TO_REMOTE |
-                                        CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES |
-                                        CLIPRDR_FLAG_REMOTE_TO_LOCAL) &&
+           freerdp_settings_set_uint32(settings, FreeRDP_ClipboardFeatureMask,
+                                       CLIPRDR_FLAG_LOCAL_TO_REMOTE |
+                                       CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES |
+                                       CLIPRDR_FLAG_REMOTE_TO_LOCAL |
+                                       CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES) &&
            freerdp_settings_set_bool(settings, FreeRDP_DeviceRedirection, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectDrives, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectSmartCards, FALSE) &&
@@ -1246,7 +1258,7 @@ struct FreeRdpAdapter::Impl {
         CLIPRDR_FORMAT_DATA_REQUEST request{};
         request.common.msgType = CB_FORMAT_DATA_REQUEST;
         request.common.dataLen = sizeof(request.requestedFormatId);
-        request.requestedFormatId = 13;
+        request.requestedFormatId = remoteTextFormatId ? remoteTextFormatId : 13;
         const bool sent = cliprdr->ClientFormatDataRequest(cliprdr, &request) == 0;
         if (!sent) pendingClipboardRequests.pop_back();
         return sent;

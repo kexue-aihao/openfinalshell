@@ -445,6 +445,7 @@
     "clipboardUploading": "Envoi des fichiers vers le bureau distant",
     "clipboardUploadComplete": "Fichiers envoyés vers le bureau distant",
     "clipboardUploadFailed": "Échec de l'envoi du fichier",
+    "rdpClipboardCopyFailed": "Impossible de récupérer le texte du presse-papiers distant",
     "rdpSystemFallback": "Utiliser le bureau à distance du système",
     "rdpSystemFallbackLaunched": "Ouvert dans le bureau à distance du système",
     "proxy": "Proxy",

@@ -459,6 +459,7 @@
     "clipboardUploading": "正在上传文件到远程桌面",
     "clipboardUploadComplete": "文件已上传到远程桌面",
     "clipboardUploadFailed": "文件上传失败",
+    "rdpClipboardCopyFailed": "无法读取远程剪贴板文本",
     "proxy": "代理",
     "proxyType": "代理方式",
     "proxyNone": "直连",

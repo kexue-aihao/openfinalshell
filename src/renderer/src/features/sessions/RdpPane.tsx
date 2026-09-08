@@ -691,9 +691,22 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       // cliprdr for its data; otherwise the request can race Ctrl+C.
       await new Promise<void>((resolve) => window.setTimeout(resolve, CLIPBOARD_SETTLE_MS))
       await ofs.invoke('rdp:clipboardGet', sessionId)
-    })().catch(() => {
+    })().catch((error: unknown) => {
+      // A copy is a pull from the remote desktop; do not mislabel it as an
+      // upload failure. Silent loss here also overwrites the user's mental
+      // model of what ended up in the local clipboard.
+      if (code === 'KeyC') {
+        const label = t('conn.rdpClipboardCopyFailed')
+        setClipboardProgress({ sessionId, state: 'failed', fileIndex: 0, fileCount: 0,
+          transferred: 0, total: 0, speedBps: 0, error: label })
+        if ((error instanceof Error ? error.message : String(error)) !== 'SESSION_NOT_READY') {
+          void message.error(label)
+        }
+        return
+      }
+      const label = t('conn.clipboardUploadFailed')
       setClipboardProgress({ sessionId, state: 'failed', fileIndex: 0, fileCount: 0,
-        transferred: 0, total: 0, speedBps: 0, error: t('conn.clipboardUploadFailed') })
+        transferred: 0, total: 0, speedBps: 0, error: label })
     })
   }
 

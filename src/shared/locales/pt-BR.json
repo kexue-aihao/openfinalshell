@@ -445,6 +445,7 @@
     "clipboardUploading": "Enviando arquivos para a área de trabalho remota",
     "clipboardUploadComplete": "Arquivos enviados para a área de trabalho remota",
     "clipboardUploadFailed": "Falha ao enviar o arquivo",
+    "rdpClipboardCopyFailed": "Não foi possível obter o texto da área de transferência remota",
     "rdpSystemFallback": "Usar área de trabalho remota do sistema",
     "rdpSystemFallbackLaunched": "Aberto na área de trabalho remota do sistema",
     "proxy": "Proxy",

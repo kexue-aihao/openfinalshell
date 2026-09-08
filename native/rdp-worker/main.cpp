@@ -96,28 +96,6 @@ bool readExact(std::istream& in, std::uint8_t* dst, std::size_t size) {
   return static_cast<std::size_t>(in.gcount()) == size;
 }
 
-bool validUtf8(const std::vector<std::uint8_t>& data) {
-  for (std::size_t i = 0; i < data.size();) {
-    const std::uint8_t c = data[i++];
-    if (c < 0x80) continue;
-    std::size_t continuation = 0;
-    std::uint32_t minimum = 0;
-    std::uint32_t codepoint = 0;
-    if ((c & 0xe0) == 0xc0) { continuation = 1; minimum = 0x80; codepoint = c & 0x1f; }
-    else if ((c & 0xf0) == 0xe0) { continuation = 2; minimum = 0x800; codepoint = c & 0x0f; }
-    else if ((c & 0xf8) == 0xf0) { continuation = 3; minimum = 0x10000; codepoint = c & 0x07; }
-    else return false;
-    if (i + continuation > data.size()) return false;
-    for (std::size_t j = 0; j < continuation; ++j) {
-      const std::uint8_t part = data[i++];
-      if ((part & 0xc0) != 0x80) return false;
-      codepoint = (codepoint << 6) | (part & 0x3f);
-    }
-    if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) return false;
-  }
-  return true;
-}
-
 std::size_t skipSpace(std::string_view json, std::size_t pos) {
   while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\r' || json[pos] == '\n')) ++pos;
   return pos;
@@ -540,7 +518,6 @@ bool writeMockFrame(const Display& display, std::uint32_t sequence) {
   }
 }
 
-#if OFS_RDP_HAS_FREERDP
 std::string jsonEscape(std::string_view value) {
   std::string escaped;
   escaped.reserve(value.size());
@@ -567,6 +544,7 @@ std::string jsonEscape(std::string_view value) {
   return escaped;
 }
 
+#if OFS_RDP_HAS_FREERDP
 bool writeFreeRdpFrame(std::uint32_t canvasWidth, std::uint32_t canvasHeight, std::uint32_t sequence,
                        const std::vector<FreeRdpAdapter::Rect>& rects) {
   if (rects.empty() || rects.size() > kMaxFrameRects ||
@@ -685,7 +663,7 @@ int main(int argc, char** argv) {
       protocolError(frame.requestId, "unknown message type");
       return 2;
     }
-    if (!validUtf8(frame.payload)) {
+    if (!ofs::rdp::validUtf8(frame.payload.data(), frame.payload.size())) {
       protocolError(frame.requestId, "control payload is not UTF-8");
       return 2;
     }

@@ -459,6 +459,7 @@
     "clipboardUploading": "Uploading files to the remote desktop",
     "clipboardUploadComplete": "Files uploaded to the remote desktop",
     "clipboardUploadFailed": "File upload failed",
+    "rdpClipboardCopyFailed": "Failed to retrieve the remote clipboard text",
     "proxy": "Proxy",
     "proxyType": "Proxy type",
     "proxyNone": "Direct",
