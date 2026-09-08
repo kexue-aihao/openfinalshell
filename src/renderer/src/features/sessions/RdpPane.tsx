@@ -591,6 +591,28 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     }
   }, [active, tab.sessionId, tab.state])
 
+  // Automatic clipboard mirroring runs only while this RDP tab is the active
+  // tab AND the window has focus. A background session must never overwrite
+  // the user's local clipboard with remote content.
+  useEffect(() => {
+    const sessionId = tab.sessionId
+    if (!sessionId || !active || tab.state !== 'ready') return
+    const report = (): void => {
+      const enabled = document.hasFocus()
+      ofs.invoke('rdp:clipboardSync', { sessionId, enabled }).catch(() => {})
+    }
+    report()
+    window.addEventListener('focus', report)
+    window.addEventListener('blur', report)
+    return () => {
+      window.removeEventListener('focus', report)
+      window.removeEventListener('blur', report)
+      // Leaving focus or unmounting must disable mirroring so the worker never
+      // writes remote clipboard content into a background/local context.
+      ofs.invoke('rdp:clipboardSync', { sessionId, enabled: false }).catch(() => {})
+    }
+  }, [active, tab.sessionId, tab.state])
+
   useEffect(() => {
     const host = hostRef.current
     const sessionId = tab.sessionId

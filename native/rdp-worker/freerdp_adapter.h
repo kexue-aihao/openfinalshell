@@ -78,6 +78,8 @@ class FreeRdpAdapter {
   bool clipboardSet(std::string_view text);
   bool clipboardFilesSet(std::vector<ClipboardFile> files);
   bool clipboardGet(std::uint32_t requestId);
+  bool setClipboardSync(bool enabled);
+  bool notifyLocalClipboardChanged();
   void close();
 
  private:

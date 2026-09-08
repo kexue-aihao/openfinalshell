@@ -257,4 +257,22 @@ describe('RdpPane input gating', () => {
 
     expect(screen.getByRole('button', { name: /使用系统远程桌面/ })).toBeTruthy()
   })
+
+  it('reports clipboard mirroring enabled only while the tab is focused', () => {
+    const focusSpy = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    renderPane()
+    expect(invoke).toHaveBeenCalledWith('rdp:clipboardSync', { sessionId: 'rdp-1', enabled: false })
+
+    // When the window gains focus the mirroring flag flips to enabled.
+    focusSpy.mockReturnValue(true)
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    expect(invoke).toHaveBeenCalledWith('rdp:clipboardSync', { sessionId: 'rdp-1', enabled: true })
+
+    // Leaving focus disables mirroring so a background session never writes
+    // remote clipboard content into the local clipboard.
+    focusSpy.mockReturnValue(false)
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    expect(invoke).toHaveBeenCalledWith('rdp:clipboardSync', { sessionId: 'rdp-1', enabled: false })
+    focusSpy.mockRestore()
+  })
 })

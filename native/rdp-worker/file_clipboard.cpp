@@ -6,12 +6,30 @@
 #include <atomic>
 #include <algorithm>
 #include <cstring>
+#include <future>
 #include <mutex>
 #include <thread>
 #include <chrono>
 #include <string>
 
+#include "unicode.h"
+
 namespace ofs::rdp {
+namespace {
+
+std::string wideToUtf8(const WCHAR* value, int length) {
+  if (length <= 0) return {};
+  const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, length,
+                                       nullptr, 0, nullptr, nullptr);
+  if (size <= 0) return {};
+  std::string text(size, '\0');
+  WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, length,
+                      text.data(), size, nullptr, nullptr);
+  return text;
+}
+
+}  // namespace
+
 std::vector<std::string> localClipboardFiles() {
   std::vector<std::string> paths;
   if (!OpenClipboard(nullptr)) return paths;
@@ -23,16 +41,118 @@ std::vector<std::string> localClipboardFiles() {
       if (!length || length > 32767) { paths.clear(); break; }
       std::vector<WCHAR> path(length + 1);
       if (!DragQueryFileW(drop, i, path.data(), length + 1)) { paths.clear(); break; }
-      const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.data(), length, nullptr, 0, nullptr, nullptr);
-      if (size <= 0) { paths.clear(); break; }
-      std::string text(size, '\0');
-      WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, path.data(), length, text.data(), size, nullptr, nullptr);
+      const std::string text = wideToUtf8(path.data(), length);
+      if (text.empty()) { paths.clear(); break; }
       paths.push_back(std::move(text));
     }
   }
   CloseClipboard(); return paths;
 }
+
+std::string readLocalClipboardText() {
+  std::string text;
+  if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(nullptr)) return text;
+  const HANDLE handle = GetClipboardData(CF_UNICODETEXT);
+  if (handle) {
+    const auto* data = static_cast<const WCHAR*>(GlobalLock(handle));
+    if (data) {
+      const SIZE_T bytes = GlobalSize(handle);
+      std::size_t chars = static_cast<std::size_t>(bytes / sizeof(WCHAR));
+      while (chars > 0 && data[chars - 1] == 0) --chars;
+      text = wideToUtf8(data, static_cast<int>(chars));
+      GlobalUnlock(handle);
+    }
+  }
+  CloseClipboard(); return text;
+}
+
+std::uint32_t writeLocalClipboardText(const std::string& utf8) {
+  std::vector<std::uint8_t> utf16;
+  if (!utf8ToUtf16Le(utf8, utf16, true) || utf16.empty()) return 0;
+  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, utf16.size());
+  if (!memory) return 0;
+  void* target = GlobalLock(memory);
+  if (!target) { GlobalFree(memory); return 0; }
+  std::memcpy(target, utf16.data(), utf16.size());
+  GlobalUnlock(memory);
+  // Try a few times: another application may briefly hold the clipboard open.
+  // SetClipboardData takes ownership of the block only on success.
+  for (int attempt = 0; attempt < 5; ++attempt) {
+    if (!OpenClipboard(nullptr)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      continue;
+    }
+    const bool emptied = EmptyClipboard();
+    const bool set = emptied && SetClipboardData(CF_UNICODETEXT, memory) != nullptr;
+    CloseClipboard();
+    if (set) return GetClipboardSequenceNumber();
+    if (!emptied) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    else break;  // Clipboard was cleared but the write failed; nothing to retry into.
+  }
+  GlobalFree(memory);
+  return 0;
+}
+
+struct LocalClipboardMonitor::Impl {
+  Listener listener;
+  std::atomic_bool stop{false};
+  std::thread thread;
+  std::promise<HWND> ready;
+  HWND window = nullptr;  // valid after start() returns
+
+  void run(Listener next) {
+    listener = std::move(next);
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = &Impl::wndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"OFS_RDP_CLIPBOARD_MONITOR";
+    RegisterClassW(&wc);
+    // A message-only window receives clipboard notifications without showing
+    // anything on the desktop or stealing focus.
+    HWND hwnd = CreateWindowExW(0, wc.lpszClassName, L"ofs-rdp-clipboard",
+                                0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                                wc.hInstance, this);
+    if (hwnd) SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    ready.set_value(hwnd);
+    if (hwnd && AddClipboardFormatListener(hwnd)) {
+      MSG message{};
+      while (!stop.load() && GetMessageW(&message, nullptr, 0, 0) > 0) {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+      }
+      RemoveClipboardFormatListener(hwnd);
+    }
+    if (hwnd) DestroyWindow(hwnd);
+  }
+
+  static LRESULT CALLBACK wndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_CLIPBOARDUPDATE) {
+      auto* impl = reinterpret_cast<Impl*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+      if (impl && impl->listener) impl->listener();
+      return 0;
+    }
+    return DefWindowProcW(hwnd, message, wparam, lparam);
+  }
+};
+
+LocalClipboardMonitor::LocalClipboardMonitor() : impl(std::make_unique<Impl>()) {}
+LocalClipboardMonitor::~LocalClipboardMonitor() { stop(); }
+void LocalClipboardMonitor::start(Listener listener) {
+  if (impl->thread.joinable()) return;
+  impl->stop = false;
+  impl->thread = std::thread([this, next = std::move(listener)]() mutable {
+    impl->run(std::move(next));
+  });
+  impl->window = impl->ready.get_future().get();
+}
+void LocalClipboardMonitor::stop() {
+  impl->stop = true;
+  if (impl->window) PostMessageW(impl->window, WM_QUIT, 0, 0);
+  if (impl->thread.joinable()) impl->thread.join();
+  impl->window = nullptr;
+}
 namespace {
+
 struct Selection {
   std::vector<FILEDESCRIPTORW> files;
   FileClipboard::Reader read;
@@ -247,6 +367,13 @@ void FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader) {
 #else
 namespace ofs::rdp {
 std::vector<std::string> localClipboardFiles() { return {}; }
+std::string readLocalClipboardText() { return {}; }
+std::uint32_t writeLocalClipboardText(const std::string&) { return 0; }
+struct LocalClipboardMonitor::Impl {};
+LocalClipboardMonitor::LocalClipboardMonitor() : impl(std::make_unique<Impl>()) {}
+LocalClipboardMonitor::~LocalClipboardMonitor() {}
+void LocalClipboardMonitor::start(Listener) {}
+void LocalClipboardMonitor::stop() {}
 struct FileClipboard::Impl {};
 FileClipboard::FileClipboard() : impl(std::make_unique<Impl>()) {}
 FileClipboard::~FileClipboard() = default;

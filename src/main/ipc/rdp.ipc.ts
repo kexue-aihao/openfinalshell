@@ -83,6 +83,7 @@ export function registerRdpIpc(): void {
   })]))
   handle('rdp:clipboardLocalFiles', (sessionId) => rdpSessionManager.clipboardLocalFiles(sessionId), z.tuple([rdpSessionIdSchema]))
   handle('rdp:clipboardGet', (sessionId) => rdpSessionManager.clipboardGet(sessionId), z.tuple([rdpSessionIdSchema]))
+  handle('rdp:clipboardSync', ({ sessionId, enabled }) => rdpSessionManager.clipboardSync(sessionId, enabled), z.tuple([z.object({ sessionId: rdpSessionIdSchema, enabled: z.boolean() })]))
   handle('rdp:systemFallback', (sessionId) => rdpSessionManager.systemFallback(sessionId), z.tuple([rdpSessionIdSchema]))
   onPort(RDP_PORT_CHANNEL, (_event, payload, port) => {
     const parsed = z.object({ sessionId: rdpSessionIdSchema }).safeParse(payload)

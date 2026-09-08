@@ -964,6 +964,39 @@ describe('RdpSessionManager protocol/state behavior', () => {
     expect(emit.mock.calls.some(([channel]) => channel === 'rdp:clipboard')).toBe(false)
   })
 
+  it('forwards clipboard mirroring enable/disable to the worker', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: true, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', framePacket(1))
+
+    manager.clipboardSync(sessionId, true)
+    const enabled = currentWorker.writes.find((bytes) => bytes[6] === 0x1a)
+    expect(enabled).toBeDefined()
+    expect(JSON.parse(enabled!.subarray(16).toString('utf8'))).toEqual({ op: 'clipboardSync', enabled: true })
+
+    manager.clipboardSync(sessionId, false)
+    const syncFrames = currentWorker.writes.filter((bytes) => bytes[6] === 0x1a)
+    expect(syncFrames).toHaveLength(2)
+    expect(JSON.parse(syncFrames[1].subarray(16).toString('utf8'))).toEqual({ op: 'clipboardSync', enabled: false })
+  })
+
+  it('does not forward clipboard mirroring for a session that disabled clipboard', async () => {
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { clipboard: false, certificatePolicy: 'prompt' }
+    })
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', framePacket(1))
+
+    manager.clipboardSync(sessionId, true)
+    expect(currentWorker.writes.some((bytes) => bytes[6] === 0x1a)).toBe(false)
+  })
+
   it('serializes renderer input as the frozen worker protocol payloads', async () => {
     const { manager, sessionId } = await openReady()
     currentWorker.stdout.emit('data', framePacket(1))

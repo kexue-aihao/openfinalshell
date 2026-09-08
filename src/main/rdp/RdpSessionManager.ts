@@ -1347,6 +1347,18 @@ export class RdpSessionManager {
     }
   }
 
+  /**
+   * Enables or disables automatic clipboard mirroring between the local system
+   * clipboard and the remote desktop. The renderer reports "RDP tab active and
+   * window focused" so a background session never overwrites the local
+   * clipboard. Best-effort: the Worker applies the flag asynchronously.
+   */
+  clipboardSync(sessionId: SessionId, enabled: boolean): void {
+    const session = this.sessions.get(sessionId)
+    if (!session || !this.isRunning(session) || !session.profile.clipboard) return
+    this.write(session, 0x1a, this.nextRequestId(session), { op: 'clipboardSync', enabled })
+  }
+
   async close(sessionId: SessionId): Promise<void> {
     const session = this.sessions.get(sessionId)
     if (!session) return

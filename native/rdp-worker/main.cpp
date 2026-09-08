@@ -56,6 +56,7 @@ enum MessageType : std::uint8_t {
   CLIPBOARD_GET = 0x17,
   CLIPBOARD_FILES_SET = 0x18,
   CLIPBOARD_LOCAL_FILES = 0x19,
+  CLIPBOARD_SYNC = 0x1a,
   CLIPBOARD_LOCAL_DATA = 0x25,
   STATE = 0x20,
   PROMPT = 0x21,
@@ -659,7 +660,8 @@ int main(int argc, char** argv) {
     }
     if (frame.type != HELLO_ACK && frame.type != START && frame.type != CREDENTIAL && frame.type != CLOSE &&
         frame.type != RESIZE && frame.type != KEY && frame.type != POINTER && frame.type != CLIPBOARD_SET &&
-        frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET && frame.type != CLIPBOARD_LOCAL_FILES) {
+        frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET && frame.type != CLIPBOARD_LOCAL_FILES &&
+        frame.type != CLIPBOARD_SYNC) {
       protocolError(frame.requestId, "unknown message type");
       return 2;
     }
@@ -871,6 +873,20 @@ int main(int argc, char** argv) {
       }
       protocolError(frame.requestId, "invalid credential payload");
       return 2;
+    }
+
+    if (frame.type == CLIPBOARD_SYNC) {
+      bool enabled = false;
+      if (!jsonHasOnlyMembers(control, {"op", "enabled"}) || op != "clipboardSync" ||
+          !jsonBool(control, "enabled", enabled)) {
+        protocolError(frame.requestId, "invalid clipboardSync payload");
+        return 2;
+      }
+#if OFS_RDP_HAS_FREERDP
+      if (backend) backend->setClipboardSync(enabled);
+#endif
+      ack(frame.requestId);
+      continue;
     }
 
     if (frame.type == CLOSE) {

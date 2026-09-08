@@ -71,6 +71,8 @@ struct FreeRdpAdapter::Impl {
     clipboardGet,
     clipboardFilesSet,
     remoteFileRead,
+    setClipboardSync,
+    localClipboardChanged,
     stop
   };
 
@@ -139,6 +141,18 @@ struct FreeRdpAdapter::Impl {
   std::deque<std::uint32_t> pendingClipboardRequests;
   std::uint32_t remoteTextFormatId = 0;
   std::uint32_t lastButtons = 0;
+  // Automatic mirroring gate (renderer reports "RDP tab active + window
+  // focused"). Written on the event thread, read by the clipboard monitor
+  // thread, so both are atomic.
+  std::atomic_bool autoClipboardSync{false};
+  // Sequence number recorded right after a remote->local write so the monitor
+  // can recognize its own clipboard echo and not mirror it back to the server.
+  std::atomic_uint32_t lastLocalWriteSeq{0};
+  // Set while an automatic remote text pull is in flight (event thread only).
+  bool autoTextPullPending = false;
+#if defined(_WIN32)
+  std::unique_ptr<ofs::rdp::LocalClipboardMonitor> localClipboardMonitor;
+#endif
   bool audioChannelConnected = false;
   static inline Impl* active = nullptr;
 
@@ -294,7 +308,27 @@ struct FreeRdpAdapter::Impl {
     response.common.msgType = CB_FORMAT_LIST_RESPONSE;
     response.common.msgFlags = CB_RESPONSE_OK;
     if (context->ClientFormatListResponse) context->ClientFormatListResponse(context, &response);
-    self->requestRemoteDescriptors();
+    // Automatic remote->local mirroring runs only while the RDP tab is focused,
+    // so a background session never overwrites the user's local clipboard.
+    // - Files: publish the selection into the local OLE clipboard.
+    // - Text:  pull the announced text and write it into the local clipboard.
+    // Manual Ctrl+C (clipboardGet) uses the same pull paths and works whether
+    // or not auto-sync is enabled.
+    if (self->autoClipboardSync.load() && self->cliprdr) {
+      self->requestRemoteDescriptors();
+      if (self->remoteDescriptorId == 0 && !self->descriptorPending &&
+          !self->autoTextPullPending && self->pendingClipboardRequests.empty() &&
+          self->cliprdr->ClientFormatDataRequest) {
+        const std::uint32_t textId = self->remoteTextFormatId ? self->remoteTextFormatId : 13;
+        self->autoTextPullPending = true;
+        CLIPRDR_FORMAT_DATA_REQUEST request{};
+        request.common.msgType = CB_FORMAT_DATA_REQUEST;
+        request.common.dataLen = sizeof(request.requestedFormatId);
+        request.requestedFormatId = textId;
+        if (self->cliprdr->ClientFormatDataRequest(self->cliprdr, &request) != 0)
+          self->autoTextPullPending = false;
+      }
+    }
     return 0;
   }
 
@@ -394,6 +428,20 @@ struct FreeRdpAdapter::Impl {
       self->pendingClipboardRequests.pop_front();
     }
     if (requestId != 0 && self->clipboard) self->clipboard(requestId, std::move(text), false);
+    else if (self->autoTextPullPending && self->autoClipboardSync.load() && !text.empty()) {
+      // Automatic remote->local text mirroring (no manual Ctrl+C involved).
+      // Write straight into the local system clipboard; remember the sequence
+      // number so the local clipboard monitor ignores this echo and does not
+      // mirror it back to the server.
+      self->autoTextPullPending = false;
+      // If the server is echoing back text we already advertised, do not write
+      // it again: that would only re-trigger the local monitor in a loop.
+      if (text != self->clipboardText) {
+        const std::uint32_t sequence = ofs::rdp::writeLocalClipboardText(text);
+        if (sequence != 0) self->lastLocalWriteSeq.store(sequence);
+      }
+    }
+    self->autoTextPullPending = false;
     self->requestRemoteDescriptors();
     return 0;
   }
@@ -1263,6 +1311,37 @@ struct FreeRdpAdapter::Impl {
         if (!sent) pendingClipboardRequests.pop_back();
         return sent;
       }
+      case CommandKind::setClipboardSync: {
+        autoClipboardSync.store(command.value);
+        // Enabling auto-sync should also mirror whatever the user copied
+        // before the RDP tab gained focus. The next WM_CLIPBOARDUPDATE is not
+        // guaranteed, so schedule one probe immediately.
+        if (command.value) {
+          Command probe;
+          probe.kind = CommandKind::localClipboardChanged;
+          if (!enqueueCommand(std::move(probe))) return true;
+        }
+        return true;
+      }
+      case CommandKind::localClipboardChanged: {
+        // Local->remote text mirroring while the RDP tab is focused. Files are
+        // deliberately excluded: the renderer drives file pastes through the
+        // explicit Ctrl+V clipboardFilesSet path with progress feedback.
+        if (!config.clipboard || !autoClipboardSync.load()) return true;
+        if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }))
+          return true;
+        if (!cliprdr || !cliprdr->ClientFormatList) return true;
+        const std::string text = ofs::rdp::readLocalClipboardText();
+        if (text.empty()) return true;
+        // Skip content we already advertised: this is either our own
+        // remote->local write (echo suppression by sequence) or a repeated
+        // copy of the same text, neither of which should round-trip again.
+        if (text == clipboardText) return true;
+        Command inner;
+        inner.kind = CommandKind::clipboardSet;
+        inner.text = text;
+        return execute(inner);
+      }
       case CommandKind::password:
       case CommandKind::certificate:
       case CommandKind::stop:
@@ -1321,6 +1400,12 @@ struct FreeRdpAdapter::Impl {
     }
     cliprdr = nullptr;
     disp = nullptr;
+#if defined(_WIN32)
+    if (localClipboardMonitor) {
+      localClipboardMonitor->stop();
+      localClipboardMonitor.reset();
+    }
+#endif
     audioChannelConnected = false;
     displayControlReady = false;
     maximumMonitorArea = 0;
@@ -1382,6 +1467,21 @@ struct FreeRdpAdapter::Impl {
       return;
     }
     emitState("ready", nullptr);
+#if defined(_WIN32)
+    if (config.clipboard) {
+      // Watches the local system clipboard so text copied locally can be
+      // mirrored to the remote desktop automatically while the tab is focused.
+      // The callback only enqueues work; all clipboard/FreeRDP access happens
+      // on the event thread through the command queue.
+      localClipboardMonitor = std::make_unique<ofs::rdp::LocalClipboardMonitor>();
+      localClipboardMonitor->start([this] {
+        if (!config.clipboard || !autoClipboardSync.load()) return;
+        Command command;
+        command.kind = CommandKind::localClipboardChanged;
+        enqueueCommand(std::move(command));
+      });
+    }
+#endif
     bool transportOk = true;
     while (!stopping.load()) {
       processCommands();
@@ -1589,6 +1689,30 @@ bool FreeRdpAdapter::clipboardFilesSet(std::vector<ClipboardFile> files) {
   return impl_->submit(std::move(command));
 #else
   (void)files;
+  return false;
+#endif
+}
+
+bool FreeRdpAdapter::setClipboardSync(bool enabled) {
+#if OFS_RDP_HAS_FREERDP
+  if (!impl_) return false;
+  Impl::Command command;
+  command.kind = Impl::CommandKind::setClipboardSync;
+  command.value = enabled;
+  return impl_->submit(std::move(command));
+#else
+  (void)enabled;
+  return false;
+#endif
+}
+
+bool FreeRdpAdapter::notifyLocalClipboardChanged() {
+#if OFS_RDP_HAS_FREERDP
+  if (!impl_) return false;
+  Impl::Command command;
+  command.kind = Impl::CommandKind::localClipboardChanged;
+  return impl_->enqueue(std::move(command));
+#else
   return false;
 #endif
 }

@@ -176,6 +176,8 @@ export interface InvokeMap {
   'rdp:clipboardFilesSet': { args: [{ sessionId: SessionId; files: string[] }]; result: void }
   /** Requests the current remote text clipboard; data arrives on rdp:clipboard. */
   'rdp:clipboardGet': { args: [SessionId]; result: void }
+  /** Toggles automatic local<->remote clipboard mirroring while the tab is focused. */
+  'rdp:clipboardSync': { args: [{ sessionId: SessionId; enabled: boolean }]; result: void }
   'rdp:systemFallback': { args: [SessionId]; result: void }
 
   // --- 终端 ---
