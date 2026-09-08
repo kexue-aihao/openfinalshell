@@ -103,16 +103,30 @@ ProfileEditDrawer（只写 draft.password）
 - `rdp.clipboard` 缺失兼容为 `true`；显式 `false` 表示不启用 `cliprdr`。
 - `START.features.clipboard` 是必填布尔值。profile 要求剪贴板而 Worker HELLO 没有
   `clipboard` capability 时，main 以 `UNSUPPORTED` 失败，不静默降级。
-- renderer 的文本粘贴调用 `rdp:clipboardSet`，复制调用 `rdp:clipboardGet`；main 只接受
-  `text/plain`，文本最大 1,000,000 字符。Worker 返回 `CLIPBOARD_DATA` 后，main 发布
-  `rdp:clipboard`，renderer 写入本机 clipboard。
+- 文本方向：
+  - 本地→远端：`rdp:clipboardSet`（`text/plain`，≤ 1,000,000 字符）。Worker 按
+    `CF_UNICODETEXT`（format 13）发布剪贴板清单。
+  - 远端→本地：手动 `rdp:clipboardGet` 拉取文本；main 发布 `rdp:clipboard`，renderer
+    写入本机系统剪贴板。文本拉取使用的格式 id 按服务器通告协商（识别
+    `CF_UNICODETEXT` 或 id 13），不再硬编码 13，以兼容 xrdp 等非 Windows 服务器。
+- 文件方向（`FileGroupDescriptorW` / `FileContents`）：
+  - 本地→远端：`rdp:clipboardFilesSet`（renderer 读本机 CF_HDROP 或 `getClipboardFilePaths`），
+    Worker 序列化文件清单并按需响应服务器 `FILECONTENTS_SIZE/RANGE` 读取本地磁盘。
+  - 远端→本地：Worker 解析服务器文件清单 → OLE 延迟渲染发布到本机系统剪贴板，并额外把
+    清单经 `REMOTE_FILES`(0x26) 上报，renderer 显示"下载到文件夹"卡片；
+    `rdp:clipboardRemoteFilesDownload` 让 Worker 直接拉流写入用户所选目录，终态经
+    `DOWNLOAD_RESULT`(0x27) 回报。
+- 自动双向同步（`rdp:clipboardSync`）：RDP 标签活动且窗口聚焦时，Worker 经
+  `AddClipboardFormatListener` 监听本机剪贴板并把文本镜像到远端；远端剪贴板变化则自动
+  拉取并写回本机（含 echo 抑制，避免回环）。文件方向不做自动镜像（文件粘贴走显式
+  `clipboardFilesSet` / 下载卡片）。失焦或卸载即关闭，后台会话绝不覆盖本机剪贴板。
 - clipboard 只在 `ready` 状态开放；禁用、未就绪、关闭或旧 session 的请求均不产生新的
   远端数据。
-- v1 只支持文本，不承诺 HTML、图片、文件或双向系统剪贴板权限提示。
 
 实际入口：`src/shared/types.ts`、`src/shared/ipc.ts`、`src/main/ipc/rdp.ipc.ts`、
 `src/main/rdp/RdpSessionManager.ts`、`native/rdp-worker/main.cpp`、
-`native/rdp-worker/freerdp_adapter.cpp` 和 `src/renderer/src/features/sessions/RdpPane.tsx`。
+`native/rdp-worker/freerdp_adapter.cpp`、`native/rdp-worker/file_clipboard.cpp` 和
+`src/renderer/src/features/sessions/RdpPane.tsx`。
 
 ### 4.3 Certificate `prompt` / `strict`
 

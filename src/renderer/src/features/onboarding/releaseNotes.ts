@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.41',
+    items: [{
+      type: 'feat',
+      zh: '修复嵌入式 RDP 双向文件复制粘贴在真实服务器上失效的问题（剪贴板能力声明补齐文件方向），文本拉取改为按服务器通告的格式协商；RDP 标签聚焦时本地与远程剪贴板文本自动双向同步；从远程复制文件后可在画面内直接选择文件夹下载到本机，并显示完成/失败提示',
+      en: 'Fix embedded RDP file copy/paste failing against real servers (advertise the remote-to-local file direction), negotiate the remote text clipboard format instead of assuming format 13; auto-mirror text between the local and remote clipboards while an RDP tab is focused; add an in-pane "download to folder" action with completion and failure feedback for files copied on the remote desktop'
+    }]
+  },
+  {
     version: '0.20.40',
     items: [{
       type: 'fix',
