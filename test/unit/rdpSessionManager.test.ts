@@ -403,9 +403,42 @@ describe('RdpSessionManager protocol/state behavior', () => {
     )
   })
 
-  it('treats account lockout errors as authentication failures', async () => {
+  it('surfaces account lockout without prompting for a fresh password or retrying silently', async () => {
     getSecret.mockReturnValue('saved-password')
-    getProfile.mockReturnValueOnce({
+    getProfile.mockReturnValue({
+      id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' },
+      rdp: { passwordRef: 'saved-ref', clipboard: false, certificatePolicy: 'prompt' }
+    } as ReturnType<typeof getProfile>)
+    const { manager, sessionId } = await openReady()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, {
+      op: 'state', state: 'failed', errorCode: 'ACCOUNT_LOCKED_OUT'
+    }))
+    expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({
+      sessionId, state: 'failed', errorCode: 'ACCOUNT_LOCKED_OUT',
+      error: 'err.rdp.accountLockedOut'
+    }))
+    expect(spawnedWorkers).toHaveLength(1)
+    // A locked account is not a wrong password: reconnecting reuses the stored
+    // credential instead of forcing the user to retype it into a losing loop.
+    const reconnecting = manager.reconnect(sessionId)
+    await Promise.resolve()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'closed' }))
+    await reconnecting
+    currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    }))
+    await Promise.resolve()
+    expect(promptRequest.mock.calls.some(([, kind]) => kind === 'rdp-password')).toBe(false)
+    const credential = currentWorker.writes.find((bytes) => bytes[6] === 0x11)
+    expect(credential).toBeDefined()
+    expect(JSON.parse(credential!.subarray(16).toString('utf8'))).toEqual(expect.objectContaining({ value: 'saved-password' }))
+    await manager.close(sessionId)
+  })
+
+  it('keeps AUTH_FAILED distinct from ACCOUNT_LOCKED_OUT when reporting failures', async () => {
+    getSecret.mockReturnValue('saved-password')
+    getProfile.mockReturnValue({
       id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
       username: 'alice', auth: { method: 'password' },
       rdp: { passwordRef: 'saved-ref', clipboard: false, certificatePolicy: 'prompt' }
@@ -431,9 +464,33 @@ describe('RdpSessionManager protocol/state behavior', () => {
     await manager.close(sessionId)
   })
 
+  it('refreshes the endpoint, identity and credential reference on reconnect', async () => {
+    promptRequest.mockResolvedValueOnce({ ok: true, answers: ['initial'], remember: true })
+    rememberRdpPassword.mockReturnValueOnce('initial-ref')
+    const { manager, sessionId } = await openReady()
+    getProfile.mockReturnValueOnce({
+      id: 'profile-1', protocol: 'rdp', host: 'new.example', port: 3390,
+      username: 'bob', auth: { method: 'password' },
+      rdp: { domain: 'NEW', passwordRef: 'new-ref', clipboard: false, certificatePolicy: 'prompt' }
+    } as ReturnType<typeof getProfile>)
+    const reconnecting = manager.reconnect(sessionId)
+    await Promise.resolve()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'closed' }))
+    await reconnecting
+    currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
+      op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    }))
+    await Promise.resolve()
+    const start = currentWorker.writes.find((bytes) => bytes[6] === 0x10)!
+    expect(JSON.parse(start.subarray(16).toString('utf8'))).toEqual(expect.objectContaining({
+      host: 'new.example', port: 3390, username: 'bob', domain: 'NEW'
+    }))
+    expect(getSecret).toHaveBeenCalledWith('new-ref')
+  })
+
   it('uses a newly remembered RDP password on the next reconnect', async () => {
     getSecret.mockReturnValue('stale-password')
-    getProfile.mockReturnValueOnce({
+    getProfile.mockReturnValue({
       id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
       username: 'alice', auth: { method: 'password' },
       rdp: { passwordRef: 'saved-ref', clipboard: false, certificatePolicy: 'prompt' }

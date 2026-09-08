@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.40',
+    items: [{
+      type: 'fix',
+      zh: '修复嵌入式 RDP 断开后重连持续提示身份验证失败的问题：重连前会刷新保存的连接配置，且远程账户锁定不再被误报为密码错误；锁定会明确提示等待解锁或由管理员解锁，避免反复输入密码的死循环',
+      en: 'Fix embedded RDP reconnects after a disconnect looping on "authentication failed": reconnect now refreshes the saved profile, and remote account lockout is reported explicitly instead of being treated as a wrong password, avoiding repeated credential prompts until the account is unlocked'
+    }]
+  },
+  {
     version: '0.20.39',
     items: [{
       type: 'feat',

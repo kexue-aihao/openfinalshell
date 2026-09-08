@@ -642,13 +642,28 @@ export class RdpSessionManager {
     return completed
   }
 
+  /** Non-secret identity used in failure diagnostics. Never include the password. */
+  private describeIdentity(session: Session): string {
+    const { host, port, username, domain } = session.profile
+    return `${domain ? `${domain}\\` : ''}${username} at ${host}:${port}`
+  }
+
   private fail(session: Session, requestedCode: string): void {
     if (!this.isCurrent(session) || session.closeReason) return
     const explicitCode: RdpErrorCode = ['WORKER_MISSING', 'WORKER_START_FAILED', 'PROTOCOL_MISMATCH', 'PROTOCOL_ERROR', 'WORKER_CRASHED'].includes(requestedCode)
       ? requestedCode as RdpErrorCode
       : stableWorkerError(requestedCode)
     session.failureCode = explicitCode
-    if (explicitCode === 'AUTH_FAILED') session.forcePasswordPrompt = true
+    // A rejected password must never be retried silently. A locked account,
+    // however, is not a wrong password: prompting for a fresh one cannot help,
+    // and repeated attempts can extend the server-side lockout window.
+    if (explicitCode === 'AUTH_FAILED') {
+      session.forcePasswordPrompt = true
+      log.warn(`RDP session ${session.id}: authentication failed for ${this.describeIdentity(session)}; the next attempt will ask for fresh credentials`)
+    } else if (explicitCode === 'ACCOUNT_LOCKED_OUT') {
+      session.forcePasswordPrompt = false
+      log.warn(`RDP session ${session.id}: remote account locked for ${this.describeIdentity(session)}; further attempts keep failing until the account is unlocked or the lockout expires`)
+    }
     this.emitState(session, 'failed', explicitCode)
     void this.beginClose(session, 'failure', false)
   }
@@ -1341,7 +1356,9 @@ export class RdpSessionManager {
   async reconnect(sessionId: SessionId): Promise<void> {
     const old = this.sessions.get(sessionId)
     if (!old) throw new Error(t('err.rdp.sessionNotFound'))
-    const profile = old.profile
+    const profile = this.freezeProfile(getProfile(old.profile.id))
+    if (!profile) throw new Error(t('err.rdp.profileInvalid'))
+    log.info(`RDP reconnect: configuration refreshed; endpointChanged=${profile.host !== old.profile.host || profile.port !== old.profile.port}; identityChanged=${profile.username !== old.profile.username || profile.domain !== old.profile.domain}; credentialReferenceChanged=${profile.passwordRef !== old.profile.passwordRef}`)
     const display = old.display
     const forcePasswordPrompt = old.forcePasswordPrompt || old.failureCode === 'AUTH_FAILED'
     await this.beginClose(old, 'reconnect', false)
