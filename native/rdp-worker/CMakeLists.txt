@@ -83,8 +83,11 @@ target_compile_definitions(ofs-rdp-worker PRIVATE OFS_RDP_HAS_FREERDP=${OFS_RDP_
 include(CTest)
 if (BUILD_TESTING)
   if (WIN32)
-    add_executable(ofs-rdp-file-clipboard-test test/file_clipboard.test.cpp)
+    # file_clipboard.cpp now decodes/ad encodes UTF-8 via unicode.cpp for the
+    # local-clipboard text helpers, so the test target must link it too.
+    add_executable(ofs-rdp-file-clipboard-test test/file_clipboard.test.cpp unicode.cpp)
     target_link_libraries(ofs-rdp-file-clipboard-test PRIVATE ole32 shell32 uuid)
+    target_include_directories(ofs-rdp-file-clipboard-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     # Assertions are the test oracle even in release builds.
     if (MSVC)
       target_compile_options(ofs-rdp-file-clipboard-test PRIVATE /UNDEBUG)
