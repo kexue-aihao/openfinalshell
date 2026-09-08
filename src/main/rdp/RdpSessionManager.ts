@@ -76,6 +76,7 @@ type RdpPointerInput = Extract<RdpInput, { kind: 'pointer' }>
 
 interface Session {
   id: SessionId
+  generation: number
   profile: FrozenRdpProfile
   display: RdpDisplaySize
   worker?: ChildProcessWithoutNullStreams
@@ -272,6 +273,7 @@ class RdpInputBuffer {
 export class RdpSessionManager {
   private readonly sessions = new Map<SessionId, Session>()
   private readonly requireFreerdpWorker: boolean
+  private nextGeneration = 1
 
   constructor(options: RdpSessionManagerOptions = {}) {
     this.requireFreerdpWorker = options.requireFreerdpWorker ?? defaultRequireFreerdpWorker()
@@ -1112,6 +1114,7 @@ export class RdpSessionManager {
   ): Session {
     const session: Session = {
       id: sessionId,
+      generation: this.nextGeneration++,
       profile,
       display: clampRdpDisplaySize(display),
       inputBuffer: new RdpInputBuffer(),
@@ -1167,13 +1170,16 @@ export class RdpSessionManager {
       return
     }
     session.worker = worker
+    const generation = session.generation
     session.processEnded = false
     this.armStartupTimer(session, HELLO_TIMEOUT_MS, 'WORKER_CRASHED')
     this.emitState(session, 'starting')
     this.emitState(session, 'handshaking')
-    worker.stdout.on('data', (chunk: Buffer) => this.onData(session, chunk))
+    worker.stdout.on('data', (chunk: Buffer) => {
+      if (session.generation === generation) this.onData(session, chunk)
+    })
     const onUnexpectedStdoutEnd = (): void => {
-      if (!this.isCurrent(session) || session.processEnded) return
+      if (session.generation !== generation || !this.isCurrent(session) || session.processEnded) return
       // During an intentional close, stdout ending is not proof that the
       // process exited. Keep waiting for exit or the existing 2 second timer.
       if (!session.closeReason) this.fail(session, 'WORKER_CRASHED')
@@ -1181,20 +1187,20 @@ export class RdpSessionManager {
     worker.stdout.once('end', onUnexpectedStdoutEnd)
     worker.stdout.once('close', onUnexpectedStdoutEnd)
     worker.stderr.on('data', (chunk: Buffer) => {
-      if (session.workerStderr.length >= MAX_WORKER_STDERR_BYTES) return
+      if (session.generation !== generation || session.workerStderr.length >= MAX_WORKER_STDERR_BYTES) return
       session.workerStderr += chunk.toString('utf8').slice(0, MAX_WORKER_STDERR_BYTES - session.workerStderr.length)
     })
     worker.on('error', () => {
       // An exit/error pair can arrive in either order. Once exit has marked
       // this generation ended, its handler owns the terminal transition.
-      if (session.processEnded) return
+      if (session.generation !== generation || session.processEnded) return
       this.fail(session, session.helloReceived ? 'WORKER_CRASHED' : 'WORKER_START_FAILED')
     })
     worker.on('exit', () => {
       session.processEnded = true
       const stderr = redactWorkerStderr(session.workerStderr)
       if (stderr) log.warn(`RDP session ${session.id}: Worker stderr: ${stderr}`)
-      if (!this.isCurrent(session)) return
+      if (session.generation !== generation || !this.isCurrent(session)) return
       if (session.closeReason) this.finishClose(session, true)
       else this.fail(session, 'WORKER_CRASHED')
     })

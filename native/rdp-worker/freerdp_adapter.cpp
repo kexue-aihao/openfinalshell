@@ -975,7 +975,7 @@ struct FreeRdpAdapter::Impl {
       case FREERDP_ERROR_CONNECT_ACCOUNT_RESTRICTION:
         return "AUTH_FAILED";
       case FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT:
-        return "ACCOUNT_LOCKED_OUT";
+        return "AUTH_FAILED";
       case FREERDP_ERROR_CONNECT_CANCELLED:
         return "CANCELED";
       default:
