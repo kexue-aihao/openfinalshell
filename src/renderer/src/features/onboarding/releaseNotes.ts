@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.42',
+    items: [{
+      type: 'fix',
+      zh: '改进嵌入式 RDP 会话关闭与重连隔离，避免旧 Worker 的迟到事件影响新连接；完善 RDP 文件剪贴板传输和认证错误诊断',
+      en: 'Improve embedded RDP close and reconnect isolation so late events from an old worker cannot affect a new connection; improve RDP file clipboard transfers and authentication diagnostics'
+    }]
+  },
+  {
     version: '0.20.41',
     items: [{
       type: 'feat',
