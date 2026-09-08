@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.43',
+    items: [{
+      type: 'fix',
+      zh: '补充嵌入式 RDP 文件传输与会话隔离修复的版本说明，确保更新提示与当前版本一致',
+      en: 'Add release notes for the embedded RDP file transfer and session isolation fixes so the update prompt matches the current version'
+    }]
+  },
+  {
     version: '0.20.42',
     items: [{
       type: 'fix',
