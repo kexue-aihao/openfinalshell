@@ -7,10 +7,11 @@ import '@/i18n'
 import { RdpPane } from '@/features/sessions/RdpPane'
 import type { SessionTab } from '@/stores/useSessionStore'
 
-const { invoke, send, clipboardFilePaths, listeners } = vi.hoisted(() => ({
+const { invoke, send, clipboardFilePaths, getPathForFile, listeners } = vi.hoisted(() => ({
   invoke: vi.fn(async () => undefined),
   send: vi.fn(),
   clipboardFilePaths: vi.fn(() => [] as string[]),
+  getPathForFile: vi.fn(() => ''),
   listeners: new Map<string, Set<(payload: unknown) => void>>()
 }))
 
@@ -26,7 +27,7 @@ vi.mock('@/ipc/api', () => ({
     }),
     connectRdpPort: vi.fn(() => () => {}),
     getClipboardFilePaths: () => clipboardFilePaths(),
-    getPathForFile: () => ''
+    getPathForFile
   }
 }))
 
@@ -57,6 +58,8 @@ beforeEach(() => {
   send.mockClear()
   clipboardFilePaths.mockReset()
   clipboardFilePaths.mockReturnValue([])
+  getPathForFile.mockReset()
+  getPathForFile.mockReturnValue('')
   listeners.clear()
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((kind: string) => {
     if (kind === 'webgl2') return null
@@ -245,6 +248,20 @@ describe('RdpPane input gating', () => {
       channel === 'rdp:input' && value.input.scanCode === 0x2f && value.input.pressed === true
     )
     expect(send.mock.invocationCallOrder[pasteIndex]).toBeGreaterThan(invoke.mock.invocationCallOrder[announceIndex])
+  })
+
+  it('uploads a file dragged from the local machine before pasting it remotely', async () => {
+    getPathForFile.mockReturnValue('H:\\我的工具包V1.0\\搞机工具箱V1.0\\Chrome setup.exe')
+    const canvas = renderPane()
+    const file = new File(['installer'], 'Chrome setup.exe', { type: 'application/octet-stream' })
+    fireEvent.dragOver(canvas, { dataTransfer: { files: [file] } })
+    fireEvent.drop(canvas, { dataTransfer: { files: [file] } })
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('rdp:clipboardFilesSet', {
+      sessionId: 'rdp-1', files: ['H:\\我的工具包V1.0\\搞机工具箱V1.0\\Chrome setup.exe']
+    }))
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith('rdp:input', {
+      sessionId: 'rdp-1', input: { kind: 'key', scanCode: 0x2f, pressed: true }
+    }))
   })
 
   it('shows file clipboard upload progress inside the RDP pane', async () => {

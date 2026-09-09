@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.45',
+    items: [{
+      type: 'feat',
+      zh: '支持将本地文件直接拖拽到嵌入式 RDP 远程桌面，自动上传并粘贴到远程环境',
+      en: 'Support dragging local files directly onto the embedded RDP desktop to upload and paste them into the remote environment'
+    }]
+  },
+  {
     version: '0.20.44',
     items: [{
       type: 'fix',

@@ -973,6 +973,31 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       .catch(() => {})
   }
 
+  const uploadDroppedFiles = (event: React.DragEvent<HTMLCanvasElement>): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (!canControl || !tab.sessionId) return
+    const files = Array.from(event.dataTransfer.files ?? [])
+      .map((file) => ofs.getPathForFile(file))
+      .filter((path) => path.length > 0)
+    if (files.length === 0) return
+    const sessionId = tab.sessionId
+    void ofs.invoke('rdp:clipboardFilesSet', { sessionId, files })
+      .then(() => sendRemoteClipboardShortcut(sessionId, 'KeyV'))
+      .catch((error: unknown) => {
+        setClipboardProgress({
+          sessionId,
+          state: 'failed',
+          fileIndex: 0,
+          fileCount: files.length,
+          transferred: 0,
+          total: 0,
+          speedBps: 0,
+          error: error instanceof Error ? error.message : t('conn.clipboardUploadFailed')
+        })
+      })
+  }
+
   const requestClipboard = (event: React.ClipboardEvent<HTMLCanvasElement>): void => {
     if (!canControl || !tab.sessionId) return
     event.preventDefault()
@@ -1014,6 +1039,8 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
          sendKey(e, false)
        }}
        onBlur={() => { releasePressedKeys(); releasePressedButtons() }}
+       onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
+       onDrop={uploadDroppedFiles}
        onPointerMove={(e) => sendPointer(e)}
        onPointerDown={(e) => {
          e.preventDefault()
