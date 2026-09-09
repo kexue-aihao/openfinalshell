@@ -217,6 +217,7 @@ struct FreeRdpAdapter::Impl {
       self->cliprdr = static_cast<CliprdrClientContext*>(event->pInterface);
       if (!self->cliprdr) return;
       self->cliprdr->custom = self;
+      self->cliprdr->ServerCapabilities = serverCapabilities;
       self->cliprdr->MonitorReady = clipboardMonitorReady;
       self->cliprdr->ServerFormatList = serverFormatList;
       self->cliprdr->ServerFormatDataRequest = serverFormatDataRequest;
@@ -240,7 +241,13 @@ struct FreeRdpAdapter::Impl {
     Impl* self = active;
     if (self && self->instance && self->instance->context != context) self = nullptr;
     if (!self || !event || !event->name) return;
-    if (std::strcmp(event->name, CLIPRDR_SVC_CHANNEL_NAME) == 0) self->cliprdr = nullptr;
+    if (std::strcmp(event->name, CLIPRDR_SVC_CHANNEL_NAME) == 0) {
+      self->cliprdr = nullptr;
+      ++self->remoteGeneration;
+      self->remoteReadStatus = -1;
+      self->remoteClipboardFiles.clear();
+      if (self->nativeClipboard) self->nativeClipboard->clear();
+    }
     else if (std::strcmp(event->name, DISP_DVC_CHANNEL_NAME) == 0) {
       self->disp = nullptr;
       self->displayControlReady = false;
@@ -262,6 +269,25 @@ struct FreeRdpAdapter::Impl {
     return 0;
   }
 
+  static void traceClipboard(const char* event, std::uint64_t value = 0) {
+    static const bool enabled = std::getenv("OFS_RDP_CLIPBOARD_TRACE") != nullptr;
+    if (enabled) std::cerr << "[rdp-worker] cliprdr " << event << " value=" << value << '\n';
+  }
+
+  static UINT serverCapabilities(CliprdrClientContext*, const CLIPRDR_CAPABILITIES* caps) {
+    if (!caps) return 1;
+    auto* capability = reinterpret_cast<const BYTE*>(caps->capabilitySets);
+    for (UINT32 i = 0; i < caps->cCapabilitiesSets; ++i) {
+      const auto* header = reinterpret_cast<const CLIPRDR_CAPABILITY_SET*>(capability);
+      if (header->capabilitySetLength < sizeof(CLIPRDR_CAPABILITY_SET)) return 1;
+      if (header->capabilitySetType == CB_CAPSTYPE_GENERAL &&
+          header->capabilitySetLength >= CB_CAPSTYPE_GENERAL_LEN)
+        traceClipboard("server-capabilities", reinterpret_cast<const CLIPRDR_GENERAL_CAPABILITY_SET*>(header)->generalFlags);
+      capability += header->capabilitySetLength;
+    }
+    return 0;
+  }
+
   static UINT clipboardMonitorReady(CliprdrClientContext* context,
                                       const CLIPRDR_MONITOR_READY*) {
     if (!context || !context->ClientCapabilities || !context->ClientFormatList) return 1;
@@ -271,6 +297,7 @@ struct FreeRdpAdapter::Impl {
     general.version = CB_CAPS_VERSION_2;
     general.generalFlags = CB_USE_LONG_FORMAT_NAMES | CB_STREAM_FILECLIP_ENABLED |
         CB_FILECLIP_NO_FILE_PATHS | CB_HUGE_FILE_SUPPORT_ENABLED;
+    traceClipboard("client-capabilities", general.generalFlags);
     CLIPRDR_CAPABILITIES caps{};
     caps.common.msgType = CB_CLIP_CAPS;
     caps.cCapabilitiesSets = 1;
@@ -287,6 +314,7 @@ struct FreeRdpAdapter::Impl {
     auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !response) return 1;
     self->fileListResponse = (response->common.msgFlags & CB_RESPONSE_OK) ? 1 : -1;
+    traceClipboard("format-list-response", response->common.msgFlags);
     return 0;
   }
 
@@ -295,6 +323,9 @@ struct FreeRdpAdapter::Impl {
     auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !formatList) return 1;
     ++self->remoteGeneration;
+    traceClipboard("server-format-list", self->remoteGeneration);
+    self->remoteClipboardFiles.clear();
+    if (self->remoteFiles) self->remoteFiles({});
     self->remoteDescriptorId = 0;
     if (self->nativeClipboard) self->nativeClipboard->clear();
     self->remoteTextFormatId = 0;
@@ -360,7 +391,12 @@ struct FreeRdpAdapter::Impl {
       }
       return result;
     }
-    if (request->requestedFormatId != 13) return 1;
+    if (request->requestedFormatId != 13 || !self->clipboardFiles.empty()) {
+      CLIPRDR_FORMAT_DATA_RESPONSE response{};
+      response.common.msgType = CB_FORMAT_DATA_RESPONSE;
+      response.common.msgFlags = CB_RESPONSE_FAIL;
+      return context->ClientFormatDataResponse(context, &response);
+    }
     std::vector<std::uint8_t> utf16;
     if (!ofs::rdp::utf8ToUtf16Le(self->clipboardText, utf16)) return 1;
     CLIPRDR_FORMAT_DATA_RESPONSE response{};
@@ -372,10 +408,11 @@ struct FreeRdpAdapter::Impl {
   }
 
   void requestRemoteDescriptors() {
-    if (!remoteDescriptorId || descriptorPending || !pendingClipboardRequests.empty() ||
+    if (!remoteDescriptorId || !remoteClipboardFiles.empty() || descriptorPending || autoTextPullPending || !pendingClipboardRequests.empty() ||
         !cliprdr || !cliprdr->ClientFormatDataRequest) return;
     descriptorPending = true;
     descriptorGeneration = remoteGeneration;
+    traceClipboard("request-descriptors", descriptorGeneration);
     CLIPRDR_FORMAT_DATA_REQUEST request{};
     request.common.msgType = CB_FORMAT_DATA_REQUEST;
     request.requestedFormatId = remoteDescriptorId;
@@ -386,6 +423,7 @@ struct FreeRdpAdapter::Impl {
                                          const CLIPRDR_FILE_CONTENTS_RESPONSE* response) {
     auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !response) return 1;
+    traceClipboard("file-response-bytes", response->cbRequested);
     if (response->streamId != self->remoteStreamId || self->remoteReadStatus != 0) return 0;
     self->remoteReadStatus = -1;
     if ((response->common.msgFlags & CB_RESPONSE_OK) && response->cbRequested <= self->remoteReadCount &&
@@ -420,17 +458,14 @@ struct FreeRdpAdapter::Impl {
           if (count <= 64 && dataLen == 4 + static_cast<std::size_t>(count) * sizeof(FILEDESCRIPTORW)) {
             self->remoteClipboardFiles.reserve(count);
             for (UINT i = 0; i < count; ++i) {
-              const auto& descriptor = reinterpret_cast<const FILEDESCRIPTORW*>(bytes + 4)[i];
+              FILEDESCRIPTORW descriptor{};
+              std::memcpy(&descriptor, bytes + 4 + i * sizeof(descriptor), sizeof(descriptor));
               const auto* nameStart = descriptor.cFileName;
               const auto* nameEnd = nameStart + sizeof(descriptor.cFileName) / sizeof(descriptor.cFileName[0]);
               const auto* terminator = std::find(nameStart, nameEnd, WCHAR(0));
+              if (terminator == nameEnd) { self->remoteClipboardFiles.clear(); return 0; }
               std::wstring wideName(nameStart, terminator);
               std::string utf8Name;
-              // Strip a "\\server\share" or drive prefix if present: entries in
-              // a file clipboard may carry a path prefix depending on how the
-              // remote Explorer built the descriptor list.
-              const auto slash = wideName.find_last_of(L'\\');
-              if (slash != std::wstring::npos) wideName = wideName.substr(slash + 1);
               const auto utf8Length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
                   wideName.data(), static_cast<int>(wideName.size()), nullptr, 0, nullptr, nullptr);
               if (utf8Length > 0) {
@@ -441,15 +476,18 @@ struct FreeRdpAdapter::Impl {
               }
               const auto size = (static_cast<std::uint64_t>(descriptor.nFileSizeHigh) << 32) |
                                 descriptor.nFileSizeLow;
-              if (!utf8Name.empty() && ofs::rdp::clipboardFileNameSafeUtf8(
-                      utf8Name.data(), utf8Name.size()))
-                self->remoteClipboardFiles.push_back(
-                    {std::move(utf8Name), size,
-                     (descriptor.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0});
+              if (!ofs::rdp::clipboardFileNameSafeUtf8(utf8Name.data(), utf8Name.size())) {
+                // Filtering entries changes listIndex and can download a different file.
+                self->remoteClipboardFiles.clear();
+                return 0;
+              }
+              self->remoteClipboardFiles.push_back(
+                  {std::move(utf8Name), size,
+                   (descriptor.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0});
             }
           }
         }
-        self->nativeClipboard->publish(
+        const bool published = self->nativeClipboard->publish(
             {bytes, bytes + dataLen},
             [self, generation](std::uint32_t index, std::uint64_t offset, std::uint32_t count,
                                std::vector<std::uint8_t>& bytes) {
@@ -462,6 +500,8 @@ struct FreeRdpAdapter::Impl {
               if (!self->submit(std::move(command))) return false;
               bytes = std::move(*result); return true;
             });
+        traceClipboard("descriptors-accepted", published ? self->remoteClipboardFiles.size() : 0);
+        if (!published) self->remoteClipboardFiles.clear();
         if (self->remoteFiles) {
           self->remoteFiles(self->remoteClipboardFiles);
         }
@@ -469,8 +509,19 @@ struct FreeRdpAdapter::Impl {
       return 0;
     }
     if (!self || !response || !response->requestedFormatData ||
-        response->common.dataLen > 4u * 1024u * 1024u)
-      return 1;
+        !(response->common.msgFlags & CB_RESPONSE_OK) ||
+        response->common.dataLen > 4u * 1024u * 1024u) {
+      if (self) {
+        self->autoTextPullPending = false;
+        if (!self->pendingClipboardRequests.empty()) {
+          const auto id = self->pendingClipboardRequests.front();
+          self->pendingClipboardRequests.pop_front();
+          if (self->clipboard) self->clipboard(id, {}, false);
+        }
+        self->requestRemoteDescriptors();
+      }
+      return 0;
+    }
     std::string text;
     if (!ofs::rdp::utf16LeToUtf8(response->requestedFormatData,
                                  response->common.dataLen, text))
@@ -481,7 +532,8 @@ struct FreeRdpAdapter::Impl {
       self->pendingClipboardRequests.pop_front();
     }
     if (requestId != 0 && self->clipboard) self->clipboard(requestId, std::move(text), false);
-    else if (self->autoTextPullPending && self->autoClipboardSync.load() && !text.empty()) {
+    else if (self->autoTextPullPending && self->autoClipboardSync.load() &&
+             !self->remoteDescriptorId && !text.empty()) {
       // Automatic remote->local text mirroring (no manual Ctrl+C involved).
       // Write straight into the local system clipboard; remember the sequence
       // number so the local clipboard monitor ignores this echo and does not
@@ -525,7 +577,8 @@ struct FreeRdpAdapter::Impl {
 
   static bool fillFileDescriptor(const ClipboardFile& file, FILEDESCRIPTORW& descriptor) {
     descriptor = FILEDESCRIPTORW{};
-    if (file.size > std::numeric_limits<std::uint64_t>::max()) return false;
+    if (file.size > 8ull * 1024 * 1024 * 1024 ||
+        !ofs::rdp::clipboardFileNameSafeUtf8(file.name.data(), file.name.size())) return false;
     descriptor.dwFlags = FD_FILESIZE | FD_UNICODE | FD_ATTRIBUTES;
     descriptor.dwFileAttributes = file.directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
     descriptor.nFileSizeHigh = static_cast<DWORD>(file.size >> 32);
@@ -549,6 +602,7 @@ struct FreeRdpAdapter::Impl {
     }
     if (request->listIndex >= self->clipboardFiles.size())
       return sendFileContentsFailure(self, context, request->streamId);
+    traceClipboard("file-request-index", request->listIndex);
     const bool sizeRequest = (request->dwFlags & FILECONTENTS_SIZE) != 0;
     const bool rangeRequest = (request->dwFlags & FILECONTENTS_RANGE) != 0;
     if (sizeRequest == rangeRequest) return sendFileContentsFailure(
@@ -1170,9 +1224,43 @@ struct FreeRdpAdapter::Impl {
             }))
           return false;
       }
-      if (!freerdp_check_fds(instance)) return false;
+      if (!pumpEvents()) return false;
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
+    return true;
+  }
+
+  bool pumpEvents() {
+    // VirtualChannelWrite queues output. Transport-only check_fds never drains
+    // that queue, so CLIPRDR requests can appear accepted without being sent.
+    return instance && instance->context && freerdp_check_event_handles(instance->context);
+  }
+
+  bool readRemoteFile(std::uint64_t generation, std::uint32_t index,
+                      std::uint64_t offset, std::uint32_t count, bool sizeRequest,
+                      std::vector<std::uint8_t>& bytes) {
+    if (stopping || generation != remoteGeneration || !remoteDescriptorId || !cliprdr ||
+        !cliprdr->ClientFileContentsRequest || count > 1024 * 1024) return false;
+    CLIPRDR_FILE_CONTENTS_REQUEST request{};
+    request.common.msgType = CB_FILECONTENTS_REQUEST;
+    request.streamId = ++remoteStreamId;
+    request.listIndex = index;
+    request.dwFlags = sizeRequest ? FILECONTENTS_SIZE : FILECONTENTS_RANGE;
+    request.nPositionLow = static_cast<UINT32>(offset);
+    request.nPositionHigh = static_cast<UINT32>(offset >> 32);
+    request.cbRequested = sizeRequest ? 8 : count;
+    remoteReadStatus = 0;
+    remoteReadCount = request.cbRequested;
+    traceClipboard("request-file-bytes", request.cbRequested);
+    if (cliprdr->ClientFileContentsRequest(cliprdr, &request) != 0) return false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (remoteReadStatus == 0 && !stopping && generation == remoteGeneration) {
+      if (std::chrono::steady_clock::now() >= deadline || !pumpEvents()) return false;
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    if (stopping || remoteReadStatus != 1 || generation != remoteGeneration ||
+        remoteReadData.size() != request.cbRequested) return false;
+    bytes = std::move(remoteReadData);
     return true;
   }
 
@@ -1321,24 +1409,8 @@ struct FreeRdpAdapter::Impl {
 #endif
       }
       case CommandKind::remoteFileRead: {
-        if (command.generation != remoteGeneration || !remoteDescriptorId || !cliprdr ||
-            !cliprdr->ClientFileContentsRequest || command.y > 1024 * 1024) return false;
-        CLIPRDR_FILE_CONTENTS_REQUEST request{};
-        request.common.msgType = CB_FILECONTENTS_REQUEST;
-        request.streamId = ++remoteStreamId;
-        request.listIndex = command.x; request.dwFlags = FILECONTENTS_RANGE;
-        request.nPositionLow = static_cast<UINT32>(command.offset);
-        request.nPositionHigh = static_cast<UINT32>(command.offset >> 32);
-        request.cbRequested = command.y;
-        remoteReadStatus = 0; remoteReadCount = command.y;
-        if (cliprdr->ClientFileContentsRequest(cliprdr, &request) != 0) return false;
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-        while (remoteReadStatus == 0 && !stopping && command.generation == remoteGeneration) {
-          if (std::chrono::steady_clock::now() >= deadline || !freerdp_check_fds(instance)) return false;
-          std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        }
-        if (remoteReadStatus != 1 || command.generation != remoteGeneration) return false;
-        *command.bytes = std::move(remoteReadData); return true;
+        return command.bytes && readRemoteFile(command.generation, command.x,
+            command.offset, command.y, false, *command.bytes);
       }
       case CommandKind::clipboardGet: {
         if (remoteDescriptorId) {
@@ -1381,6 +1453,11 @@ struct FreeRdpAdapter::Impl {
         // deliberately excluded: the renderer drives file pastes through the
         // explicit Ctrl+V clipboardFilesSet path with progress feedback.
         if (!config.clipboard || !autoClipboardSync.load()) return true;
+#if defined(_WIN32)
+        if (GetClipboardSequenceNumber() == lastLocalWriteSeq.load() ||
+            IsClipboardFormatAvailable(CF_HDROP) ||
+            IsClipboardFormatAvailable(RegisterClipboardFormatW(L"FileGroupDescriptorW"))) return true;
+#endif
         if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }))
           return true;
         if (!cliprdr || !cliprdr->ClientFormatList) return true;
@@ -1406,71 +1483,50 @@ struct FreeRdpAdapter::Impl {
           return false;
         remoteDownloadActive = true;
         const auto generation = remoteGeneration;
+        // Event pumping can replace the live manifest. Keep indices and names
+        // from this selection together until generation validation completes.
+        const auto files = remoteClipboardFiles;
         bool ok = true;
-        for (std::size_t index = 0; index < remoteClipboardFiles.size() && ok; ++index) {
-          const auto& entry = remoteClipboardFiles[index];
-          if (entry.directory) continue;
+        std::uint64_t total = 0;
+        for (std::size_t index = 0; index < files.size() && ok; ++index) {
+          const auto& entry = files[index];
           const std::string& utf8Name = entry.name;
-          if (utf8Name.empty()) { ok = false; break; }
-          // Ask the server for the authoritative size; the manifest size can
-          // be absent or stale.
-          CLIPRDR_FILE_CONTENTS_REQUEST sizeRequest{};
-          sizeRequest.common.msgType = CB_FILECONTENTS_REQUEST;
-          sizeRequest.streamId = ++remoteStreamId;
-          sizeRequest.listIndex = static_cast<UINT32>(index);
-          sizeRequest.dwFlags = FILECONTENTS_SIZE;
-          remoteReadStatus = 0;
-          std::uint64_t fileSize = entry.size;
-          if (cliprdr->ClientFileContentsRequest(cliprdr, &sizeRequest) == 0) {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-            while (remoteReadStatus == 0 && !stopping && generation == remoteGeneration) {
-              if (std::chrono::steady_clock::now() >= deadline || !freerdp_check_fds(instance)) {
-                ok = false; break;
-              }
-              std::this_thread::sleep_for(std::chrono::milliseconds(2));
-            }
-            if (ok && remoteReadStatus == 1 && remoteReadData.size() == sizeof(std::uint64_t)) {
-              fileSize = 0;
-              for (std::size_t byte = 0; byte < sizeof(std::uint64_t); ++byte)
-                fileSize |= static_cast<std::uint64_t>(remoteReadData[byte]) << (byte * 8);
-            } else if (remoteReadStatus != 1) {
-              ok = false;
-            }
-          }
-          if (!ok || generation != remoteGeneration) break;
+          if (stopping || generation != remoteGeneration ||
+              !ofs::rdp::clipboardFileNameSafeUtf8(utf8Name.data(), utf8Name.size())) { ok = false; break; }
           std::error_code ioError;
           const auto destination = std::filesystem::u8path(command.text) /
                                    std::filesystem::u8path(utf8Name);
+          // Refuse reparse points and existing files instead of truncating an
+          // unrelated local file (including through a junction).
+          auto current = std::filesystem::u8path(command.text);
+          for (const auto& component : std::filesystem::u8path(utf8Name)) {
+            current /= component;
+            const DWORD attrs = GetFileAttributesW(current.c_str());
+            if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) { ok = false; break; }
+          }
+          if (!ok) break;
+          std::filesystem::create_directories(entry.directory ? destination : destination.parent_path(), ioError);
+          if (ioError) { ok = false; break; }
+          if (entry.directory) continue;
+          if (std::filesystem::exists(destination, ioError) || ioError) { ok = false; break; }
+          std::vector<std::uint8_t> bytes;
+          if (!readRemoteFile(generation, static_cast<UINT32>(index), 0, 8, true, bytes)) { ok = false; break; }
+          std::uint64_t fileSize = 0;
+          for (std::size_t byte = 0; byte < 8; ++byte)
+            fileSize |= static_cast<std::uint64_t>(bytes[byte]) << (byte * 8);
+          if (fileSize > 8ull * 1024 * 1024 * 1024 ||
+              total + fileSize > 32ull * 1024 * 1024 * 1024) { ok = false; break; }
+          total += fileSize;
           std::ofstream output(destination, std::ios::binary | std::ios::trunc);
           if (!output) { ok = false; break; }
           std::uint64_t offset = 0;
           while (offset < fileSize && ok) {
             const std::uint32_t chunk = static_cast<std::uint32_t>(
                 std::min<std::uint64_t>(fileSize - offset, 1024u * 1024u));
-            CLIPRDR_FILE_CONTENTS_REQUEST range{};
-            range.common.msgType = CB_FILECONTENTS_REQUEST;
-            range.streamId = ++remoteStreamId;
-            range.listIndex = static_cast<UINT32>(index);
-            range.dwFlags = FILECONTENTS_RANGE;
-            range.nPositionLow = static_cast<UINT32>(offset);
-            range.nPositionHigh = static_cast<UINT32>(offset >> 32);
-            range.cbRequested = chunk;
-            remoteReadStatus = 0;
-            if (cliprdr->ClientFileContentsRequest(cliprdr, &range) != 0) { ok = false; break; }
-            {
-              const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-              while (remoteReadStatus == 0 && !stopping && generation == remoteGeneration) {
-                if (std::chrono::steady_clock::now() >= deadline || !freerdp_check_fds(instance)) {
-                  ok = false; break;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(2));
-              }
-            }
-            if (!ok || remoteReadStatus != 1 || generation != remoteGeneration) { ok = false; break; }
-            output.write(reinterpret_cast<const char*>(remoteReadData.data()),
-                         static_cast<std::streamsize>(remoteReadData.size()));
+            if (!readRemoteFile(generation, static_cast<UINT32>(index), offset, chunk, false, bytes)) { ok = false; break; }
+            output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
             if (!output) { ok = false; break; }
-            offset += remoteReadData.size();
+            offset += bytes.size();
           }
           output.close();
           if (!ok) { std::filesystem::remove(destination, ioError); break; }
@@ -1622,9 +1678,9 @@ struct FreeRdpAdapter::Impl {
     while (!stopping.load()) {
       processCommands();
       if (stopping.load()) break;
-      if (!freerdp_check_fds(instance)) {
+      if (!pumpEvents()) {
         const auto lastError = instance && instance->context ? freerdp_get_last_error(instance->context) : 0;
-        std::cerr << "[rdp-worker] freerdp_check_fds failed: lastError=0x"
+        std::cerr << "[rdp-worker] freerdp_check_event_handles failed: lastError=0x"
                   << std::hex << lastError << std::dec << '\n';
         std::cerr.flush();
         transportOk = false;

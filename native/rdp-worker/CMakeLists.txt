@@ -82,6 +82,22 @@ target_compile_definitions(ofs-rdp-worker PRIVATE OFS_RDP_HAS_FREERDP=${OFS_RDP_
 
 include(CTest)
 if (BUILD_TESTING)
+  if (WIN32 AND OFS_RDP_HAS_FREERDP)
+    add_executable(ofs-rdp-cliprdr-test test/cliprdr.test.cpp unicode.cpp file_clipboard.cpp)
+    target_include_directories(ofs-rdp-cliprdr-test PRIVATE $<TARGET_PROPERTY:ofs-rdp-worker,INCLUDE_DIRECTORIES>)
+    target_link_directories(ofs-rdp-cliprdr-test PRIVATE $<TARGET_PROPERTY:ofs-rdp-worker,LINK_DIRECTORIES>)
+    target_link_libraries(ofs-rdp-cliprdr-test PRIVATE $<TARGET_PROPERTY:ofs-rdp-worker,LINK_LIBRARIES>)
+    target_compile_definitions(ofs-rdp-cliprdr-test PRIVATE $<TARGET_PROPERTY:ofs-rdp-worker,COMPILE_DEFINITIONS>)
+    target_compile_options(ofs-rdp-cliprdr-test PRIVATE $<TARGET_PROPERTY:ofs-rdp-worker,COMPILE_OPTIONS>)
+    target_link_options(ofs-rdp-cliprdr-test PRIVATE $<TARGET_PROPERTY:ofs-rdp-worker,LINK_OPTIONS>)
+    if (MSVC)
+      target_compile_options(ofs-rdp-cliprdr-test PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(ofs-rdp-cliprdr-test PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME worker_cliprdr COMMAND ofs-rdp-cliprdr-test)
+    set_tests_properties(worker_cliprdr PROPERTIES TIMEOUT 15)
+  endif()
   if (WIN32)
     # file_clipboard.cpp now decodes/ad encodes UTF-8 via unicode.cpp for the
     # local-clipboard text helpers, so the test target must link it too.

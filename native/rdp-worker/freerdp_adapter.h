@@ -91,6 +91,7 @@ class FreeRdpAdapter {
   void close();
 
  private:
+  friend struct FreeRdpAdapterTestPeer;
   struct Impl;
   Impl* impl_ = nullptr;
 };

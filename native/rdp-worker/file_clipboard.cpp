@@ -11,6 +11,7 @@
 #include <thread>
 #include <chrono>
 #include <string>
+#include <iostream>
 
 #include "unicode.h"
 
@@ -167,6 +168,13 @@ bool safeName(const std::wstring& name) {
     auto part = name.substr(start, end == std::wstring::npos ? end : end - start);
     if (part.empty() || part == L"." || part == L".." || part.back() == L'.' || part.back() == L' ') return false;
     for (auto ch : part) if (ch < 32) return false;
+    auto stem = part.substr(0, part.find(L'.'));
+    std::transform(stem.begin(), stem.end(), stem.begin(), [](wchar_t ch) {
+      return ch >= L'a' && ch <= L'z' ? wchar_t(ch - L'a' + L'A') : ch;
+    });
+    if (stem == L"CON" || stem == L"PRN" || stem == L"AUX" || stem == L"NUL" ||
+        (stem.size() == 4 && (stem.substr(0, 3) == L"COM" || stem.substr(0, 3) == L"LPT") &&
+         stem[3] >= L'1' && stem[3] <= L'9')) return false;
     if (end == std::wstring::npos) return true;
     start = end + 1;
   }
@@ -201,7 +209,8 @@ class RemoteStream final : public IStream {
     while (done < count && position < size()) {
       auto n = static_cast<ULONG>(std::min<std::uint64_t>({count - done, size() - position, 1024 * 1024}));
       std::vector<std::uint8_t> bytes;
-      if (!selection->valid || !selection->read(index, position, n, bytes) || bytes.size() != n)
+      if (!selection->valid || !selection->read(index, position, n, bytes) ||
+          !selection->valid || bytes.size() != n)
         return STG_E_READFAULT;
       std::memcpy(static_cast<BYTE*>(data) + done, bytes.data(), n);
       done += n; position += n;
@@ -343,7 +352,20 @@ struct FileClipboard::Impl {
       if (next != current) {
         if (object) { if (OleIsCurrentClipboard(object) == S_OK) OleSetClipboard(nullptr); object->Release(); object = nullptr; }
         current = next;
-        if (current && current->valid) { object = new FileObject(current); OleSetClipboard(object); }
+        if (current && current->valid) {
+          object = new FileObject(current);
+          HRESULT result = E_FAIL;
+          for (int attempt = 0; attempt < 5 && current->valid && !stop; ++attempt) {
+            result = OleSetClipboard(object);
+            if (SUCCEEDED(result)) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+          }
+          if (FAILED(result)) {
+            current->valid = false;
+            std::cerr << "[rdp-worker] OleSetClipboard failed: HRESULT=0x"
+                      << std::hex << result << std::dec << '\n';
+          }
+        }
       }
       MSG msg;
       while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
@@ -361,25 +383,27 @@ void FileClipboard::clear() {
   if (impl->selection) impl->selection->valid = false;
   impl->selection.reset();
 }
-void FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader) {
+bool FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader) {
   static_assert(sizeof(FILEDESCRIPTORW) == 592);
   clear();
-  if (bytes.size() < 4) return;
+  if (bytes.size() < 4 || !reader) return false;
   UINT count; std::memcpy(&count, bytes.data(), 4);
-  if (count == 0 || count > 64 || bytes.size() != 4 + size_t(count) * sizeof(FILEDESCRIPTORW)) return;
+  if (count == 0 || count > 64 || bytes.size() != 4 + size_t(count) * sizeof(FILEDESCRIPTORW)) return false;
   auto s = std::make_shared<Selection>(); s->files.resize(count); s->read = std::move(reader);
   std::memcpy(s->files.data(), bytes.data() + 4, count * sizeof(FILEDESCRIPTORW));
   std::uint64_t total = 0;
   for (auto& f : s->files) {
-    if (std::find(std::begin(f.cFileName), std::end(f.cFileName), WCHAR(0)) == std::end(f.cFileName) || !safeName(f.cFileName)) return;
+    if (std::find(std::begin(f.cFileName), std::end(f.cFileName), WCHAR(0)) == std::end(f.cFileName) || !safeName(f.cFileName) ||
+        (f.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) return false;
     const auto size = (std::uint64_t(f.nFileSizeHigh) << 32) | f.nFileSizeLow;
-    if (size > 8ull * 1024 * 1024 * 1024) return;
-    total += size; if (total > 32ull * 1024 * 1024 * 1024) return;
+    if (size > 8ull * 1024 * 1024 * 1024) return false;
+    total += size; if (total > 32ull * 1024 * 1024 * 1024) return false;
     // Never propagate arbitrary attributes from the server to local files.
     f.dwFileAttributes = (f.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
     f.dwFlags = FD_ATTRIBUTES | FD_FILESIZE | FD_UNICODE;
   }
   std::lock_guard<std::mutex> lock(impl->mutex); impl->selection = std::move(s);
+  return true;
 }
 }
 #else
@@ -397,6 +421,6 @@ struct FileClipboard::Impl {};
 FileClipboard::FileClipboard() : impl(std::make_unique<Impl>()) {}
 FileClipboard::~FileClipboard() = default;
 void FileClipboard::clear() {}
-void FileClipboard::publish(std::vector<std::uint8_t>, Reader) {}
+bool FileClipboard::publish(std::vector<std::uint8_t>, Reader) { return false; }
 }
 #endif

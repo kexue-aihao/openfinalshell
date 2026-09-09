@@ -40,7 +40,7 @@ class FileClipboard {
                                     std::vector<std::uint8_t>&)>;
   FileClipboard();
   ~FileClipboard();
-  void publish(std::vector<std::uint8_t> descriptors, Reader reader);
+  bool publish(std::vector<std::uint8_t> descriptors, Reader reader);
   void clear();
  private:
   struct Impl;

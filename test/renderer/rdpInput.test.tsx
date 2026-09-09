@@ -212,6 +212,20 @@ describe('RdpPane input gating', () => {
     expect(send.mock.invocationCallOrder[pasteIndex]).toBeGreaterThan(invoke.mock.invocationCallOrder[setIndex])
   })
 
+  it('still pastes remotely when a virtual file selection exposes no local text or paths', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { readText: vi.fn(async () => '') }
+    })
+    const canvas = renderPane()
+    fireEvent.keyDown(canvas, { code: 'KeyV', key: 'v', ctrlKey: true })
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith('rdp:input', {
+      sessionId: 'rdp-1', input: { kind: 'key', scanCode: 0x2f, pressed: true }
+    }))
+    expect(invoke).not.toHaveBeenCalledWith('rdp:clipboardSet', expect.anything())
+    expect(invoke).not.toHaveBeenCalledWith('rdp:clipboardFilesSet', expect.anything())
+  })
+
   it('announces copied local files before executing Ctrl+V remotely', async () => {
     clipboardFilePaths.mockReturnValue(['C:\\Users\\alice\\Desktop\\report.pdf'])
     const canvas = renderPane()

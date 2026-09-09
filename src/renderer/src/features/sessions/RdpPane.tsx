@@ -745,8 +745,9 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
           return
         }
         const text = await navigator.clipboard?.readText().catch(() => '')
-        if (!text) return
-        await ofs.invoke('rdp:clipboardSet', { sessionId, text })
+        // Remote virtual files have no CF_HDROP paths or text. The server
+        // already owns that selection; still deliver Ctrl+V to Explorer.
+        if (text) await ofs.invoke('rdp:clipboardSet', { sessionId, text })
         const modifierIsStillDown = modifierAlreadyDown &&
           (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))
         await sendRemoteClipboardShortcut(sessionId, code, modifierIsStillDown)

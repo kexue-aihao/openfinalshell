@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.44',
+    items: [{
+      type: 'fix',
+      zh: '修复嵌入式 RDP 未处理虚拟通道发送队列导致文件剪贴板请求无法传输的问题；统一远程文件分块读取，保留目录结构和文件索引，并修复虚拟文件剪贴板下 Ctrl+V 被忽略的问题',
+      en: 'Drain the embedded RDP virtual-channel queue so file clipboard requests are transmitted; unify remote file reads, preserve directory structure and file indices, and forward Ctrl+V when the clipboard contains virtual files'
+    }]
+  },
+  {
     version: '0.20.43',
     items: [{
       type: 'fix',
