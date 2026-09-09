@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.46',
+    items: [{
+      type: 'fix',
+      zh: '修复嵌入式 RDP 文件拖拽前剪贴板通道未就绪导致 Worker 停止的问题，确保文件剪贴板请求在通道准备完成后发送',
+      en: 'Fix the embedded RDP worker stopping when a file was dragged before the clipboard channel was ready, and send file clipboard requests only after the channel is prepared'
+    }]
+  },
+  {
     version: '0.20.45',
     items: [{
       type: 'feat',
