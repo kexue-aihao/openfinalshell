@@ -37,6 +37,7 @@ struct FreeRdpAdapterTestPeer {
       const auto* general = reinterpret_cast<const CLIPRDR_GENERAL_CAPABILITY_SET*>(caps->capabilitySets);
       assert(general->generalFlags & CB_STREAM_FILECLIP_ENABLED);
       assert(general->generalFlags & CB_HUGE_FILE_SUPPORT_ENABLED);
+      assert(general->generalFlags & CB_FILECLIP_NO_FILE_PATHS);
       return 0;
     };
     clip.ClientFormatList = [](auto* c, const CLIPRDR_FORMAT_LIST* list) -> UINT {
@@ -51,6 +52,7 @@ struct FreeRdpAdapterTestPeer {
       return 0;
     };
     assert(Impl::clipboardMonitorReady(&clip, nullptr) == 0);
+    assert(adapter.clipboardReady);
     // A nonexistent source can be advertised: copy must only send metadata.
     Impl::Command upload;
     upload.kind = Impl::CommandKind::clipboardFilesSet;

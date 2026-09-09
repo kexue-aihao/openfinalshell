@@ -34,6 +34,7 @@
 #include <freerdp/channels/disp.h>
 #include <freerdp/channels/rdpsnd.h>
 #include <freerdp/client/channels.h>
+#include <freerdp/client.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/cmdline.h>
 #include <freerdp/client/disp.h>
@@ -110,6 +111,11 @@ struct FreeRdpAdapter::Impl {
   // on that thread too; the stdin thread only enqueues Command values.
   freerdp* instance = nullptr;
   CliprdrClientContext* cliprdr = nullptr;
+  // `ready` is emitted by the RDP core before the cliprdr virtual channel
+  // receives CB_MONITOR_READY.  Keep this separate from the context pointer:
+  // ClientFormatList/ClientFileContentsRequest are not usable until the
+  // monitor-ready capability exchange has completed.
+  bool clipboardReady = false;
   int fileListResponse = 0;
   std::unique_ptr<ofs::rdp::FileClipboard> nativeClipboard;
   std::uint64_t remoteGeneration = 0;
@@ -198,14 +204,6 @@ struct FreeRdpAdapter::Impl {
       std::cerr.flush();
       return FALSE;
     }
-    // This loader registers cliprdr as a static channel and disp through
-    // drdynvc according to the settings frozen during initialize().
-    if (!freerdp_client_load_addins(value->context->channels, value->context->settings)) {
-      std::cerr << "[rdp-worker] FreeRDP channel add-in loading failed\n";
-      std::cerr.flush();
-      self->emitState("failed", "UNSUPPORTED");
-      return FALSE;
-    }
     return TRUE;
   }
 
@@ -214,6 +212,7 @@ struct FreeRdpAdapter::Impl {
     if (self && self->instance && self->instance->context != context) self = nullptr;
     if (!self || !event || !event->name) return;
     if (std::strcmp(event->name, CLIPRDR_SVC_CHANNEL_NAME) == 0) {
+      self->clipboardReady = false;
       self->cliprdr = static_cast<CliprdrClientContext*>(event->pInterface);
       if (!self->cliprdr) return;
       self->cliprdr->custom = self;
@@ -243,6 +242,7 @@ struct FreeRdpAdapter::Impl {
     if (!self || !event || !event->name) return;
     if (std::strcmp(event->name, CLIPRDR_SVC_CHANNEL_NAME) == 0) {
       self->cliprdr = nullptr;
+      self->clipboardReady = false;
       ++self->remoteGeneration;
       self->remoteReadStatus = -1;
       self->remoteClipboardFiles.clear();
@@ -291,6 +291,15 @@ struct FreeRdpAdapter::Impl {
   static UINT clipboardMonitorReady(CliprdrClientContext* context,
                                       const CLIPRDR_MONITOR_READY*) {
     if (!context || !context->ClientCapabilities || !context->ClientFormatList) return 1;
+    auto* self = static_cast<Impl*>(context->custom);
+    // Mark the channel usable as soon as MonitorReady arrives.  The initial
+    // format-list send below may wait for a server response; callers queued
+    // after the RDP core reports `ready` must not time out while that exchange
+    // is in flight.
+    if (self) {
+      self->clipboardReady = true;
+      traceClipboard("monitor-ready");
+    }
     CLIPRDR_GENERAL_CAPABILITY_SET general{};
     general.capabilitySetType = CB_CAPSTYPE_GENERAL;
     general.capabilitySetLength = CB_CAPSTYPE_GENERAL_LEN;
@@ -318,8 +327,8 @@ struct FreeRdpAdapter::Impl {
     return 0;
   }
 
-  static UINT serverFormatList(CliprdrClientContext* context,
-                               const CLIPRDR_FORMAT_LIST* formatList) {
+  static UINT serverFormatListImpl(CliprdrClientContext* context,
+                                   const CLIPRDR_FORMAT_LIST* formatList) {
     auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !formatList) return 1;
     ++self->remoteGeneration;
@@ -371,8 +380,23 @@ struct FreeRdpAdapter::Impl {
     return 0;
   }
 
-  static UINT serverFormatDataRequest(CliprdrClientContext* context,
-                                      const CLIPRDR_FORMAT_DATA_REQUEST* request) {
+  static UINT serverFormatList(CliprdrClientContext* context,
+                               const CLIPRDR_FORMAT_LIST* formatList) noexcept {
+    try {
+      return serverFormatListImpl(context, formatList);
+    } catch (const std::exception& error) {
+      std::cerr << "[rdp-worker] CLIPRDR format list exception: " << error.what() << '\n';
+      std::cerr.flush();
+      return 1;
+    } catch (...) {
+      std::cerr << "[rdp-worker] CLIPRDR format list exception: unknown\n";
+      std::cerr.flush();
+      return 1;
+    }
+  }
+
+  static UINT serverFormatDataRequestImpl(CliprdrClientContext* context,
+                                          const CLIPRDR_FORMAT_DATA_REQUEST* request) {
     Impl* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !request || !context->ClientFormatDataResponse)
       return 1;
@@ -407,6 +431,21 @@ struct FreeRdpAdapter::Impl {
     return context->ClientFormatDataResponse(context, &response);
   }
 
+  static UINT serverFormatDataRequest(CliprdrClientContext* context,
+                                      const CLIPRDR_FORMAT_DATA_REQUEST* request) noexcept {
+    try {
+      return serverFormatDataRequestImpl(context, request);
+    } catch (const std::exception& error) {
+      std::cerr << "[rdp-worker] CLIPRDR format data request exception: " << error.what() << '\n';
+      std::cerr.flush();
+      return 1;
+    } catch (...) {
+      std::cerr << "[rdp-worker] CLIPRDR format data request exception: unknown\n";
+      std::cerr.flush();
+      return 1;
+    }
+  }
+
   void requestRemoteDescriptors() {
     if (!remoteDescriptorId || !remoteClipboardFiles.empty() || descriptorPending || autoTextPullPending || !pendingClipboardRequests.empty() ||
         !cliprdr || !cliprdr->ClientFormatDataRequest) return;
@@ -419,8 +458,8 @@ struct FreeRdpAdapter::Impl {
     if (cliprdr->ClientFormatDataRequest(cliprdr, &request) != 0) descriptorPending = false;
   }
 
-  static UINT serverFileContentsResponse(CliprdrClientContext* context,
-                                         const CLIPRDR_FILE_CONTENTS_RESPONSE* response) {
+  static UINT serverFileContentsResponseImpl(CliprdrClientContext* context,
+                                            const CLIPRDR_FILE_CONTENTS_RESPONSE* response) {
     auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !response) return 1;
     traceClipboard("file-response-bytes", response->cbRequested);
@@ -435,8 +474,31 @@ struct FreeRdpAdapter::Impl {
     return 0;
   }
 
-  static UINT serverFormatDataResponse(CliprdrClientContext* context,
-                                       const CLIPRDR_FORMAT_DATA_RESPONSE* response) {
+  static UINT serverFileContentsResponse(CliprdrClientContext* context,
+                                         const CLIPRDR_FILE_CONTENTS_RESPONSE* response) noexcept {
+    try {
+      return serverFileContentsResponseImpl(context, response);
+    } catch (const std::exception& error) {
+      std::cerr << "[rdp-worker] CLIPRDR file response exception: " << error.what() << '\n';
+      std::cerr.flush();
+      if (context && context->custom) {
+        auto* self = static_cast<Impl*>(context->custom);
+        self->remoteReadStatus = -1;
+      }
+      return 1;
+    } catch (...) {
+      std::cerr << "[rdp-worker] CLIPRDR file response exception: unknown\n";
+      std::cerr.flush();
+      if (context && context->custom) {
+        auto* self = static_cast<Impl*>(context->custom);
+        self->remoteReadStatus = -1;
+      }
+      return 1;
+    }
+  }
+
+  static UINT serverFormatDataResponseImpl(CliprdrClientContext* context,
+                                           const CLIPRDR_FORMAT_DATA_RESPONSE* response) {
     Impl* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (self && response && self->descriptorPending) {
       self->descriptorPending = false;
@@ -551,6 +613,21 @@ struct FreeRdpAdapter::Impl {
     return 0;
   }
 
+  static UINT serverFormatDataResponse(CliprdrClientContext* context,
+                                       const CLIPRDR_FORMAT_DATA_RESPONSE* response) noexcept {
+    try {
+      return serverFormatDataResponseImpl(context, response);
+    } catch (const std::exception& error) {
+      std::cerr << "[rdp-worker] CLIPRDR format data response exception: " << error.what() << '\n';
+      std::cerr.flush();
+      return 1;
+    } catch (...) {
+      std::cerr << "[rdp-worker] CLIPRDR format data response exception: unknown\n";
+      std::cerr.flush();
+      return 1;
+    }
+  }
+
   static void failClipboardTransfer(Impl* self, std::uint32_t fileIndex, const char* errorCode) {
     if (!self || !self->clipboardTransferActive) return;
     self->clipboardTransferActive = false;
@@ -593,8 +670,13 @@ struct FreeRdpAdapter::Impl {
     return true;
   }
 
-  static UINT serverFileContentsRequest(CliprdrClientContext* context,
-                                         const CLIPRDR_FILE_CONTENTS_REQUEST* request) {
+  // FreeRDP invokes channel callbacks from its event pump.  No C++ exception
+  // may cross that C callback boundary: an exception there terminates the
+  // worker before the main protocol loop can report a useful error.  Keep the
+  // implementation separate so the boundary can convert every unexpected
+  // filesystem/allocator error into a CLIPRDR failure response.
+  static UINT serverFileContentsRequestImpl(CliprdrClientContext* context,
+                                            const CLIPRDR_FILE_CONTENTS_REQUEST* request) {
     Impl* self = context ? static_cast<Impl*>(context->custom) : nullptr;
     if (!self || !request || !context || !context->ClientFileContentsResponse) {
       if (self) failClipboardTransfer(self, 0, "FILE_TRANSFER_FAILED");
@@ -709,6 +791,35 @@ struct FreeRdpAdapter::Impl {
     }
     if (completed) self->clipboardTransferActive = false;
     return result;
+  }
+
+  static UINT serverFileContentsRequest(CliprdrClientContext* context,
+                                        const CLIPRDR_FILE_CONTENTS_REQUEST* request) noexcept {
+    try {
+      return serverFileContentsRequestImpl(context, request);
+    } catch (const std::exception& error) {
+      auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
+      std::cerr << "[rdp-worker] CLIPRDR file request exception: " << error.what() << '\n';
+      std::cerr.flush();
+      if (self) failClipboardTransfer(self, request ? request->listIndex : 0, "FILE_READ_FAILED");
+      if (!context || !context->ClientFileContentsResponse) return 1;
+      CLIPRDR_FILE_CONTENTS_RESPONSE response{};
+      response.common.msgType = CB_FILECONTENTS_RESPONSE;
+      response.common.msgFlags = CB_RESPONSE_FAIL;
+      response.streamId = request ? request->streamId : 0;
+      return context->ClientFileContentsResponse(context, &response);
+    } catch (...) {
+      auto* self = context ? static_cast<Impl*>(context->custom) : nullptr;
+      std::cerr << "[rdp-worker] CLIPRDR file request exception: unknown\n";
+      std::cerr.flush();
+      if (self) failClipboardTransfer(self, request ? request->listIndex : 0, "FILE_READ_FAILED");
+      if (!context || !context->ClientFileContentsResponse) return 1;
+      CLIPRDR_FILE_CONTENTS_RESPONSE response{};
+      response.common.msgType = CB_FILECONTENTS_RESPONSE;
+      response.common.msgFlags = CB_RESPONSE_FAIL;
+      response.streamId = request ? request->streamId : 0;
+      return context->ClientFileContentsResponse(context, &response);
+    }
   }
 
   static BOOL postConnect(freerdp* value) {
@@ -1115,6 +1226,13 @@ struct FreeRdpAdapter::Impl {
     active = this;
     instance->PreConnect = preConnect;
     instance->PostConnect = postConnect;
+    // freerdp_connect() loads configured channels through this callback after
+    // PreConnect.  Calling freerdp_client_load_addins() directly from
+    // PreConnect loads the plug-ins before the core has finished preparing the
+    // channel manager; the connection can still reach ready, but no cliprdr
+    // ChannelConnected event is published.  That made every drag/drop upload
+    // time out before it could advertise FileGroupDescriptorW.
+    instance->LoadChannels = freerdp_client_load_channels;
     instance->VerifyCertificateEx = verifyCertificateEx;
     instance->VerifyChangedCertificateEx = verifyChangedCertificateEx;
     rdpSettings* settings = instance->context->settings;
@@ -1214,7 +1332,11 @@ struct FreeRdpAdapter::Impl {
 
   template <typename Predicate>
   bool waitForChannel(Predicate ready) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    // Channel creation and the first CLIPRDR capability exchange can lag the
+    // core `ready` event by several seconds on a busy Windows host.  Keep the
+    // command queued until the virtual channel is genuinely available rather
+    // than reporting a misleading UNSUPPORTED error to the renderer.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (!ready()) {
       if (stopping.load() || std::chrono::steady_clock::now() >= deadline) return false;
       {
@@ -1233,7 +1355,17 @@ struct FreeRdpAdapter::Impl {
   bool pumpEvents() {
     // VirtualChannelWrite queues output. Transport-only check_fds never drains
     // that queue, so CLIPRDR requests can appear accepted without being sent.
-    return instance && instance->context && freerdp_check_event_handles(instance->context);
+    try {
+      return instance && instance->context && freerdp_check_event_handles(instance->context);
+    } catch (const std::exception& error) {
+      std::cerr << "[rdp-worker] FreeRDP event pump exception: " << error.what() << '\n';
+      std::cerr.flush();
+      return false;
+    } catch (...) {
+      std::cerr << "[rdp-worker] FreeRDP event pump exception: unknown\n";
+      std::cerr.flush();
+      return false;
+    }
   }
 
   bool readRemoteFile(std::uint64_t generation, std::uint32_t index,
@@ -1329,7 +1461,7 @@ struct FreeRdpAdapter::Impl {
       }
       case CommandKind::clipboardSet: {
         if (!config.clipboard) return false;
-        if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }))
+        if (!waitForChannel([&] { return clipboardReady && cliprdr && cliprdr->ClientFormatList; }))
           return true;
         if (!cliprdr || !cliprdr->ClientFormatList) return true;
         std::vector<std::uint8_t> validated;
@@ -1351,13 +1483,23 @@ struct FreeRdpAdapter::Impl {
         return cliprdr->ClientFormatList(cliprdr, &list) == 0;
       }
       case CommandKind::clipboardFilesSet: {
-        if (!config.clipboard || command.files.empty() ||
-            !waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }) ||
-            !cliprdr || !cliprdr->ClientFormatList)
+        traceClipboard("files-set-begin", command.files.size());
+        if (!config.clipboard || command.files.empty()) {
+          traceClipboard("files-set-rejected", 1);
           return false;
+        }
+        if (!waitForChannel([&] { return clipboardReady && cliprdr && cliprdr->ClientFormatList; })) {
+          traceClipboard("files-set-channel-timeout", cliprdr ? 1 : 0);
+          return false;
+        }
+        if (!cliprdr || !cliprdr->ClientFormatList) {
+          traceClipboard("files-set-channel-missing");
+          return false;
+        }
 #if defined(_WIN32)
         const UINT descriptorId = RegisterClipboardFormatW(L"FileGroupDescriptorW");
         const UINT contentsId = RegisterClipboardFormatW(L"FileContents");
+        traceClipboard("files-set-formats", (static_cast<std::uint64_t>(descriptorId) << 32) | contentsId);
         if (descriptorId == 0 || contentsId == 0) return false;
         std::vector<FILEDESCRIPTORW> descriptors(command.files.size());
         for (std::size_t index = 0; index < command.files.size(); ++index) {
@@ -1368,9 +1510,11 @@ struct FreeRdpAdapter::Impl {
         }
         BYTE* serialized = nullptr;
         UINT32 serializedLength = 0;
-        if (cliprdr_serialize_file_list_ex(CB_STREAM_FILECLIP_ENABLED | CB_HUGE_FILE_SUPPORT_ENABLED,
-                                            descriptors.data(), static_cast<UINT32>(descriptors.size()),
-                                            &serialized, &serializedLength) != 0 || !serialized) {
+        const auto serializeResult = cliprdr_serialize_file_list_ex(CB_STREAM_FILECLIP_ENABLED | CB_HUGE_FILE_SUPPORT_ENABLED,
+                                             descriptors.data(), static_cast<UINT32>(descriptors.size()),
+                                             &serialized, &serializedLength);
+        traceClipboard("files-set-serialized", (static_cast<std::uint64_t>(serializeResult) << 32) | serializedLength);
+        if (serializeResult != 0 || !serialized) {
           failClipboardTransfer(this, 0, "FILE_DESCRIPTOR_FAILED");
           return false;
         }
@@ -1400,8 +1544,12 @@ struct FreeRdpAdapter::Impl {
                                                   static_cast<std::uint32_t>(clipboardFiles.size()),
                                                   nullptr, 0, clipboardTotal, 0.0, nullptr);
         fileListResponse = 0;
-        const bool sent = cliprdr->ClientFormatList(cliprdr, &list) == 0 &&
-            waitForChannel([&] { return fileListResponse != 0; }) && fileListResponse == 1;
+        const auto formatListResult = cliprdr->ClientFormatList(cliprdr, &list);
+        traceClipboard("files-set-format-list-sent", formatListResult);
+        const bool responseReady = formatListResult == 0 &&
+            waitForChannel([&] { return fileListResponse != 0; });
+        traceClipboard("files-set-format-list-response", (static_cast<std::uint64_t>(fileListResponse < 0 ? 2 : fileListResponse) << 32) | (responseReady ? 1 : 0));
+        const bool sent = formatListResult == 0 && responseReady && fileListResponse == 1;
         if (!sent) failClipboardTransfer(this, 0, "CLIPBOARD_CHANNEL_FAILED");
         return sent;
 #else
@@ -1419,7 +1567,7 @@ struct FreeRdpAdapter::Impl {
           return true;
         }
         if (!config.clipboard || command.requestId == 0) return false;
-        if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatDataRequest; })) {
+        if (!waitForChannel([&] { return clipboardReady && cliprdr && cliprdr->ClientFormatDataRequest; })) {
           if (clipboard) clipboard(command.requestId, {}, false);
           return true;
         }
@@ -1458,7 +1606,7 @@ struct FreeRdpAdapter::Impl {
             IsClipboardFormatAvailable(CF_HDROP) ||
             IsClipboardFormatAvailable(RegisterClipboardFormatW(L"FileGroupDescriptorW"))) return true;
 #endif
-        if (!waitForChannel([&] { return cliprdr && cliprdr->ClientFormatList; }))
+        if (!waitForChannel([&] { return clipboardReady && cliprdr && cliprdr->ClientFormatList; }))
           return true;
         if (!cliprdr || !cliprdr->ClientFormatList) return true;
         const std::string text = ofs::rdp::readLocalClipboardText();
@@ -1551,7 +1699,16 @@ struct FreeRdpAdapter::Impl {
         command = std::move(commands.front());
         commands.pop_front();
       }
-      const bool result = execute(command);
+      bool result = false;
+      try {
+        result = execute(command);
+      } catch (const std::exception& error) {
+        std::cerr << "[rdp-worker] command exception: " << error.what() << '\n';
+        std::cerr.flush();
+      } catch (...) {
+        std::cerr << "[rdp-worker] command exception: unknown\n";
+        std::cerr.flush();
+      }
       if (command.completion) command.completion->set_value(result);
       std::fill(command.text.begin(), command.text.end(), '\0');
       if (stopping.load()) return;
@@ -1591,6 +1748,7 @@ struct FreeRdpAdapter::Impl {
       instance = nullptr;
     }
     cliprdr = nullptr;
+    clipboardReady = false;
     disp = nullptr;
 #if defined(_WIN32)
     if (localClipboardMonitor) {

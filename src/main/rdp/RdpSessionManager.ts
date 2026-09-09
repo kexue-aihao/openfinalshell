@@ -83,6 +83,7 @@ interface Session {
   workerStderr: string
   inputBuffer: RdpInputBuffer
   processEnded: boolean
+  workerStdinBroken: boolean
   state: RdpSessionState
   helloReceived: boolean
   workerReady: boolean
@@ -313,11 +314,24 @@ export class RdpSessionManager {
   }
 
   private write(session: Session, type: number, requestId: number, payload: Record<string, unknown>, allowClosing = false): boolean {
-    if (!this.isCurrent(session) || !session.worker || session.processEnded || (!allowClosing && session.closeReason) || !session.worker.stdin.writable) return false
+    const stdin = session.worker?.stdin
+    if (!this.isCurrent(session) || !session.worker || session.processEnded || session.workerStdinBroken ||
+        (!allowClosing && session.closeReason) || !stdin || stdin.destroyed || stdin.writableEnded || !stdin.writable) return false
     try {
-      session.worker.stdin.write(jsonFrame(type, requestId, payload))
+      stdin.write(jsonFrame(type, requestId, payload), (error?: Error | null) => {
+        if (!error || session.workerStdinBroken) return
+        session.workerStdinBroken = true
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'EPIPE' && code !== 'ERR_STREAM_DESTROYED') {
+          log.warn(`RDP session ${session.id}: worker stdin write failed: ${error.message}`)
+        }
+        if (this.isCurrent(session) && !session.processEnded && !session.closeReason) {
+          this.fail(session, 'WORKER_CRASHED')
+        }
+      })
       return true
     } catch {
+      session.workerStdinBroken = true
       if (session.closeReason) this.finishClose(session, true)
       else this.fail(session, 'WORKER_CRASHED')
       return false
@@ -624,7 +638,10 @@ export class RdpSessionManager {
       session.stdoutPaused = false
       session.worker?.stdout.resume()
     }
-    if (!session.worker || session.processEnded) {
+    if (!session.worker || session.processEnded || session.workerStdinBroken) {
+      if (session.workerStdinBroken && !session.processEnded) {
+        try { session.worker?.kill() } catch { /* process is already unavailable */ }
+      }
       this.finishClose(session, true)
       return completed
     }
@@ -656,6 +673,7 @@ export class RdpSessionManager {
       ? requestedCode as RdpErrorCode
       : stableWorkerError(requestedCode)
     session.failureCode = explicitCode
+    log.warn(`RDP session ${session.id}: failure ${explicitCode} (requested=${requestedCode}, generation=${session.generation})`)
     // A rejected password must never be retried silently. A locked account,
     // however, is not a wrong password: prompting for a fresh one cannot help,
     // and repeated attempts can extend the server-side lockout window.
@@ -1121,6 +1139,7 @@ export class RdpSessionManager {
       pendingClipboardRequests: new Set(),
       pendingClipboardFileRequests: new Map(),
       processEnded: true,
+      workerStdinBroken: false,
       state: 'starting',
       helloReceived: false,
       workerReady: false,
@@ -1171,6 +1190,23 @@ export class RdpSessionManager {
     }
     session.worker = worker
     const generation = session.generation
+    session.workerStdinBroken = false
+    // Child stdin can close before our shutdown path runs. Always consume the
+    // stream error so an EPIPE cannot become an uncaughtException.
+    const stdinErrorListener = (error: NodeJS.ErrnoException): void => {
+      if (session.generation !== generation || session.processEnded) return
+      session.workerStdinBroken = true
+      if (error.code !== 'EPIPE' && error.code !== 'ERR_STREAM_DESTROYED') {
+        log.warn(`RDP session ${session.id}: worker stdin error ${error.code ?? error.message}`)
+      }
+      if (session.closeReason) {
+        try { worker.kill() } catch { /* process is already unavailable */ }
+        this.finishClose(session, true)
+      } else this.fail(session, 'WORKER_CRASHED')
+    }
+    if (typeof (worker.stdin as unknown as { on?: unknown }).on === 'function') {
+      worker.stdin.on('error', stdinErrorListener)
+    }
     session.processEnded = false
     this.armStartupTimer(session, HELLO_TIMEOUT_MS, 'WORKER_CRASHED')
     this.emitState(session, 'starting')
@@ -1196,9 +1232,10 @@ export class RdpSessionManager {
       if (session.generation !== generation || session.processEnded) return
       this.fail(session, session.helloReceived ? 'WORKER_CRASHED' : 'WORKER_START_FAILED')
     })
-    worker.on('exit', () => {
+    worker.on('exit', (code, signal) => {
       session.processEnded = true
       const stderr = redactWorkerStderr(session.workerStderr)
+      log.info(`RDP session ${session.id}: Worker exited code=${code ?? 'null'} signal=${signal ?? 'none'} generation=${generation}`)
       if (stderr) log.warn(`RDP session ${session.id}: Worker stderr: ${stderr}`)
       if (session.generation !== generation || !this.isCurrent(session)) return
       if (session.closeReason) this.finishClose(session, true)

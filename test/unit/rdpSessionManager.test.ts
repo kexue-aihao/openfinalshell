@@ -32,11 +32,11 @@ vi.mock('../../src/main/services/rdpLaunch', () => ({ launchRdp }))
 
 class FakeWorker extends EventEmitter {
   readonly writes: Buffer[] = []
-  readonly stdin = {
+  readonly stdin = Object.assign(new EventEmitter(), {
     writable: true,
     write: (chunk: Buffer) => { this.writes.push(Buffer.from(chunk)); return true },
     end: vi.fn()
-  }
+  })
   readonly stdout = Object.assign(new EventEmitter(), {
     isPaused: vi.fn(() => false),
     pause: vi.fn(),
@@ -624,6 +624,13 @@ describe('RdpSessionManager protocol/state behavior', () => {
     currentWorker.emit('exit', 0, null)
     await closing
     expect(emit.mock.calls.some(([channel, value]) => channel === 'rdp:state' && value.errorCode === 'WORKER_CRASHED')).toBe(false)
+  })
+
+  it('contains an asynchronous worker stdin EPIPE during failure cleanup', async () => {
+    await openReady()
+    expect(() => currentWorker.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).not.toThrow()
+    expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({ state: 'failed', errorCode: 'WORKER_CRASHED' }))
+    expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({ state: 'closed' }))
   })
 
   it('freezes strict certificate policy in START and rejects prompts without PromptHost', async () => {
