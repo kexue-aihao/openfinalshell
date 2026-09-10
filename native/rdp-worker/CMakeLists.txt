@@ -4,15 +4,15 @@ project(ofs_rdp_worker LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# FreeRDP is intentionally optional for the protocol/mock worker. Packaging
-# and platform CI can enable this switch when the SDK is available; local
-# builds remain useful without downloading native dependencies.
-option(OFS_RDP_ENABLE_FREERDP "Enable the FreeRDP backend when available" OFF)
+# FreeRDP is enabled by default. Development builds may explicitly disable it,
+# while release/CI builds pass OFS_RDP_REQUIRE_FREERDP=ON to fail closed when
+# the native SDK is unavailable.
+option(OFS_RDP_ENABLE_FREERDP "Enable the FreeRDP backend when available" ON)
 option(OFS_RDP_REQUIRE_FREERDP "Fail configure when the FreeRDP backend cannot be enabled" OFF)
 
 set(OFS_RDP_HAS_FREERDP 0)
 
-add_executable(ofs-rdp-worker main.cpp freerdp_adapter.cpp unicode.cpp file_clipboard.cpp)
+add_executable(ofs-rdp-worker main.cpp freerdp_adapter.cpp unicode.cpp file_clipboard.cpp rdp_clipboard_core.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(ofs-rdp-worker PRIVATE Threads::Threads)
 if (WIN32)
@@ -74,7 +74,7 @@ if (OFS_RDP_ENABLE_FREERDP)
     if (OFS_RDP_REQUIRE_FREERDP)
       message(FATAL_ERROR "OFS_RDP_REQUIRE_FREERDP is ON but FreeRDP core+client 2.x/3.x pkg-config modules or CMake targets were not found")
     endif()
-    message(WARNING "OFS_RDP_ENABLE_FREERDP is ON but FreeRDP core+client 2.x/3.x was not found; building mock worker")
+    message(WARNING "OFS_RDP_ENABLE_FREERDP is ON but FreeRDP core+client 2.x/3.x was not found; building protocol-only worker")
   endif()
 endif()
 
@@ -119,6 +119,9 @@ if (BUILD_TESTING)
   add_executable(ofs-rdp-frame-validation-test test/frame_validation.test.cpp)
   target_include_directories(ofs-rdp-frame-validation-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   add_test(NAME worker_frame_validation COMMAND ofs-rdp-frame-validation-test)
+  add_executable(ofs-rdp-clipboard-core-test test/clipboard_core.test.cpp rdp_clipboard_core.cpp)
+  target_include_directories(ofs-rdp-clipboard-core-test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  add_test(NAME worker_clipboard_core COMMAND ofs-rdp-clipboard-core-test)
   find_program(NODE_EXECUTABLE node)
   if (NODE_EXECUTABLE)
     add_test(

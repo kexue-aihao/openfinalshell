@@ -310,10 +310,13 @@ jobs:
             electron-${{ runner.os }}-${{ matrix.arch }}-
 
       - run: npm ci
-      - name: 禁用尚未移植的 RDP Worker（macOS ${{ matrix.arch }}）
+      - name: 安装 FreeRDP 构建依赖（macOS）
+        if: runner.os == 'macOS'
+        run: brew install freerdp pkg-config
+      - name: 构建并校验 FreeRDP Worker（macOS ${{ matrix.arch }}）
         run: |
-          npm run build:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --package-disabled
-          npm run check:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --expect-absent
+          npm run build:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --require-freerdp
+          npm run check:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --require-freerdp
       - run: npm run build
 
       - name: electron-builder (macOS ${{ matrix.arch }})
@@ -354,7 +357,7 @@ jobs:
           if [ "${{ matrix.arch }}" = "x64" ]; then
             unpacked="release/mac/OpenFinalShell.app"
           fi
-          npm run check:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --app-dir "$unpacked" --expect-absent
+          npm run check:rdp-worker -- --platform mac --arch ${{ matrix.arch }} --app-dir "$unpacked" --require-freerdp
 
       - uses: actions/upload-artifact@v4
         with:
@@ -409,10 +412,10 @@ jobs:
 
       - run: npm ci
 
-      - name: 禁用尚未移植的 RDP Worker（Linux ${{ matrix.arch }}）
+      - name: 构建并校验 FreeRDP Worker（Linux ${{ matrix.arch }}）
         run: |
-          npm run build:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --package-disabled
-          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --expect-absent
+          npm run build:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --require-freerdp
+          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --require-freerdp
 
       # verify job 已执行完整类型、i18n 和测试门禁；本 job 只负责
       # Linux 原生打包、产物校验和安装冒烟，避免每个架构重复跑全量测试。
@@ -426,7 +429,7 @@ jobs:
           if [ "${{ matrix.arch }}" = "x64" ]; then
             unpacked="release/linux-unpacked"
           fi
-          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --app-dir "$unpacked" --expect-absent
+          npm run check:rdp-worker -- --platform linux --arch ${{ matrix.arch }} --app-dir "$unpacked" --require-freerdp
 
       - name: 用 APT 安装并运行打包产物冒烟
         if: matrix.smoke
@@ -489,8 +492,8 @@ jobs:
       - run: npm ci
       - name: 禁用尚未移植的 RDP Worker（Linux x64 Flatpak）
         run: |
-          npm run build:rdp-worker -- --platform linux --arch x64 --package-disabled
-          npm run check:rdp-worker -- --platform linux --arch x64 --expect-absent
+          npm run build:rdp-worker -- --platform linux --arch x64 --require-freerdp
+          npm run check:rdp-worker -- --platform linux --arch x64 --require-freerdp
       - run: npm run build
       - name: electron-builder (flatpak x64)
         env:
@@ -499,7 +502,7 @@ jobs:
         run: npx electron-builder --linux flatpak --x64 --publish never
       - run: npm run check:linux-artifacts -- x64 flatpak
       - name: 断言解包目录不含 mock RDP Worker
-        run: npm run check:rdp-worker -- --platform linux --arch x64 --app-dir release/linux-unpacked --expect-absent
+        run: npm run check:rdp-worker -- --platform linux --arch x64 --app-dir release/linux-unpacked --require-freerdp
 
       - uses: actions/upload-artifact@v4
         with:

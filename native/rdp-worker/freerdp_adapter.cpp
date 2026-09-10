@@ -516,6 +516,7 @@ struct FreeRdpAdapter::Impl {
         const auto* bytes = response->requestedFormatData;
         const auto dataLen = response->common.dataLen;
         self->remoteClipboardFiles.clear();
+ #if defined(_WIN32)
         if (dataLen >= 4) {
           UINT count = 0;
           std::memcpy(&count, bytes, 4);
@@ -582,6 +583,13 @@ struct FreeRdpAdapter::Impl {
           self->pendingClipboardRequests.pop_front();
           if (self->clipboard) self->clipboard(id, {}, false);
         }
+ #else
+        // Native file descriptor decoding is platform-specific.  Keep the
+        // FreeRDP worker buildable on non-Windows while the native provider
+        // is supplied by the platform clipboard backend.
+        (void)bytes;
+        (void)dataLen;
+ #endif
         self->requestRemoteDescriptors();
       }
       return 0;
@@ -654,6 +662,7 @@ struct FreeRdpAdapter::Impl {
     return context->ClientFileContentsResponse(context, &response);
   }
 
+ #if defined(_WIN32)
   static bool fillFileDescriptor(const ClipboardFile& file, FILEDESCRIPTORW& descriptor) {
     descriptor = FILEDESCRIPTORW{};
     if (file.size > 8ull * 1024 * 1024 * 1024 ||
@@ -794,6 +803,20 @@ struct FreeRdpAdapter::Impl {
     if (completed) self->clipboardTransferActive = false;
     return result;
   }
+ #else
+  static UINT serverFileContentsRequestImpl(CliprdrClientContext* context,
+                                            const CLIPRDR_FILE_CONTENTS_REQUEST* request) {
+    // FileGroupDescriptorW/FileContents are currently provided by the native
+    // platform clipboard backends.  Unix workers must return a protocol
+    // failure instead of referencing Win32 descriptor types.
+    if (!context || !context->ClientFileContentsResponse || !request) return 1;
+    CLIPRDR_FILE_CONTENTS_RESPONSE response{};
+    response.common.msgType = CB_FILECONTENTS_RESPONSE;
+    response.common.msgFlags = CB_RESPONSE_FAIL;
+    response.streamId = request->streamId;
+    return context->ClientFileContentsResponse(context, &response);
+  }
+ #endif
 
   static UINT serverFileContentsRequest(CliprdrClientContext* context,
                                         const CLIPRDR_FILE_CONTENTS_REQUEST* request) noexcept {
@@ -1202,7 +1225,9 @@ struct FreeRdpAdapter::Impl {
       emitAudio("unavailable", "AUDIO_DEVICE_UNAVAILABLE");
     }
 #else
-    constexpr bool audioUnavailable = false;
+    // rdpsnd is currently backed by WinMM in this worker.  Do not advertise
+    // audio on Unix until a native backend is actually wired up.
+    constexpr bool audioUnavailable = true;
 #endif
     if (audioUnavailable) {
       // The unavailable event already explains why playback was disabled.
@@ -1664,8 +1689,8 @@ struct FreeRdpAdapter::Impl {
           auto current = std::filesystem::u8path(command.text);
           for (const auto& component : std::filesystem::u8path(utf8Name)) {
             current /= component;
-            const DWORD attrs = GetFileAttributesW(current.c_str());
-            if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) { ok = false; break; }
+            std::error_code linkError;
+            if (std::filesystem::is_symlink(current, linkError) || linkError) { ok = false; break; }
           }
           if (!ok) break;
           std::filesystem::create_directories(entry.directory ? destination : destination.parent_path(), ioError);
@@ -1832,7 +1857,6 @@ struct FreeRdpAdapter::Impl {
       return;
     }
     emitState("ready", nullptr);
-#if defined(_WIN32)
     if (config.clipboard) {
       // Watches the local system clipboard so text copied locally can be
       // mirrored to the remote desktop automatically while the tab is focused.
@@ -1846,7 +1870,6 @@ struct FreeRdpAdapter::Impl {
         enqueueCommand(std::move(command));
       });
     }
-#endif
     bool transportOk = true;
     while (!stopping.load()) {
       processCommands();
