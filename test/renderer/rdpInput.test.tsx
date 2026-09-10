@@ -83,6 +83,31 @@ afterEach(() => {
 })
 
 describe('RdpPane input gating', () => {
+  it('resizes to the current viewport when a hidden tab is activated', () => {
+    const observe = vi.fn(); const disconnect = vi.fn()
+    vi.stubGlobal('ResizeObserver', class {
+      observe = observe
+      disconnect = disconnect
+    })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, width: 1460, height: 1000,
+      right: 1460, bottom: 1000, toJSON: () => ({})
+    })
+    try {
+      const view = render(<AntdApp><RdpPane tab={tab} active={false} /></AntdApp>)
+      expect(invoke.mock.calls.filter(([channel]) => channel === 'rdp:resize')).toHaveLength(0)
+      view.rerender(<AntdApp><RdpPane tab={tab} active /></AntdApp>)
+      expect(invoke).toHaveBeenCalledWith('rdp:resize', {
+        sessionId: 'rdp-1', display: expect.objectContaining({ width: 1460, height: 1000 })
+      })
+      expect(observe).toHaveBeenCalledTimes(1)
+      view.unmount()
+      expect(disconnect).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('sends physical key input only for the active ready tab and releases held keys on blur', () => {
     const canvas = renderPane()
 

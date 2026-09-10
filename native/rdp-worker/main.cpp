@@ -25,9 +25,7 @@
 #define OFS_RDP_HAS_FREERDP 0
 #endif
 
-#if OFS_RDP_HAS_FREERDP
 #include "freerdp_adapter.h"
-#endif
 
 namespace {
 constexpr std::uint32_t kMaxPayload = ofs::rdp::frame::kMaxPayload;
@@ -470,6 +468,7 @@ bool writeJson(std::uint8_t type, std::uint32_t requestId, const std::string& js
 }
 
 void protocolError(std::uint32_t requestId, const char* message) {
+  std::cerr << "[rdp-worker] protocol error request=" << requestId << ": " << message << '\n';
   writeJson(ERROR, requestId, std::string("{\"op\":\"error\",\"code\":\"PROTOCOL_ERROR\",\"message\":\"") + message + "\"}");
 }
 
@@ -1059,7 +1058,6 @@ int main(int argc, char** argv) {
         protocolError(frame.requestId, "invalid clipboard files payload");
         return 2;
       }
-#if OFS_RDP_HAS_FREERDP
       std::vector<FreeRdpAdapter::ClipboardFile> files;
       files.reserve(filesValue->array.size());
       for (const auto& value : filesValue->array) {
@@ -1067,7 +1065,7 @@ int main(int argc, char** argv) {
         std::string name;
         std::uint64_t size = 0;
         bool directory = false;
-        if (!jsonHasOnlyMembers(value, {"path", "name", "size", "directory"}) ||
+        if (!jsonHasUniqueKnownMembers(value, {"path", "name", "size", "directory"}) ||
             (jsonMember(value, "directory") && !jsonBool(value, "directory", directory)) ||
             !jsonString(value, "path", path) || !jsonString(value, "name", name) ||
             !jsonUint64(value, "size", size) || path.empty() || path.size() > 32768 ||
@@ -1077,6 +1075,7 @@ int main(int argc, char** argv) {
         }
         files.push_back({std::move(path), std::move(name), size, directory});
       }
+#if OFS_RDP_HAS_FREERDP
       if (!backend || !backend->clipboardFilesSet(std::move(files))) {
         writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"file clipboard is unavailable"})");
         continue;

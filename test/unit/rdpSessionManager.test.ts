@@ -843,7 +843,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     const requestId = request!.readUInt32LE(12)
     expect(JSON.parse(request!.subarray(16).toString('utf8'))).toEqual(expect.objectContaining({
       op: 'clipboardFilesSet',
-      files: [expect.objectContaining({ name: 'package.json', size: expect.any(Number) })]
+      files: [expect.objectContaining({ name: 'package.json', size: expect.any(Number), directory: false })]
     }))
     let resolved = false
     void announced.then(() => { resolved = true })

@@ -20,6 +20,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -129,6 +130,7 @@ struct FreeRdpAdapter::Impl {
   DispClientContext* disp = nullptr;
   bool connected = false;
   bool displayControlReady = false;
+  std::optional<Display> pendingDisplay;
   std::uint64_t maximumMonitorArea = 0;
   bool certificateRejected = false;
   bool winsockInitialized = false;
@@ -1307,9 +1309,11 @@ struct FreeRdpAdapter::Impl {
     // Display Control is optional on the remote server. A valid resize from
     // the renderer is still acknowledged when that channel is unavailable;
     // the framebuffer remains usable at the negotiated desktop size.
-    if (!disp || !disp->SendMonitorLayout || !displayControlReady) return true;
-    if (!waitForChannel([&] { return disp && disp->SendMonitorLayout && displayControlReady; }))
-      return false;
+    if (!disp || !disp->SendMonitorLayout || !displayControlReady) {
+      pendingDisplay = next;
+      return true;
+    }
+    pendingDisplay.reset();
     if (maximumMonitorArea != 0 &&
         static_cast<std::uint64_t>(next.width) * next.height > maximumMonitorArea)
       return false;
@@ -1325,12 +1329,20 @@ struct FreeRdpAdapter::Impl {
     layout.DeviceScaleFactor = 100;
     const bool sent = disp->SendMonitorLayout(disp, 1, &layout) == 0;
     if (!sent) return false;
-    rdpSettings* settings = instance->context->settings;
-    if (!freerdp_settings_set_uint32(settings, FreeRDP_DesktopWidth, next.width) ||
-        !freerdp_settings_set_uint32(settings, FreeRDP_DesktopHeight, next.height))
-      return false;
+    // Settings describe the server-confirmed desktop. Overwriting them here
+    // makes reactivation see no size change and skip DesktopResize/gdi_resize,
+    // leaving the new desktop clipped to the old framebuffer dimensions.
     config.display = next;
     return true;
+  }
+
+  void flushPendingDisplay() {
+    if (!pendingDisplay || !connected || !displayControlReady || !disp ||
+        !disp->SendMonitorLayout) return;
+    const Display next = *pendingDisplay;
+    pendingDisplay.reset();
+    if (!sendMonitorLayout(next))
+      std::cerr << "[rdp-worker] deferred monitor layout rejected; retaining scaled desktop\n";
   }
 
   template <typename Predicate>
@@ -1838,6 +1850,7 @@ struct FreeRdpAdapter::Impl {
     bool transportOk = true;
     while (!stopping.load()) {
       processCommands();
+      flushPendingDisplay();
       if (stopping.load()) break;
       if (!pumpEvents()) {
         const auto lastError = instance && instance->context ? freerdp_get_last_error(instance->context) : 0;

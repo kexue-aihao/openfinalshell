@@ -619,7 +619,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   useEffect(() => {
     const host = hostRef.current
     const sessionId = tab.sessionId
-    if (!host || !sessionId || tab.state !== 'ready' || typeof ResizeObserver === 'undefined') return
+    if (!host || !sessionId || !active || tab.state !== 'ready' || typeof ResizeObserver === 'undefined') return
     let timer: ReturnType<typeof setTimeout> | undefined
     const resize = (): void => {
       const rect = host.getBoundingClientRect()
@@ -638,7 +638,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     observer.observe(host)
     resize()
     return () => { observer.disconnect(); if (timer) clearTimeout(timer) }
-  }, [tab.sessionId, tab.state])
+  }, [active, tab.sessionId, tab.state])
 
   useEffect(() => {
     const sessionId = tab.sessionId

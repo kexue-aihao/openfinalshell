@@ -1386,7 +1386,7 @@ export class RdpSessionManager {
       if (!stats.isFile() || stats.size > MAX_CLIPBOARD_FILE_BYTES || !Number.isSafeInteger(stats.size)) throw new Error('UNSUPPORTED')
       total += stats.size
       if (total > MAX_CLIPBOARD_TOTAL_BYTES) throw new Error('UNSUPPORTED')
-      files.push({ path: normalized, name, size: stats.size })
+      files.push({ path: normalized, name, size: stats.size, directory: false })
     }
     for (const rawPath of paths) {
       if (typeof rawPath !== 'string') throw new Error('UNSUPPORTED')

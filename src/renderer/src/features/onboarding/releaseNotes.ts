@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.48',
+    items: [{
+      type: 'fix',
+      zh: '修复拖拽普通文件到 RDP 时因目录字段校验不一致导致 Worker 退出的问题；修复窗口尺寸变化后远程画面裁切，并在显示通道就绪和标签切换时重新适配尺寸',
+      en: 'Fix the RDP worker exiting on file drops due to inconsistent validation of the optional directory field; fix desktop clipping after viewport changes and apply pending sizes when display control becomes ready or a tab is activated'
+    }]
+  },
+  {
     version: '0.20.47',
     items: [{
       type: 'fix',

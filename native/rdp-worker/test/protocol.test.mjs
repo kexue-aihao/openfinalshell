@@ -262,6 +262,19 @@ function testUntrustedRequestIds() {
 const workerVersion = detectWorkerVersion();
 if (workerVersion === 'mock') {
   testMainWorkerInteroperability();
+  for (const extra of [{}, { directory: false }, { directory: true }]) {
+    const result = run(Buffer.concat([
+      helloAck(), mainStart(),
+      frame(0x18, 80, JSON.stringify({ op: 'clipboardFilesSet', files: [
+        { path: 'H:\\工具包\\Chrome setup.exe', name: 'Chrome setup.exe', size: 1214008, ...extra }
+      ] })),
+      frame(0x12, 81, JSON.stringify({ op: 'close', reason: 'user' }))
+    ]));
+    assert.equal(result.status, 0, 'file descriptor with optional directory keeps worker alive');
+    assert.equal(result.frames.find(f => f.requestId === 80)?.json.code, 'UNSUPPORTED',
+      'valid descriptor reaches backend, not a protocol failure');
+    assert.ok(result.frames.some(f => f.requestId === 81 && f.json.state === 'closed'));
+  }
   testKeyUnicodeScalarValidation();
 }
 else if (workerVersion === 'freerdp') {

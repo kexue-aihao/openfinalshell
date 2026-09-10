@@ -36,6 +36,36 @@ struct FreeRdpAdapterTestPeer {
     assert(std::string(adapter.connectionErrorCode()) == "AUTH_FAILED");
     connectionError = 0;
     adapter.connected = true;
+    // Sending a layout must not change negotiated settings before the server
+    // reactivation checks them and invokes DesktopResize.
+    context.settings = freerdp_settings_new(0);
+    assert(context.settings);
+    assert(freerdp_settings_set_uint32(context.settings, FreeRDP_DesktopWidth, 1280));
+    assert(freerdp_settings_set_uint32(context.settings, FreeRDP_DesktopHeight, 720));
+    assert(adapter.sendMonitorLayout({1400, 900, 96}));
+    assert(adapter.sendMonitorLayout({1600, 1000, 96}));
+    assert(adapter.pendingDisplay->width == 1600);
+    DispClientContext display{};
+    display.custom = &adapter;
+    unsigned layouts = 0;
+    display.SendMonitorLayout = [](auto* c, UINT32 count, DISPLAY_CONTROL_MONITOR_LAYOUT* layout) -> UINT {
+      auto* calls = static_cast<unsigned*>(c->handle);
+      ++*calls;
+      assert(count == 1 && layout->Width == 1600 && layout->Height == 1000);
+      return 0;
+    };
+    display.handle = &layouts;
+    adapter.disp = &display;
+    assert(Impl::displayControlCaps(&display, 1, 8192, 8192) == 0);
+    adapter.flushPendingDisplay();
+    adapter.flushPendingDisplay();
+    assert(layouts == 1 && !adapter.pendingDisplay);
+    assert(freerdp_settings_get_uint32(context.settings, FreeRDP_DesktopWidth) == 1280);
+    assert(freerdp_settings_get_uint32(context.settings, FreeRDP_DesktopHeight) == 720);
+    freerdp_settings_free(context.settings);
+    context.settings = nullptr;
+    adapter.disp = nullptr;
+    adapter.displayControlReady = false;
     adapter.config.clipboard = true;
     CliprdrClientContext clip{};
     clip.custom = &adapter;
