@@ -763,7 +763,7 @@
       "execTimeout": "远端命令超时（{{seconds}} 秒），已终止"
     },
     "rdp": {
-      "accountLockedOut": "远程 Windows 账户已锁定，正确密码也无法登录。请等待锁定期结束或联系管理员解锁后再重试。",
+      "accountLockedOut": "服务器拒绝认证，账户状态需确认（FreeRDP 0x20018）。请核对服务器安全日志和账户状态后手动重试。",
       "authFailed": "身份验证失败",
       "certificateRejected": "远程桌面证书未被接受",
       "networkError": "远程桌面连接失败",

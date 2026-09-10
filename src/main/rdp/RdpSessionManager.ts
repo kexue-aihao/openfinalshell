@@ -682,7 +682,7 @@ export class RdpSessionManager {
       log.warn(`RDP session ${session.id}: authentication failed for ${this.describeIdentity(session)}; the next attempt will ask for fresh credentials`)
     } else if (explicitCode === 'ACCOUNT_LOCKED_OUT') {
       session.forcePasswordPrompt = false
-      log.warn(`RDP session ${session.id}: remote account locked for ${this.describeIdentity(session)}; further attempts keep failing until the account is unlocked or the lockout expires`)
+      log.warn(`RDP session ${session.id}: server rejected authentication with account status 0x20018 for ${this.describeIdentity(session)}; verify server events; no forced password prompt`)
     }
     this.emitState(session, 'failed', explicitCode)
     void this.beginClose(session, 'failure', false)

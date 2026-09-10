@@ -763,7 +763,7 @@
       "execTimeout": "Remote command timed out ({{seconds}}s), aborted"
     },
     "rdp": {
-      "accountLockedOut": "The remote Windows account is locked. Even the correct password cannot sign in. Wait for the lockout to expire or ask an administrator to unlock it before retrying.",
+      "accountLockedOut": "The server rejected authentication; the account status needs verification (FreeRDP 0x20018). Check the server security logs and account status before retrying manually.",
       "authFailed": "Authentication failed.",
       "certificateRejected": "The certificate was not accepted.",
       "networkError": "The remote desktop connection failed.",

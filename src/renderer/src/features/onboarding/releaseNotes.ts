@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.20.47',
+    items: [{
+      type: 'fix',
+      zh: '修复 RDP 返回 0x20018 后重试反复要求输入密码的问题；保留原始错误码，提示核对服务器账户状态，不再直接断言账户已锁定',
+      en: 'Stop forcing another password prompt when retrying RDP after error 0x20018; retain the error code and ask users to verify the server account status without asserting that the account is locked'
+    }]
+  },
+  {
     version: '0.20.46',
     items: [{
       type: 'fix',

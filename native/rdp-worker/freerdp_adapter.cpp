@@ -1140,7 +1140,10 @@ struct FreeRdpAdapter::Impl {
       case FREERDP_ERROR_CONNECT_ACCOUNT_RESTRICTION:
         return "AUTH_FAILED";
       case FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT:
-        return "AUTH_FAILED";
+        // Keep the server account-status response separate from a bad password.
+        // The UI must not assert lockout without server evidence, but collapsing
+        // this into AUTH_FAILED incorrectly forces another password prompt.
+        return "ACCOUNT_LOCKED_OUT";
       case FREERDP_ERROR_CONNECT_CANCELLED:
         return "CANCELED";
       default:

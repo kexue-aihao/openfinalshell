@@ -5,6 +5,8 @@
 #include <cassert>
 static std::function<void()> queued;
 static unsigned pumps = 0;
+static UINT32 connectionError = 0;
+static UINT32 testLastError(rdpContext*) { return connectionError; }
 static BOOL testCheckEvents(rdpContext*) {
   ++pumps;
   auto next = std::move(queued);
@@ -13,8 +15,10 @@ static BOOL testCheckEvents(rdpContext*) {
   return TRUE;
 }
 #define freerdp_check_event_handles testCheckEvents
+#define freerdp_get_last_error testLastError
 #include "../freerdp_adapter.cpp"
 #undef freerdp_check_event_handles
+#undef freerdp_get_last_error
 
 struct FreeRdpAdapterTestPeer {
   using Impl = FreeRdpAdapter::Impl;
@@ -25,6 +29,12 @@ struct FreeRdpAdapterTestPeer {
     instance.context = &context;
     context.instance = &instance;
     adapter.instance = &instance;
+    connectionError = FREERDP_ERROR_CONNECT_ACCOUNT_LOCKED_OUT;
+    assert(connectionError == 0x20018);
+    assert(std::string(adapter.connectionErrorCode()) == "ACCOUNT_LOCKED_OUT");
+    connectionError = FREERDP_ERROR_CONNECT_WRONG_PASSWORD;
+    assert(std::string(adapter.connectionErrorCode()) == "AUTH_FAILED");
+    connectionError = 0;
     adapter.connected = true;
     adapter.config.clipboard = true;
     CliprdrClientContext clip{};
