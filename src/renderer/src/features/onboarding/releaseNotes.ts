@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.0',
+    items: [{
+      type: 'feat',
+      zh: '里程碑更新：支持嵌入式 RDP 远程桌面、自适应匹配窗口尺寸，以及通过拖拽或手动复制在本地与远程桌面之间传输文件',
+      en: 'Milestone release: support embedded RDP desktops, automatic viewport matching, and file transfer between local and remote desktops by drag-and-drop or manual copy and paste'
+    }]
+  },
+  {
     version: '0.20.48',
     items: [{
       type: 'fix',
