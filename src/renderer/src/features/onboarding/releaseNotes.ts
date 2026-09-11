@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.6',
+    items: [{
+      type: 'fix',
+      zh: '修复发布标签与应用版本不一致导致流水线提前失败的问题',
+      en: 'Fix release pipelines failing early when the release tag and application version do not match'
+    }]
+  },
+  {
     version: '0.30.4',
     items: [{
       type: 'fix',
