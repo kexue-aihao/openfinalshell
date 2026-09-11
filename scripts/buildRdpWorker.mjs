@@ -264,12 +264,11 @@ function vcpkgRoots() {
 }
 
 function pkgConfigRoots() {
-  if (platform !== 'win') return []
   const candidates = []
   const add = (value) => {
     if (value && !candidates.includes(value)) candidates.push(value)
   }
-  for (const module of ['freerdp3', 'freerdp2', 'freerdp-client3', 'freerdp-client2']) {
+  for (const module of ['freerdp3', 'freerdp2', 'freerdp-client3', 'freerdp-client2', 'winpr3', 'winpr2']) {
     const result = spawnSync('pkg-config', ['--variable=prefix', module], { encoding: 'utf8', shell: false })
     if (result.status === 0 && typeof result.stdout === 'string' && result.stdout.trim()) {
       add(resolve(result.stdout.trim()))

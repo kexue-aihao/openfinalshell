@@ -16,6 +16,7 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote[] = [
+  { version: '0.30.7', items: [{ type: 'fix', zh: '修复 Linux 依赖许可证收集和 macOS FreeRDP GDI 链接问题', en: 'Fix Linux dependency license collection and macOS FreeRDP GDI linking' }] },
   {
     version: '0.30.6',
     items: [{
