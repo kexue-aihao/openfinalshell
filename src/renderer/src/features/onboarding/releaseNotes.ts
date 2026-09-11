@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.4',
+    items: [{
+      type: 'fix',
+      zh: '修复跨平台 RDP Worker 编译失败、远程文件首次下载被误判为不安全路径，以及 Linux 发布门禁过期的问题',
+      en: 'Fix cross-platform RDP worker compilation, first-time remote file downloads being rejected as unsafe paths, and stale Linux release gates'
+    }]
+  },
+  {
     version: '0.30.3',
     items: [{
       type: 'fix',

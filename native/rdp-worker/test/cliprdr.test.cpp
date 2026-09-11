@@ -172,6 +172,7 @@ struct FreeRdpAdapterTestPeer {
     // wire indices, including empty folders preceding regular files.
     const auto directory = std::filesystem::temp_directory_path() /
         ("ofs-cliprdr-dir-" + std::to_string(GetCurrentProcessId()));
+    std::filesystem::remove_all(directory);
     assert(std::filesystem::create_directory(directory));
     adapter.remoteClipboardFiles = {{"folder", 0, true}, {"folder\\hello.txt", 5, false}, {"empty", 0, true}};
     clip.ClientFileContentsRequest = [](auto* c, const CLIPRDR_FILE_CONTENTS_REQUEST* request) -> UINT {

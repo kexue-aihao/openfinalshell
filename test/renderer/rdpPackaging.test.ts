@@ -30,7 +30,7 @@ describe('RDP worker packaging', () => {
     expect(releaseWorkflow).toContain('--platform linux --arch ${{ matrix.arch }} --require-freerdp')
     expect(releaseWorkflow).toContain('--platform linux --arch ${{ matrix.arch }} --app-dir "$unpacked" --require-freerdp')
     expect(releaseWorkflow).toContain('--platform linux --arch x64 --app-dir release/linux-unpacked --require-freerdp')
-    expect(releaseWorkflow).toContain('gcc-arm-linux-gnueabihf')
+    expect(releaseWorkflow).not.toContain('gcc-arm-linux-gnueabihf')
     expect(releaseWorkflow).toContain("'release/win-unpacked'")
     expect(releaseWorkflow).toContain('unpacked="release/mac-${{ matrix.arch }}/OpenFinalShell.app"')
     expect(releaseWorkflow).toContain('unpacked="release/mac/OpenFinalShell.app"')

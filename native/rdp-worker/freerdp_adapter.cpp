@@ -166,9 +166,7 @@ struct FreeRdpAdapter::Impl {
   std::atomic_uint32_t lastLocalWriteSeq{0};
   // Set while an automatic remote text pull is in flight (event thread only).
   bool autoTextPullPending = false;
-#if defined(_WIN32)
   std::unique_ptr<ofs::rdp::LocalClipboardMonitor> localClipboardMonitor;
-#endif
   bool audioChannelConnected = false;
   static inline Impl* active = nullptr;
 
@@ -1690,7 +1688,12 @@ struct FreeRdpAdapter::Impl {
           for (const auto& component : std::filesystem::u8path(utf8Name)) {
             current /= component;
             std::error_code linkError;
-            if (std::filesystem::is_symlink(current, linkError) || linkError) { ok = false; break; }
+            const bool link = std::filesystem::is_symlink(current, linkError);
+            if (link) { ok = false; break; }
+            // New destination components normally do not exist yet. That is
+            // expected and must not reject the first download into a folder.
+            if (linkError == std::errc::no_such_file_or_directory) linkError.clear();
+            if (linkError) { ok = false; break; }
           }
           if (!ok) break;
           std::filesystem::create_directories(entry.directory ? destination : destination.parent_path(), ioError);
@@ -1790,12 +1793,10 @@ struct FreeRdpAdapter::Impl {
     cliprdr = nullptr;
     clipboardReady = false;
     disp = nullptr;
-#if defined(_WIN32)
     if (localClipboardMonitor) {
       localClipboardMonitor->stop();
       localClipboardMonitor.reset();
     }
-#endif
     audioChannelConnected = false;
     displayControlReady = false;
     maximumMonitorArea = 0;
