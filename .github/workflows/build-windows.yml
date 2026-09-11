@@ -283,13 +283,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # x64 使用 Intel runner，arm64/universal 使用 Apple Silicon runner。
+          # Build each architecture natively; universal requires merging all dylibs.
           - arch: x64
-            runner: macos-13
+            runner: macos-15-intel
           - arch: arm64
-            runner: macos-14
-          - arch: universal
-            runner: macos-13
+            runner: macos-15
     steps:
       - uses: actions/checkout@v5
 
@@ -324,7 +322,6 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: >-
           npx electron-builder --mac --${{ matrix.arch }} --publish never
-          ${{ matrix.arch == 'universal' && '--config.publish.channel=latest-universal' || '' }}
 
       - name: 断言 macOS 产物
         shell: bash
@@ -566,8 +563,8 @@ jobs:
           | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
           | `*-linux-x86_64.AppImage` / `*-linux-arm64.AppImage` | 通用免安装 Linux 包 |
           | `*-linux-x86_64.flatpak` | x64 Linux 的 Flatpak 安装包 |
-          | `*-x64.dmg` / `*-arm64.dmg` / `*-universal.dmg` | macOS 安装镜像 |
-          | `*-x64.zip` / `*-arm64.zip` / `*-universal.zip` | macOS 免安装压缩包 |
+          | `*-x64.dmg` / `*-arm64.dmg` | macOS 安装镜像 |
+          | `*-x64.zip` / `*-arm64.zip` | macOS 免安装压缩包 |
           | `*-android-*.apk` | Android APK（按 ABI 提供，含 universal 版） |
           | `*-android.aab` | Android App Bundle（用于应用商店发布） |
           | `SHA256SUMS-android.txt` | Android APK/AAB 校验和 |

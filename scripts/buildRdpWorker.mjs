@@ -344,15 +344,22 @@ function copyKnownLicenseFiles() {
       copied.push(join('licenses', targetName).replaceAll('\\', '/'))
     }
   }
-  // Some Homebrew installations expose formula metadata outside the prefix
-  // and Debian packages omit per-library files in minimal images. Keep the
-  // release gate deterministic while retaining an auditable notice.
-  if (copied.length === 0) {
-    const projectLicense = join(root, 'LICENSE')
-    if (existsSync(projectLicense) && statSync(projectLicense).isFile()) {
-      mkdirSync(licenseDir, { recursive: true })
-      copyFileSync(projectLicense, join(licenseDir, 'runtime-build-notice.txt'))
-      copied.push('licenses/runtime-build-notice.txt')
+  // Homebrew stores upstream licenses at each formula keg's root, not in
+  // share/licenses. Collect the actual redistributed dependencies' licenses.
+  if (platform === 'mac') {
+    const deps = spawnSync('brew', ['deps', '--installed', 'freerdp'], { encoding: 'utf8', shell: false })
+    if (deps.status !== 0) throw new Error(`Cannot enumerate Homebrew FreeRDP dependencies: ${deps.stderr}`)
+    for (const formula of new Set(['freerdp', ...deps.stdout.trim().split(/\s+/).filter(Boolean)])) {
+      const prefix = spawnSync('brew', ['--prefix', formula], { encoding: 'utf8', shell: false })
+      if (prefix.status !== 0) throw new Error(`Cannot locate Homebrew formula ${formula}`)
+      const base = prefix.stdout.trim()
+      for (const entry of readdirSync(base, { withFileTypes: true })) {
+        if (!entry.isFile() || !/^(licen[cs]e|copying|copyright|notice)([._-]|$)/i.test(entry.name)) continue
+        mkdirSync(licenseDir, { recursive: true })
+        const name = `${formula.replaceAll('/', '_')}-${entry.name}`
+        copyFileSync(join(base, entry.name), join(licenseDir, name))
+        copied.push(`licenses/${name}`)
+      }
     }
   }
   return [...new Set(copied)].sort((a, b) => a.localeCompare(b))
