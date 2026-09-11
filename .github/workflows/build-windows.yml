@@ -522,8 +522,8 @@ jobs:
           [ "$(count '*.rpm')" -eq 2 ] || { echo "::error::期望 2 个 RPM 包"; exit 1; }
           [ "$(count '*.AppImage')" -eq 2 ] || { echo "::error::期望 2 个 AppImage"; exit 1; }
           [ "$(count '*.flatpak')" -eq 1 ] || { echo "::error::期望 1 个 x64 Flatpak 包"; exit 1; }
-          [ "$(count '*.dmg')" -eq 3 ] || { echo "::error::期望 3 个 macOS DMG"; exit 1; }
-          [ "$(count '*.zip')" -eq 3 ] || { echo "::error::期望 3 个 macOS ZIP"; exit 1; }
+          [ "$(count '*.dmg')" -eq 2 ] || { echo "::error::期望 2 个 macOS DMG（x64、arm64）"; exit 1; }
+          [ "$(count '*.zip')" -eq 2 ] || { echo "::error::期望 2 个 macOS ZIP（x64、arm64）"; exit 1; }
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
           test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
           test -f latest-arm64.yml || { echo "::error::缺 latest-arm64.yml"; exit 1; }

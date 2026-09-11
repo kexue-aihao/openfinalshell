@@ -16,6 +16,7 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote[] = [
+  { version: '0.30.11', items: [{ type: 'fix', zh: '修复发布汇总仍要求已暂停的 macOS universal 安装包，导致全部构建成功后发布失败的问题', en: 'Fix release validation requiring suspended macOS universal packages after all builds succeed' }] },
   { version: '0.30.10', items: [{ type: 'fix', zh: '修复 macOS 原生架构构建和 Homebrew 依赖许可证打包，分别提供 Intel x64 与 Apple Silicon arm64 安装包，暂不提供 universal 包', en: 'Fix native macOS architecture builds and Homebrew dependency license packaging; provide separate Intel x64 and Apple Silicon arm64 installers, with universal packages temporarily unavailable' }] },
   { version: '0.30.9', items: [{ type: 'fix', zh: '修复 macOS 与 Linux RDP Worker 发布门禁', en: 'Fix macOS and Linux RDP worker release gates' }] },
   { version: '0.30.8', items: [{ type: 'fix', zh: '修复多端 RDP 依赖许可证收集和发布构建矩阵问题', en: 'Fix RDP dependency license discovery and release build matrix issues' }] },
