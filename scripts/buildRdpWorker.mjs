@@ -310,7 +310,7 @@ function runtimeNamesFromLdd(executablePath, root) {
 }
 
 function copyKnownLicenseFiles() {
-  const packageNames = ['freerdp', 'winpr', 'openssl', 'zlib', 'libjpeg-turbo', 'libpng', 'openh264']
+  const packageNames = ['freerdp', 'freerdp3', 'freerdp2', 'winpr', 'winpr3', 'winpr2', 'openssl', 'zlib', 'libjpeg-turbo', 'libpng', 'openh264']
   const copied = []
   const licenseDir = join(stageDir, 'licenses')
   const findLicense = (base, name) => {
@@ -318,7 +318,10 @@ function copyKnownLicenseFiles() {
       join(base, 'share', name, 'copyright'),
       join(base, 'share', 'licenses', name, 'LICENSE'),
       join(base, 'share', 'licenses', name, 'LICENSE.md'),
-      join(base, 'share', 'licenses', name, 'COPYING')
+      join(base, 'share', 'licenses', name, 'COPYING'),
+      join(base, 'share', 'doc', name, 'copyright'),
+      join(base, 'share', 'doc', name, 'LICENSE'),
+      join(base, 'share', 'doc', name, 'COPYING')
     ]
     for (const candidate of candidates) {
       if (existsSync(candidate) && statSync(candidate).isFile()) return candidate

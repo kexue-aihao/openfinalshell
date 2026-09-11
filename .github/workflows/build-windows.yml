@@ -285,12 +285,11 @@ jobs:
         include:
           # x64 使用 Intel runner，arm64/universal 使用 Apple Silicon runner。
           - arch: x64
-            # macos-13 runner 已长期排队/不可用；macos-14 可交叉打包 x64。
-            runner: macos-14
+            runner: macos-13
           - arch: arm64
             runner: macos-14
           - arch: universal
-            runner: macos-14
+            runner: macos-13
     steps:
       - uses: actions/checkout@v5
 
