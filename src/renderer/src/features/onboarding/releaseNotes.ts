@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.1',
+    items: [{
+      type: 'fix',
+      zh: '修复多端 FreeRDP Worker 发布门禁和跨平台剪贴板基础构建问题，补充路径安全校验与分块文件读取核心',
+      en: 'Fix cross-platform FreeRDP worker release gates and clipboard foundation builds, and add secure path validation and chunked file reading primitives'
+    }]
+  },
+  {
     version: '0.30.0',
     items: [{
       type: 'feat',
