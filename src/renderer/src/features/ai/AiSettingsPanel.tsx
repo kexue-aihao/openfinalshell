@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, AutoComplete, Button, Card, Input, List, Select, Space, Switch, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Input, List, Select, Space, Switch, Tag, Typography } from 'antd'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ofs } from '@/ipc/api'
 import type { AiModelInfo, AiProviderProfile } from '@shared/types'
@@ -45,6 +45,14 @@ export function AiSettingsPanel(): React.JSX.Element {
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setDiscovering(false) }
   }
   const selectedModelInfo = models.find((item) => item.id === model)
+  const modelOptions = models.map((item) => ({
+    value: item.id,
+    label: <Space size={6}><span>{item.name === item.id ? item.id : `${item.name} (${item.id})`}</span><Tag color={item.input.image === 'yes' ? 'blue' : item.input.image === 'no' ? 'default' : 'gold'}>{item.input.image === 'yes' ? '图片' : item.input.image === 'no' ? '文本' : '能力未知'}</Tag></Space>,
+    searchText: `${item.name} ${item.id}`.toLowerCase()
+  }))
+  if (model && !models.some((item) => item.id === model)) {
+    modelOptions.unshift({ value: model, label: <Space size={6}><span>{model}（当前配置）</span><Tag color="gold">能力未知</Tag></Space>, searchText: model.toLowerCase() })
+  }
   if (!settings) return <></>
   return <Space direction="vertical" style={{ width: '100%' }} size="middle">
     <Card size="small" title="AI 助手总开关" extra={<Switch checked={settings.aiAssistantEnabled} onChange={(v) => patch({ aiAssistantEnabled: v })} />}>
@@ -80,17 +88,26 @@ export function AiSettingsPanel(): React.JSX.Element {
           <span className={styles.label}>Base URL</span>
           <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
         </label>
-        <label className={styles.field}>
-          <span className={styles.label}>模型</span>
-          <AutoComplete
-            value={model}
-            onChange={setModel}
-            options={models.map((item) => ({ value: item.id, label: <Space size={6}><span>{item.name}</span><Tag color={item.input.image === 'yes' ? 'blue' : item.input.image === 'no' ? 'default' : 'gold'}>{item.input.image === 'yes' ? '图片' : item.input.image === 'no' ? '文本' : '能力未知'}</Tag></Space> }))}
-            placeholder="例如：gpt-4o-mini（可手动填写）"
-            filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
-          />
+        <div className={styles.field}>
+          <label htmlFor="ai-settings-model" className={styles.label}>模型</label>
+          {models.length > 0 ? (
+            <Select
+              id="ai-settings-model"
+              value={model || undefined}
+              onChange={setModel}
+              showSearch
+              options={modelOptions}
+              filterOption={(input, option) => String(option?.searchText ?? '').includes(input.toLowerCase())}
+              placeholder="请选择已获取的模型"
+              notFoundContent="没有匹配的模型"
+              style={{ width: '100%' }}
+            />
+          ) : (
+            <Input id="ai-settings-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="例如：gpt-4o-mini（也可手动填写）" />
+          )}
+          {models.length > 0 && <Typography.Text type="secondary" className={styles.modelHint}>已获取 {models.length} 个模型，可下拉选择或搜索，选择后点击“保存配置”。{model && !selectedModelInfo && '当前模型未在返回列表中，仍保留原值。'}</Typography.Text>}
           {selectedModelInfo && <Space size={4} className={styles.capabilities}><Tag color="green">文本输入</Tag><Tag color={selectedModelInfo.input.image === 'yes' ? 'blue' : selectedModelInfo.input.image === 'no' ? 'default' : 'gold'}>{selectedModelInfo.input.image === 'yes' ? '支持图片' : selectedModelInfo.input.image === 'no' ? '不支持图片' : '图片能力未知'}</Tag>{selectedModelInfo.contextWindow && <Tag>{selectedModelInfo.contextWindow.toLocaleString()} 上下文</Tag>}</Space>}
-        </label>
+        </div>
       </div>
       <div className={styles.tokenRow}>
         <label className={`${styles.field} ${styles.tokenField}`}>

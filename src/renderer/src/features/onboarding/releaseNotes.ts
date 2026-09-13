@@ -16,6 +16,7 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote[] = [
+  { version: '0.30.15', items: [{ type: 'fix', zh: '修复已获取模型后仍显示为普通输入框的问题，改为可展开、可搜索的模型下拉选择器', en: 'Fix the model field remaining a plain input after discovery by providing an expandable, searchable model selector' }] },
   { version: '0.30.14', items: [{ type: 'feat', zh: '支持从 API 网关自动获取模型列表并显示文本/图片输入能力，同时支持 AI 图片消息', en: 'Discover models from API gateways with text/image capability indicators and support image messages in the AI assistant' }] },
   { version: '0.30.13', items: [{ type: 'fix', zh: '将 AI 服务配置移至设置栏目，并允许从 SSH 终端直接打开 AI 助手窗口', en: 'Move AI service configuration to Settings and allow opening the AI assistant directly from the SSH terminal' }] },
   { version: '0.30.12', items: [{ type: 'feat', zh: '新增桌面端 AI 助手，支持 OpenAI、DeepSeek 和兼容接口，Token 使用系统安全存储，并支持发送选中的终端文本', en: 'Add a desktop AI assistant with OpenAI, DeepSeek, and compatible APIs, secure token storage, and explicit sharing of selected terminal text' }] },
