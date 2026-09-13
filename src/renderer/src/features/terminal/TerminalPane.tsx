@@ -59,6 +59,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const toggleSftp = useSessionStore((s) => s.toggleSftp)
   const toggleMonitor = useSessionStore((s) => s.toggleMonitor)
   const openAiWithText = useUiStore((s) => s.openAiWithText)
+  const setAiOpen = useUiStore((s) => s.setAiOpen)
   const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === tab.profileId))
 
   const mountRef = useRef<HTMLDivElement>(null)
@@ -412,7 +413,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
           { key: 'clear', label: t('terminal.clear') },
           { key: 'search', label: t('terminal.search') },
           { key: 'history', label: t('terminal.history') },
-          { key: 'ai', label: '发送选中文本到 AI' },
+          { key: 'ai', label: '打开 AI 助手' },
           { type: 'divider' as const },
           { key: 'disconnect', label: t('terminal.disconnect'), danger: true }
         ]
@@ -429,7 +430,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     else if (key === 'clear') bundle.term.clear()
     else if (key === 'search') setSearchOpen(true)
     else if (key === 'history') setHistoryOpen(true)
-    else if (key === 'ai') { const selection = bundle.term.getSelection(); if (selection) openAiWithText(selection) }
+    else if (key === 'ai') { const selection = bundle.term.getSelection(); if (selection) openAiWithText(selection); else setAiOpen(true) }
     else if (key === 'disconnect') void closeTab(tab.id)
   }
 
@@ -471,7 +472,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               onClick={() => setHistoryOpen((v) => !v)}
             />
           </TitlebarSafeTooltip>
-          <TitlebarSafeTooltip title="发送选中文本到 AI">
+          {settings.aiAssistantEnabled && <TitlebarSafeTooltip title="打开 AI 助手（可选中终端文本作为上下文）">
             <Button
               size="small"
               type="text"
@@ -479,9 +480,10 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               onClick={() => {
                 const selection = bundleRef.current?.term.getSelection()
                 if (selection) openAiWithText(selection)
+                else setAiOpen(true)
               }}
             />
-          </TitlebarSafeTooltip>
+          </TitlebarSafeTooltip>}
           <TitlebarSafeTooltip title={t('terminal.clear')}>
             <Button
               size="small"

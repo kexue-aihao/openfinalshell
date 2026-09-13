@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   App as AntdApp,
   Alert,
@@ -34,6 +34,7 @@ import { DonateSection } from '@/features/donate/DonateSection'
 import { ChangelogModal } from '@/features/onboarding/ChangelogModal'
 import { UpdatePanel } from './UpdatePanel'
 import { TerminalPreview } from './TerminalPreview'
+import { AiSettingsPanel } from '@/features/ai/AiSettingsPanel'
 import { SHORTCUTS } from './shortcuts'
 import styles from './SettingsModal.module.css'
 
@@ -47,15 +48,18 @@ type Section =
   | 'lanSync'
   | 'shortcuts'
   | 'about'
+  | 'ai'
 
 export function SettingsModal(): React.JSX.Element {
   const { t } = useTranslation()
   const { message } = AntdApp.useApp()
   const open = useUiStore((s) => s.settingsOpen)
   const setOpen = useUiStore((s) => s.setSettingsOpen)
+  const settingsSection = useUiStore((s) => s.settingsSection)
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
   const [section, setSection] = useState<Section>('general')
+  useEffect(() => { if (settingsSection) setSection(settingsSection as Section) }, [settingsSection])
   const [vaultAvailable, setVaultAvailable] = useState<boolean | null>(null)
   const [versions, setVersions] = useState<Awaited<ReturnType<typeof loadVersions>> | null>(null)
   const [changelogOpen, setChangelogOpen] = useState(false)
@@ -141,6 +145,7 @@ export function SettingsModal(): React.JSX.Element {
             [
               'general',
               'appearance',
+              'ai',
               'terminal',
               'sftp',
               'savedRef',
@@ -153,7 +158,7 @@ export function SettingsModal(): React.JSX.Element {
             key,
             // 代理与私钥那一段的标题住在 savedRef.* 里（整段文案都在那儿），
             // 不为了凑 settings.section_* 的命名再复制一份
-            label: key === 'savedRef' ? t('savedRef.section') : t(`settings.section_${key}`)
+            label: key === 'savedRef' ? t('savedRef.section') : key === 'ai' ? 'AI 助手' : t(`settings.section_${key}`)
           }))}
         />
 
@@ -225,9 +230,6 @@ export function SettingsModal(): React.JSX.Element {
                     onChange={(v) => set('uiZoom', v)}
                   />
                 </div>
-              </Row>
-              <Row label="AI 助手" hint="启用后可使用 OpenAI、DeepSeek 或兼容接口；终端内容仅在你主动发送时提交。">
-                <Switch checked={settings.aiAssistantEnabled} onChange={(v) => set('aiAssistantEnabled', v)} />
               </Row>
               <Row
                 label={t('settings.reduceTransparency')}
@@ -354,6 +356,8 @@ export function SettingsModal(): React.JSX.Element {
               </Row>
             </>
           )}
+
+          {section === 'ai' && <AiSettingsPanel />}
 
           {section === 'sftp' && (
             <>

@@ -6,10 +6,12 @@ interface UiStore {
   settingsOpen: boolean
   aiOpen: boolean
   aiPrefill: string
+  settingsSection?: string
   /** null=关闭；'new'=新建；其余为编辑的 profileId */
   editingProfileId: ProfileId | 'new' | null
   transferDrawerOpen: boolean
   setSettingsOpen: (open: boolean) => void
+  openSettingsSection: (section: string) => void
   setAiOpen: (open: boolean) => void
   openAiWithText: (text: string) => void
   setEditingProfile: (id: ProfileId | 'new' | null) => void
@@ -20,9 +22,11 @@ export const useUiStore = create<UiStore>((set) => ({
   settingsOpen: false,
   aiOpen: false,
   aiPrefill: '',
+  settingsSection: undefined,
   editingProfileId: null,
   transferDrawerOpen: false,
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  openSettingsSection: (settingsSection) => set({ settingsOpen: true, settingsSection }),
   setAiOpen: (aiOpen) => set({ aiOpen }),
   openAiWithText: (aiPrefill) => set({ aiOpen: true, aiPrefill }),
   setEditingProfile: (editingProfileId) => set({ editingProfileId }),

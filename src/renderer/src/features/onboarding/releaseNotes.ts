@@ -16,6 +16,7 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote[] = [
+  { version: '0.30.13', items: [{ type: 'fix', zh: '将 AI 服务配置移至设置栏目，并允许从 SSH 终端直接打开 AI 助手窗口', en: 'Move AI service configuration to Settings and allow opening the AI assistant directly from the SSH terminal' }] },
   { version: '0.30.12', items: [{ type: 'feat', zh: '新增桌面端 AI 助手，支持 OpenAI、DeepSeek 和兼容接口，Token 使用系统安全存储，并支持发送选中的终端文本', en: 'Add a desktop AI assistant with OpenAI, DeepSeek, and compatible APIs, secure token storage, and explicit sharing of selected terminal text' }] },
   { version: '0.30.11', items: [{ type: 'fix', zh: '修复发布汇总仍要求已暂停的 macOS universal 安装包，导致全部构建成功后发布失败的问题', en: 'Fix release validation requiring suspended macOS universal packages after all builds succeed' }] },
   { version: '0.30.10', items: [{ type: 'fix', zh: '修复 macOS 原生架构构建和 Homebrew 依赖许可证打包，分别提供 Intel x64 与 Apple Silicon arm64 安装包，暂不提供 universal 包', en: 'Fix native macOS architecture builds and Homebrew dependency license packaging; provide separate Intel x64 and Apple Silicon arm64 installers, with universal packages temporarily unavailable' }] },
