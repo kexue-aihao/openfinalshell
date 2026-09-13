@@ -46,6 +46,22 @@ export interface AiProviderProfileDraft {
 
 export type AiImageCapability = 'yes' | 'no' | 'unknown'
 
+/** Token is write-only. Draft URL and credential are authoritative for explicit tests. */
+export interface AiModelEndpointDraft {
+  profileId?: string
+  baseUrl?: string
+  token?: string
+}
+
+export interface AiImageCapabilityTestResult {
+  model: string
+  image: AiImageCapability
+  /** Accepted tests confirm request compatibility, not image recognition accuracy. */
+  outcome: 'accepted' | 'unsupported' | 'inconclusive'
+  message: string
+  httpStatus: number
+}
+
 /** Model metadata returned by an OpenAI-compatible GET /models endpoint. */
 export interface AiModelInfo {
   id: string
@@ -54,6 +70,7 @@ export interface AiModelInfo {
   contextWindow?: number
   maxOutputTokens?: number
   input: { text: boolean; image: AiImageCapability }
+  imageSource?: 'metadata' | 'probe'
 }
 
 export type AiMessageContentPart =

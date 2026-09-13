@@ -83,3 +83,11 @@ export function unregisterTerm(termId: TermId): void {
 export function getTerm(termId: TermId): Terminal | undefined {
   return terminals.get(termId)
 }
+
+/** Fill text into a live SSH terminal without submitting it. */
+export function writeToRegisteredTerm(termId: TermId, data: string): boolean {
+  if (!data || !terminals.has(termId)) return false
+  noteProgrammaticWrite(termId)
+  ofs.send('term:input', { termId, data })
+  return true
+}

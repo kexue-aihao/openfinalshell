@@ -1,4 +1,32 @@
 {
+  "aiCapabilities": {
+    "requestAccepted": "Image request accepted",
+    "rejectedLabel": "Image input rejected",
+    "declaredImage": "Images · API declaration",
+    "declaredNoImage": "No images · API declaration",
+    "undeclared": "Images not declared",
+    "unknownHint": "The model list does not declare recognizable image input support. This does not mean the model is unavailable. Use “Test image input” to check this endpoint.",
+    "declaredHint": "Image input support is declared by the model API and has not been tested.",
+    "testButton": "Test image input",
+    "testHint": "“Images not declared” means the API did not provide image input metadata; you can still select the model for chat. The test sends a small built-in image, never your files, and may incur a small API charge. Results last only for this settings session.",
+    "responseTooLarge": "AI response exceeds the size limit",
+    "profileMissing": "AI service profile does not exist",
+    "endpointChanged": "The API address has changed. Enter a token again before testing or fetching models.",
+    "credentialsRequired": "Provide an API address and token",
+    "assistantDisabled": "AI assistant is disabled. Enable it in settings first.",
+    "busy": "Model discovery or testing is already in progress. Try again shortly.",
+    "discoveryTimeout": "Model discovery timed out. Please try again.",
+    "discoveryFailed": "Unable to read the model list. Check the network, API address and response size.",
+    "invalidList": "The AI model list response is not valid JSON",
+    "noModels": "The AI service did not return any available models",
+    "invalidModel": "Invalid model name",
+    "probeTimeout": "Image input test timed out. Please try again.",
+    "probeFailed": "Image input test failed. Check the network, API address and response size.",
+    "acceptedMessage": "Image request accepted: the API accepted the test image and returned an answer. This does not prove the gateway actually processed the image or that all image formats work.",
+    "unsupportedMessage": "The API explicitly rejected image input for the selected model.",
+    "inconclusiveMessage": "Image support could not be determined (HTTP {{status}}). Parameters, image format or response format may be incompatible; the model has not been marked as lacking image support.",
+    "mockMessage": "Browser debug mode does not run real image input tests."
+  },
   "_meta": {
     "machineTranslated": true,
     "base": "en-US"
@@ -987,5 +1015,10 @@
     "incomingFrom": "From {{name}} ({{address}})",
     "applyButton": "Import",
     "rejectButton": "Decline"
+  }
+  ,"aiCommands": {
+    "insertToSsh": "Fill into SSH",
+    "inserted": "Filled into SSH",
+    "terminalUnavailable": "The SSH terminal is no longer available."
   }
 }

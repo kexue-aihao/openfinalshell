@@ -1,11 +1,25 @@
-import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Input, List, Select, Space, Switch, Tag, Typography } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Alert, Button, Card, Input, List, Select, Space, Switch, Tag, Tooltip, Typography } from 'antd'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { ofs } from '@/ipc/api'
-import type { AiModelInfo, AiProviderProfile } from '@shared/types'
+import type { AiImageCapabilityTestResult, AiModelInfo, AiProviderProfile } from '@shared/types'
 import styles from './AiSettingsPanel.module.css'
 
+function ImageCapabilityTag({ info, tested }: { info?: AiModelInfo; tested?: AiImageCapabilityTestResult }): React.JSX.Element {
+  const { t } = useTranslation()
+  if (tested && tested.image !== 'unknown') {
+    return <Tooltip title={tested.message}><Tag color={tested.image === 'yes' ? 'blue' : undefined}>{tested.image === 'yes' ? t('aiCapabilities.requestAccepted') : t('aiCapabilities.rejectedLabel')}</Tag></Tooltip>
+  }
+  const image = info?.input.image ?? 'unknown'
+  const title = image === 'unknown'
+    ? t('aiCapabilities.unknownHint')
+    : t('aiCapabilities.declaredHint')
+  return <Tooltip title={title}><Tag color={image === 'yes' ? 'blue' : undefined}>{image === 'yes' ? t('aiCapabilities.declaredImage') : image === 'no' ? t('aiCapabilities.declaredNoImage') : t('aiCapabilities.undeclared')}</Tag></Tooltip>
+}
+
 export function AiSettingsPanel(): React.JSX.Element {
+  const { t } = useTranslation()
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
   const [profiles, setProfiles] = useState<AiProviderProfile[]>([])
@@ -18,6 +32,20 @@ export function AiSettingsPanel(): React.JSX.Element {
   const [notice, setNotice] = useState('')
   const [models, setModels] = useState<AiModelInfo[]>([])
   const [discovering, setDiscovering] = useState(false)
+  const [testingImage, setTestingImage] = useState(false)
+  const [imageTests, setImageTests] = useState<Record<string, AiImageCapabilityTestResult>>({})
+  const endpointRevision = useRef(0)
+  const probeRevision = useRef(0)
+
+  const invalidateEndpoint = (): void => {
+    endpointRevision.current++; probeRevision.current++
+    setModels([]); setImageTests({}); setDiscovering(false); setTestingImage(false)
+    setError(''); setNotice('')
+  }
+  const chooseModel = (value: string): void => {
+    probeRevision.current++; setTestingImage(false); setModel(value); setError(''); setNotice('')
+  }
+  useEffect(() => () => { endpointRevision.current++; probeRevision.current++ }, [])
 
   const load = (): void => {
     void ofs.invoke('ai:profiles:list').then((items) => {
@@ -27,31 +55,49 @@ export function AiSettingsPanel(): React.JSX.Element {
     }).catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }
   useEffect(load, [])
-  const choose = (id: string): void => { const p = profiles.find((v) => v.id === id); if (!p) return; setSelected(id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken(''); setModels([]); setError(''); setNotice('') }
+  const choose = (id: string): void => { const p = profiles.find((v) => v.id === id); if (!p) return; invalidateEndpoint(); setSelected(id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken('') }
   const save = async (): Promise<void> => {
     try { const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, token: token || undefined }); setProfiles((all) => all.some((v) => v.id === p.id) ? all.map((v) => v.id === p.id ? p : v) : [...all, p]); setSelected(p.id); setToken(''); setNotice('配置已保存'); setError('') } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
-  const create = (): void => { setSelected(undefined); setName('新 AI 服务'); setBaseUrl('https://'); setModel(''); setToken(''); setModels([]); setError(''); setNotice('') }
+  const create = (): void => { invalidateEndpoint(); setSelected(undefined); setName('新 AI 服务'); setBaseUrl('https://'); setModel(''); setToken('') }
   const remove = async (): Promise<void> => { if (!selected || profiles.length < 2) return; await ofs.invoke('ai:profiles:delete', selected); load() }
   const test = async (): Promise<void> => { if (!selected) return; try { await ofs.invoke('ai:connectionTest', { profileId: selected }); setNotice('连接测试成功'); setError('') } catch (e) { setError(e instanceof Error ? e.message : String(e)) } }
   const clear = async (): Promise<void> => { if (!selected) return; try { const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, clearToken: true }); setProfiles((all) => all.map((v) => v.id === p.id ? p : v)); setToken(''); setNotice('Token 已清除') } catch (e) { setError(e instanceof Error ? e.message : String(e)) } }
   const discover = async (): Promise<void> => {
     if (!baseUrl.trim() || (!token.trim() && !profiles.find((p) => p.id === selected)?.hasToken)) { setError('请先填写 API 地址和 Token，再获取模型列表'); return }
+    const revision = ++endpointRevision.current
     setDiscovering(true); setError(''); setNotice('')
     try {
       const result = await ofs.invoke('ai:models:discover', { profileId: selected, baseUrl, token: token || undefined })
+      if (revision !== endpointRevision.current) return
       setModels(result)
       setNotice(`已获取 ${result.length} 个可用模型`)
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) } finally { setDiscovering(false) }
+    } catch (e) { if (revision === endpointRevision.current) setError(e instanceof Error ? e.message : String(e)) } finally { if (revision === endpointRevision.current) setDiscovering(false) }
   }
-  const selectedModelInfo = models.find((item) => item.id === model)
+  const testImage = async (): Promise<void> => {
+    if (!model.trim()) return
+    const revision = ++probeRevision.current
+    setTestingImage(true); setError(''); setNotice('')
+    try {
+      const result = await ofs.invoke('ai:model:capabilityTest', { profileId: selected, baseUrl, token: token || undefined, model })
+      if (revision !== probeRevision.current) return
+      setImageTests((previous) => ({ ...previous, [result.model]: result }))
+    } catch (e) {
+      if (revision === probeRevision.current) setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (revision === probeRevision.current) setTestingImage(false)
+    }
+  }
+  const selectedModelInfo = models.find((item) => item.id === model.trim())
+  const imageTest = imageTests[model.trim()]
   const modelOptions = models.map((item) => ({
     value: item.id,
-    label: <Space size={6}><span>{item.name === item.id ? item.id : `${item.name} (${item.id})`}</span><Tag color={item.input.image === 'yes' ? 'blue' : item.input.image === 'no' ? 'default' : 'gold'}>{item.input.image === 'yes' ? '图片' : item.input.image === 'no' ? '文本' : '能力未知'}</Tag></Space>,
+    label: item.name === item.id ? item.id : `${item.name} (${item.id})`,
+    info: item as AiModelInfo | undefined,
     searchText: `${item.name} ${item.id}`.toLowerCase()
   }))
   if (model && !models.some((item) => item.id === model)) {
-    modelOptions.unshift({ value: model, label: <Space size={6}><span>{model}（当前配置）</span><Tag color="gold">能力未知</Tag></Space>, searchText: model.toLowerCase() })
+    modelOptions.unshift({ value: model, label: `${model}（当前配置）`, info: undefined, searchText: model.toLowerCase() })
   }
   if (!settings) return <></>
   return <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -66,7 +112,7 @@ export function AiSettingsPanel(): React.JSX.Element {
         </div>
         <Space>
           <Button onClick={create}>新建配置</Button>
-          <Button loading={discovering} disabled={!baseUrl.trim()} onClick={() => void discover()}>获取模型</Button>
+          <Button loading={discovering} disabled={!baseUrl.trim() || testingImage} onClick={() => void discover()}>获取模型</Button>
         </Space>
       </div>
       <div className={styles.fieldGrid}>
@@ -86,7 +132,7 @@ export function AiSettingsPanel(): React.JSX.Element {
         </label>
         <label className={`${styles.field} ${styles.wideField}`}>
           <span className={styles.label}>Base URL</span>
-          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.openai.com/v1" />
+          <Input value={baseUrl} onChange={(e) => { invalidateEndpoint(); setBaseUrl(e.target.value) }} placeholder="https://api.openai.com/v1" />
         </label>
         <div className={styles.field}>
           <label htmlFor="ai-settings-model" className={styles.label}>模型</label>
@@ -94,33 +140,39 @@ export function AiSettingsPanel(): React.JSX.Element {
             <Select
               id="ai-settings-model"
               value={model || undefined}
-              onChange={setModel}
+              onChange={chooseModel}
               showSearch
               options={modelOptions}
+              optionRender={(option) => <div className={styles.modelOption}><span>{option.label}</span><ImageCapabilityTag info={option.data.info} tested={imageTests[String(option.value)]} /></div>}
               filterOption={(input, option) => String(option?.searchText ?? '').includes(input.toLowerCase())}
               placeholder="请选择已获取的模型"
               notFoundContent="没有匹配的模型"
               style={{ width: '100%' }}
             />
           ) : (
-            <Input id="ai-settings-model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="例如：gpt-4o-mini（也可手动填写）" />
+            <Input id="ai-settings-model" value={model} onChange={(e) => chooseModel(e.target.value)} placeholder="例如：gpt-4o-mini（也可手动填写）" />
           )}
           {models.length > 0 && <Typography.Text type="secondary" className={styles.modelHint}>已获取 {models.length} 个模型，可下拉选择或搜索，选择后点击“保存配置”。{model && !selectedModelInfo && '当前模型未在返回列表中，仍保留原值。'}</Typography.Text>}
-          {selectedModelInfo && <Space size={4} className={styles.capabilities}><Tag color="green">文本输入</Tag><Tag color={selectedModelInfo.input.image === 'yes' ? 'blue' : selectedModelInfo.input.image === 'no' ? 'default' : 'gold'}>{selectedModelInfo.input.image === 'yes' ? '支持图片' : selectedModelInfo.input.image === 'no' ? '不支持图片' : '图片能力未知'}</Tag>{selectedModelInfo.contextWindow && <Tag>{selectedModelInfo.contextWindow.toLocaleString()} 上下文</Tag>}</Space>}
+          {model && <Space wrap size={4} className={styles.capabilities}><ImageCapabilityTag info={selectedModelInfo} tested={imageTest} />{selectedModelInfo?.contextWindow && <Tag>{selectedModelInfo.contextWindow.toLocaleString()} 上下文</Tag>}</Space>}
         </div>
       </div>
       <div className={styles.tokenRow}>
         <label className={`${styles.field} ${styles.tokenField}`}>
           <span className={styles.label}>API Token</span>
-          <Input.Password value={token} onChange={(e) => setToken(e.target.value)} placeholder="留空表示保持当前 Token" autoComplete="new-password" />
+          <Input.Password value={token} onChange={(e) => { invalidateEndpoint(); setToken(e.target.value) }} placeholder="留空表示保持当前 Token" autoComplete="new-password" />
         </label>
         {selected && profiles.find((p) => p.id === selected)?.hasToken && <Tag color="green" className={styles.tokenStatus}>Token 已保存</Tag>}
       </div>
+      <div className={styles.imageTest}>
+        <Typography.Text type="secondary">{t('aiCapabilities.testHint')}</Typography.Text>
+        <Button loading={testingImage} disabled={discovering || !settings.aiAssistantEnabled || !model.trim() || !baseUrl.trim() || (!token.trim() && !profiles.find((p) => p.id === selected)?.hasToken)} onClick={() => void testImage()}>{t('aiCapabilities.testButton')}</Button>
+        {imageTest && <Alert showIcon type={imageTest.outcome === 'accepted' ? 'success' : 'info'} message={imageTest.message} />}
+      </div>
       <Space wrap className={styles.actions}>
-        <Button type="primary" onClick={() => void save()}>保存配置</Button>
+        <Button type="primary" disabled={discovering || testingImage} onClick={() => void save()}>保存配置</Button>
         <Button onClick={() => void test()} disabled={!selected}>测试连接</Button>
-        <Button onClick={() => void clear()} disabled={!selected || !profiles.find((p) => p.id === selected)?.hasToken}>清除 Token</Button>
-        <Button danger onClick={() => void remove()} disabled={!selected || profiles.length < 2}>删除配置</Button>
+        <Button onClick={() => { invalidateEndpoint(); void clear() }} disabled={discovering || testingImage || !selected || !profiles.find((p) => p.id === selected)?.hasToken}>清除 Token</Button>
+        <Button danger onClick={() => { invalidateEndpoint(); void remove() }} disabled={discovering || testingImage || !selected || profiles.length < 2}>删除配置</Button>
       </Space>
     </section>
     {notice && <Alert type="success" showIcon message={notice} />}

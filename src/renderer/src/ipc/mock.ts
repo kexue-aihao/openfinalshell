@@ -519,6 +519,7 @@ export function createMockOfs(): OfsApi {
       { id: 'gpt-4o-mini', name: 'gpt-4o-mini', ownedBy: 'openai', contextWindow: 128000, input: { text: true, image: 'yes' as const } },
       { id: 'gpt-3.5-turbo', name: 'gpt-3.5-turbo', ownedBy: 'openai', contextWindow: 16384, input: { text: true, image: 'no' as const } }
     ],
+    'ai:model:capabilityTest': (request: never) => ({ model: (request as { model: string }).model, image: 'unknown', outcome: 'inconclusive', message: i18n.t('aiCapabilities.mockMessage'), httpStatus: 0 }),
     'ai:chat': (request: never) => {
       const p = request as { requestId: string }
       setTimeout(() => { emit('ai:delta', { requestId: p.requestId, text: '这是浏览器调试模式的 AI 模拟回答。' }); emit('ai:completed', { requestId: p.requestId }) }, 80)

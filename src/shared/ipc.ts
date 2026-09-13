@@ -10,6 +10,8 @@
 import type {
   AiChatMessage,
   AiModelInfo,
+  AiModelEndpointDraft,
+  AiImageCapabilityTestResult,
   AiProviderProfile,
   AiProviderProfileDraft,
   AppSettings,
@@ -85,7 +87,8 @@ export interface InvokeMap {
   'ai:profiles:save': { args: [AiProviderProfileDraft]; result: AiProviderProfile }
   'ai:profiles:delete': { args: [string]; result: void }
   'ai:connectionTest': { args: [{ profileId: string }]; result: { ok: true; model: string } }
-  'ai:models:discover': { args: [{ profileId?: string; baseUrl?: string; token?: string }]; result: AiModelInfo[] }
+  'ai:models:discover': { args: [AiModelEndpointDraft]; result: AiModelInfo[] }
+  'ai:model:capabilityTest': { args: [AiModelEndpointDraft & { model: string }]; result: AiImageCapabilityTestResult }
   'ai:chat': { args: [{ requestId: string; profileId: string; messages: AiChatMessage[] }]; result: void }
   'ai:cancel': { args: [string]; result: void }
 
@@ -526,6 +529,7 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'ai:profiles:delete': true,
   'ai:connectionTest': true,
   'ai:models:discover': true,
+  'ai:model:capabilityTest': true,
   'ai:chat': true,
   'ai:cancel': true,
   'i18n:bundle': true,

@@ -76,6 +76,27 @@
   font-size: 11px;
 }
 
+.modelOption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.modelOption > span:first-child {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.imageTest {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+
 @media (max-width: 680px) {
   .fieldGrid {
     grid-template-columns: 1fr;

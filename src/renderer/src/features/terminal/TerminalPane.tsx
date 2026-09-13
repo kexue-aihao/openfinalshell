@@ -430,7 +430,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     else if (key === 'clear') bundle.term.clear()
     else if (key === 'search') setSearchOpen(true)
     else if (key === 'history') setHistoryOpen(true)
-    else if (key === 'ai') { const selection = bundle.term.getSelection(); if (selection) openAiWithText(selection); else setAiOpen(true) }
+    else if (key === 'ai') { const selection = bundle.term.getSelection(); if (selection) openAiWithText(selection, termIdRef.current ?? undefined); else setAiOpen(true) }
     else if (key === 'disconnect') void closeTab(tab.id)
   }
 
@@ -479,7 +479,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               icon={<Bot size={14} strokeWidth={1.75} />}
               onClick={() => {
                 const selection = bundleRef.current?.term.getSelection()
-                if (selection) openAiWithText(selection)
+                if (selection) openAiWithText(selection, termIdRef.current ?? undefined)
                 else setAiOpen(true)
               }}
             />

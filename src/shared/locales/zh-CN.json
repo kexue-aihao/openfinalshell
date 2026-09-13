@@ -1,4 +1,32 @@
 {
+  "aiCapabilities": {
+    "requestAccepted": "图片请求通过",
+    "rejectedLabel": "图片输入已拒绝",
+    "declaredImage": "图片·接口声明",
+    "declaredNoImage": "无图片·接口声明",
+    "undeclared": "图片未声明",
+    "unknownHint": "模型列表未提供可识别的图片输入声明，不代表模型不可用。可点击“测试图片输入”检查当前接口。",
+    "declaredHint": "图片输入能力由接口模型列表声明，尚未实测。",
+    "testButton": "测试图片输入",
+    "testHint": "“图片未声明”表示接口没有提供图片输入能力信息，仍可选择模型进行对话。测试只发送内置小图片，不发送你的文件，可能产生少量 API 费用；结果仅保留在当前设置会话。",
+    "responseTooLarge": "AI 响应超过大小限制",
+    "profileMissing": "AI 服务配置不存在",
+    "endpointChanged": "API 地址已更改，请重新填写 Token 后测试或获取模型",
+    "credentialsRequired": "请提供 API 地址和 Token",
+    "assistantDisabled": "AI 助手尚未启用，请先在设置中开启",
+    "busy": "模型查询或检测正在进行，请稍后再试",
+    "discoveryTimeout": "获取模型超时，请重试",
+    "discoveryFailed": "无法读取模型列表，请检查网络、接口地址和响应大小",
+    "invalidList": "AI 模型列表响应不是有效 JSON",
+    "noModels": "AI 服务未返回可用模型",
+    "invalidModel": "模型名称无效",
+    "probeTimeout": "图片输入检测超时，请重试",
+    "probeFailed": "图片输入检测失败，请检查网络、接口地址和响应大小",
+    "acceptedMessage": "图片请求通过：接口已接受测试图片并返回回答；这不保证网关实际识别了图片，也不代表所有图片格式均可用。",
+    "unsupportedMessage": "接口明确拒绝了当前模型的图片输入。",
+    "inconclusiveMessage": "检测未能确定图片能力（HTTP {{status}}），可能是参数、图片格式或响应格式不兼容；未将该模型标记为不支持图片。",
+    "mockMessage": "浏览器调试模式不执行真实图片输入测试。"
+  },
   "app": {
     "name": "OpenFinalShell"
   },
@@ -999,5 +1027,10 @@
     "incomingFrom": "来自 {{name}}（{{address}}）",
     "applyButton": "导入",
     "rejectButton": "拒绝"
+  },
+  "aiCommands": {
+    "insertToSsh": "填入 SSH",
+    "inserted": "已填入 SSH",
+    "terminalUnavailable": "当前 SSH 终端不可用，无法填入命令。"
   }
 }

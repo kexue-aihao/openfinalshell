@@ -1,8 +1,10 @@
 import { net } from 'electron'
 import { emit } from '../ipc/registry'
-import { getAiToken, normalizeAiBaseUrl } from './aiProfiles'
+import { getAiProfile, getAiToken, normalizeAiBaseUrl } from './aiProfiles'
 import { getSettings } from './settings'
-import type { AiChatMessage, AiModelInfo, AiImageCapability, AiProviderProfile } from '@shared/types'
+import { parseAiModels } from './aiModels'
+import { t } from './i18n'
+import type { AiChatMessage, AiModelInfo, AiModelEndpointDraft, AiImageCapabilityTestResult } from '@shared/types'
 
 const MAX_MESSAGES = 64
 const MAX_CONTENT_CHARS = 32_768
@@ -10,8 +12,10 @@ const MAX_RESPONSE_CHARS = 1_000_000
 const REQUEST_TIMEOUT_MS = 120_000
 const MAX_ACTIVE_REQUESTS = 4
 const MAX_MODEL_RESPONSE_BYTES = 4 * 1024 * 1024
-const MAX_MODELS = 2_000
+const MODEL_TEST_TIMEOUT_MS = 30_000
+let activeModelTests = 0
 const active = new Map<string, AbortController>()
+const CAPABILITY_PROBE_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 
 function endpoint(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/chat/completions`
@@ -59,106 +63,72 @@ async function readLimited(response: Response, limit: number): Promise<string> {
   const decoder = new TextDecoder()
   let total = 0
   let output = ''
-  while (true) {
-    const part = await reader.read()
-    if (part.done) break
-    total += part.value.byteLength
-    if (total > limit) throw new Error('AI 模型列表响应过大')
-    output += decoder.decode(part.value, { stream: true })
-  }
-  output += decoder.decode()
-  return output
-}
-
-function numberField(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined
-}
-
-function imageCapability(value: Record<string, unknown>): AiImageCapability {
-  const candidates: unknown[] = [value.input_modalities, value.input, value.modalities]
-  const caps = value.capabilities
-  if (caps && typeof caps === 'object') {
-    const record = caps as Record<string, unknown>
-    candidates.push(record.input, record.input_modalities, record.modalities)
-    if (record.vision === true || record.image === true) return 'yes'
-    if (record.vision === false || record.image === false) return 'no'
-  }
-  if (value.vision === true || value.supports_vision === true || value.image === true) return 'yes'
-  if (value.vision === false || value.supports_vision === false || value.image === false) return 'no'
-  for (const candidate of candidates) {
-    if (!Array.isArray(candidate)) continue
-    const values = candidate.filter((item): item is string => typeof item === 'string').map((item) => item.toLowerCase())
-    if (values.some((item) => item === 'image' || item === 'images' || item === 'vision')) return 'yes'
-    if (values.length > 0 && values.every((item) => item === 'text')) return 'no'
-  }
-  return 'unknown'
-}
-
-function parseModel(value: unknown, fallbackId?: string): AiModelInfo | undefined {
-  if (!value || typeof value !== 'object') return undefined
-  const row = value as Record<string, unknown>
-  const id = typeof row.id === 'string' && row.id.trim() ? row.id.trim() : fallbackId
-  if (!id) return undefined
-  return {
-    id,
-    name: (typeof row.name === 'string' && row.name.trim() ? row.name : typeof row.display_name === 'string' && row.display_name.trim() ? row.display_name : id).trim(),
-    ...(typeof row.owned_by === 'string' && row.owned_by ? { ownedBy: row.owned_by } : {}),
-    ...(numberField(row.context_window ?? row.contextWindow ?? row.max_input_tokens) ? { contextWindow: numberField(row.context_window ?? row.contextWindow ?? row.max_input_tokens) } : {}),
-    ...(numberField(row.max_output_tokens ?? row.maxOutputTokens ?? row.max_tokens) ? { maxOutputTokens: numberField(row.max_output_tokens ?? row.maxOutputTokens ?? row.max_tokens) } : {}),
-    input: { text: true, image: imageCapability(row) }
-  }
-}
-
-/** Parses standard OpenAI data arrays and DeepSeek Harness enriched model maps. */
-export function parseAiModels(payload: unknown): AiModelInfo[] {
-  if (!payload || typeof payload !== 'object') return []
-  const root = payload as Record<string, unknown>
-  const out: AiModelInfo[] = []
-  if (Array.isArray(root.data)) {
-    for (const entry of root.data) {
-      const model = parseModel(entry)
-      if (model) out.push(model)
-    }
-  } else if (root.models && typeof root.models === 'object' && !Array.isArray(root.models)) {
-    for (const [id, entry] of Object.entries(root.models as Record<string, unknown>)) {
-      const model = parseModel(entry, id)
-      if (model) out.push(model)
-    }
-  }
-  const seen = new Set<string>()
-  return out.filter((model) => !seen.has(model.id) && seen.add(model.id)).slice(0, MAX_MODELS)
-}
-
-export async function discoverAiModels(input: { profileId?: string; baseUrl?: string; token?: string }): Promise<AiModelInfo[]> {
-  if (!getSettings().aiAssistantEnabled) throw new Error('AI 助手尚未启用，请先在设置中开启')
-  let profile: AiProviderProfile | undefined
-  let token = input.token?.trim() ?? ''
-  if (input.profileId) {
-    const resolved = getAiToken(input.profileId)
-    profile = resolved.profile
-    if (!token) token = resolved.token
-  }
-  if (input.baseUrl) {
-    const baseUrl = normalizeAiBaseUrl(input.baseUrl)
-    profile = profile ? { ...profile, baseUrl } : { id: 'draft', name: 'draft', baseUrl, model: '', enabled: true, hasToken: Boolean(token), createdAt: 0, updatedAt: 0 }
-  }
-  if (!profile || !token) throw new Error('请提供 API 地址和 Token')
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const response = await net.fetch(`${profile.baseUrl.replace(/\/+$/, '')}/models`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-      signal: controller.signal
-    })
-    if (!response.ok) throw new Error(errorForStatus(response.status))
-    let parsed: unknown
-    try { parsed = JSON.parse(await readLimited(response, MAX_MODEL_RESPONSE_BYTES)) as unknown } catch { throw new Error('AI 模型列表响应不是有效 JSON') }
-    const models = parseAiModels(parsed)
-    if (models.length === 0) throw new Error('AI 服务未返回可用模型')
-    return models
+    if (Number(response.headers.get('content-length')) > limit) throw new Error(t('aiCapabilities.responseTooLarge'))
+    while (true) {
+      const part = await reader.read()
+      if (part.done) break
+      total += part.value.byteLength
+      if (total > limit) throw new Error(t('aiCapabilities.responseTooLarge'))
+      output += decoder.decode(part.value, { stream: true })
+    }
+    return output + decoder.decode()
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+}
+
+function resolveModelEndpoint(input: AiModelEndpointDraft): { baseUrl: string; token: string } {
+  const profile = input.profileId ? getAiProfile(input.profileId) : undefined
+  if (input.profileId && !profile) throw new Error(t('aiCapabilities.profileMissing'))
+  const baseUrl = normalizeAiBaseUrl(input.baseUrl ?? profile?.baseUrl ?? '')
+  const typedToken = input.token?.trim()
+  // A saved credential must not be forwarded to a newly typed endpoint.
+  if (!typedToken && profile && normalizeAiBaseUrl(profile.baseUrl) !== baseUrl) {
+    throw new Error(t('aiCapabilities.endpointChanged'))
+  }
+  const token = typedToken || (profile ? getAiToken(profile.id).token : '')
+  if (!token) throw new Error(t('aiCapabilities.credentialsRequired'))
+  return { baseUrl, token }
+}
+
+/** Keep timeout/concurrency guards alive until the entire body has been consumed. */
+async function withModelTest<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  if (!getSettings().aiAssistantEnabled) throw new Error(t('aiCapabilities.assistantDisabled'))
+  if (activeModelTests >= 2) throw new Error(t('aiCapabilities.busy'))
+  activeModelTests++
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), MODEL_TEST_TIMEOUT_MS)
+  try {
+    return await fn(controller.signal)
   } finally {
     clearTimeout(timer)
+    activeModelTests--
   }
+}
+
+export async function discoverAiModels(input: AiModelEndpointDraft): Promise<AiModelInfo[]> {
+  return withModelTest(async (signal) => {
+    const { baseUrl, token } = resolveModelEndpoint(input)
+    let response: Response
+    let body: string
+    try {
+      response = await net.fetch(`${baseUrl}/models`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        signal, redirect: 'error'
+      })
+      body = await readLimited(response, MAX_MODEL_RESPONSE_BYTES)
+    } catch {
+      throw new Error(signal.aborted ? t('aiCapabilities.discoveryTimeout') : t('aiCapabilities.discoveryFailed'))
+    }
+    if (!response.ok) throw new Error(`${errorForStatus(response.status)}（HTTP ${response.status}）`)
+    let parsed: unknown
+    try { parsed = JSON.parse(body) as unknown } catch { throw new Error(t('aiCapabilities.invalidList')) }
+    const models = parseAiModels(parsed)
+    if (models.length === 0) throw new Error(t('aiCapabilities.noModels'))
+    return models
+  })
 }
 
 async function request(profileId: string, messages: AiChatMessage[], stream: boolean, signal: AbortSignal): Promise<Response> {
@@ -178,6 +148,52 @@ async function request(profileId: string, messages: AiChatMessage[], stream: boo
     clearTimeout(timer)
     signal.removeEventListener('abort', onAbort)
   }
+}
+
+/** Explicit user action: tests image request compatibility, not whether a gateway really decoded it. */
+export async function testAiImageCapability(input: AiModelEndpointDraft & { model: string }): Promise<AiImageCapabilityTestResult> {
+  const model = input.model.trim()
+  if (!model || model.length > 200) throw new Error(t('aiCapabilities.invalidModel'))
+  return withModelTest(async (signal) => {
+    const { baseUrl, token } = resolveModelEndpoint(input)
+    let response: Response
+    let body: string
+    try {
+      response = await net.fetch(endpoint(baseUrl), {
+        method: 'POST', signal, redirect: 'error',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          model, stream: false, max_tokens: 64,
+          messages: [{ role: 'user', content: [
+            { type: 'text', text: 'Describe the attached test image in a few words.' },
+            { type: 'image_url', image_url: { url: CAPABILITY_PROBE_PNG, detail: 'low' } }
+          ] }]
+        })
+      })
+      body = await readLimited(response, 64 * 1024)
+    } catch {
+      // Never expose fetch exceptions or raw provider bodies, which may echo credentials.
+      throw new Error(signal.aborted ? t('aiCapabilities.probeTimeout') : t('aiCapabilities.probeFailed'))
+    }
+    const base = { model, httpStatus: response.status }
+    if ([401, 403, 404, 429].includes(response.status) || response.status >= 500) {
+      throw new Error(`${errorForStatus(response.status)}（HTTP ${response.status}）`)
+    }
+    let data: { error?: { code?: unknown; message?: unknown }; choices?: Array<{ message?: { content?: unknown } }> } | undefined
+    try { data = JSON.parse(body) } catch { /* An HTML success page is not a successful model response. */ }
+    const content = data?.choices?.[0]?.message?.content
+    if (response.ok && !data?.error && typeof content === 'string' && content.trim()) {
+      return { ...base, image: 'yes', outcome: 'accepted', message: t('aiCapabilities.acceptedMessage') }
+    }
+    const code = data?.error?.code
+    const message = typeof data?.error?.message === 'string' ? data.error.message.slice(0, 4000) : ''
+    const unsupported = ['image_input_not_supported', 'unsupported_image_input', 'vision_not_supported'].includes(String(code)) ||
+      /(?:model[^.\n]{0,100}(?:does not|doesn't|cannot|can't) support (?:image|vision|multimodal)|image_url is only supported by certain models|(?:该|当前|此)模型不支持(?:图片|图像|视觉|多模态))/.test(message.toLowerCase())
+    if ([400, 415, 422].includes(response.status) && unsupported) {
+      return { ...base, image: 'no', outcome: 'unsupported', message: t('aiCapabilities.unsupportedMessage') }
+    }
+    return { ...base, image: 'unknown', outcome: 'inconclusive', message: t('aiCapabilities.inconclusiveMessage', { status: response.status }) }
+  })
 }
 
 async function assertResponse(response: Response): Promise<void> {
