@@ -1,0 +1,92 @@
+.editor {
+  padding: 16px;
+  border: 1px solid var(--ofs-border);
+  border-radius: var(--ofs-radius-m);
+  background: color-mix(in srgb, var(--ofs-solid-surface) 72%, transparent);
+}
+
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--ofs-border);
+}
+
+.editorHint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 16px;
+  margin-top: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ofs-text-1);
+  font-size: 12px;
+}
+
+.label {
+  color: var(--ofs-text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wideField {
+  grid-column: span 1;
+}
+
+.tokenRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.tokenField {
+  flex: 1;
+}
+
+.tokenStatus {
+  margin-bottom: 6px;
+  white-space: nowrap;
+}
+
+.actions {
+  margin-top: 16px;
+}
+
+.capabilities {
+  margin-top: 4px;
+}
+
+@media (max-width: 680px) {
+  .fieldGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .wideField {
+    grid-column: auto;
+  }
+
+  .tokenRow {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tokenStatus {
+    align-self: flex-start;
+    margin-bottom: 0;
+  }
+}

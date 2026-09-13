@@ -44,9 +44,25 @@ export interface AiProviderProfileDraft {
   clearToken?: boolean
 }
 
+export type AiImageCapability = 'yes' | 'no' | 'unknown'
+
+/** Model metadata returned by an OpenAI-compatible GET /models endpoint. */
+export interface AiModelInfo {
+  id: string
+  name: string
+  ownedBy?: string
+  contextWindow?: number
+  maxOutputTokens?: number
+  input: { text: boolean; image: AiImageCapability }
+}
+
+export type AiMessageContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
+
 export interface AiChatMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | AiMessageContentPart[]
 }
 
 export interface AiChatRequest {
