@@ -1,4 +1,12 @@
 {
+  "aiConnectionTest": {
+    "button": "Test connection",
+    "success": "Connection test successful · {{latencyMs}} ms",
+    "hint": "Tests the saved configuration. Time includes network transfer and model processing through the complete response.",
+    "saveFirst": "Save the updated API address, model or token before testing the connection.",
+    "timeout": "Connection test timed out. Please try again.",
+    "failed": "Connection test failed. Check the network, API address and response size."
+  },
   "aiCapabilities": {
     "requestAccepted": "Image request accepted",
     "rejectedLabel": "Image input rejected",
@@ -162,7 +170,25 @@
     "noIface": "집계 가능한 네트워크 인터페이스를 찾을 수 없습니다"
   },
   "portTraffic": {
-    "tab": "Port traffic", "open": "View port traffic", "title": "Live port traffic", "updated": "Updated {{time}}", "totalConnections": "{{count}} connections", "port": "Local port", "connections": "Connections", "receive": "Receive", "send": "Send", "status": "Status", "active": "Active", "idle": "Idle", "countersUnavailable": "Rate unavailable", "collecting": "Collecting port traffic…", "empty": "No readable active TCP ports", "unsupported": "This server has no usable ss command, so TCP port traffic is unavailable", "failed": "Port traffic collection failed", "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples.", "noteCountersUnavailable": "Active TCP ports and connection counts are shown, but this server does not provide complete bidirectional byte counters."
+    "tab": "Port traffic",
+    "open": "View port traffic",
+    "title": "Live port traffic",
+    "updated": "Updated {{time}}",
+    "totalConnections": "{{count}} connections",
+    "port": "Local port",
+    "connections": "Connections",
+    "receive": "Receive",
+    "send": "Send",
+    "status": "Status",
+    "active": "Active",
+    "idle": "Idle",
+    "countersUnavailable": "Rate unavailable",
+    "collecting": "Collecting port traffic…",
+    "empty": "No readable active TCP ports",
+    "unsupported": "This server has no usable ss command, so TCP port traffic is unavailable",
+    "failed": "Port traffic collection failed",
+    "note": "Only active TCP connections visible to the current server user are shown. Rates are estimated from consecutive kernel byte-counter samples.",
+    "noteCountersUnavailable": "Active TCP ports and connection counts are shown, but this server does not provide complete bidirectional byte counters."
   },
   "sftp": {
     "waitingSession": "세션을 기다리는 중…",
@@ -481,8 +507,6 @@
     "clipboardDownloadFailedWith": "파일 다운로드 실패: {{error}}",
     "clipboardRemoteFilesReady": "원격 클립보드: {{count}}개 파일",
     "clipboardPickFolder": "다운로드 폴더 선택",
-    "rdpSystemFallback": "시스템 원격 데스크톱 사용",
-    "rdpSystemFallbackLaunched": "시스템 원격 데스크톱에서 열림",
     "proxy": "프록시",
     "proxyType": "프록시 유형",
     "proxyNone": "직접 연결",
@@ -1015,10 +1039,41 @@
     "incomingFrom": "From {{name}} ({{address}})",
     "applyButton": "Import",
     "rejectButton": "Decline"
-  }
-  ,"aiCommands": {
+  },
+  "aiCommands": {
     "insertToSsh": "Fill into SSH",
     "inserted": "Filled into SSH",
-    "terminalUnavailable": "The SSH terminal is no longer available."
+    "terminalUnavailable": "The SSH terminal is no longer available.",
+    "targetSsh": "Target SSH",
+    "selectSsh": "Select an SSH terminal",
+    "waitForCompletion": "Wait until generation finishes",
+    "multilineUnsupported": "Multiline fill is unavailable for this terminal; use line buttons.",
+    "commandTooLong": "Command is too long.",
+    "controlCharacters": "Command contains unsupported control characters.",
+    "emptyCommand": "Command is empty.",
+    "manualEnter": "The command is filled only; press Enter manually.",
+    "copy": "Copy",
+    "copyBlock": "Copy block",
+    "insertBlock": "Fill block",
+    "copied": "Copied",
+    "copyFailed": "Copy failed",
+    "code": "code",
+    "addImage": "Add image",
+    "removeImage": "Remove image",
+    "imageOnly": "Please choose an image file.",
+    "imageTooLarge": "Image must be no larger than 8 MB.",
+    "imageUnsupported": "Unsupported image format.",
+    "imageReadFailed": "Failed to read image."
+  },
+  "aiAssistant": {
+    "title": "AI Assistant",
+    "profile": "Service profile",
+    "chooseProfile": "Select a saved profile",
+    "openSettings": "AI settings",
+    "answer": "AI answer",
+    "inputPlaceholder": "Ask a question; terminal text is sent only when you choose it",
+    "send": "Send",
+    "stop": "Stop generating",
+    "clear": "Clear answer"
   }
 }

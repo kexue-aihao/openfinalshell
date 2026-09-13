@@ -16,6 +16,7 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote[] = [
+  { version: '0.30.17', items: [{ type: 'fix', zh: '修复 AI 回答中的命令操作：新增复制按钮、SSH 目标选择和安全填入，避免命令重复显示', en: 'Fix AI answer command actions with copy buttons, SSH target selection, safe filling, and no duplicate command display' }] },
   { version: '0.30.16', items: [{ type: 'feat', zh: 'AI 助手支持图片能力检测，并可将回答中的命令手动填入当前 SSH 终端', en: 'Add AI image capability testing and let users manually fill commands from answers into the current SSH terminal' }] },
   { version: '0.30.15', items: [{ type: 'fix', zh: '修复已获取模型后仍显示为普通输入框的问题，改为可展开、可搜索的模型下拉选择器', en: 'Fix the model field remaining a plain input after discovery by providing an expandable, searchable model selector' }] },
   { version: '0.30.14', items: [{ type: 'feat', zh: '支持从 API 网关自动获取模型列表并显示文本/图片输入能力，同时支持 AI 图片消息', en: 'Discover models from API gateways with text/image capability indicators and support image messages in the AI assistant' }] },

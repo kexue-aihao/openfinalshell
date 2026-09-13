@@ -7,7 +7,7 @@ vi.mock('../../src/main/services/aiProfiles', async (original) => ({
   ...await original<typeof import('../../src/main/services/aiProfiles')>(), getAiProfile: mocks.profile, getAiToken: mocks.token
 }))
 vi.mock('../../src/main/services/settings', () => ({ getSettings: () => ({ aiAssistantEnabled: true, language: 'zh-CN' }) }))
-import { discoverAiModels, testAiImageCapability } from '../../src/main/services/aiService'
+import { discoverAiModels, testAiConnection, testAiImageCapability } from '../../src/main/services/aiService'
 
 const profile: AiProviderProfile = { id: 'saved', name: 'saved', baseUrl: 'https://api.deepseek.com/v1', model: 'old-model', enabled: true, hasToken: true, createdAt: 1, updatedAt: 1 }
 const draft = { profileId: profile.id, model: 'selected-model' }
@@ -21,6 +21,45 @@ beforeEach(() => {
   mocks.fetch.mockImplementation(async () => json(success))
 })
 afterEach(() => vi.useRealTimers())
+
+describe('connection test response time', () => {
+  it('measures the complete response rather than just headers, without returning credentials or content', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+    let body!: ReadableStreamDefaultController<Uint8Array>
+    mocks.fetch.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 125))
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { body = controller } }))
+    })
+    let completed = false
+    const pending = testAiConnection(profile.id).then((value) => { completed = true; return value })
+    await vi.advanceTimersByTimeAsync(125)
+    expect(completed).toBe(false)
+    await vi.advanceTimersByTimeAsync(203)
+    body.enqueue(new TextEncoder().encode(JSON.stringify(success)))
+    body.close()
+    expect(await pending).toEqual({ ok: true, model: profile.model, latencyMs: 328 })
+    expect(mocks.fetch.mock.calls[0][0]).toBe(`${profile.baseUrl}/chat/completions`)
+  })
+
+  it('clears a stalled body on timeout and allows another connection test', async () => {
+    vi.useFakeTimers()
+    mocks.fetch.mockImplementation(async (_url: string, init: RequestInit) => new Response(new ReadableStream({
+      start(controller) { init.signal!.addEventListener('abort', () => controller.error(new Error('aborted'))) }
+    })))
+    const pending = expect(testAiConnection(profile.id)).rejects.toThrow('连接测试超时')
+    await vi.advanceTimersByTimeAsync(30000)
+    await pending
+    mocks.fetch.mockResolvedValue(json(success))
+    expect(await testAiConnection(profile.id)).toMatchObject({ ok: true, latencyMs: expect.any(Number) })
+  })
+
+  it('does not report a successful latency on HTTP or network failure', async () => {
+    mocks.fetch.mockResolvedValueOnce(json({ error: { message: 'saved-test-secret' } }, 401))
+    await expect(testAiConnection(profile.id)).rejects.toThrow('AI Token 无效或已过期')
+    mocks.fetch.mockRejectedValueOnce(new Error('saved-test-secret'))
+    await expect(testAiConnection(profile.id)).rejects.toThrow('连接测试失败，请检查网络、接口地址和响应大小。')
+  })
+})
 
 describe('explicit image input request test', () => {
   it('uses the selected draft model, bounds output, and returns no credentials or provider content', async () => {

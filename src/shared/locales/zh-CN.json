@@ -1,4 +1,12 @@
 {
+  "aiConnectionTest": {
+    "button": "测试连接",
+    "success": "连接测试成功 · 耗时 {{latencyMs}} ms",
+    "hint": "测试已保存的配置。耗时包含网络传输和模型处理，直到完整收到响应。",
+    "saveFirst": "API 地址、模型或 Token 已修改，请保存配置后再测试连接。",
+    "timeout": "连接测试超时，请重试。",
+    "failed": "连接测试失败，请检查网络、接口地址和响应大小。"
+  },
   "aiCapabilities": {
     "requestAccepted": "图片请求通过",
     "rejectedLabel": "图片输入已拒绝",
@@ -1031,6 +1039,37 @@
   "aiCommands": {
     "insertToSsh": "填入 SSH",
     "inserted": "已填入 SSH",
-    "terminalUnavailable": "当前 SSH 终端不可用，无法填入命令。"
+    "terminalUnavailable": "当前 SSH 终端不可用，无法填入命令。",
+    "targetSsh": "目标 SSH",
+    "selectSsh": "选择 SSH 终端",
+    "waitForCompletion": "请等待回答生成完成",
+    "multilineUnsupported": "当前终端不支持整段多行填入，请逐行操作。",
+    "commandTooLong": "命令过长。",
+    "controlCharacters": "命令包含不支持的控制字符。",
+    "emptyCommand": "命令为空。",
+    "manualEnter": "命令仅填入输入行，请手动按回车执行。",
+    "copy": "复制",
+    "copyBlock": "复制整段",
+    "insertBlock": "填入整段",
+    "copied": "已复制",
+    "copyFailed": "复制失败",
+    "code": "代码",
+    "addImage": "添加图片",
+    "removeImage": "移除图片",
+    "imageOnly": "请选择图片文件。",
+    "imageTooLarge": "图片不能超过 8 MB。",
+    "imageUnsupported": "图片格式不受支持。",
+    "imageReadFailed": "读取图片失败。"
+  },
+  "aiAssistant": {
+    "title": "AI 助手",
+    "profile": "服务配置",
+    "chooseProfile": "请选择已保存的配置",
+    "openSettings": "AI 设置",
+    "answer": "AI 回答",
+    "inputPlaceholder": "输入问题；终端文本只有在你主动选择后才会发送",
+    "send": "发送",
+    "stop": "停止生成",
+    "clear": "清空回答"
   }
 }

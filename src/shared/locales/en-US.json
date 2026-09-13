@@ -1,4 +1,12 @@
 {
+  "aiConnectionTest": {
+    "button": "Test connection",
+    "success": "Connection test successful · {{latencyMs}} ms",
+    "hint": "Tests the saved configuration. Time includes network transfer and model processing through the complete response.",
+    "saveFirst": "Save the updated API address, model or token before testing the connection.",
+    "timeout": "Connection test timed out. Please try again.",
+    "failed": "Connection test failed. Check the network, API address and response size."
+  },
   "aiCapabilities": {
     "requestAccepted": "Image request accepted",
     "rejectedLabel": "Image input rejected",
@@ -1031,6 +1039,37 @@
   "aiCommands": {
     "insertToSsh": "Fill into SSH",
     "inserted": "Filled into SSH",
-    "terminalUnavailable": "The SSH terminal is no longer available."
+    "terminalUnavailable": "The SSH terminal is no longer available.",
+    "targetSsh": "Target SSH",
+    "selectSsh": "Select an SSH terminal",
+    "waitForCompletion": "Wait until generation finishes",
+    "multilineUnsupported": "Multiline fill is unavailable for this terminal; use line buttons.",
+    "commandTooLong": "Command is too long.",
+    "controlCharacters": "Command contains unsupported control characters.",
+    "emptyCommand": "Command is empty.",
+    "manualEnter": "The command is filled only; press Enter manually.",
+    "copy": "Copy",
+    "copyBlock": "Copy block",
+    "insertBlock": "Fill block",
+    "copied": "Copied",
+    "copyFailed": "Copy failed",
+    "code": "code",
+    "addImage": "Add image",
+    "removeImage": "Remove image",
+    "imageOnly": "Please choose an image file.",
+    "imageTooLarge": "Image must be no larger than 8 MB.",
+    "imageUnsupported": "Unsupported image format.",
+    "imageReadFailed": "Failed to read image."
+  },
+  "aiAssistant": {
+    "title": "AI Assistant",
+    "profile": "Service profile",
+    "chooseProfile": "Select a saved profile",
+    "openSettings": "AI settings",
+    "answer": "AI answer",
+    "inputPlaceholder": "Ask a question; terminal text is sent only when you choose it",
+    "send": "Send",
+    "stop": "Stop generating",
+    "clear": "Clear answer"
   }
 }

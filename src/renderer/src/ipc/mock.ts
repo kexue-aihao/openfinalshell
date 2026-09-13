@@ -514,7 +514,7 @@ export function createMockOfs(): OfsApi {
       enabled: true, hasToken: Boolean((draft as { token?: string }).token), createdAt: 1, updatedAt: Date.now()
     }),
     'ai:profiles:delete': () => undefined,
-    'ai:connectionTest': () => ({ ok: true, model: 'gpt-4o-mini' }),
+    'ai:connectionTest': () => ({ ok: true, model: 'gpt-4o-mini', latencyMs: 0 }),
     'ai:models:discover': () => [
       { id: 'gpt-4o-mini', name: 'gpt-4o-mini', ownedBy: 'openai', contextWindow: 128000, input: { text: true, image: 'yes' as const } },
       { id: 'gpt-3.5-turbo', name: 'gpt-3.5-turbo', ownedBy: 'openai', contextWindow: 16384, input: { text: true, image: 'no' as const } }

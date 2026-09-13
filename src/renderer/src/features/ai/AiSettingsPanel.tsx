@@ -33,19 +33,29 @@ export function AiSettingsPanel(): React.JSX.Element {
   const [models, setModels] = useState<AiModelInfo[]>([])
   const [discovering, setDiscovering] = useState(false)
   const [testingImage, setTestingImage] = useState(false)
+  const [testingConnection, setTestingConnection] = useState(false)
   const [imageTests, setImageTests] = useState<Record<string, AiImageCapabilityTestResult>>({})
   const endpointRevision = useRef(0)
   const probeRevision = useRef(0)
+  const connectionRevision = useRef(0)
+
+  const invalidateConnection = (): void => {
+    connectionRevision.current++
+    setTestingConnection(false)
+    setError(''); setNotice('')
+  }
 
   const invalidateEndpoint = (): void => {
+    invalidateConnection()
     endpointRevision.current++; probeRevision.current++
     setModels([]); setImageTests({}); setDiscovering(false); setTestingImage(false)
     setError(''); setNotice('')
   }
   const chooseModel = (value: string): void => {
+    invalidateConnection()
     probeRevision.current++; setTestingImage(false); setModel(value); setError(''); setNotice('')
   }
-  useEffect(() => () => { endpointRevision.current++; probeRevision.current++ }, [])
+  useEffect(() => () => { endpointRevision.current++; probeRevision.current++; connectionRevision.current++ }, [])
 
   const load = (): void => {
     void ofs.invoke('ai:profiles:list').then((items) => {
@@ -57,11 +67,35 @@ export function AiSettingsPanel(): React.JSX.Element {
   useEffect(load, [])
   const choose = (id: string): void => { const p = profiles.find((v) => v.id === id); if (!p) return; invalidateEndpoint(); setSelected(id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken('') }
   const save = async (): Promise<void> => {
-    try { const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, token: token || undefined }); setProfiles((all) => all.some((v) => v.id === p.id) ? all.map((v) => v.id === p.id ? p : v) : [...all, p]); setSelected(p.id); setToken(''); setNotice('配置已保存'); setError('') } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    invalidateConnection()
+    try {
+      const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, token: token || undefined })
+      setProfiles((all) => all.some((v) => v.id === p.id) ? all.map((v) => v.id === p.id ? p : v) : [...all, p])
+      setSelected(p.id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken('')
+      setNotice('配置已保存'); setError('')
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
   const create = (): void => { invalidateEndpoint(); setSelected(undefined); setName('新 AI 服务'); setBaseUrl('https://'); setModel(''); setToken('') }
   const remove = async (): Promise<void> => { if (!selected || profiles.length < 2) return; await ofs.invoke('ai:profiles:delete', selected); load() }
-  const test = async (): Promise<void> => { if (!selected) return; try { await ofs.invoke('ai:connectionTest', { profileId: selected }); setNotice('连接测试成功'); setError('') } catch (e) { setError(e instanceof Error ? e.message : String(e)) } }
+  const test = async (): Promise<void> => {
+    if (!selected || testingConnection) return
+    const saved = profiles.find((p) => p.id === selected)
+    if (!saved || baseUrl.trim() !== saved.baseUrl || model.trim() !== saved.model || token.trim()) {
+      setNotice(''); setError(t('aiConnectionTest.saveFirst')); return
+    }
+    const revision = ++connectionRevision.current
+    setTestingConnection(true); setNotice(''); setError('')
+    try {
+      const result = await ofs.invoke('ai:connectionTest', { profileId: selected })
+      if (revision === connectionRevision.current) {
+        setNotice(t('aiConnectionTest.success', { latencyMs: result.latencyMs }))
+      }
+    } catch (e) {
+      if (revision === connectionRevision.current) setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (revision === connectionRevision.current) setTestingConnection(false)
+    }
+  }
   const clear = async (): Promise<void> => { if (!selected) return; try { const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, clearToken: true }); setProfiles((all) => all.map((v) => v.id === p.id ? p : v)); setToken(''); setNotice('Token 已清除') } catch (e) { setError(e instanceof Error ? e.message : String(e)) } }
   const discover = async (): Promise<void> => {
     if (!baseUrl.trim() || (!token.trim() && !profiles.find((p) => p.id === selected)?.hasToken)) { setError('请先填写 API 地址和 Token，再获取模型列表'); return }
@@ -112,7 +146,7 @@ export function AiSettingsPanel(): React.JSX.Element {
         </div>
         <Space>
           <Button onClick={create}>新建配置</Button>
-          <Button loading={discovering} disabled={!baseUrl.trim() || testingImage} onClick={() => void discover()}>获取模型</Button>
+          <Button loading={discovering} disabled={!baseUrl.trim() || testingImage || testingConnection} onClick={() => void discover()}>获取模型</Button>
         </Space>
       </div>
       <div className={styles.fieldGrid}>
@@ -165,14 +199,16 @@ export function AiSettingsPanel(): React.JSX.Element {
       </div>
       <div className={styles.imageTest}>
         <Typography.Text type="secondary">{t('aiCapabilities.testHint')}</Typography.Text>
-        <Button loading={testingImage} disabled={discovering || !settings.aiAssistantEnabled || !model.trim() || !baseUrl.trim() || (!token.trim() && !profiles.find((p) => p.id === selected)?.hasToken)} onClick={() => void testImage()}>{t('aiCapabilities.testButton')}</Button>
+        <Button loading={testingImage} disabled={discovering || testingConnection || !settings.aiAssistantEnabled || !model.trim() || !baseUrl.trim() || (!token.trim() && !profiles.find((p) => p.id === selected)?.hasToken)} onClick={() => void testImage()}>{t('aiCapabilities.testButton')}</Button>
         {imageTest && <Alert showIcon type={imageTest.outcome === 'accepted' ? 'success' : 'info'} message={imageTest.message} />}
       </div>
       <Space wrap className={styles.actions}>
-        <Button type="primary" disabled={discovering || testingImage} onClick={() => void save()}>保存配置</Button>
-        <Button onClick={() => void test()} disabled={!selected}>测试连接</Button>
-        <Button onClick={() => { invalidateEndpoint(); void clear() }} disabled={discovering || testingImage || !selected || !profiles.find((p) => p.id === selected)?.hasToken}>清除 Token</Button>
-        <Button danger onClick={() => { invalidateEndpoint(); void remove() }} disabled={discovering || testingImage || !selected || profiles.length < 2}>删除配置</Button>
+        <Button type="primary" disabled={discovering || testingImage || testingConnection} onClick={() => void save()}>保存配置</Button>
+        <Tooltip title={t('aiConnectionTest.hint')}>
+          <Button loading={testingConnection} onClick={() => void test()} disabled={!selected || !settings.aiAssistantEnabled || discovering || testingImage}>{t('aiConnectionTest.button')}</Button>
+        </Tooltip>
+        <Button onClick={() => { invalidateEndpoint(); void clear() }} disabled={discovering || testingImage || testingConnection || !selected || !profiles.find((p) => p.id === selected)?.hasToken}>清除 Token</Button>
+        <Button danger onClick={() => { invalidateEndpoint(); void remove() }} disabled={discovering || testingImage || testingConnection || !selected || profiles.length < 2}>删除配置</Button>
       </Space>
     </section>
     {notice && <Alert type="success" showIcon message={notice} />}

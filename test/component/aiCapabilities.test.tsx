@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { AiSettingsPanel } from '@/features/ai/AiSettingsPanel'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { DEFAULT_SETTINGS } from '@shared/constants'
-import type { AiImageCapabilityTestResult, AiProviderProfile, AiProviderProfileDraft } from '@shared/types'
+import type { AiConnectionTestResult, AiImageCapabilityTestResult, AiProviderProfile, AiProviderProfileDraft } from '@shared/types'
 import { deferred, fakeOfs } from './fakeOfs'
 
 const profile: AiProviderProfile = {
@@ -24,6 +24,65 @@ beforeEach(() => {
   fakeOfs.handle('ai:model:capabilityTest', () => result)
 })
 afterEach(cleanup)
+
+describe('AI connection test latency', () => {
+  it('shows loading once, displays measured milliseconds, and clears success when a retry fails', async () => {
+    const pending = deferred<AiConnectionTestResult>()
+    fakeOfs.handle('ai:connectionTest', () => pending.promise)
+    render(<AiSettingsPanel />)
+    await screen.findByDisplayValue(profile.model)
+    const button = screen.getByRole('button', { name: '测试连接' })
+    fireEvent.click(button)
+    expect(button.classList.contains('ant-btn-loading')).toBe(true)
+    fireEvent.click(button)
+    expect(fakeOfs.invokes.filter((call) => call.channel === 'ai:connectionTest')).toHaveLength(1)
+    await act(async () => { pending.resolve({ ok: true, model: profile.model, latencyMs: 328 }) })
+    expect(screen.getByText('连接测试成功 · 耗时 328 ms')).toBeTruthy()
+    expect(button.classList.contains('ant-btn-loading')).toBe(false)
+    fakeOfs.handle('ai:connectionTest', () => Promise.reject(new Error('test failure')))
+    fireEvent.click(button)
+    expect(screen.queryByText('连接测试成功 · 耗时 328 ms')).toBeNull()
+    await screen.findByText('test failure')
+    expect(button.classList.contains('ant-btn-loading')).toBe(false)
+  })
+
+  it('discards a late latency result after switching profiles', async () => {
+    const other = { ...profile, id: 'other', name: 'Other', model: 'another-model' }
+    fakeOfs.handle('ai:profiles:list', () => [profile, other])
+    const pending = deferred<AiConnectionTestResult>()
+    fakeOfs.handle('ai:connectionTest', () => pending.promise)
+    render(<AiSettingsPanel />)
+    await screen.findByDisplayValue(profile.model)
+    const button = screen.getByRole('button', { name: '测试连接' })
+    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: '选择' }))
+    await screen.findByDisplayValue(other.model)
+    await act(async () => { pending.resolve({ ok: true, model: profile.model, latencyMs: 999 }) })
+    expect(screen.queryByText(/999 ms/)).toBeNull()
+    expect(button.classList.contains('ant-btn-loading')).toBe(false)
+  })
+
+  it('requires saving an edited model instead of timing the old saved model', async () => {
+    render(<AiSettingsPanel />)
+    const input = await screen.findByDisplayValue(profile.model)
+    fireEvent.change(input, { target: { value: 'unsaved-model' } })
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }))
+    expect(screen.getByText('API 地址、模型或 Token 已修改，请保存配置后再测试连接。')).toBeTruthy()
+    expect(fakeOfs.invokes.some((call) => call.channel === 'ai:connectionTest')).toBe(false)
+  })
+
+  it('tests successfully after saving a URL that the main process normalizes', async () => {
+    fakeOfs.handle('ai:profiles:save', () => profile)
+    fakeOfs.handle('ai:connectionTest', () => ({ ok: true, model: profile.model, latencyMs: 42 }))
+    render(<AiSettingsPanel />)
+    await screen.findByDisplayValue(profile.model)
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://api.deepseek.com' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }))
+    await screen.findByDisplayValue(profile.baseUrl)
+    fireEvent.click(screen.getByRole('button', { name: '测试连接' }))
+    await screen.findByText('连接测试成功 · 耗时 42 ms')
+  })
+})
 
 describe('AI image declarations and explicit testing', () => {
   it('keeps the full model dropdown selectable and tests the selected unsaved model only on click', async () => {

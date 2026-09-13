@@ -46,6 +46,13 @@ export interface AiProviderProfileDraft {
 
 export type AiImageCapability = 'yes' | 'no' | 'unknown'
 
+export interface AiConnectionTestResult {
+  ok: true
+  model: string
+  /** API round trip through the complete response body, excluding local credential reads. */
+  latencyMs: number
+}
+
 /** Token is write-only. Draft URL and credential are authoritative for explicit tests. */
 export interface AiModelEndpointDraft {
   profileId?: string

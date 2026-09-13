@@ -4,7 +4,7 @@ import { getAiProfile, getAiToken, normalizeAiBaseUrl } from './aiProfiles'
 import { getSettings } from './settings'
 import { parseAiModels } from './aiModels'
 import { t } from './i18n'
-import type { AiChatMessage, AiModelInfo, AiModelEndpointDraft, AiImageCapabilityTestResult } from '@shared/types'
+import type { AiChatMessage, AiConnectionTestResult, AiModelInfo, AiModelEndpointDraft, AiImageCapabilityTestResult } from '@shared/types'
 
 const MAX_MESSAGES = 64
 const MAX_CONTENT_CHARS = 32_768
@@ -201,13 +201,27 @@ async function assertResponse(response: Response): Promise<void> {
   throw new Error(errorForStatus(response.status))
 }
 
-export async function testAiConnection(profileId: string): Promise<{ ok: true; model: string }> {
-  if (!getSettings().aiAssistantEnabled) throw new Error('AI 助手尚未启用，请先在设置中开启')
-  const { profile } = getAiToken(profileId)
-  const controller = new AbortController()
-  const response = await request(profileId, [{ role: 'user', content: 'ping' }], false, controller.signal)
-  await assertResponse(response)
-  return { ok: true, model: profile.model }
+export async function testAiConnection(profileId: string): Promise<AiConnectionTestResult> {
+  return withModelTest(async (signal) => {
+    const { profile, token } = getAiToken(profileId)
+    // A monotonic clock avoids incorrect timings if the system clock changes.
+    const started = performance.now()
+    let response: Response
+    try {
+      response = await net.fetch(endpoint(profile.baseUrl), {
+        method: 'POST', signal, redirect: 'error',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ model: profile.model, messages: [{ role: 'user', content: 'ping' }], stream: false, max_tokens: 64 })
+      })
+      // Include model processing and response transfer, not just receipt of HTTP headers.
+      // The shared timeout stays active while the body is being read.
+      await readLimited(response, 64 * 1024)
+    } catch {
+      throw new Error(signal.aborted ? t('aiConnectionTest.timeout') : t('aiConnectionTest.failed'))
+    }
+    await assertResponse(response)
+    return { ok: true, model: profile.model, latencyMs: Math.max(0, Math.round(performance.now() - started)) }
+  })
 }
 
 function emitError(requestId: string, code: string, message: string): void {

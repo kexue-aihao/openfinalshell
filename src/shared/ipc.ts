@@ -9,6 +9,7 @@
  */
 import type {
   AiChatMessage,
+  AiConnectionTestResult,
   AiModelInfo,
   AiModelEndpointDraft,
   AiImageCapabilityTestResult,
@@ -86,7 +87,7 @@ export interface InvokeMap {
   'ai:profiles:list': { args: []; result: AiProviderProfile[] }
   'ai:profiles:save': { args: [AiProviderProfileDraft]; result: AiProviderProfile }
   'ai:profiles:delete': { args: [string]; result: void }
-  'ai:connectionTest': { args: [{ profileId: string }]; result: { ok: true; model: string } }
+  'ai:connectionTest': { args: [{ profileId: string }]; result: AiConnectionTestResult }
   'ai:models:discover': { args: [AiModelEndpointDraft]; result: AiModelInfo[] }
   'ai:model:capabilityTest': { args: [AiModelEndpointDraft & { model: string }]; result: AiImageCapabilityTestResult }
   'ai:chat': { args: [{ requestId: string; profileId: string; messages: AiChatMessage[] }]; result: void }
