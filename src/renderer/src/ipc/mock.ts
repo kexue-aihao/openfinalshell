@@ -505,6 +505,22 @@ export function createMockOfs(): OfsApi {
   }
 
   const handlers: Record<string, (...args: never[]) => unknown> = {
+    'ai:profiles:list': () => [
+      { id: 'mock-openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini', enabled: true, hasToken: true, createdAt: 1, updatedAt: 1 }
+    ],
+    'ai:profiles:save': (draft: never) => ({
+      id: (draft as { id?: string }).id ?? 'mock-openai', name: (draft as { name: string }).name,
+      baseUrl: (draft as { baseUrl: string }).baseUrl, model: (draft as { model: string }).model,
+      enabled: true, hasToken: Boolean((draft as { token?: string }).token), createdAt: 1, updatedAt: Date.now()
+    }),
+    'ai:profiles:delete': () => undefined,
+    'ai:connectionTest': () => ({ ok: true, model: 'gpt-4o-mini' }),
+    'ai:chat': (request: never) => {
+      const p = request as { requestId: string }
+      setTimeout(() => { emit('ai:delta', { requestId: p.requestId, text: '这是浏览器调试模式的 AI 模拟回答。' }); emit('ai:completed', { requestId: p.requestId }) }, 80)
+      return undefined
+    },
+    'ai:cancel': () => undefined,
     'settings:get': () => settings,
     /**
      * 与 main 侧一致：MAIN_ONLY_SETTINGS_PATHS 里的键从这条 channel 进来一律不生效。

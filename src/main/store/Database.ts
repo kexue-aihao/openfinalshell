@@ -60,6 +60,18 @@ CREATE TABLE IF NOT EXISTS secrets (
   cipher BLOB NOT NULL
 );
 
+-- AI provider metadata. API tokens remain in secrets and are referenced only in main.
+CREATE TABLE IF NOT EXISTS ai_profiles (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  base_url   TEXT NOT NULL,
+  model      TEXT NOT NULL,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  secret_ref TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 -- key = "host:port:keyType"，同主机不同算法算不同记录，避免误报指纹变更。
 -- at-rest 加密开启后 key 存决定论 token（HMAC），host_enc 存加密后的 "host:port:keyType" 供 UI 还原。
 CREATE TABLE IF NOT EXISTS known_hosts (

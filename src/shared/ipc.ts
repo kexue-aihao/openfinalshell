@@ -8,6 +8,9 @@
  *  - EventMap   main → renderer 事件（webContents.send）
  */
 import type {
+  AiChatMessage,
+  AiProviderProfile,
+  AiProviderProfileDraft,
   AppSettings,
   AppVersions,
   CommandHistoryEntry,
@@ -76,6 +79,14 @@ import type { RemoteCharset } from './constants'
 // ① renderer → main，请求/响应
 // ---------------------------------------------------------------------------
 export interface InvokeMap {
+  // --- AI assistant ---
+  'ai:profiles:list': { args: []; result: AiProviderProfile[] }
+  'ai:profiles:save': { args: [AiProviderProfileDraft]; result: AiProviderProfile }
+  'ai:profiles:delete': { args: [string]; result: void }
+  'ai:connectionTest': { args: [{ profileId: string }]; result: { ok: true; model: string } }
+  'ai:chat': { args: [{ requestId: string; profileId: string; messages: AiChatMessage[] }]; result: void }
+  'ai:cancel': { args: [string]; result: void }
+
   // --- 国际化：懒加载语言包（en/zh 已随渲染 bundle 内联，其余按需取回） ---
   'i18n:bundle': { args: [string]; result: Record<string, unknown> }
   // --- 应用 ---
@@ -401,6 +412,10 @@ export interface SendMap {
 // ③ main → renderer 事件
 // ---------------------------------------------------------------------------
 export interface EventMap {
+  'ai:delta': { requestId: string; text: string }
+  'ai:completed': { requestId: string }
+  'ai:error': { requestId: string; code: string; message: string }
+  'ai:cancelled': { requestId: string }
   'session:state': { sessionId: SessionId; state: SessionState; error?: string }
   /** 认证/信任交互请求（应答走 invoke session:promptReply） */
   'session:prompt': SessionPrompt
@@ -450,6 +465,7 @@ export interface EventMap {
 // channel 名前缀白名单（preload 校验用）
 // ---------------------------------------------------------------------------
 export const CHANNEL_PREFIXES = [
+  'ai:',
   'app:',
   'i18n:',
   'settings:',
@@ -503,6 +519,12 @@ function channelSet<K extends string>(channels: Record<K, true>): ReadonlySet<K>
 
 /** Runtime preload allowlists. Record<K, true> makes omissions and extra names type errors. */
 export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
+  'ai:profiles:list': true,
+  'ai:profiles:save': true,
+  'ai:profiles:delete': true,
+  'ai:connectionTest': true,
+  'ai:chat': true,
+  'ai:cancel': true,
   'i18n:bundle': true,
   'app:getVersions': true,
   'app:getStartupNotice': true,
@@ -609,6 +631,10 @@ export const SEND_CHANNELS = channelSet<SendChannel>({
 })
 
 export const EVENT_CHANNELS = channelSet<EventChannel>({
+  'ai:delta': true,
+  'ai:completed': true,
+  'ai:error': true,
+  'ai:cancelled': true,
   'session:state': true,
   'session:prompt': true,
   'rdp:state': true,

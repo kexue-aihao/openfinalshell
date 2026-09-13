@@ -19,6 +19,41 @@ export type TaskId = string // 一个传输任务
 export type ForwardId = string // 一条转发规则
 export type SnippetId = string
 export type SecretRef = string // Vault 凭据引用，renderer 永远拿不到明文
+export type AiProfileId = string
+
+/** AI provider configuration; the token is write-only and never part of this type. */
+export interface AiProviderProfile {
+  id: AiProfileId
+  name: string
+  baseUrl: string
+  model: string
+  enabled: boolean
+  hasToken: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+/** Renderer draft. token is accepted only on writes and is never returned. */
+export interface AiProviderProfileDraft {
+  id?: AiProfileId
+  name: string
+  baseUrl: string
+  model: string
+  enabled?: boolean
+  token?: string
+  clearToken?: boolean
+}
+
+export interface AiChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+export interface AiChatRequest {
+  requestId: string
+  profileId: AiProfileId
+  messages: AiChatMessage[]
+}
 
 // ---------- 连接配置 ----------
 export type AuthMethod = 'password' | 'privateKey' | 'agent'
@@ -929,6 +964,8 @@ export interface AppSettings {
    * 装更新必然要退出应用，那一下不能由软件替用户决定。
    */
   autoCheckUpdate: boolean
+  /** AI assistant is opt-in; enabling it permits explicit model requests. */
+  aiAssistantEnabled: boolean
   terminal: {
     fontFamily: string
     fontSize: number

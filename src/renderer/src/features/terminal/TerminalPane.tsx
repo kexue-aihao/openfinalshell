@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App as AntdApp, Button, Dropdown, Spin } from 'antd'
-import { Activity, Eraser, FolderTree, History, Search, Unplug } from 'lucide-react'
+import { Activity, Bot, Eraser, FolderTree, History, Search, Unplug } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import i18n from '@/i18n'
 import { DEFAULT_SETTINGS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
@@ -8,6 +8,7 @@ import { ofs } from '@/ipc/api'
 import { useHistoryStore } from '@/stores/useHistoryStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
+import { useUiStore } from '@/stores/useUiStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { TitlebarSafeTooltip } from '@/components/TitlebarSafeTooltip'
 import { captureSubmitted, type PromptSnapshot } from './commandCapture'
@@ -57,6 +58,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
   const toggleSftp = useSessionStore((s) => s.toggleSftp)
   const toggleMonitor = useSessionStore((s) => s.toggleMonitor)
+  const openAiWithText = useUiStore((s) => s.openAiWithText)
   const profile = useConnectionStore((s) => s.profiles.find((p) => p.id === tab.profileId))
 
   const mountRef = useRef<HTMLDivElement>(null)
@@ -410,6 +412,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
           { key: 'clear', label: t('terminal.clear') },
           { key: 'search', label: t('terminal.search') },
           { key: 'history', label: t('terminal.history') },
+          { key: 'ai', label: '发送选中文本到 AI' },
           { type: 'divider' as const },
           { key: 'disconnect', label: t('terminal.disconnect'), danger: true }
         ]
@@ -426,6 +429,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     else if (key === 'clear') bundle.term.clear()
     else if (key === 'search') setSearchOpen(true)
     else if (key === 'history') setHistoryOpen(true)
+    else if (key === 'ai') { const selection = bundle.term.getSelection(); if (selection) openAiWithText(selection) }
     else if (key === 'disconnect') void closeTab(tab.id)
   }
 
@@ -465,6 +469,17 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
               type={historyOpen ? 'primary' : 'text'}
               icon={<History size={14} strokeWidth={1.75} />}
               onClick={() => setHistoryOpen((v) => !v)}
+            />
+          </TitlebarSafeTooltip>
+          <TitlebarSafeTooltip title="发送选中文本到 AI">
+            <Button
+              size="small"
+              type="text"
+              icon={<Bot size={14} strokeWidth={1.75} />}
+              onClick={() => {
+                const selection = bundleRef.current?.term.getSelection()
+                if (selection) openAiWithText(selection)
+              }}
             />
           </TitlebarSafeTooltip>
           <TitlebarSafeTooltip title={t('terminal.clear')}>

@@ -1,4 +1,4 @@
-import { ArrowDownUp, ArrowLeftRight, Server, Settings, SunMoon, Zap } from 'lucide-react'
+import { ArrowDownUp, ArrowLeftRight, Bot, Server, Settings, SunMoon, Zap } from 'lucide-react'
 import { Tooltip } from 'antd'
 import { useTranslation } from 'react-i18next'
 import type { SidebarView } from '@shared/types'
@@ -19,6 +19,7 @@ export function ActivityBar(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen)
+  const setAiOpen = useUiStore((s) => s.setAiOpen)
   const activeTransfers = useTransferStore(
     (s) => s.tasks.filter((task) => task.state === 'running' || task.state === 'queued').length
   )
@@ -59,6 +60,11 @@ export function ActivityBar(): React.JSX.Element {
           </button>
         </Tooltip>
       ))}
+      {settings.aiAssistantEnabled && <Tooltip title="AI 助手" placement="right">
+        <button type="button" className={styles.item} aria-label="AI 助手" title="AI 助手" onClick={() => setAiOpen(true)}>
+          <Bot size={18} strokeWidth={1.75} />
+        </button>
+      </Tooltip>}
       <div className={styles.spacer} />
       <Tooltip title={t('activity.toggleTheme')} placement="right">
         <button

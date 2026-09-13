@@ -201,6 +201,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   confirmOnCloseTab: true,
   restoreTabsOnLaunch: false,
   autoCheckUpdate: true,
+  aiAssistantEnabled: false,
   terminal: {
     fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
     fontSize: 14,

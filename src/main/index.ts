@@ -20,6 +20,7 @@ import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { registerUpdateIpc } from './ipc/update.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
 import { registerRdpIpc } from './ipc/rdp.ipc'
+import { registerAiIpc } from './ipc/ai.ipc'
 import { monitorManager } from './monitor/MonitorManager'
 import { portTrafficManager } from './monitor/PortTrafficManager'
 import { forwardManager } from './forward/ForwardManager'
@@ -143,6 +144,7 @@ if (!app.requestSingleInstanceLock()) {
     registerEditorIpc()
     registerSyncIpc()
     registerRdpIpc()
+    registerAiIpc()
 
     /**
      * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，

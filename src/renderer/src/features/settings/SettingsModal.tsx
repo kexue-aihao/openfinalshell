@@ -226,6 +226,9 @@ export function SettingsModal(): React.JSX.Element {
                   />
                 </div>
               </Row>
+              <Row label="AI 助手" hint="启用后可使用 OpenAI、DeepSeek 或兼容接口；终端内容仅在你主动发送时提交。">
+                <Switch checked={settings.aiAssistantEnabled} onChange={(v) => set('aiAssistantEnabled', v)} />
+              </Row>
               <Row
                 label={t('settings.reduceTransparency')}
                 hint={t('settings.reduceTransparencyHint')}
