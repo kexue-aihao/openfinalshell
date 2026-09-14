@@ -90,7 +90,7 @@ export interface InvokeMap {
   'ai:connectionTest': { args: [{ profileId: string }]; result: AiConnectionTestResult }
   'ai:models:discover': { args: [AiModelEndpointDraft]; result: AiModelInfo[] }
   'ai:model:capabilityTest': { args: [AiModelEndpointDraft & { model: string }]; result: AiImageCapabilityTestResult }
-  'ai:chat': { args: [{ requestId: string; profileId: string; messages: AiChatMessage[] }]; result: void }
+  'ai:chat': { args: [{ requestId: string; profileId: string; messages: AiChatMessage[]; stream?: boolean }]; result: void }
   'ai:cancel': { args: [string]; result: void }
 
   // --- 国际化：懒加载语言包（en/zh 已随渲染 bundle 内联，其余按需取回） ---

@@ -28,6 +28,7 @@ export function AiAssistantModal(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [requestId, setRequestId] = useState<string>()
+  const [stream, setStream] = useState(true)
   const [image, setImage] = useState<{ name: string; dataUrl: string }>()
   const sessionTabs = useSessionStore((s) => s.tabs)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -62,7 +63,7 @@ export function AiAssistantModal(): React.JSX.Element {
     if (input.trim()) parts.push({ type: 'text', text: input.trim() })
     if (image) parts.push({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } })
     const content = parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts
-    await ofs.invoke('ai:chat', { requestId: id, profileId: selected, messages: [{ role: 'user', content }] }).catch((e) => { if (requestRef.current === id) { setBusy(false); requestRef.current = undefined; setError(e instanceof Error ? e.message : String(e)) } })
+    await ofs.invoke('ai:chat', { requestId: id, profileId: selected, stream, messages: [{ role: 'user', content }] }).catch((e) => { if (requestRef.current === id) { setBusy(false); requestRef.current = undefined; setError(e instanceof Error ? e.message : String(e)) } })
   }
   const targetTab = (): SessionTab | undefined => { const tab = readySshTabs().find((item) => item.termId === aiTargetTermId); return tab && getTerm(aiTargetTermId as TermId) ? tab : undefined }
   const insertIssue = (text: string): string | undefined => {
@@ -87,6 +88,7 @@ export function AiAssistantModal(): React.JSX.Element {
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <Space wrap><Typography.Text>{t('aiAssistant.profile')}</Typography.Text><Select style={{ width: 260 }} value={selected} placeholder={t('aiAssistant.chooseProfile')} onChange={setSelected} options={profiles.map((p) => ({ value: p.id, label: `${p.name} · ${p.model}` }))} /><Button onClick={() => { setOpen(false); openSettingsSection('ai') }}>{t('aiAssistant.openSettings')}</Button></Space>
       <Space wrap><Typography.Text>{t('aiCommands.targetSsh')}</Typography.Text><Select allowClear style={{ minWidth: 280 }} value={currentTargetAvailable ? aiTargetTermId : undefined} placeholder={t('aiCommands.selectSsh')} onChange={setAiTargetTermId} options={targetOptions} />{!currentTargetAvailable && aiTargetTermId && <Typography.Text type="warning">{t('aiCommands.terminalUnavailable')}</Typography.Text>}</Space>
+      <Space wrap><Typography.Text>{t('aiAssistant.responseMode')}</Typography.Text><Select value={stream ? 'stream' : 'nonstream'} style={{ width: 180 }} onChange={(value: 'stream' | 'nonstream') => setStream(value === 'stream')} options={[{ value: 'stream', label: t('aiAssistant.stream') }, { value: 'nonstream', label: t('aiAssistant.nonstream') }]} /></Space>
       {error && <Alert type="error" showIcon message={error} />}
       {answer && <AiResponse answer={answer} busy={busy} onCopy={copy} onInsert={insert} insertIssue={insertIssue} />}
       <Input.TextArea value={input} onChange={(e) => setInput(e.target.value)} placeholder={t('aiAssistant.inputPlaceholder')} autoSize={{ minRows: 4, maxRows: 10 }} maxLength={32768} />

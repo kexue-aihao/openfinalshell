@@ -93,6 +93,8 @@ export interface AiChatRequest {
   requestId: string
   profileId: AiProfileId
   messages: AiChatMessage[]
+  /** Whether the provider should return SSE deltas. Defaults to true for compatibility. */
+  stream?: boolean
 }
 
 // ---------- 连接配置 ----------

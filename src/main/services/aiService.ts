@@ -133,21 +133,12 @@ export async function discoverAiModels(input: AiModelEndpointDraft): Promise<AiM
 
 async function request(profileId: string, messages: AiChatMessage[], stream: boolean, signal: AbortSignal): Promise<Response> {
   const { profile, token } = getAiToken(profileId)
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  const onAbort = (): void => controller.abort()
-  signal.addEventListener('abort', onAbort, { once: true })
-  try {
-    return await net.fetch(endpoint(profile.baseUrl), {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'text/event-stream, application/json' },
-      body: JSON.stringify({ model: profile.model, messages, stream, temperature: 0.7, max_tokens: 4096 }),
-      signal: controller.signal
-    })
-  } finally {
-    clearTimeout(timer)
-    signal.removeEventListener('abort', onAbort)
-  }
+  return net.fetch(endpoint(profile.baseUrl), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: stream ? 'text/event-stream, application/json' : 'application/json' },
+    body: JSON.stringify({ model: profile.model, messages, stream, temperature: 0.7, max_tokens: 4096 }),
+    signal
+  })
 }
 
 /** Explicit user action: tests image request compatibility, not whether a gateway really decoded it. */
@@ -228,7 +219,19 @@ function emitError(requestId: string, code: string, message: string): void {
   emit('ai:error', { requestId, code, message })
 }
 
-export async function chatAi(requestId: string, profileId: string, messages: AiChatMessage[]): Promise<void> {
+function responseText(body: string): string {
+  let parsed: unknown
+  try { parsed = JSON.parse(body) as unknown } catch { throw new Error('AI 服务返回的 JSON 无效') }
+  const content = (parsed as { choices?: Array<{ message?: { content?: unknown } }>; error?: { message?: unknown } })?.choices?.[0]?.message?.content
+  if (typeof content === 'string' && content.length > 0) return content
+  if (Array.isArray(content)) {
+    const text = content.filter((part): part is { type?: unknown; text?: unknown } => !!part && typeof part === 'object').map((part) => typeof part.text === 'string' ? part.text : '').join('')
+    if (text) return text
+  }
+  throw new Error(typeof (parsed as { error?: { message?: unknown } })?.error?.message === 'string' ? 'AI 服务返回错误响应' : 'AI 服务未返回有效回答')
+}
+
+export async function chatAi(requestId: string, profileId: string, messages: AiChatMessage[], stream = true): Promise<void> {
   if (!getSettings().aiAssistantEnabled) throw new Error('AI 助手尚未启用，请先在设置中开启')
   if (active.has(requestId)) throw new Error('AI 请求已存在')
   if (active.size >= MAX_ACTIVE_REQUESTS) throw new Error('AI 请求过多，请等待当前请求完成')
@@ -236,9 +239,17 @@ export async function chatAi(requestId: string, profileId: string, messages: AiC
   const controller = new AbortController()
   active.set(requestId, controller)
   const started = Date.now()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const response = await request(profileId, messages, true, controller.signal)
+    const response = await request(profileId, messages, stream, controller.signal)
     await assertResponse(response)
+    if (!stream) {
+      const body = await readLimited(response, MAX_RESPONSE_CHARS)
+      const text = responseText(body)
+      emit('ai:delta', { requestId, text })
+      emit('ai:completed', { requestId })
+      return
+    }
     if (!response.body) throw new Error('AI 服务未返回响应流')
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -278,6 +289,7 @@ export async function chatAi(requestId: string, profileId: string, messages: AiC
       emitError(requestId, 'REQUEST_FAILED', message)
     }
   } finally {
+    clearTimeout(timer)
     active.delete(requestId)
     void started
   }

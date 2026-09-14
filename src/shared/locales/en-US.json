@@ -1070,6 +1070,9 @@
     "inputPlaceholder": "Ask a question; terminal text is sent only when you choose it",
     "send": "Send",
     "stop": "Stop generating",
-    "clear": "Clear answer"
+    "clear": "Clear answer",
+    "responseMode": "Response mode",
+    "stream": "Streaming",
+    "nonstream": "Non-streaming"
   }
 }

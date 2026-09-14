@@ -34,8 +34,8 @@ export function registerAiIpc(): void {
   handle('ai:connectionTest', ({ profileId }) => testAiConnection(profileId), z.tuple([z.object({ profileId: id })]))
   handle('ai:models:discover', (request) => discoverAiModels(request), z.tuple([endpointDraft]))
   handle('ai:model:capabilityTest', (request) => testAiImageCapability(request), z.tuple([endpointDraft.extend({ model: z.string().trim().min(1).max(200) })]))
-  handle('ai:chat', ({ requestId, profileId, messages }) => chatAi(requestId, profileId, messages), z.tuple([
-    z.object({ requestId: id, profileId: id, messages: z.array(message).min(1).max(64) })
+  handle('ai:chat', ({ requestId, profileId, messages, stream }) => chatAi(requestId, profileId, messages, stream ?? true), z.tuple([
+    z.object({ requestId: id, profileId: id, messages: z.array(message).min(1).max(64), stream: z.boolean().optional() })
   ]))
   handle('ai:cancel', (requestId) => cancelAi(requestId), z.tuple([id]))
 }
