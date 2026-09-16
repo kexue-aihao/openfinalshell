@@ -1,5 +1,5 @@
 {
-  "instance": { "newWindow": "新しいウィンドウを開く" },
+  "instance": {"newWindow":"新しいウィンドウを開く","enable":"複数インスタンスを許可（プレビュー）","unsupported":"このプラットフォームでは利用できません"},
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",

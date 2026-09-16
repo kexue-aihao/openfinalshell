@@ -526,6 +526,8 @@ export function createMockOfs(): OfsApi {
       return undefined
     },
     'ai:cancel': () => undefined,
+    'app:instanceInfo': () => ({ instanceId: 'browser-preview', pid: 0, multiInstanceSupported: true, canOpenNewWindow: settings.multiInstanceEnabled }),
+    'app:newWindow': () => { throw new Error('浏览器预览无法启动桌面窗口。') },
     'settings:get': () => settings,
     /**
      * 与 main 侧一致：MAIN_ONLY_SETTINGS_PATHS 里的键从这条 channel 进来一律不生效。

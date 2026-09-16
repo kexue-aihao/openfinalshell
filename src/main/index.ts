@@ -42,7 +42,8 @@ import { createMainWindow } from './window'
 import { startUpdateChecks, stopUpdateChecks, updateActivity, updateState, checkForUpdate, downloadUpdate, installUpdate } from './services/updater'
 
 
-import { instanceCoordinator, multiInstanceAvailable, startInstanceCoordinator } from './instances/service'
+import { instanceCoordinator, startInstanceCoordinator } from './instances/service'
+import { multiInstanceAvailable, multiInstanceSupported, refreshNewWindowTask } from './instances/newWindowPolicy'
 import { cancelAllAi } from './services/aiService'
 import { metaSet } from './store/Database'
 import { configureInstanceStorage, finishStorageBootstrap, releaseStorageBootstrap } from './instances/storage'
@@ -57,7 +58,8 @@ initLogger()
 bindInstance(instance)
 
 async function launchNewInstance(): Promise<void> {
-  if (!multiInstanceAvailable()) throw new Error('当前平台尚未开放多窗口，请等待平台验收完成。')
+  if (!multiInstanceSupported()) throw new Error('当前平台尚未开放多窗口。')
+  if (!multiInstanceAvailable()) throw new Error('多实例已关闭，请在“设置 → 常规”中开启。')
   instanceCoordinator?.assertCanStart()
   const executable = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
   const args = [...(app.isPackaged ? [] : [app.getAppPath()]), '--new-instance', `--user-data-dir=${app.getPath('userData')}`]
@@ -81,15 +83,7 @@ function launchFromMenu(): void {
 
 function installApplicationMenu(): void {
   if (process.platform !== 'darwin') {
-    if (multiInstanceAvailable() && app.isPackaged) {
-      const result = app.setJumpList([{
-        type: 'tasks',
-        items: [{ type: 'task', title: '打开新窗口', description: '启动独立窗口',
-          program: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
-          args: '--new-instance', iconPath: process.execPath, iconIndex: 0 }]
-      }])
-      if (result !== 'ok') logger.warn(`Jump List registration failed: ${result}`)
-    }
+    refreshNewWindowTask()
     Menu.setApplicationMenu(null)
     return
   }
@@ -119,8 +113,13 @@ process.on('uncaughtException', (err) => logger.error('uncaughtException', err))
 process.on('unhandledRejection', (reason) => logger.error('unhandledRejection', reason))
 
 // The lock remains tied to shared userData; renderer partitions are process-specific.
-const explicitNewInstance = instance.isExplicitNewInstance && multiInstanceAvailable()
-const unsupportedNewInstance = instance.isExplicitNewInstance && !multiInstanceAvailable()
+let explicitNewInstance = false
+const unsupportedNewInstance = instance.isExplicitNewInstance && !multiInstanceSupported()
+try {
+  if (!storageStartupError) explicitNewInstance = instance.isExplicitNewInstance && multiInstanceAvailable()
+} catch (error) {
+  storageStartupError = error instanceof Error ? error : new Error('配置读取失败。')
+}
 const ownsSingleInstanceLock = !storageStartupError && !unsupportedNewInstance && (explicitNewInstance || app.requestSingleInstanceLock())
 if (!ownsSingleInstanceLock) {
   if (storageStartupError) void app.whenReady().then(() => {
@@ -175,13 +174,13 @@ if (!ownsSingleInstanceLock) {
         setImmediate(() => app.quit())
       }
     })
-    if (!explicitNewInstance && !instanceCoordinator?.isLeader) {
+    if ((!explicitNewInstance || !multiInstanceAvailable()) && !instanceCoordinator?.isLeader) {
       await instanceCoordinator?.focusLeader()
       app.quit()
       return
     }
     handle('app:newWindow', () => launchNewInstance())
-    handle('app:instanceInfo', () => ({ instanceId: instance.instanceId, pid: process.pid, canOpenNewWindow: multiInstanceAvailable() }))
+    handle('app:instanceInfo', () => ({ instanceId: instance.instanceId, pid: process.pid, multiInstanceSupported: multiInstanceSupported(), canOpenNewWindow: multiInstanceAvailable() }))
 
     migrateInlineRefsOnce()
     encryptExistingRowsOnce()

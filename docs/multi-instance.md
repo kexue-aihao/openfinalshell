@@ -6,13 +6,15 @@
 
 | 环境 | 默认启动 | 显式新窗口 |
 | --- | --- | --- |
-| Windows 源码开发运行 | 聚焦已有默认实例 | 支持 |
-| Windows 打包程序 | 聚焦已有默认实例 | 默认关闭；验收时可通过预览环境变量开启 |
+| Windows 源码开发运行 | 聚焦已有默认实例 | 设置 → 常规 → 允许多实例窗口（预览） |
+| Windows 打包程序 | 聚焦已有默认实例 | 默认关闭，可在设置中开启 |
 | macOS / Linux | 单实例 | 暂不开放 |
 
-Windows 可用入口：应用左上角名称菜单中的“打开新窗口”、`Ctrl+Shift+N`、命令行 `--new-instance`。打包程序开启预览后还会注册任务栏 Jump List 的“打开新窗口”。普通桌面/开始菜单快捷方式保持原行为。
+Windows 可用入口：应用左上角名称菜单中的“打开新窗口”、`Ctrl+Shift+N`、命令行 `--new-instance`。打包程序开启开关后还会注册任务栏 Jump List 的“打开新窗口”。普通桌面/开始菜单快捷方式保持原行为。
 
-源码预览：
+在“设置 → 常规”开启“允许多实例窗口（预览）”后，无需重启即可使用上述入口。此偏好持久保存并同步到其他窗口。关闭开关只禁止新建实例，已有窗口、会话和传输继续运行；再运行带 `--new-instance` 的快捷方式会按普通启动聚焦已有窗口。旧版 `OFS_MULTI_INSTANCE_PREVIEW` 环境变量不再覆盖设置。
+
+源码预览（先在第一个窗口开启开关）：
 
 ```powershell
 npm run build
@@ -20,15 +22,14 @@ npm run build
 & .\node_modules\electron\dist\electron.exe . --new-instance
 ```
 
-安装包验收时，在同一个 PowerShell 环境中启动所有测试实例：
+安装包也可在开启开关后用命令行新建窗口：
 
 ```powershell
-$env:OFS_MULTI_INSTANCE_PREVIEW = '1'
 & '实际安装路径\OpenFinalShell.exe'
 & '实际安装路径\OpenFinalShell.exe' --new-instance
 ```
 
-预览变量仅在 Windows 生效。0.30.20 安装包默认不开放多实例，直到文末待验收项目通过。
+多实例仍为 Windows 预览功能；macOS/Linux 的设置项禁用，直到对应平台验收完成。
 
 ## 进程与窗口隔离
 
@@ -84,13 +85,15 @@ npm run smoke:multi-instance
 - SFTP 上传/下载内容一致；关闭 A 时 B 正在传输的文件继续完成。
 - A 退出后 B 的 SSH 继续可用，并接管普通启动；三个显式实例同时存活。
 - 全部退出后重启，原连接配置和 Vault 中的 AI Token 仍可用。
+- 关闭多实例开关后，IPC 和命令行不能继续多开，已有会话和传输继续运行；重新开启可立即新建窗口。
+- 开启和关闭两种设置都在完整退出、重启后保留。
 - 测试日志不包含 fixture 密码或 Token。
 
 结果写入临时目录的 `report.json`；可设置 `OFS_MULTI_INSTANCE_REPORT` 指定另一份报告路径。Windows 发布工作流运行这套测试并上传报告。单元测试另覆盖 IPC sender 拒绝、事务回滚、真实 SQLite 锁竞争、控制消息白名单、协调者选举、等待 PID 退出、退出取消后的重试和安装超时。
 
 2026-09-16 本机验证记录：类型检查、10 种语言检查和 Electron 生产构建通过；119 个测试文件通过、5 个按环境跳过，共 1689 项通过、37 项跳过。真实多进程脚本的 11 个场景全部通过，其中 B 的 16 MB SFTP 下载在 A 退出后完成且字节一致。本次结果不包含下表中的 RDP 与安装器实机验收，也不代表远程 CI 已执行。
 
-2026-09-16 后续 CI 验证：v0.30.21 发布门禁的 1690 项测试与 11 个真实多进程场景通过，报告见 [desktop-release 35049114740](https://github.com/kexue-aihao/openfinalshell/actions/runs/35049114740)。主分支随后补充 Windows 标题栏颜色拒绝时的窗口启动回归测试，CI 共 1691 项通过、37 项跳过。以上结果仍不包含真实双 RDP 和安装器交互验收。
+2026-09-16 后续 CI 验证：v0.30.21 发布门禁的 1690 项测试与 11 个真实多进程场景通过，报告见 [desktop-release 35049114740](https://github.com/kexue-aihao/openfinalshell/actions/runs/35049114740)。主分支随后补充 Windows 标题栏颜色拒绝时的窗口启动回归测试，CI 共 1691 项通过、37 项跳过。v0.30.22 又验证了开关关闭时新建请求被拒绝、已有传输继续完成，以及开关状态重启后保留。以上结果仍不包含真实双 RDP 和安装器交互验收。
 
 ## 正式开放前的 Windows 验收
 

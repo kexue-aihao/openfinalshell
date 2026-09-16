@@ -40,7 +40,19 @@ export function TitleBar(): React.JSX.Element {
   const { message } = AntdApp.useApp()
   const [canOpenWindow, setCanOpenWindow] = useState(false)
   useEffect(() => {
-    void ofs.invoke('app:instanceInfo').then((info) => setCanOpenWindow(info.canOpenNewWindow)).catch(() => {})
+    let revision = 0
+    const refresh = (): void => {
+      const request = ++revision
+      void ofs.invoke('app:instanceInfo').then((info) => {
+        if (request === revision) setCanOpenWindow(info.canOpenNewWindow)
+      }).catch(() => { if (request === revision) setCanOpenWindow(false) })
+    }
+    refresh()
+    const unsubscribe = ofs.on('settings:changed', refresh)
+    window.addEventListener('focus', refresh)
+    return () => { revision++; unsubscribe(); window.removeEventListener('focus', refresh) }
+  }, [])
+  useEffect(() => {
     const conflict = (e: Event): void => { void message.error((e as CustomEvent<string>).detail) }
     window.addEventListener('ofs:configConflict', conflict)
     return () => window.removeEventListener('ofs:configConflict', conflict)

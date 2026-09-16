@@ -62,6 +62,15 @@ export function SettingsModal(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
   const patch = useSettingsStore((s) => s.patch)
   const [section, setSection] = useState<Section>('general')
+  const [supportsMultiInstance, setSupportsMultiInstance] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    void ofs.invoke('app:instanceInfo').then((info) => {
+      if (active) setSupportsMultiInstance(info.multiInstanceSupported)
+    }).catch(() => { if (active) setSupportsMultiInstance(false) })
+    return () => { active = false }
+  }, [open])
   useEffect(() => { if (settingsSection) setSection(settingsSection as Section) }, [settingsSection])
   const [vaultAvailable, setVaultAvailable] = useState<boolean | null>(null)
   const [versions, setVersions] = useState<Awaited<ReturnType<typeof loadVersions>> | null>(null)
@@ -196,6 +205,16 @@ export function SettingsModal(): React.JSX.Element {
                     message.info(t('settings.restartRequired'))
                   }}
                 />
+              </Row>
+              <Row label={t('instance.enable')}>
+                <Switch
+                  aria-label={t('instance.enable')}
+                  checked={supportsMultiInstance === true && settings.multiInstanceEnabled}
+                  disabled={supportsMultiInstance !== true}
+                  loading={supportsMultiInstance === null}
+                  onChange={(enabled) => set('multiInstanceEnabled', enabled)}
+                />
+                {supportsMultiInstance === false && <Typography.Text type="secondary" style={{ marginLeft: 12 }}>{t('instance.unsupported')}</Typography.Text>}
               </Row>
             </>
           )}

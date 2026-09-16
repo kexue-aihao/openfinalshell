@@ -1001,6 +1001,8 @@ export interface AppSettings {
   reduceTransparency: boolean
   uiZoom: number
   disableGpu: boolean
+  /** Allow explicit new Windows instances; never closes already running instances. */
+  multiInstanceEnabled: boolean
   confirmOnCloseTab: boolean
   restoreTabsOnLaunch: boolean
   /**

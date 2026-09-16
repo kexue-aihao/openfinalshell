@@ -84,7 +84,7 @@ import type { RemoteCharset } from './constants'
 // ---------------------------------------------------------------------------
 export interface InvokeMap {
   'app:newWindow': { args: []; result: void }
-  'app:instanceInfo': { args: []; result: { instanceId: string; pid: number; canOpenNewWindow: boolean } }
+  'app:instanceInfo': { args: []; result: { instanceId: string; pid: number; multiInstanceSupported: boolean; canOpenNewWindow: boolean } }
   // --- AI assistant ---
   'ai:profiles:list': { args: []; result: AiProviderProfile[] }
   'ai:profiles:save': { args: [AiProviderProfileDraft]; result: AiProviderProfile }

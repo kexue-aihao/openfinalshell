@@ -5,13 +5,14 @@ import { applyWindowChrome } from '../window'
 import { applyEditorWindowChrome } from '../editorWindow'
 import { secureStorageAvailable } from '../store/secureStorage'
 import { tx } from '../store/Database'
+import { refreshNewWindowTask } from '../instances/newWindowPolicy'
 
 /**
- * 设置整体仍兼容历史的自由形状 patch；新加的透明度偏好在 IPC 边界必须是布尔值。
+ * 设置整体仍兼容历史的自由形状 patch；透明度和多实例偏好在 IPC 边界必须是布尔值。
  * `.passthrough()` 保留既有字段，避免把这一次小改动变成整份设置契约重写。
  */
 export const settingsPatchSchema = z
-  .object({ reduceTransparency: z.boolean().optional() })
+  .object({ reduceTransparency: z.boolean().optional(), multiInstanceEnabled: z.boolean().optional() })
   .passthrough()
 
 export function registerSettingsIpc(): void {
@@ -41,6 +42,7 @@ export function registerSettingsIpc(): void {
       }
       const guarded = stripMainOnlyPaths(patch, getSettings())
       const next = patchSettings(guarded.patch)
+      refreshNewWindowTask()
       applyWindowChrome(next)
       applyEditorWindowChrome(next)
       // 广播而不是只发主窗口：编辑器窗口的主题/语言也要跟着热更

@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.22',
+    items: [
+      { type: 'feat', zh: '在设置 → 常规中新增多实例窗口开关，Windows 可直接启用或关闭多实例；关闭时不影响已打开窗口、会话和传输', en: 'Add a Settings → General switch for Windows multi-instance windows; turning it off blocks new instances without affecting existing windows, sessions, or transfers' },
+      { type: 'fix', zh: '多实例开关状态会同步到其他窗口并在重启后保留，任务栏和新窗口入口随开关状态更新', en: 'Synchronize and persist the multi-instance preference across windows, updating taskbar and new-window entry points with the switch' }
+    ]
+  },
+  {
     version: '0.30.21',
     items: [
       { type: 'feat', zh: '新增 Windows 多实例窗口预览：独立会话与传输、共享配置和凭据、配置自动刷新及更新协调；安装包默认保持单实例，预览需显式开启', en: 'Add a Windows multi-instance preview with isolated sessions and transfers, shared configuration and credentials, automatic configuration refresh, and coordinated updates; packaged apps remain single-instance unless preview is explicitly enabled' },

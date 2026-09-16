@@ -5,6 +5,7 @@ import { getSettings } from '../services/settings'
 import { applyWindowChrome } from '../window'
 import { applyEditorWindowChrome } from '../editorWindow'
 import { InstanceCoordinator, type CoordinatorOptions } from './InstanceCoordinator'
+import { refreshNewWindowTask } from './newWindowPolicy'
 
 export let instanceCoordinator: InstanceCoordinator | undefined
 
@@ -22,6 +23,7 @@ export async function startInstanceCoordinator(options: Pick<CoordinatorOptions,
       if (currentInstance.closing) return
       if (change.entity === 'settings') {
         const next = getSettings()
+        refreshNewWindowTask()
         applyWindowChrome(next)
         applyEditorWindowChrome(next)
         broadcast('settings:changed', next)
@@ -30,10 +32,4 @@ export async function startInstanceCoordinator(options: Pick<CoordinatorOptions,
     }
   })
   await instanceCoordinator.start()
-}
-
-/** macOS/Linux remain single-instance until their build and native-window acceptance completes. */
-export function multiInstanceAvailable(): boolean {
-  // Keep packaged builds single-instance until native Windows RDP/update acceptance is signed off.
-  return process.platform === 'win32' && (!app.isPackaged || process.env.OFS_MULTI_INSTANCE_PREVIEW === '1')
 }

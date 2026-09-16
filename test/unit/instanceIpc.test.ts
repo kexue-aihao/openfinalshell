@@ -45,7 +45,7 @@ describe('registered instance IPC boundaries', () => {
   it('rejects unrelated file pages even when they reuse a registered webContents', async () => {
     let listener: (...args: any[]) => Promise<unknown> = async () => undefined
     vi.spyOn(ipcMain, 'handle').mockImplementation((_channel, fn) => { listener = fn as typeof listener })
-    handle('app:instanceInfo', () => ({ instanceId: currentInstance.instanceId, pid: 1, canOpenNewWindow: true }))
+    handle('app:instanceInfo', () => ({ instanceId: currentInstance.instanceId, pid: 1, multiInstanceSupported: true, canOpenNewWindow: true }))
     const a = fakeWindow(); bindMainWindow(a.win)
     await expect(listener(a.event)).resolves.toMatchObject({ instanceId: currentInstance.instanceId })
     Object.assign(a.event.senderFrame!, { url: 'file:///untrusted.html' })

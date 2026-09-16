@@ -1,5 +1,5 @@
 {
-  "instance": { "newWindow": "Abrir nova janela" },
+  "instance": {"newWindow":"Abrir nova janela","enable":"Permitir várias instâncias (prévia)","unsupported":"Indisponível nesta plataforma"},
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",

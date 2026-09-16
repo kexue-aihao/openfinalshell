@@ -1,5 +1,5 @@
 {
-  "instance": { "newWindow": "打开新窗口" },
+  "instance": {"newWindow":"打开新窗口","enable":"允许多实例窗口（预览）","unsupported":"当前平台暂不支持"},
   "aiConnectionTest": {
     "button": "测试连接",
     "success": "连接测试成功 · 耗时 {{latencyMs}} ms",

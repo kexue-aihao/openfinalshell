@@ -1,5 +1,5 @@
 {
-  "instance": { "newWindow": "開啟新視窗" },
+  "instance": {"newWindow":"開啟新視窗","enable":"允許多執行個體視窗（預覽）","unsupported":"目前平台暫不支援"},
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",

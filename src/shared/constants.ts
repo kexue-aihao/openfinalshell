@@ -198,6 +198,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   reduceTransparency: false,
   uiZoom: 100,
   disableGpu: false,
+  multiInstanceEnabled: false,
   confirmOnCloseTab: true,
   restoreTabsOnLaunch: false,
   autoCheckUpdate: true,
