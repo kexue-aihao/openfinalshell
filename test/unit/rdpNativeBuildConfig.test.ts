@@ -6,6 +6,7 @@ const buildScript = readFileSync('scripts/buildRdpWorker.mjs', 'utf8')
 const checkScript = readFileSync('scripts/checkRdpWorkerPackage.mjs', 'utf8')
 const smokeScript = readFileSync('scripts/smokeRdpWorker.mjs', 'utf8')
 const adapter = readFileSync('native/rdp-worker/freerdp_adapter.cpp', 'utf8')
+const audioBackend = readFileSync('native/rdp-worker/audio_backend.cpp', 'utf8')
 const protocolTest = readFileSync('native/rdp-worker/test/protocol.test.mjs', 'utf8')
 
 describe('RDP native FreeRDP build contract', () => {
@@ -123,8 +124,9 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('#include <freerdp/client/disp.h>')
     expect(adapter).toContain('#include <freerdp/addin.h>')
     expect(adapter).toContain('freerdp_client_load_addins')
-    expect(adapter).toContain('freerdp_register_addin_provider')
-    expect(adapter).toContain('freerdp_channels_load_static_addin_entry')
+    expect(adapter).toContain('ofs::rdp::registerAudioBackend(')
+    expect(audioBackend).toContain('freerdp_register_addin_provider(provider, 0)')
+    expect(audioBackend).toContain('freerdp_channels_load_static_addin_entry(name, subsystem, type, flags)')
     expect(adapter).toContain('FreeRDP_NetworkAutoDetect, FALSE')
     expect(adapter).toContain('FreeRDP_SupportHeartbeatPdu, FALSE')
     expect(adapter).toContain('FreeRDP_SupportMultitransport, FALSE')
@@ -150,9 +152,13 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('AUDIO_DEVICE_UNAVAILABLE')
     expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('"audio"')
     expect(readFileSync('native/rdp-worker/main.cpp', 'utf8')).toContain('audioPlayback')
+    expect(audioBackend).toContain('device->Open = &OpenHook<pcOpen>::call')
+    expect(audioBackend).toContain('notify(result != FALSE)')
+    const connectedCallback = adapter.slice(adapter.indexOf('static void channelConnected'), adapter.indexOf('static void channelDisconnected'))
+    expect(connectedCallback).not.toContain('emitAudio("connected"')
   })
 
-  it('advertises all four clipboard directions so remote-to-local files are not filtered', () => {
+  it('gates file clipboard directions separately from text', () => {
     // FreeRDP filters a server format list by ClipboardFeatureMask before the
     // ServerFormatList callback runs. Omitting REMOTE_TO_LOCAL_FILES silently
     // strips file formats from remote->local copies, so every direction must
@@ -161,5 +167,7 @@ describe('RDP native FreeRDP build contract', () => {
     expect(adapter).toContain('CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES')
     expect(adapter).toContain('CLIPRDR_FLAG_REMOTE_TO_LOCAL')
     expect(adapter).toContain('CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES')
+    expect(adapter).toContain('config.clipboardFilesUpload ? CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES : 0')
+    expect(adapter).toContain('config.clipboardFilesPaste ? CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES : 0')
   })
 })

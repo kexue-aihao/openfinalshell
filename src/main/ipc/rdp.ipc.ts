@@ -59,6 +59,8 @@ function isRdpInputEnvelope(value: unknown): value is { sessionId: string; input
 }
 
 export function registerRdpIpc(): void {
+  handle('rdp:capabilities', (sessionId) => rdpSessionManager.capabilities(sessionId), z.tuple([rdpSessionIdSchema]))
+  handle('rdp:clipboardCancel', (sessionId) => rdpSessionManager.clipboardCancel(sessionId), z.tuple([rdpSessionIdSchema]))
   handle('rdp:open', ({ profileId, display }) => rdpSessionManager.open(profileId, display), z.tuple([z.object({ profileId: z.string().min(1).max(200), display: rdpDisplaySchema })]))
   handle('rdp:close', (sessionId) => rdpSessionManager.close(sessionId), z.tuple([rdpSessionIdSchema]))
   handle('rdp:reconnect', (sessionId) => rdpSessionManager.reconnect(sessionId), z.tuple([rdpSessionIdSchema]))

@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">Upload files</string>
+    <string name="port_upload_directory">Upload directory</string>
+    <string name="port_resume_note">Documents that cannot seek restart from the beginning after resume.</string>
+    <string name="port_choose_download">Choose a download directory first.</string>
+    <string name="port_permission_lost">Document access expired. Select the file or destination directory again.</string>
+    <string name="port_operation_failed">File operation failed. Check the connection, file type, size and permissions.</string>
+    <string name="port_session_closed">The SSH session closed. Reconnect and reopen the file to save.</string>
+    <string name="port_conflict_title">A file with this name already exists</string>
+    <string name="port_edit">Edit</string>
+    <string name="port_saved">File saved</string>
+    <string name="port_save">Save</string>
+    <string name="port_close">Close</string>
+    <string name="port_find">Find in document</string>
+    <string name="port_find_count">%1$d matches</string>
+    <string name="port_discard">Discard unsaved changes?</string>
+    <string name="port_editor_conflict">The remote file changed</string>
+    <string name="port_editor_reload">Reload the remote file before saving. Reloading discards your unsaved changes.</string>
+    <string name="port_non_atomic">Atomic replacement is unavailable</string>
+    <string name="port_non_atomic_warning">Saving directly may leave a partial file if the connection fails. Continue?</string>
+    <string name="port_proxy_saved">Proxy saved</string>
+    <string name="port_pack_download">Pack download</string>
+    <string name="port_pack_fallback">Packing is unavailable, the target exists, or temporary space is insufficient. Use ordinary SFTP transfer.</string>
+    <string name="port_command_single_line">Only a single command without terminal control characters can be filled. Copy multiline scripts and review them separately.</string>
+    <string name="port_pack_upload">Pack upload</string>
+    <string name="port_editor_encoding">Editor encoding: %1$s</string>
+    <string name="port_encoding_unavailable">This encoding is unavailable on this device.</string>
+    <string name="port_encoding_lossless">This file or text cannot be represented without loss in the selected encoding. Select the correct encoding and reopen the file; nothing was saved.</string>
+    <string name="port_eol_mixed">Mixed line endings are preserved. Newly inserted lines retain their entered endings.</string>
+</resources>

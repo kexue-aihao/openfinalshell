@@ -72,11 +72,14 @@ jobs:
         with:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
-      - name: Check Settings translations and run Kotlin unit tests
-        run: gradle -p android :app:checkI18n testDebugUnitTest --stacktrace
+      - name: Check UI translations, lint and Kotlin unit tests
+        run: gradle -p android :app:checkI18n :app:lintDebug testDebugUnitTest --stacktrace
 
       - name: Assemble debug APKs
         run: gradle -p android :app:assembleDebug --stacktrace
+
+      - name: Validate unsigned release APKs and AAB
+        run: gradle -p android :app:assembleRelease :app:bundleRelease --stacktrace
 
       - name: Verify all Android ABI outputs
         shell: bash

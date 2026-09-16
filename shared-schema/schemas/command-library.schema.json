@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openfinalshell.github.io/schema/command-library.json",
+  "title": "Portable command library fragment",
+  "type": "object",
+  "required": ["snippetGroups", "snippets"],
+  "properties": {
+    "snippetGroups": {
+      "type": "array", "maxItems": 10000,
+      "items": {"type": "object", "required": ["id", "name", "order"], "properties": {
+        "id": {"type": "string"}, "name": {"type": "string", "maxLength": 200}, "order": {"type": "number"}
+      }}
+    },
+    "snippets": {
+      "type": "array", "maxItems": 10000,
+      "items": {"type": "object", "required": ["id", "groupId", "name", "command", "autoEnter", "order"], "properties": {
+        "id": {"type": "string"}, "groupId": {"type": "string"}, "name": {"type": "string", "maxLength": 200},
+        "command": {"type": "string", "maxLength": 32768}, "autoEnter": {"type": "boolean"}, "order": {"type": "number"}
+      }}
+    }
+  },
+  "$comment": "Part of the existing v1/v2 export data and encrypted LAN sync. Android requires an explicit Execute action even if imported autoEnter is true. AI profiles, Token references, history and conversations are excluded."
+}

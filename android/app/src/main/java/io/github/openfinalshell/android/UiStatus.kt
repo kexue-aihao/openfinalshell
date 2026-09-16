@@ -20,7 +20,7 @@ enum class StatusKey(@StringRes val resourceId: Int) {
     FORWARDING_RULE_SAVED(R.string.status_forwarding_rule_saved),
     FORWARDING_RULE_DELETED(R.string.status_forwarding_rule_deleted),
     FORWARDING_STARTED(R.string.status_forwarding_started),
-    PROXY_SAVED_UNAVAILABLE(R.string.status_proxy_saved_unavailable),
+    PROXY_SAVED_UNAVAILABLE(R.string.port_proxy_saved),
     PROXY_UNAVAILABLE(R.string.status_proxy_unavailable),
     PRIVATE_KEY_IMPORTED(R.string.status_private_key_imported),
     HOST_TRUST_REVOKED(R.string.status_host_trust_revoked),

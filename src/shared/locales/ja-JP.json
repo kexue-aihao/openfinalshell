@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"新しいウィンドウを開く","enable":"複数インスタンスを許可","unsupported":"このプラットフォームでは利用できません"},
+  "instance": {
+    "newWindow": "新しいウィンドウを開く",
+    "enable": "複数インスタンスを許可",
+    "unsupported": "このプラットフォームでは利用できません"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "オープンソース版 FinalShell — SSH ターミナル · SFTP · サーバー監視",
+    "subtitle": "リモート運用ワークスペース · SSH · SFTP · RDP · AI アシスタント",
     "newConnection": "新規接続",
     "newConnectionDesc": "ホストと認証を設定してツリーに保存します",
     "quickConnect": "クイック接続",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "OpenFinalShell へようこそ",
-    "welcomeIntro": "SSH ターミナル、リモートファイル管理、サーバー監視を 1 つのウィンドウに。ホストに接続すると、上部にターミナル、中央にリモートファイル用のエディター、下部にファイル一覧、そして横に CPU / メモリ / ネットワークのリアルタイムグラフが表示されます。",
+    "welcomeIntro": "SSH ターミナル、SFTP ファイル、RDP デスクトップ、サーバー監視をまとめて管理し、必要に応じて AI にトラブルシューティングを相談できます。Windows では設定から独立したウィンドウを開き、接続設定を共有できます。",
     "featuresTitle": "できること",
     "featureTerminal": "タブ付き SSH ターミナル。ペイン分割、検索、コマンド履歴、スニペットに対応",
     "featureSftp": "SFTP ファイルマネージャー: ダブルクリックで開く/編集、ドラッグでアップロード、一括転送キュー",
@@ -533,7 +537,13 @@
     "proxyPassword": "プロキシのパスワード",
     "proxyAuthOptional": "プロキシに認証が不要な場合は空のままにしてください",
     "note": "メモ",
-    "notePlaceholder": "このマシンの短い説明。接続一覧に表示されます"
+    "notePlaceholder": "このマシンの短い説明。接続一覧に表示されます",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "プロキシと鍵",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

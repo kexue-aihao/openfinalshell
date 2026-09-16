@@ -9,8 +9,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 
 /** Transfer direction exposed to Android callers. */
 enum class TransferKind { UPLOAD, DOWNLOAD }
@@ -20,8 +18,11 @@ enum class TransferState { QUEUED, RUNNING, PAUSED, COMPLETED, FAILED, CANCELED 
 /** A source that can be read again when a task is retried. */
 interface TransferSource {
     val size: Long
+    val supportsResume: Boolean get() = true
     suspend fun read(offset: Long, maxBytes: Int): ByteArray
     suspend fun close() = Unit
+    suspend fun complete() = Unit
+    suspend fun abort() = close()
 }
 
 /** Byte-array compatibility adapter for the original enqueueUpload API. */
@@ -38,10 +39,12 @@ private class ByteArraySource(private val bytes: ByteArray) : TransferSource {
 
 /** Destination for a download. Implementations can reset/truncate before retrying. */
 interface TransferSink {
+    val supportsResume: Boolean get() = true
     suspend fun reset() = Unit
     suspend fun write(offset: Long, data: ByteArray)
     suspend fun complete(totalBytes: Long) = Unit
     suspend fun abort() = Unit
+    suspend fun pause() = Unit
 }
 
 data class TransferTask(
@@ -61,12 +64,19 @@ data class TransferTask(
 private class TaskControl {
     @Volatile var paused: Boolean = false
     @Volatile var canceled: Boolean = false
+    val channel = java.util.concurrent.atomic.AtomicReference<SftpChannel?>()
+
+    suspend fun closeChannel() = kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+        channel.getAndSet(null)?.let { runCatching { it.close() } }
+    }
 }
 
 private data class Operation(
     val control: TaskControl,
     val run: suspend (TaskControl, String) -> Unit,
-    val retryable: Boolean = true
+    val retryable: Boolean = true,
+    val supportsResume: Boolean = true,
+    val discard: suspend () -> Unit = {}
 )
 
 /**
@@ -74,11 +84,14 @@ private data class Operation(
  * compatible. New callers can use a TransferSource or enqueue a download into a TransferSink.
  */
 class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
-    private val permits = Semaphore(maxConcurrent.coerceAtLeast(1))
+    @Volatile private var maxConcurrent = maxConcurrent.coerceIn(1, 8)
+    private var running = 0
     private val mutableTasks = MutableStateFlow<List<TransferTask>>(emptyList())
     val tasks: StateFlow<List<TransferTask>> = mutableTasks
     private val lock = Any()
     private val jobs = mutableMapOf<String, Job>()
+    private val cleanupJobs = mutableMapOf<String, Job>()
+    private val pendingRetries = mutableSetOf<String>()
     private val operations = mutableMapOf<String, Operation>()
 
     fun enqueueUpload(remotePath: String, data: ByteArray, channel: SftpChannel): String =
@@ -127,12 +140,14 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
         )
         val operation = Operation(TaskControl(), { control, taskId ->
             val channel = channelProvider()
+            control.channel.set(channel)
             try {
+                checkControl(taskId, control)
                 runUpload(taskId, remotePath, source, channel, control)
             } finally {
-                runCatching { channel.close() }
+                control.closeChannel()
             }
-        }, retryable = retryable)
+        }, retryable = retryable, supportsResume = source.supportsResume, discard = { source.abort() })
         synchronized(lock) { operations[id] = operation }
         launch(id, operation)
         return id
@@ -178,12 +193,14 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
         )
         val operation = Operation(TaskControl(), { control, taskId ->
             val channel = channelProvider()
+            control.channel.set(channel)
             try {
+                checkControl(taskId, control)
                 runDownload(taskId, remotePath, sink, channel, control)
             } finally {
-                runCatching { channel.close() }
+                control.closeChannel()
             }
-        }, retryable = retryable)
+        }, retryable = retryable, supportsResume = sink.supportsResume, discard = { sink.abort() })
         synchronized(lock) { operations[id] = operation }
         launch(id, operation)
         return id
@@ -202,11 +219,13 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
     fun resume(id: String) {
         val operation: Operation?
         synchronized(lock) {
+            if (task(id)?.state != TransferState.PAUSED) return
             operation = operations[id]
             if (operation?.retryable == false) return
             operation?.control?.paused = false
             val task = task(id) ?: return
-            if (task.state == TransferState.PAUSED) setTask(task.copy(state = TransferState.QUEUED, error = null))
+            if (task.state == TransferState.PAUSED) setTask(task.copy(state = TransferState.QUEUED, error = null,
+                bytesTransferred = if (operation?.supportsResume == false) 0 else task.bytesTransferred))
         }
         if (operation != null && synchronized(lock) { jobs[id]?.isActive != true }) launch(id, operation!!)
     }
@@ -214,6 +233,15 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
     fun retry(id: String) {
         val operation: Operation?
         synchronized(lock) {
+            val cleanup = cleanupJobs[id]
+            if (cleanup?.isActive == true) {
+                if (pendingRetries.add(id)) scope.launch {
+                    cleanup.join()
+                    synchronized(lock) { pendingRetries.remove(id) }
+                    retry(id)
+                }
+                return
+            }
             val task = task(id) ?: return
             if (task.state != TransferState.FAILED && task.state != TransferState.CANCELED) return
             operation = operations[id]
@@ -231,6 +259,7 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
 
     fun cancel(id: String) {
         synchronized(lock) {
+            if (task(id)?.state == TransferState.COMPLETED || cleanupJobs[id]?.isActive == true) return
             val operation = operations[id] ?: return
             operation.control.canceled = true
             operation.control.paused = false
@@ -239,7 +268,20 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
                     setTask(task.copy(state = TransferState.CANCELED))
                 }
             }
-            jobs.remove(id)?.cancel()
+            val job = jobs.remove(id)
+            job?.cancel()
+            val cleanup = scope.launch(kotlinx.coroutines.NonCancellable, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                try {
+                    // Closing the owned channel interrupts a blocked network read before joining.
+                    operation.control.closeChannel()
+                    job?.join()
+                    runCatching { operation.discard() }
+                } finally {
+                    synchronized(lock) { cleanupJobs.remove(id) }
+                }
+            }
+            cleanupJobs[id] = cleanup
+            cleanup.start()
         }
     }
 
@@ -247,6 +289,8 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
         val ids = synchronized(lock) { operations.keys.toList() }
         ids.forEach(::cancel)
     }
+
+    fun setConcurrency(value: Int) { maxConcurrent = value.coerceIn(1, 8) }
 
     fun clearFinished() {
         synchronized(lock) {
@@ -269,20 +313,39 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
             jobs[id] = scope.launch {
                 try {
                     waitUntilRunnable(id, operation.control)
-                    permits.withPermit { operation.run(operation.control, id) }
+                    while (!synchronized(lock) { if (running < maxConcurrent) { running++; true } else false }) {
+                        checkControl(id, operation.control)
+                        delay(50)
+                    }
+                    try { operation.run(operation.control, id) }
+                    finally { synchronized(lock) { running-- } }
                     synchronized(lock) {
                         task(id)?.takeUnless { it.state == TransferState.CANCELED }?.let {
                             setTask(it.copy(state = TransferState.COMPLETED, bytesTransferred = it.bytesTotal.coerceAtLeast(it.bytesTransferred)))
                         }
                     }
                 } catch (_: PauseRequested) {
-                    synchronized(lock) { task(id)?.let { setTask(it.copy(state = TransferState.PAUSED)) } }
+                    synchronized(lock) {
+                        task(id)?.let { setTask(it.copy(state = if (operation.control.paused) TransferState.PAUSED else TransferState.QUEUED)) }
+                    }
                 } catch (_: CancellationException) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { runCatching { operation.discard() } }
                     synchronized(lock) { task(id)?.let { setTask(it.copy(state = TransferState.CANCELED)) } }
                 } catch (error: Throwable) {
-                    synchronized(lock) { task(id)?.let { setTask(it.copy(state = TransferState.FAILED, error = error.message ?: error.javaClass.simpleName)) } }
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { runCatching { operation.discard() } }
+                    synchronized(lock) { task(id)?.let {
+                        setTask(if (operation.control.canceled) it.copy(state = TransferState.CANCELED, error = null)
+                            else it.copy(state = TransferState.FAILED, error = error.message ?: error.javaClass.simpleName))
+                    } }
                 } finally {
-                    synchronized(lock) { jobs.remove(id) }
+                    val currentJob = coroutineContext[Job]
+                    val restart = synchronized(lock) {
+                        if (jobs[id] !== currentJob) false else {
+                            jobs.remove(id)
+                            task(id)?.state == TransferState.QUEUED && !operation.control.paused && !operation.control.canceled
+                        }
+                    }
+                    if (restart) launch(id, operation)
                 }
             }
         }
@@ -307,6 +370,10 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
             updateRunning(id)
             var offset = synchronized(lock) { task(id)?.bytesTransferred?.coerceIn(0L, source.size) ?: 0L }
             val startedAt = System.nanoTime()
+            if (source.size == 0L) {
+                checkControl(id, control)
+                channel.writeChunk(remotePath, ByteArray(0), 0, truncate = true)
+            }
             while (offset < source.size) {
                 checkControl(id, control)
                 val chunk = source.read(offset, CHUNK_SIZE)
@@ -315,8 +382,15 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
                 offset += chunk.size
                 reportProgress(id, offset, startedAt)
             }
+            checkControl(id, control)
+            source.complete()
+        } catch (paused: PauseRequested) {
+            throw paused
+        } catch (error: Throwable) {
+            source.abort()
+            throw error
         } finally {
-            source.close()
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { source.close() }
         }
     }
 
@@ -347,8 +421,10 @@ class TransferQueue(private val scope: CoroutineScope, maxConcurrent: Int = 3) {
                 error("download ended at $offset of $expectedTotal bytes")
             }
             synchronized(lock) { task(id)?.let { if (it.bytesTotal < 0) setTask(it.copy(bytesTotal = offset)) } }
+            checkControl(id, control)
             sink.complete(offset)
         } catch (paused: PauseRequested) {
+            sink.pause()
             throw paused
         } catch (error: Throwable) {
             sink.abort()

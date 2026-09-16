@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"打开新窗口","enable":"允许多实例窗口","unsupported":"当前平台暂不支持"},
+  "instance": {
+    "newWindow": "打开新窗口",
+    "enable": "允许多实例窗口",
+    "unsupported": "当前平台暂不支持"
+  },
   "aiConnectionTest": {
     "button": "测试连接",
     "success": "连接测试成功 · 耗时 {{latencyMs}} ms",
@@ -49,7 +53,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "开源 FinalShell —— SSH 终端 · SFTP · 服务器监控",
+    "subtitle": "远程运维工作台 · SSH · SFTP · RDP · AI 助手",
     "newConnection": "新建连接",
     "newConnectionDesc": "配置主机、认证方式并保存到连接树",
     "quickConnect": "快速连接",
@@ -60,7 +64,7 @@
   },
   "onboarding": {
     "welcomeTitle": "欢迎使用 OpenFinalShell",
-    "welcomeIntro": "把 SSH 终端、远端文件管理与服务器监控放进同一个窗口。连上一台机器，上面是终端、中间是远端文件的编辑器、下面是文件列表，旁边是这台机器的 CPU / 内存 / 网络实时曲线。",
+    "welcomeIntro": "集中管理 SSH 终端、SFTP 文件、RDP 远程桌面与服务器监控，按需使用 AI 助手辅助排障。Windows 可在设置中开启多个独立窗口，共享连接配置。",
     "featuresTitle": "你可以做这些",
     "featureTerminal": "多标签 SSH 终端，支持分屏、搜索、命令历史与快捷命令",
     "featureSftp": "SFTP 文件管理：双击打开/编辑、拖拽上传、批量传输队列",
@@ -529,7 +533,13 @@
     "proxyPassword": "代理密码",
     "proxyAuthOptional": "代理不需要认证时留空",
     "note": "备注",
-    "notePlaceholder": "给这台机器写点说明，会显示在连接列表里"
+    "notePlaceholder": "给这台机器写点说明，会显示在连接列表里",
+    "clipboardTransferPreparing": "正在准备文件…",
+    "clipboardTransferring": "正在传输文件…",
+    "clipboardTransferComplete": "文件传输完成",
+    "clipboardTransferFailed": "文件传输失败",
+    "clipboardTransferCanceled": "文件传输已取消",
+    "clipboardPreparingPaste": "正在准备本地粘贴…"
   },
   "savedRef": {
     "section": "代理与私钥",
@@ -1075,5 +1085,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "新窗口",
+    "available": "可用",
+    "unavailable": "不可用",
+    "feature": {
+      "clipboardText": "文本剪贴板",
+      "clipboardFilesUpload": "文件上传",
+      "clipboardFilesPaste": "原生文件粘贴",
+      "audioPlayback": "音频"
+    },
+    "reason": {
+      "available": "当前会话可用",
+      "not-implemented": "尚未实现",
+      "awaiting-acceptance": "等待平台实机验收",
+      "worker-missing": "Worker 尚未连接",
+      "legacy-worker": "Worker 未报告此能力",
+      "runtime-unavailable": "所需后端或设备不可用",
+      "disabled": "已在连接设置中关闭",
+      "manual-update": "请使用对应平台的安装包更新",
+      "session-required": "连接会话后检测"
+    }
   }
 }

@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">파일 업로드</string>
+    <string name="port_upload_directory">폴더 업로드</string>
+    <string name="port_resume_note">임의 접근을 지원하지 않는 문서는 재개 시 처음부터 전송합니다.</string>
+    <string name="port_choose_download">먼저 다운로드 폴더를 선택하세요.</string>
+    <string name="port_permission_lost">파일 접근 권한이 만료되었습니다. 파일 또는 대상 폴더를 다시 선택하세요.</string>
+    <string name="port_operation_failed">파일 작업 실패. 연결, 파일 형식, 크기 및 권한을 확인하세요.</string>
+    <string name="port_session_closed">SSH 세션이 종료되었습니다. 다시 연결하고 파일을 다시 여세요.</string>
+    <string name="port_conflict_title">같은 이름의 파일이 있습니다</string>
+    <string name="port_edit">편집</string>
+    <string name="port_saved">파일 저장됨</string>
+    <string name="port_save">저장</string>
+    <string name="port_close">닫기</string>
+    <string name="port_find">문서에서 찾기</string>
+    <string name="port_find_count">%1$d개 일치</string>
+    <string name="port_discard">저장하지 않은 변경 사항을 버릴까요?</string>
+    <string name="port_editor_conflict">원격 파일이 변경되었습니다</string>
+    <string name="port_editor_reload">저장하기 전에 다시 불러오세요. 저장하지 않은 변경 사항은 사라집니다.</string>
+    <string name="port_non_atomic">원자적 교체를 지원하지 않습니다</string>
+    <string name="port_non_atomic_warning">직접 저장 중 연결이 끊기면 파일이 불완전할 수 있습니다. 계속할까요?</string>
+    <string name="port_proxy_saved">프록시 저장됨</string>
+    <string name="port_pack_download">압축 없이 묶어 다운로드</string>
+    <string name="port_pack_fallback">묶음을 사용할 수 없거나 대상이 존재하거나 임시 공간이 부족합니다. 일반 SFTP 전송을 사용하세요.</string>
+    <string name="port_command_single_line">제어 문자가 없는 한 줄 명령만 입력할 수 있습니다. 여러 줄은 복사하여 확인하세요.</string>
+    <string name="port_pack_upload">묶음 업로드</string>
+    <string name="port_editor_encoding">편집기 인코딩: %1$s</string>
+    <string name="port_encoding_unavailable">이 기기는 이 인코딩을 지원하지 않습니다.</string>
+    <string name="port_encoding_lossless">선택한 인코딩으로 파일 또는 텍스트를 손실 없이 표현할 수 없습니다. 올바른 인코딩을 선택하고 다시 여세요. 변경 사항은 저장되지 않았습니다.</string>
+    <string name="port_eol_mixed">혼합 줄바꿈을 보존합니다. 새 줄은 입력한 줄바꿈을 유지합니다.</string>
+</resources>

@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">Dateien hochladen</string>
+    <string name="port_upload_directory">Ordner hochladen</string>
+    <string name="port_resume_note">Dokumente ohne wahlfreien Zugriff starten beim Fortsetzen von vorn.</string>
+    <string name="port_choose_download">Wählen Sie zuerst einen Downloadordner.</string>
+    <string name="port_permission_lost">Zugriffsberechtigung abgelaufen. Datei oder Zielordner erneut auswählen.</string>
+    <string name="port_operation_failed">Dateioperation fehlgeschlagen. Verbindung, Typ, Größe und Rechte prüfen.</string>
+    <string name="port_session_closed">SSH-Sitzung geschlossen. Erneut verbinden und Datei neu öffnen.</string>
+    <string name="port_conflict_title">Eine Datei mit diesem Namen existiert bereits</string>
+    <string name="port_edit">Bearbeiten</string>
+    <string name="port_saved">Datei gespeichert</string>
+    <string name="port_save">Speichern</string>
+    <string name="port_close">Schließen</string>
+    <string name="port_find">Im Dokument suchen</string>
+    <string name="port_find_count">%1$d Treffer</string>
+    <string name="port_discard">Ungespeicherte Änderungen verwerfen?</string>
+    <string name="port_editor_conflict">Die entfernte Datei wurde geändert</string>
+    <string name="port_editor_reload">Vor dem Speichern neu laden. Ungespeicherte Änderungen gehen verloren.</string>
+    <string name="port_non_atomic">Atomarer Austausch nicht verfügbar</string>
+    <string name="port_non_atomic_warning">Bei einem Verbindungsabbruch während des direkten Speicherns kann die Datei unvollständig bleiben. Fortfahren?</string>
+    <string name="port_proxy_saved">Proxy gespeichert</string>
+    <string name="port_pack_download">Als Archiv herunterladen</string>
+    <string name="port_pack_fallback">Archivierung nicht verfügbar, Ziel vorhanden oder Speicherplatz unzureichend. Verwenden Sie die normale SFTP-Übertragung.</string>
+    <string name="port_command_single_line">Nur eine Zeile ohne Steuerzeichen kann eingefügt werden. Mehrzeilige Skripte bitte kopieren und separat prüfen.</string>
+    <string name="port_pack_upload">Als Archiv hochladen</string>
+    <string name="port_editor_encoding">Editor-Zeichencodierung: %1$s</string>
+    <string name="port_encoding_unavailable">Diese Codierung ist auf diesem Gerät nicht verfügbar.</string>
+    <string name="port_encoding_lossless">Datei oder Text sind in dieser Codierung nicht verlustfrei darstellbar. Wählen Sie die richtige Codierung und öffnen Sie die Datei erneut. Es wurde nichts gespeichert.</string>
+    <string name="port_eol_mixed">Gemischte Zeilenenden bleiben erhalten. Neue Zeilen behalten die eingegebenen Zeilenenden.</string>
+</resources>

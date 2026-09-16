@@ -100,6 +100,8 @@ interface SftpChannel {
     suspend fun write(path: String, data: ByteArray)
     suspend fun mkdir(path: String) { error("mkdir is not supported by this transport") }
     suspend fun rename(from: String, to: String) { error("rename is not supported by this transport") }
+    suspend fun atomicReplace(from: String, to: String) { throw AtomicReplaceUnavailable() }
+    suspend fun permissions(path: String, mode: Int) { error("permissions are not supported by this transport") }
     suspend fun writeChunk(path: String, data: ByteArray, offset: Long, truncate: Boolean = false) {
         require(offset == 0L) { "the transport does not support ranged writes" }
         write(path, data)
@@ -108,6 +110,8 @@ interface SftpChannel {
     suspend fun close()
 }
 
-data class SftpEntry(val name: String, val path: String, val type: Type, val size: Long? = null) {
+class AtomicReplaceUnavailable : IllegalStateException("atomic replacement is unavailable")
+
+data class SftpEntry(val name: String, val path: String, val type: Type, val size: Long? = null, val permissions: Int? = null) {
     enum class Type { FILE, DIRECTORY, SYMLINK, OTHER }
 }

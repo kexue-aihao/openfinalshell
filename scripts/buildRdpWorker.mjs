@@ -1,5 +1,5 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 
 const root = resolve(process.cwd())
@@ -158,6 +158,10 @@ if (!hasFlag('--skip-test') && canRunTarget(platform, arch)) {
 const executableName = platform === 'win' ? 'ofs-rdp-worker.exe' : 'ofs-rdp-worker'
 const runtimeManifestName = 'rdp-worker-runtime.json'
 const thirdPartyNoticeName = 'THIRD-PARTY-NOTICES.rdp-worker.txt'
+const sdk = JSON.parse(readFileSync(join(buildDir, 'rdp-worker-sdk.json'), 'utf8'))
+if (![0, 2, 3].includes(sdk.freerdpMajor) || (requireFreerdp && sdk.freerdpMajor === 0)) {
+  throw new Error('Native configure did not report a supported FreeRDP SDK major version')
+}
 function findExecutable(directory) {
   const matches = []
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -214,6 +218,81 @@ function copySiblingRuntimeDependencies(executablePath) {
   return [...copied].sort((a, b) => a.localeCompare(b))
 }
 
+// Copy Unix runtime libraries before packaging; development-machine library
+// paths must never be required by the installed Worker. Audio device modules
+// are dlopen dependencies, so include them as explicit graph roots.
+function copyUnixRuntimeDependencies() {
+  if (platform === 'win' || !requireFreerdp) return []
+  const copied = new Map()
+  const queue = [{ source: matches[0], target: staged }]
+  const prefixes = pkgConfigRoots()
+  const inspect = (command, args) => {
+    const result = spawnSync(command, args, { encoding: 'utf8', shell: false })
+    if (result.status !== 0) throw new Error(`Runtime dependency inspection failed: ${command}: ${result.stderr ?? result.error?.message}`)
+    return result.stdout
+  }
+  const add = (source, name = basename(source)) => {
+    const canonical = realpathSync(source)
+    if (copied.has(name)) {
+      if (copied.get(name) !== canonical) throw new Error(`Conflicting runtime libraries named ${name}`)
+      return
+    }
+    const target = join(stageDir, name)
+    copyFileSync(canonical, target)
+    chmodSync(target, 0o755)
+    copied.set(name, canonical)
+    queue.push({ source: canonical, target })
+  }
+  const findPlugins = (directory, depth = 0) => {
+    if (depth > 2 || !existsSync(directory)) return
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory() && /freerdp|aarch64|x86_64/.test(entry.name)) {
+        if (/freerdp[23]/.test(entry.name) && !entry.name.includes(`freerdp${sdk.freerdpMajor}`)) continue
+        findPlugins(path, depth + 1)
+      }
+      else if (/^(lib)?rdpsnd-client-(mac|pulse|alsa)\.(so|dylib)$/.test(entry.name)) add(path)
+    }
+  }
+  for (const prefix of prefixes) findPlugins(join(prefix, 'lib'))
+  const systemLinux = /^(?:ld-linux[^/]*|lib(?:c|m|pthread|dl|rt|util|resolv)\.so(?:\..*)?)$/
+  for (let index = 0; index < queue.length; index++) {
+    const { source, target } = queue[index]
+    if (platform === 'linux') {
+      const dependencies = inspect('ldd', [source])
+      if (/=>\s+not found/.test(dependencies)) throw new Error(`Unresolved Worker dependency in ${source}`)
+      for (const line of dependencies.split('\n')) {
+        const match = line.match(/^\s*(\S+)\s+=>\s+(\/[^\s]+)\s+\(/)
+        if (match && !systemLinux.test(match[1])) add(match[2], match[1])
+      }
+      run('patchelf', ['--set-rpath', '$ORIGIN', target])
+    } else {
+      const dependencyLines = inspect('otool', ['-L', source]).split('\n').slice(1)
+      const loadCommands = inspect('otool', ['-l', source])
+      const rpaths = [...loadCommands.matchAll(/cmd LC_RPATH\s+cmdsize \d+\s+path (.*?) \(offset/g)].map((match) => match[1])
+      const expand = (path) => path.replace('@loader_path', dirname(source)).replace('@executable_path', dirname(matches[0]))
+      for (const line of dependencyLines) {
+        const match = line.match(/^\s*(.*?) \(compatibility version /)
+        if (!match || match[1].startsWith('/usr/lib/') || match[1].startsWith('/System/Library/')) continue
+        const name = match[1]
+        const candidates = name.startsWith('@rpath/')
+          ? [...rpaths.map((path) => join(expand(path), name.slice(7))), ...prefixes.map((prefix) => join(prefix, 'lib', name.slice(7)))]
+          : [expand(name)]
+        const dependency = candidates.find((path) => existsSync(path))
+        if (!dependency) throw new Error(`Cannot resolve macOS dependency ${name} from ${source}`)
+        if (realpathSync(dependency) === realpathSync(source)) continue
+        add(dependency, basename(name))
+        run('install_name_tool', ['-change', name, `@loader_path/${basename(name)}`, target])
+      }
+      if (target !== staged) run('install_name_tool', ['-id', `@loader_path/${basename(target)}`, target])
+      // install_name_tool invalidates any existing ad-hoc signature. The app
+      // signing step can replace this signature with the release identity.
+      run('codesign', ['--force', '--sign', '-', target])
+    }
+  }
+  return [...copied.keys()].sort()
+}
+
 function copyOpenSslProviderModules() {
   if (!requireFreerdp || platform !== 'win') return []
   const candidates = []
@@ -268,7 +347,10 @@ function pkgConfigRoots() {
   const add = (value) => {
     if (value && !candidates.includes(value)) candidates.push(value)
   }
-  for (const module of ['freerdp3', 'freerdp2', 'freerdp-client3', 'freerdp-client2', 'winpr3', 'winpr2']) {
+  const modules = sdk.freerdpMajor === 0 ? [] : [
+    `freerdp${sdk.freerdpMajor}`, `freerdp-client${sdk.freerdpMajor}`, `winpr${sdk.freerdpMajor}`
+  ]
+  for (const module of modules) {
     const result = spawnSync('pkg-config', ['--variable=prefix', module], { encoding: 'utf8', shell: false })
     if (result.status === 0 && typeof result.stdout === 'string' && result.stdout.trim()) {
       add(resolve(result.stdout.trim()))
@@ -310,7 +392,7 @@ function runtimeNamesFromLdd(executablePath, root) {
 }
 
 function copyKnownLicenseFiles() {
-  const packageNames = ['freerdp', 'freerdp3', 'freerdp2', 'winpr', 'winpr3', 'winpr2', 'openssl', 'zlib', 'libjpeg-turbo', 'libpng', 'openh264']
+  const packageNames = ['freerdp', 'freerdp3', 'freerdp2', 'winpr', 'winpr3', 'winpr2', 'openssl', 'zlib', 'libjpeg-turbo', 'libpng', 'openh264', 'gtk3', 'libgtk-3-0t64', 'libglib2.0-0t64', 'libpulse0', 'libasound2t64']
   const copied = []
   const licenseDir = join(stageDir, 'licenses')
   const findLicense = (base, name) => {
@@ -365,7 +447,7 @@ function copyKnownLicenseFiles() {
   return [...new Set(copied)].sort((a, b) => a.localeCompare(b))
 }
 
-const runtimeFiles = [...copySiblingRuntimeDependencies(matches[0]), ...copyOpenSslProviderModules()]
+const runtimeFiles = [...new Set([...copySiblingRuntimeDependencies(matches[0]), ...copyOpenSslProviderModules(), ...copyUnixRuntimeDependencies()])]
 const licenseFiles = copyKnownLicenseFiles()
 const notice = [
   'OpenFinalShell RDP worker third-party notices',
@@ -385,6 +467,7 @@ writeFileSync(join(stageDir, runtimeManifestName), `${JSON.stringify({
   platform,
   arch,
   backend: requireFreerdp ? 'freerdp' : 'optional',
+  freerdpMajor: sdk.freerdpMajor,
   executable: executableName,
   runtimeFiles,
   noticeFile: thirdPartyNoticeName,

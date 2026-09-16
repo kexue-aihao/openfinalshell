@@ -136,6 +136,7 @@ fun OpenFinalShellApp(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settingsState by settingsViewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(settingsState.settings) { viewModel.applyTransferSettings(settingsState.settings) }
     val lanSyncState by lanSyncViewModel.state.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val statusText = uiStatusText(state.status)
@@ -207,6 +208,7 @@ fun OpenFinalShellApp(
         dynamicColor = true,
         accentColor = primary
     ) {
+        io.github.openfinalshell.android.transfer.PortTransferDialogs(viewModel)
         val readyUpdate = settingsState.update as? UpdateState.Ready
         if (readyUpdate != null && deferredUpdateTag != readyUpdate.release.tagName) {
             UpdateReadyDialog(
@@ -284,7 +286,7 @@ fun OpenFinalShellApp(
                                 settingsState.settings.terminalFontSize,
                                 settingsState.settings.terminalCursorStyle
                             )
-                            AppDestination.SFTP -> SftpScreen(state, viewModel)
+                            AppDestination.SFTP -> SftpScreen(state, viewModel, settingsViewModel)
                             AppDestination.MONITOR -> MonitorScreen(state, viewModel)
                             AppDestination.FORWARDS -> ForwardScreen(state, viewModel)
                             AppDestination.SYNC -> LanSyncScreen(lanSyncState, lanSyncViewModel)
@@ -615,11 +617,10 @@ private fun ConnectionCard(
 }
 
 @Composable
-private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
+private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel, settingsViewModel: SettingsViewModel) {
     val path = state.sftpPath
     val parent = path.trimEnd('/').substringBeforeLast('/', "").ifBlank { "/" }
     var uploadLocalPath by remember { mutableStateOf("") }
-    var uploadRemotePath by remember(path) { mutableStateOf(path.trimEnd('/') + "/") }
     var downloadRemotePath by remember(path) { mutableStateOf("") }
     var downloadLocalPath by remember { mutableStateOf("") }
     var directoryName by remember { mutableStateOf("") }
@@ -683,59 +684,7 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
                 Text(androidx.compose.ui.res.stringResource(R.string.action_rename))
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
-            FilterChip(
-                selected = transferAction == "upload",
-                onClick = { transferAction = "upload" },
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.action_upload)) }
-            )
-            FilterChip(
-                selected = transferAction == "download",
-                onClick = { transferAction = "download" },
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.action_download)) }
-            )
-        }
-        if (transferAction == "upload") {
-            OutlinedTextField(
-                value = uploadLocalPath,
-                onValueChange = { uploadLocalPath = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_local_file)) },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = uploadRemotePath,
-                onValueChange = { uploadRemotePath = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_remote_path)) },
-                singleLine = true
-            )
-            Button(
-                onClick = { viewModel.uploadSftp(uploadLocalPath, uploadRemotePath) },
-                enabled = uploadLocalPath.isNotBlank() && uploadRemotePath.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_upload)) }
-        } else {
-            OutlinedTextField(
-                value = downloadRemotePath,
-                onValueChange = { downloadRemotePath = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_remote_file)) },
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = downloadLocalPath,
-                onValueChange = { downloadLocalPath = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(androidx.compose.ui.res.stringResource(R.string.label_local_destination)) },
-                singleLine = true
-            )
-            Button(
-                onClick = { viewModel.downloadSftp(downloadRemotePath, downloadLocalPath) },
-                enabled = downloadRemotePath.isNotBlank() && downloadLocalPath.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) { Text(androidx.compose.ui.res.stringResource(R.string.action_download)) }
-        }
+        io.github.openfinalshell.android.transfer.SftpTransferActions(viewModel) { settingsViewModel.setDownloadDirectoryUri(it.toString()) }
         if (showDirectoryForm) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
                 OutlinedTextField(
@@ -781,7 +730,8 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
         } else {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = OpenFinalShellSpacing.Small)) {
                 items(state.sftpEntries, key = { it.path }) { entry ->
-                    SftpEntryRow(entry, onDelete = { pendingDeletePath = it }, viewModel = viewModel)
+                    SftpEntryRow(entry, onDelete = { pendingDeletePath = it }, viewModel = viewModel,
+                        onDownloadDirectory = { settingsViewModel.setDownloadDirectoryUri(it.toString()) })
                 }
             }
         }
@@ -795,7 +745,7 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
                                 "${transferStateText(transfer.state)} ${transfer.bytesTransferred}/${transfer.bytesTotal.coerceAtLeast(0)}",
                                 style = MaterialTheme.typography.labelSmall
                             )
-                            transfer.error?.let { error -> ErrorState(error) }
+                            transfer.error?.let { ErrorState(androidx.compose.ui.res.stringResource(R.string.port_operation_failed)) }
                         }
                         when (transfer.state) {
                             io.github.openfinalshell.android.core.sftp.TransferState.RUNNING,
@@ -822,7 +772,8 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel) {
 private fun SftpEntryRow(
     entry: SftpEntry,
     viewModel: MainViewModel,
-    onDelete: (String) -> Unit
+    onDelete: (String) -> Unit,
+    onDownloadDirectory: (Uri) -> Unit
 ) {
     val directory = entry.type == SftpEntry.Type.DIRECTORY
     Card(Modifier.fillMaxWidth()) {
@@ -831,8 +782,13 @@ private fun SftpEntryRow(
                 Text(if (directory) "[DIR] ${entry.name}" else entry.name, fontFamily = if (directory) FontFamily.Default else FontFamily.Monospace, maxLines = 2)
                 Text(entry.path, style = MaterialTheme.typography.labelSmall, maxLines = 1)
             }
+            io.github.openfinalshell.android.transfer.SftpDownloadButton(entry.path, viewModel, onDownloadDirectory)
+            if (entry.type == SftpEntry.Type.FILE) {
+                TextButton(onClick = { viewModel.openRemoteEditor(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.port_edit)) }
+            }
             if (directory) {
                 TextButton(onClick = { viewModel.browseSftp(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_open)) }
+                TextButton(onClick = { viewModel.downloadPackedDirectory(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.port_pack_download)) }
             } else {
                 TextButton(
                     onClick = { onDelete(entry.path) },
@@ -857,6 +813,7 @@ private fun TerminalScreen(
         ?.takeIf { it in state.terminalSessionIds }
         ?.let(viewModel::terminalController)
     val terminalDescription = androidx.compose.ui.res.stringResource(R.string.tab_terminal)
+    var selectedText by remember(sessionId) { mutableStateOf("") }
     var confirmDisconnect by rememberSaveable { mutableStateOf(false) }
     // Observing the emulator snapshot invalidates the Android view without putting terminal bytes
     // into a Compose Text node or the global UI state.
@@ -890,6 +847,12 @@ private fun TerminalScreen(
         )
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        io.github.openfinalshell.android.tools.AssistantTools(
+            sessionId = sessionId?.takeIf { session?.state == SessionState.READY },
+            selectedText = selectedText,
+            onInsert = viewModel::insertAssistantCommand,
+            onExecute = viewModel::executeAssistantCommand
+        )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(session?.profile?.name ?: androidx.compose.ui.res.stringResource(R.string.tab_terminal), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
             Text(
@@ -931,6 +894,7 @@ private fun TerminalScreen(
                     factory = { context -> SshTerminalView(context) },
                     modifier = Modifier.fillMaxSize(),
                     update = { terminalView ->
+                        terminalView.onTextSelected = { selectedText = it }
                         terminalView.contentDescription = terminalDescription
                         terminalView.bind(
                             nextController = controller,
@@ -1385,6 +1349,7 @@ private fun SettingsScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)
     ) {
+        item { io.github.openfinalshell.android.tools.AiSettingsSection() }
         item {
             SettingsSection(androidx.compose.ui.res.stringResource(R.string.settings_general)) {
                 ChoiceRow(

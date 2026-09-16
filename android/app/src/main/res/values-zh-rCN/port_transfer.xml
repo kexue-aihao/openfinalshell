@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">上传文件</string>
+    <string name="port_upload_directory">上传目录</string>
+    <string name="port_resume_note">不支持随机访问的文档在继续传输时会从头开始。</string>
+    <string name="port_choose_download">请先选择下载目录。</string>
+    <string name="port_permission_lost">文件访问权限已失效，请重新选择文件或下载目录。</string>
+    <string name="port_operation_failed">文件操作失败，请检查连接、文件类型、大小和访问权限。</string>
+    <string name="port_session_closed">SSH 会话已关闭，请重连并重新打开文件后保存。</string>
+    <string name="port_conflict_title">已存在同名文件</string>
+    <string name="port_edit">编辑</string>
+    <string name="port_saved">文件已保存</string>
+    <string name="port_save">保存</string>
+    <string name="port_close">关闭</string>
+    <string name="port_find">在文档中查找</string>
+    <string name="port_find_count">找到 %1$d 处</string>
+    <string name="port_discard">放弃未保存的修改？</string>
+    <string name="port_editor_conflict">远程文件已被修改</string>
+    <string name="port_editor_reload">保存前请重新加载远程文件，重新加载会丢弃当前未保存的修改。</string>
+    <string name="port_non_atomic">服务器不支持原子替换</string>
+    <string name="port_non_atomic_warning">直接保存时如果连接中断，文件可能不完整。是否继续？</string>
+    <string name="port_proxy_saved">代理已保存</string>
+    <string name="port_pack_download">打包下载</string>
+    <string name="port_pack_fallback">无法打包、目标已存在或临时空间不足，请使用普通 SFTP 传输。</string>
+    <string name="port_command_single_line">仅可填入不含终端控制字符的单行命令。多行脚本请复制后单独检查。</string>
+    <string name="port_pack_upload">打包上传</string>
+    <string name="port_editor_encoding">编辑器编码：%1$s</string>
+    <string name="port_encoding_unavailable">此设备不支持该编码。</string>
+    <string name="port_encoding_lossless">所选编码无法无损表示文件或输入文本。请选择正确编码并重新打开文件，未保存任何修改。</string>
+    <string name="port_eol_mixed">保留原有混合行尾，新插入行保留输入时的行尾。</string>
+</resources>

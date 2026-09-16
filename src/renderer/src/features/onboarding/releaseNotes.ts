@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.24',
+    items: [
+      { type: 'feat', zh: 'Android 新增代理拨号、系统文件选择与目录传输、命令库、AI 助手和远程文本编辑；AI 支持模型选择、流式和非流式回答及手动填入 SSH', en: 'Add Android proxy connections, system file selection and directory transfers, a command library, an AI assistant, and remote text editing; AI supports model selection, streaming and JSON replies, and manual SSH insertion' },
+      { type: 'fix', zh: '完善 RDP 能力诊断、文件传输取消和旧会话事件隔离；macOS/Linux 文件粘贴、多实例与音频在实机验收完成前保持关闭', en: 'Improve RDP capability diagnostics, transfer cancellation, and stale-session event isolation; macOS/Linux file paste, multiple instances, and audio remain gated pending device acceptance' },
+      { type: 'fix', zh: '修复 Android 发布构建与文件权限失效处理，补齐多语言文案，并增加系统文件接口、迁移和凭据隔离测试', en: 'Fix Android release builds and revoked document permissions, complete UI translations, and add system file, migration, and credential-isolation tests' }
+    ]
+  },
+  {
     version: '0.30.23',
     items: [
       { type: 'feat', zh: 'Windows 多实例窗口作为正式功能提供，设置项移除“预览”标记，并同步全部界面语言', en: 'Make Windows multi-instance windows a standard feature and remove the preview label in all interface languages' },

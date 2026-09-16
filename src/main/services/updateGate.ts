@@ -59,9 +59,11 @@ export function resolveUpdateCapability(input: {
   packaged: boolean
   portable: boolean
   platform: NodeJS.Platform
+  signedMacFeed?: boolean
 }): UpdateCapability {
   if (!input.packaged || input.portable) return 'unsupported'
   if (input.platform === 'linux') return 'manual'
+  if (input.platform === 'darwin' && input.signedMacFeed !== true) return 'manual'
   return 'install'
 }
 

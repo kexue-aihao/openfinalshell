@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">Загрузить файлы</string>
+    <string name="port_upload_directory">Загрузить папку</string>
+    <string name="port_resume_note">Документы без произвольного доступа при возобновлении передаются сначала.</string>
+    <string name="port_choose_download">Сначала выберите папку загрузки.</string>
+    <string name="port_permission_lost">Доступ истёк. Выберите файл или папку назначения повторно.</string>
+    <string name="port_operation_failed">Ошибка операции. Проверьте подключение, тип, размер файла и права.</string>
+    <string name="port_session_closed">Сеанс SSH закрыт. Подключитесь снова и откройте файл.</string>
+    <string name="port_conflict_title">Файл с таким именем уже существует</string>
+    <string name="port_edit">Изменить</string>
+    <string name="port_saved">Файл сохранён</string>
+    <string name="port_save">Сохранить</string>
+    <string name="port_close">Закрыть</string>
+    <string name="port_find">Поиск в документе</string>
+    <string name="port_find_count">Совпадений: %1$d</string>
+    <string name="port_discard">Отменить несохранённые изменения?</string>
+    <string name="port_editor_conflict">Удалённый файл изменился</string>
+    <string name="port_editor_reload">Перезагрузите файл перед сохранением. Несохранённые изменения будут потеряны.</string>
+    <string name="port_non_atomic">Атомарная замена недоступна</string>
+    <string name="port_non_atomic_warning">При обрыве связи во время прямой записи файл может остаться неполным. Продолжить?</string>
+    <string name="port_proxy_saved">Прокси сохранён</string>
+    <string name="port_pack_download">Скачать архивом</string>
+    <string name="port_pack_fallback">Упаковка недоступна, цель уже существует или недостаточно места. Используйте обычную передачу SFTP.</string>
+    <string name="port_command_single_line">Можно вставить только одну строку без управляющих символов. Многострочные скрипты скопируйте и проверьте отдельно.</string>
+    <string name="port_pack_upload">Загрузить архивом</string>
+    <string name="port_editor_encoding">Кодировка редактора: %1$s</string>
+    <string name="port_encoding_unavailable">Эта кодировка недоступна на устройстве.</string>
+    <string name="port_encoding_lossless">Выбранная кодировка не позволяет сохранить текст без потерь. Выберите верную кодировку и откройте файл заново. Изменения не сохранены.</string>
+    <string name="port_eol_mixed">Смешанные окончания строк сохраняются. Новые строки сохраняют введённые окончания.</string>
+</resources>

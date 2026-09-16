@@ -1,6 +1,6 @@
 import { createServer, createConnection, type Server, type Socket } from 'node:net'
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, lstatSync, unlinkSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { databaseFile, metaGet, metaSet, prepare, tx } from '../store/Database'
@@ -65,7 +65,12 @@ export class InstanceCoordinator {
   }
 
   private prune(): void {
-    for (const m of this.members()) if (!processAlive(m.pid)) prepare('DELETE FROM app_instances WHERE id = ?').run(m.id)
+    for (const m of this.members()) if (!processAlive(m.pid)) {
+      if (process.platform !== 'win32' && m.endpoint === instanceEndpoint(databaseFile(), m.id)) {
+        try { if (lstatSync(m.endpoint).isSocket()) unlinkSync(m.endpoint) } catch { /* already removed */ }
+      }
+      prepare('DELETE FROM app_instances WHERE id = ?').run(m.id)
+    }
   }
 
   assertCanStart(): void {
@@ -75,7 +80,12 @@ export class InstanceCoordinator {
 
   async start(): Promise<void> {
     const endpoint = instanceEndpoint(databaseFile(), this.id)
-    if (process.platform !== 'win32') mkdirSync(dirname(endpoint), { recursive: true, mode: 0o700 })
+    if (process.platform !== 'win32') {
+      mkdirSync(dirname(endpoint), { recursive: true, mode: 0o700 })
+      const parent = lstatSync(dirname(endpoint))
+      if (parent.isSymbolicLink() || !parent.isDirectory() || (parent.mode & 0o077) !== 0 ||
+          (process.getuid && parent.uid !== process.getuid())) throw new Error('Unsafe instance socket directory')
+    }
     this.server = createServer((socket) => this.accept(socket))
     await new Promise<void>((resolve, reject) => {
       this.server!.once('error', reject)

@@ -14,6 +14,7 @@
 
 #include "unicode.h"
 #include "file_clipboard.h"
+#include "audio_backend.h"
 #include "frame_protocol.h"
 
 #if defined(_WIN32)
@@ -56,6 +57,7 @@ enum MessageType : std::uint8_t {
   CLIPBOARD_LOCAL_FILES = 0x19,
   CLIPBOARD_SYNC = 0x1a,
   CLIPBOARD_FILES_DOWNLOAD = 0x1b,
+  CLIPBOARD_CANCEL = 0x1c,
   CLIPBOARD_LOCAL_DATA = 0x25,
   STATE = 0x20,
   PROMPT = 0x21,
@@ -620,14 +622,19 @@ ReadResult readFrame(InputFrame& frame) {
 
 void selfTest() {
 #if OFS_RDP_HAS_FREERDP
-  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard","audio"]})");
+  const bool native = ofs::rdp::nativeClipboardAvailable();
+  const bool audio = ofs::rdp::audioBackendAvailable();
+  const char* clipboardBool = native ? "true" : "false";
+  writeJson(HELLO, 0, std::string(R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard","audio"],"featureSupport":{"clipboardText":)") + clipboardBool +
+      ",\"clipboardFilesUpload\":true,\"clipboardFilesPaste\":" + clipboardBool +
+      ",\"dragUpload\":true,\"audioPlayback\":" + (audio ? "true" : "false") + "}}");
 #else
-  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"mock","capabilities":["mock","framebuffer","input","resize","clipboard"]})");
+  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"mock","capabilities":["mock","framebuffer","input","resize","clipboard"],"featureSupport":{"clipboardText":false,"clipboardFilesUpload":false,"clipboardFilesPaste":false,"dragUpload":false,"audioPlayback":false}})");
 #endif
 }
 } // namespace
 
-int main(int argc, char** argv) {
+int workerMain(int argc, char** argv) {
 #if defined(_WIN32)
   _setmode(_fileno(stdin), _O_BINARY);
   _setmode(_fileno(stdout), _O_BINARY);
@@ -637,11 +644,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-#if OFS_RDP_HAS_FREERDP
-  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"freerdp","capabilities":["freerdp","framebuffer","input","resize","clipboard","audio"]})");
-#else
-  writeJson(HELLO, 0, R"({"op":"hello","protocol":1,"workerVersion":"mock","capabilities":["mock","framebuffer","input","resize","clipboard"]})");
-#endif
+  selfTest();
   bool handshaken = false;
   bool started = false;
   std::atomic_bool ready{false};
@@ -663,7 +666,7 @@ int main(int argc, char** argv) {
     if (frame.type != HELLO_ACK && frame.type != START && frame.type != CREDENTIAL && frame.type != CLOSE &&
         frame.type != RESIZE && frame.type != KEY && frame.type != POINTER && frame.type != CLIPBOARD_SET &&
         frame.type != CLIPBOARD_GET && frame.type != CLIPBOARD_FILES_SET && frame.type != CLIPBOARD_LOCAL_FILES &&
-        frame.type != CLIPBOARD_SYNC && frame.type != CLIPBOARD_FILES_DOWNLOAD) {
+        frame.type != CLIPBOARD_SYNC && frame.type != CLIPBOARD_FILES_DOWNLOAD && frame.type != CLIPBOARD_CANCEL) {
       protocolError(frame.requestId, "unknown message type");
       return 2;
     }
@@ -725,16 +728,19 @@ int main(int argc, char** argv) {
       std::uint32_t width = 0, height = 0, dpi = 0;
       bool clipboard = false;
       bool audioPlayback = true;
+      bool clipboardFilesUpload = false, clipboardFilesPaste = false;
       std::string nextCertificatePolicy;
       const JsonValue* audioPlaybackValue = jsonMember(*features, "audioPlayback");
       if (!jsonHasOnlyMembers(*displayValue, {"width", "height", "dpi"}) ||
           !jsonUint(*displayValue, "width", width) || !jsonUint(*displayValue, "height", height) ||
           !jsonUint(*displayValue, "dpi", dpi) ||
-          !jsonHasUniqueKnownMembers(*features, {"clipboard", "certificatePolicy", "audioPlayback"}) ||
+          !jsonHasUniqueKnownMembers(*features, {"clipboard", "certificatePolicy", "audioPlayback", "clipboardFilesUpload", "clipboardFilesPaste"}) ||
           !jsonBool(*features, "clipboard", clipboard) ||
           !jsonString(*features, "certificatePolicy", nextCertificatePolicy) ||
           (nextCertificatePolicy != "prompt" && nextCertificatePolicy != "strict") ||
-          (audioPlaybackValue != nullptr && !jsonBool(*features, "audioPlayback", audioPlayback))) {
+          (audioPlaybackValue != nullptr && !jsonBool(*features, "audioPlayback", audioPlayback)) ||
+          (jsonMember(*features, "clipboardFilesUpload") && !jsonBool(*features, "clipboardFilesUpload", clipboardFilesUpload)) ||
+          (jsonMember(*features, "clipboardFilesPaste") && !jsonBool(*features, "clipboardFilesPaste", clipboardFilesPaste))) {
         protocolError(frame.requestId, "display is required");
         return 2;
       }
@@ -756,6 +762,8 @@ int main(int argc, char** argv) {
       config.domain = domain;
       config.display = {display.width, display.height, display.dpi};
       config.clipboard = clipboard;
+      config.clipboardFilesUpload = clipboardFilesUpload;
+      config.clipboardFilesPaste = clipboardFilesPaste;
       config.audioPlayback = audioPlayback;
       config.certificatePolicy = certificatePolicy;
       const bool backendStarted = backend->start(
@@ -798,12 +806,13 @@ int main(int argc, char** argv) {
            },
            [&](const char* progressState, std::uint32_t fileIndex, std::uint32_t fileCount,
                const char* fileName, std::uint64_t transferred, std::uint64_t total,
-               double speedBps, const char* errorCode) {
+               double speedBps, const char* errorCode, const char* direction, std::uint64_t taskId) {
              std::string payload = std::string("{\"op\":\"clipboardProgress\",\"state\":\"") +
                  jsonEscape(progressState ? progressState : "failed") + "\",\"fileIndex\":" +
                  std::to_string(fileIndex) + ",\"fileCount\":" + std::to_string(fileCount) +
                  ",\"transferred\":" + std::to_string(transferred) + ",\"total\":" +
                  std::to_string(total) + ",\"speedBps\":" + std::to_string(speedBps);
+             payload += std::string(",\"direction\":\"") + direction + "\",\"taskId\":" + std::to_string(taskId);
              if (fileName != nullptr) payload += std::string(",\"fileName\":\"") + jsonEscape(fileName) + "\"";
              if (errorCode != nullptr) payload += std::string(",\"error\":\"") + jsonEscape(errorCode) + "\"";
              payload += "}";
@@ -816,8 +825,8 @@ int main(int argc, char** argv) {
             payload += "}";
             writeJson(AUDIO_STATE, 0, payload);
           },
-           [&](std::vector<FreeRdpAdapter::RemoteFileEntry> files) {
-             std::string payload = "{\"op\":\"remoteFiles\",\"files\":[";
+           [&](std::vector<FreeRdpAdapter::RemoteFileEntry> files, std::uint64_t taskId) {
+             std::string payload = "{\"op\":\"remoteFiles\",\"taskId\":" + std::to_string(taskId) + ",\"files\":[";
              bool first = true;
              for (const auto& file : files) {
                if (!first) payload += ",";
@@ -888,6 +897,17 @@ int main(int argc, char** argv) {
       }
       protocolError(frame.requestId, "invalid credential payload");
       return 2;
+    }
+
+    if (frame.type == CLIPBOARD_CANCEL) {
+      if (op != "clipboardCancel" || !jsonHasOnlyMembers(control, {"op"})) {
+        protocolError(frame.requestId, "invalid clipboard cancellation"); return 2;
+      }
+#if OFS_RDP_HAS_FREERDP
+      if (backend) backend->cancelClipboardTransfer();
+#endif
+      ack(frame.requestId);
+      continue;
     }
 
     if (frame.type == CLIPBOARD_SYNC) {
@@ -1076,7 +1096,7 @@ int main(int argc, char** argv) {
         files.push_back({std::move(path), std::move(name), size, directory});
       }
 #if OFS_RDP_HAS_FREERDP
-      if (!backend || !backend->clipboardFilesSet(std::move(files))) {
+      if (!backend || !backend->clipboardFilesSet(std::move(files), frame.requestId)) {
         writeJson(ERROR, frame.requestId, R"({"op":"error","code":"UNSUPPORTED","message":"file clipboard is unavailable"})");
         continue;
       }
@@ -1105,4 +1125,9 @@ int main(int argc, char** argv) {
       continue;
     }
   }
+}
+
+int main(int argc, char** argv) {
+  if (argc > 1 && std::string(argv[1]) == "--self-test") return workerMain(argc, argv);
+  return ofs::rdp::runClipboardEventLoop([&] { return workerMain(argc, argv); });
 }

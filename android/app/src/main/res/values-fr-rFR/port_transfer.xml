@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">Téléverser des fichiers</string>
+    <string name="port_upload_directory">Téléverser un dossier</string>
+    <string name="port_resume_note">Les documents sans accès aléatoire recommencent depuis le début à la reprise.</string>
+    <string name="port_choose_download">Choisissez un dossier de téléchargement.</string>
+    <string name="port_permission_lost">Accès expiré. Sélectionnez à nouveau le fichier ou le dossier de destination.</string>
+    <string name="port_operation_failed">Échec de l’opération. Vérifiez la connexion, le type, la taille et les permissions.</string>
+    <string name="port_session_closed">Session SSH fermée. Reconnectez-vous et rouvrez le fichier.</string>
+    <string name="port_conflict_title">Un fichier de ce nom existe déjà</string>
+    <string name="port_edit">Modifier</string>
+    <string name="port_saved">Fichier enregistré</string>
+    <string name="port_save">Enregistrer</string>
+    <string name="port_close">Fermer</string>
+    <string name="port_find">Rechercher dans le document</string>
+    <string name="port_find_count">%1$d résultats</string>
+    <string name="port_discard">Abandonner les modifications non enregistrées ?</string>
+    <string name="port_editor_conflict">Le fichier distant a changé</string>
+    <string name="port_editor_reload">Rechargez avant de sauvegarder. Les modifications non enregistrées seront perdues.</string>
+    <string name="port_non_atomic">Remplacement atomique indisponible</string>
+    <string name="port_non_atomic_warning">Une coupure pendant la sauvegarde directe peut laisser un fichier incomplet. Continuer ?</string>
+    <string name="port_proxy_saved">Proxy enregistré</string>
+    <string name="port_pack_download">Télécharger en archive</string>
+    <string name="port_pack_fallback">Archivage indisponible, destination existante ou espace insuffisant. Utilisez le transfert SFTP normal.</string>
+    <string name="port_command_single_line">Seule une ligne sans caractères de contrôle peut être insérée. Copiez et vérifiez les scripts multilignes.</string>
+    <string name="port_pack_upload">Téléverser en archive</string>
+    <string name="port_editor_encoding">Encodage de l’éditeur : %1$s</string>
+    <string name="port_encoding_unavailable">Cet encodage est indisponible sur cet appareil.</string>
+    <string name="port_encoding_lossless">Le fichier ou le texte ne peut être représenté sans perte avec cet encodage. Choisissez le bon encodage et rouvrez le fichier. Aucune modification enregistrée.</string>
+    <string name="port_eol_mixed">Les fins de ligne mixtes sont conservées. Les nouvelles lignes gardent les fins saisies.</string>
+</resources>

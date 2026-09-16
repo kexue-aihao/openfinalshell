@@ -111,7 +111,7 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           gradle -p android :app:assembleRelease :app:bundleRelease \
-            -PversionName="$version" -PversionCode="$GITHUB_RUN_NUMBER" --stacktrace
+            -PrequireReleaseSigning=true -PversionName="$version" -PversionCode="$GITHUB_RUN_NUMBER" --stacktrace
 
       - name: Normalize Android release assets
         shell: bash

@@ -1,0 +1,16 @@
+{
+  "payload": {"models": {
+    "image-route": {"id": "canonical-model", "input_modalities": ["text", "image"]},
+    "text-route": {"capabilities": {"vision": false}},
+    "vision-in-name-only": {},
+    "contradictory": {"vision": true, "input": ["text"]},
+    "string-is-not-boolean": {"vision": "false"}
+  }},
+  "expected": [
+    {"id": "image-route", "image": "yes"},
+    {"id": "text-route", "image": "no"},
+    {"id": "vision-in-name-only", "image": "unknown"},
+    {"id": "contradictory", "image": "unknown"},
+    {"id": "string-is-not-boolean", "image": "unknown"}
+  ]
+}

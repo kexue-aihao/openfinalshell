@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Test APK only. Every document is confined to a fresh fixture cache directory. -->
+        <provider
+            android:name="io.github.openfinalshell.android.transfer.SafFixtureProvider"
+            android:authorities="io.github.openfinalshell.android.test.saf-fixture"
+            android:exported="true"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

@@ -90,6 +90,8 @@ internal class MinaExecChannel(private val channel: ClientChannel) : ExecChannel
                     if (count < 0) break
                     if (count > 0) trySend(buffer.copyOf(count))
                 }
+                this@MinaExecChannel.channel.waitFor(setOf(org.apache.sshd.client.channel.ClientChannelEvent.CLOSED), 5_000L)
+                mutableExitCode.value = this@MinaExecChannel.channel.exitStatus
             } catch (_: InterruptedException) {
                 // Normal shutdown interrupts the blocking read.
             } catch (_: Throwable) {
@@ -122,7 +124,7 @@ internal class MinaSftpChannel(private val client: SftpClient) : SftpChannel {
                 attrs.isSymbolicLink -> SftpEntry.Type.SYMLINK
                 else -> SftpEntry.Type.OTHER
             }
-            SftpEntry(entry.filename, path.trimEnd('/') + "/" + entry.filename, type, attrs.size)
+            SftpEntry(entry.filename, path.trimEnd('/') + "/" + entry.filename, type, attrs.size, attrs.permissions)
         }.toList()
     }
 
@@ -149,6 +151,18 @@ internal class MinaSftpChannel(private val client: SftpClient) : SftpChannel {
 
     override suspend fun rename(from: String, to: String) = withContext(Dispatchers.IO) { client.rename(from, to) }
 
+    override suspend fun atomicReplace(from: String, to: String) = withContext(Dispatchers.IO) {
+        try { client.rename(from, to, SftpClient.CopyMode.Atomic, SftpClient.CopyMode.Overwrite) }
+        catch (error: org.apache.sshd.sftp.common.SftpException) {
+            if (error.status == org.apache.sshd.sftp.common.SftpConstants.SSH_FX_OP_UNSUPPORTED) throw AtomicReplaceUnavailable()
+            throw error
+        }
+    }
+
+    override suspend fun permissions(path: String, mode: Int) = withContext(Dispatchers.IO) {
+        client.setStat(path, SftpClient.Attributes().perms(mode))
+    }
+
     override suspend fun writeChunk(path: String, data: ByteArray, offset: Long, truncate: Boolean) = withContext(Dispatchers.IO) {
         val modes = EnumSet.of(
             SftpClient.OpenMode.Write,
@@ -170,10 +184,11 @@ internal class MinaSftpChannel(private val client: SftpClient) : SftpChannel {
         }
     }
 
-    override suspend fun close() = withContext(Dispatchers.IO) { client.close() }
+    override suspend fun close() = withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { client.close() }
 
     private fun removeRecursively(path: String) {
-        val attrs = client.stat(path)
+        // Cleanup must never traverse a symlink, even if a server replaces a temp entry.
+        val attrs = client.lstat(path)
         if (!attrs.isDirectory) {
             client.remove(path)
             return

@@ -17,6 +17,7 @@ import {
   type RdpPortMessage
 } from '@shared/types'
 import styles from './RdpPane.module.css'
+import { unavailableRdp, type RdpCapabilities, type RdpCapabilityEvent } from '@shared/platformCapabilities'
 
 interface Props { tab: SessionTab; active: boolean }
 
@@ -491,6 +492,25 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   const [clipboardProgress, setClipboardProgress] = useState<RdpClipboardProgress | null>(null)
   const [remoteFiles, setRemoteFiles] = useState<RdpClipboardRemoteFile[] | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [capabilities, setCapabilities] = useState<RdpCapabilities>(() => unavailableRdp('worker-missing'))
+  const generationRef = useRef(-1)
+  const runtimeRef = useRef<{ sessionId: string | null; epoch: number; ready: boolean } | null>(null)
+  runtimeRef.current = { sessionId: tab.sessionId, epoch: tab.rdpPortEpoch ?? 0, ready: active && tab.state === 'ready' }
+  useEffect(() => () => { runtimeRef.current = null }, [])
+  useEffect(() => {
+    setCapabilities(unavailableRdp('worker-missing'))
+    if (!tab.sessionId) return
+    let disposed = false
+    let eventReceived = false
+    const apply = (event: RdpCapabilityEvent): void => {
+      if (disposed || !event || event.sessionId !== tab.sessionId || event.generation < generationRef.current) return
+      generationRef.current = event.generation
+      setCapabilities(event.capabilities)
+    }
+    const off = ofs.on('rdp:capabilities', (event) => { if (event.sessionId === tab.sessionId) eventReceived = true; apply(event) })
+    void ofs.invoke('rdp:capabilities', tab.sessionId).then(event => { if (!eventReceived) apply(event) }).catch(() => {})
+    return () => { disposed = true; off() }
+  }, [tab.sessionId, tab.state])
   const updateTab = useSessionStore((s) => s.updateTab)
   const reconnectTab = useSessionStore((s) => s.reconnectTab)
   const profileId = tab.profileId
@@ -563,28 +583,30 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
 
   useEffect(() => {
     const sessionId = tab.sessionId
-    if (!sessionId) return
+    if (!sessionId || !canControl || !capabilities.clipboardText.available) return
     return ofs.on('rdp:clipboard', (event) => {
       if (event.sessionId !== sessionId || !navigator.clipboard) return
       void navigator.clipboard.writeText(event.text).catch(() => {})
     })
-  }, [tab.sessionId])
+  }, [tab.sessionId, canControl, capabilities.clipboardText.available])
 
   useEffect(() => {
     const sessionId = tab.sessionId
-    if (!sessionId) {
+    if (!sessionId || tab.state !== 'ready') {
       setClipboardProgress(null)
       return
     }
-    return ofs.on('rdp:clipboardProgress', (event) => {
-      if (event.sessionId !== sessionId) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const off = ofs.on('rdp:clipboardProgress', (event) => {
+      if (event.sessionId !== sessionId || (event.generation !== undefined && event.generation < generationRef.current)) return
+      if (timer) clearTimeout(timer)
       setClipboardProgress(event)
       if (event.state === 'completed' || event.state === 'failed' || event.state === 'canceled') {
-        window.setTimeout(() => setClipboardProgress((current) =>
-          current?.sessionId === sessionId && current.state === event.state ? null : current), 4_000)
+        timer = setTimeout(() => setClipboardProgress((current) => current === event ? null : current), 4_000)
       }
     })
-  }, [tab.sessionId])
+    return () => { off(); if (timer) clearTimeout(timer) }
+  }, [tab.sessionId, tab.state, tab.rdpPortEpoch])
 
   useEffect(() => {
     if (!active || tab.state !== 'ready' || !tab.sessionId) {
@@ -599,7 +621,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   // the user's local clipboard with remote content.
   useEffect(() => {
     const sessionId = tab.sessionId
-    if (!sessionId || !active || tab.state !== 'ready') return
+    if (!sessionId || !active || tab.state !== 'ready' || !capabilities.clipboardText.available) return
     const report = (): void => {
       const enabled = document.hasFocus()
       ofs.invoke('rdp:clipboardSync', { sessionId, enabled }).catch(() => {})
@@ -614,7 +636,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       // writes remote clipboard content into a background/local context.
       ofs.invoke('rdp:clipboardSync', { sessionId, enabled: false }).catch(() => {})
     }
-  }, [active, tab.sessionId, tab.state])
+  }, [active, tab.sessionId, tab.state, capabilities.clipboardText.available])
 
   useEffect(() => {
     const host = hostRef.current
@@ -642,14 +664,16 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
 
   useEffect(() => {
     const sessionId = tab.sessionId
-    if (!sessionId) return
+    setRemoteFiles(null)
+    setDownloading(false)
+    if (!sessionId || tab.state !== 'ready' || !capabilities.clipboardFilesPaste.available) return
     const off = ofs.on('rdp:clipboardRemoteFiles', (event) => {
-      if (event.sessionId !== sessionId) return
+      if (event.sessionId !== sessionId || (event.generation !== undefined && event.generation < generationRef.current)) return
       setRemoteFiles(event.files.length > 0 ? event.files : null)
       setDownloading(false)
     })
     return off
-  }, [tab.sessionId])
+  }, [tab.sessionId, tab.state, tab.rdpPortEpoch, capabilities.clipboardFilesPaste.available])
 
   useEffect(() => {
     const sessionId = tab.sessionId
@@ -669,10 +693,10 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
 
   const downloadRemoteFiles = async (): Promise<void> => {
     const sessionId = tab.sessionId
-    if (!sessionId || !remoteFiles || downloading) return
+    if (!sessionId || !remoteFiles || downloading || !capabilities.clipboardFilesPaste.available) return
     try {
       const directory = await ofs.invoke('app:pickPath', { mode: 'openDirectory', title: t('conn.clipboardPickFolder') })
-      if (!directory) return
+      if (!directory || !isCurrentInputSession(sessionId)) return
       setDownloading(true)
       await ofs.invoke('rdp:clipboardRemoteFilesDownload', { sessionId, directory })
     } catch (error) {
@@ -700,7 +724,13 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     }
   }
 
+  const isCurrentInputSession = (sessionId: string): boolean => {
+    const current = runtimeRef.current
+    return !!current && current.sessionId === sessionId && current.epoch === (tab.rdpPortEpoch ?? 0) && current.ready
+  }
+
   const sendRemoteClipboardShortcut = async (sessionId: string, code: 'KeyC' | 'KeyV', modifierAlreadyDown = false): Promise<boolean> => {
+    if (!isCurrentInputSession(sessionId)) return false
     const modifier = RDP_SCANCODES.ControlLeft
     const key = RDP_SCANCODES[code]
     if (!modifier || !key) return false
@@ -734,7 +764,9 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     void (async () => {
       if (code === 'KeyV') {
         // Read CF_HDROP through Windows; registered-format aliases can lose multiple files.
-        const nativeFiles = await ofs.invoke('rdp:clipboardLocalFiles', sessionId)
+        const nativeFiles = capabilities.clipboardFilesUpload.available
+          ? await ofs.invoke('rdp:clipboardLocalFiles', sessionId) : []
+        if (!isCurrentInputSession(sessionId)) return
         const files = Array.isArray(nativeFiles) ? nativeFiles :
           typeof ofs.getClipboardFilePaths === 'function' ? ofs.getClipboardFilePaths() : []
         if (files.length > 0) {
@@ -744,10 +776,11 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
           await sendRemoteClipboardShortcut(sessionId, code, modifierIsStillDown)
           return
         }
-        const text = await navigator.clipboard?.readText().catch(() => '')
+        const text = capabilities.clipboardText.available ? await navigator.clipboard?.readText().catch(() => '') : ''
+        if (!isCurrentInputSession(sessionId)) return
         // Remote virtual files have no CF_HDROP paths or text. The server
         // already owns that selection; still deliver Ctrl+V to Explorer.
-        if (text) await ofs.invoke('rdp:clipboardSet', { sessionId, text })
+        if (text && capabilities.clipboardText.available) await ofs.invoke('rdp:clipboardSet', { sessionId, text })
         const modifierIsStillDown = modifierAlreadyDown &&
           (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))
         await sendRemoteClipboardShortcut(sessionId, code, modifierIsStillDown)
@@ -757,8 +790,10 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       // Allow the remote shell to publish the new selection before asking
       // cliprdr for its data; otherwise the request can race Ctrl+C.
       await new Promise<void>((resolve) => window.setTimeout(resolve, CLIPBOARD_SETTLE_MS))
-      await ofs.invoke('rdp:clipboardGet', sessionId)
+      if (isCurrentInputSession(sessionId) && capabilities.clipboardText.available) await ofs.invoke('rdp:clipboardGet', sessionId)
     })().catch((error: unknown) => {
+      if (!isCurrentInputSession(sessionId)) return
+      if (error instanceof Error && error.message === 'CANCELED') return
       // A copy is a pull from the remote desktop; do not mislabel it as an
       // upload failure. Silent loss here also overwrites the user's mental
       // model of what ended up in the local clipboard.
@@ -943,12 +978,15 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       .filter((path) => path.length > 0)
     if (files.length > 0) {
       event.preventDefault()
+      if (!capabilities.clipboardFilesUpload.available) return
       const sessionId = tab.sessionId
       const modifierAlreadyDown = pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight')
       void ofs.invoke('rdp:clipboardFilesSet', { sessionId, files })
         .then(() => sendRemoteClipboardShortcut(sessionId, 'KeyV', modifierAlreadyDown &&
           (pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight'))))
         .catch((error: unknown) => {
+          if (!isCurrentInputSession(sessionId)) return
+          if (error instanceof Error && error.message === 'CANCELED') return
           setClipboardProgress({
             sessionId,
             state: 'failed',
@@ -963,7 +1001,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       return
     }
     const text = event.clipboardData.getData('text/plain')
-    if (!text) return
+    if (!text || !capabilities.clipboardText.available) return
     event.preventDefault()
     const sessionId = tab.sessionId
     const modifierAlreadyDown = pressedKeysRef.current.has('ControlLeft') || pressedKeysRef.current.has('ControlRight')
@@ -976,7 +1014,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   const uploadDroppedFiles = (event: React.DragEvent<HTMLCanvasElement>): void => {
     event.preventDefault()
     event.stopPropagation()
-    if (!canControl || !tab.sessionId) return
+    if (!canControl || !tab.sessionId || !capabilities.dragUpload.available) return
     const files = Array.from(event.dataTransfer.files ?? [])
       .map((file) => ofs.getPathForFile(file))
       .filter((path) => path.length > 0)
@@ -985,6 +1023,8 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
     void ofs.invoke('rdp:clipboardFilesSet', { sessionId, files })
       .then(() => sendRemoteClipboardShortcut(sessionId, 'KeyV'))
       .catch((error: unknown) => {
+        if (!isCurrentInputSession(sessionId)) return
+        if (error instanceof Error && error.message === 'CANCELED') return
         setClipboardProgress({
           sessionId,
           state: 'failed',
@@ -999,7 +1039,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   }
 
   const requestClipboard = (event: React.ClipboardEvent<HTMLCanvasElement>): void => {
-    if (!canControl || !tab.sessionId) return
+    if (!canControl || !tab.sessionId || !capabilities.clipboardText.available) return
     event.preventDefault()
     void ofs.invoke('rdp:clipboardGet', tab.sessionId).catch(() => {})
   }
@@ -1007,6 +1047,12 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
   if (tab.state === 'closed') return <div className={styles.empty}><Empty description={tab.error || t('terminal.disconnected')}><Space><Button icon={<RotateCcw size={14} />} onClick={retry}>{t('common.retry')}</Button><Button icon={<MonitorUp size={14} />} onClick={launchSystemFallback}>{t('conn.rdpSystemFallback')}</Button></Space></Empty></div>
   if (!tab.sessionId || tab.state === 'connecting') return <div className={styles.empty}><Spin size="small" /> <span>{t('terminal.connecting', { target: 'RDP' })}</span></div>
   return <div ref={hostRef} className={styles.host} data-active={active}>
+     <div className={styles.capabilityStatus}>
+       {(['clipboardText', 'clipboardFilesUpload', 'clipboardFilesPaste', 'audioPlayback'] as const).map(key =>
+         <span key={key} title={t(`platform.reason.${capabilities[key].reason}`)}>
+           {t(`platform.feature.${key}`)}: {capabilities[key].available ? t('platform.available') : t('platform.unavailable')}
+         </span>)}
+     </div>
      <canvas
        ref={canvasRef}
        className={styles.canvas}
@@ -1039,7 +1085,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
          sendKey(e, false)
        }}
        onBlur={() => { releasePressedKeys(); releasePressedButtons() }}
-       onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
+       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = capabilities.dragUpload.available ? 'copy' : 'none' }}
        onDrop={uploadDroppedFiles}
        onPointerMove={(e) => sendPointer(e)}
        onPointerDown={(e) => {
@@ -1068,9 +1114,14 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
       />
       {clipboardProgress && (
         <div className={styles.clipboardProgress} role="status">
+          {(clipboardProgress.state === 'preparing' || clipboardProgress.state === 'transferring') && <Button size="small"
+            onClick={() => { if (tab.sessionId) void ofs.invoke('rdp:clipboardCancel', tab.sessionId).catch(() => {}) }}>{t('common.cancel')}</Button>}
           <div className={styles.clipboardProgressTitle}>
-            <span>{clipboardProgress.state === 'completed' ? t('conn.clipboardUploadComplete') :
-              clipboardProgress.state === 'failed' ? t('conn.clipboardUploadFailed') :
+            <span>{clipboardProgress.state === 'completed' ? (clipboardProgress.direction === 'upload' ? t('conn.clipboardUploadComplete') : t('conn.clipboardTransferComplete')) :
+              clipboardProgress.state === 'failed' ? t('conn.clipboardTransferFailed') :
+              clipboardProgress.state === 'canceled' ? t('conn.clipboardTransferCanceled') :
+              clipboardProgress.state === 'preparing' ? (clipboardProgress.direction === 'download' ? t('conn.clipboardPreparingPaste') : t('conn.clipboardTransferPreparing')) :
+              clipboardProgress.direction === 'download' ? t('conn.clipboardTransferring') :
               t('conn.clipboardUploading')}</span>
             {clipboardProgress.fileName && <span className={styles.clipboardFileName}>{clipboardProgress.fileName}</span>}
           </div>
@@ -1091,7 +1142,7 @@ export function RdpPane({ tab, active }: Props): React.JSX.Element {
           {clipboardProgress.error && <div className={styles.clipboardProgressError}>{clipboardProgress.error}</div>}
         </div>
       )}
-      {remoteFiles && !clipboardProgress && (
+      {remoteFiles && capabilities.clipboardFilesPaste.available && !clipboardProgress && (
         <div className={`${styles.clipboardProgress} ${styles.remoteFilesCard}`} role="status">
           <div className={styles.clipboardProgressTitle}>
             <span>{downloading ? t('conn.clipboardDownloading') : t('conn.clipboardRemoteFilesReady', { count: remoteFiles.length })}</span>

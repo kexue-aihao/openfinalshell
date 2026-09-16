@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parseAiModels } from '../../src/main/services/aiModels'
+import fixture from '../../shared-schema/fixtures/ai-model-inputs.json'
 
 describe('AI model input metadata', () => {
+  it('matches the Android shared metadata fixture', () => {
+    expect(parseAiModels(fixture.payload).map(row => ({ id: row.id, image: row.input.image }))).toEqual(fixture.expected)
+  })
   it('keeps ID-only DeepSeek and OpenAI listings unknown regardless of model names', () => {
     const models = parseAiModels({ data: ['deepseek-flash', 'deepseek-v4-pro', 'gpt-4o', 'custom-vision'].map((id) => ({ id, owned_by: 'provider' })) })
     expect(models).toHaveLength(4)

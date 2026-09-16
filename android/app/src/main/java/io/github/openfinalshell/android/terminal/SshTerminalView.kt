@@ -72,6 +72,8 @@ class SshTerminalView @JvmOverloads constructor(
     private var lastMeasuredColumns = -1
     private var lastMeasuredRows = -1
     private var selectionStart: TerminalCell? = null
+    /** Invoked only for the user's explicit selection, never a transcript snapshot. */
+    var onTextSelected: ((String) -> Unit)? = null
     private var selectionEnd: TerminalCell? = null
 
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -321,6 +323,7 @@ class SshTerminalView @JvmOverloads constructor(
             )
         }
         if (text.isBlank()) return
+        onTextSelected?.invoke(text)
         context.getSystemService(ClipboardManager::class.java)
             ?.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.terminal_clipboard_label), text))
         invalidate()

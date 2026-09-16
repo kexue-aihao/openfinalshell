@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"Abrir nova janela","enable":"Permitir várias instâncias","unsupported":"Indisponível nesta plataforma"},
+  "instance": {
+    "newWindow": "Abrir nova janela",
+    "enable": "Permitir várias instâncias",
+    "unsupported": "Indisponível nesta plataforma"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "FinalShell de código aberto — terminal SSH · SFTP · monitor de servidor",
+    "subtitle": "Espaço de administração remota · SSH · SFTP · RDP · Assistente de IA",
     "newConnection": "Nova conexão",
     "newConnectionDesc": "Configure host e autenticação, salve na árvore",
     "quickConnect": "Conexão rápida",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "Bem-vindo ao OpenFinalShell",
-    "welcomeIntro": "Terminal SSH, gerenciamento remoto de arquivos e monitoramento de servidor em uma única janela. Conecte-se a um host e tenha um terminal no topo, um editor para arquivos remotos no meio, a lista de arquivos abaixo e gráficos ao vivo de CPU / memória / rede na lateral.",
+    "welcomeIntro": "Gerencie terminais SSH, arquivos SFTP, áreas de trabalho RDP e o monitoramento de servidores em um só aplicativo, com assistência opcional de IA para solucionar problemas. No Windows, ative janelas independentes que compartilham as configurações de conexão.",
     "featuresTitle": "O que você pode fazer",
     "featureTerminal": "Terminal SSH com abas, painéis divididos, busca, histórico de comandos e snippets",
     "featureSftp": "Gerenciador de arquivos SFTP: duplo clique para abrir/editar, arraste para enviar, fila de transferência em lote",
@@ -533,7 +537,13 @@
     "proxyPassword": "Senha do proxy",
     "proxyAuthOptional": "Deixe em branco se o proxy não exigir autenticação",
     "note": "Nota",
-    "notePlaceholder": "Uma breve descrição desta máquina, exibida na lista de conexões"
+    "notePlaceholder": "Uma breve descrição desta máquina, exibida na lista de conexões",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "Proxies e chaves",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

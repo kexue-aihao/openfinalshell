@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const worker = process.argv[2] ? resolve(process.argv[2]) : null;
@@ -92,6 +92,9 @@ function detectWorkerVersion() {
   const frames = parseFrames(result.stdout);
   assert.equal(frames.length, 1, 'self-test emits one frame');
   assert.equal(frames[0].type, 0x01, 'self-test frame is HELLO');
+  for (const feature of ['clipboardText', 'clipboardFilesUpload', 'clipboardFilesPaste', 'dragUpload', 'audioPlayback']) {
+    assert.equal(typeof frames[0].json.featureSupport?.[feature], 'boolean', `${feature} has explicit evidence`);
+  }
   return frames[0].json?.workerVersion;
 }
 
@@ -159,12 +162,48 @@ function testFreeRdpStartWaitsForCredentialWithoutMockFrame() {
   );
 }
 
-function testFreeRdpReportsNetworkErrorAfterCredential() {
+function testClipboardFeatureGates() {
+  for (const feature of ['clipboardFilesUpload', 'clipboardFilesPaste']) {
+    expectError(run(Buffer.concat([
+      helloAck(), mainStart(2, { features: { clipboard: true, certificatePolicy: 'prompt', [feature]: 'true' } })
+    ])), 2);
+  }
   const result = run(Buffer.concat([
+    helloAck(), mainStart(2, { features: { clipboard: true, certificatePolicy: 'prompt', clipboardFilesUpload: false, clipboardFilesPaste: false } }),
+    frame(0x1c, 40, JSON.stringify({ op: 'clipboardCancel' })),
+    frame(0x12, 41, JSON.stringify({ op: 'close', reason: 'user' }))
+  ]));
+  assert.equal(result.status, 0);
+  assert.ok(result.frames.some((entry) => entry.requestId === 40 && entry.json?.op === 'ack'));
+}
+
+async function testFreeRdpReportsNetworkErrorAfterCredential() {
+  // Keep stdin open while connecting: EOF means the parent has exited and
+  // now intentionally interrupts pending network/clipboard operations.
+  const input = Buffer.concat([
     helloAck(1),
     mainStart(2, { port: 1 }),
     frame(0x11, 3, JSON.stringify({ op: 'credential', kind: 'password', value: 'test' }))
-  ]));
+  ]);
+  const result = await new Promise((resolve, reject) => {
+    const child = spawn(worker, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let output = Buffer.alloc(0), inspected = 0;
+    const timeout = setTimeout(() => { child.kill(); reject(new Error('network failure was not reported within 8 seconds')); }, 8000);
+    child.on('error', (error) => { clearTimeout(timeout); reject(error); });
+    child.stdout.on('data', (data) => {
+      output = Buffer.concat([output, data]);
+      while (inspected + 16 <= output.length) {
+        const length = output.readUInt32LE(inspected + 8);
+        if (inspected + 16 + length > output.length) break;
+        const entry = parseFrames(output.subarray(inspected, inspected + 16 + length))[0];
+        inspected += 16 + length;
+        if (entry.json?.state === 'failed') child.stdin.end();
+      }
+    });
+    child.stderr.resume();
+    child.on('close', (status) => { clearTimeout(timeout); resolve({ status, frames: parseFrames(output) }); });
+    child.stdin.write(input);
+  });
   assert.equal(result.status, 0, 'FreeRDP network failure exits cleanly');
   const failure = result.frames.find((entry) => entry.type === 0x20 && entry.json?.state === 'failed');
   assert.equal(failure?.json?.errorCode, 'NETWORK_ERROR', 'connection refusal is reported as a network error');
@@ -279,10 +318,11 @@ if (workerVersion === 'mock') {
 }
 else if (workerVersion === 'freerdp') {
   testFreeRdpStartWaitsForCredentialWithoutMockFrame();
-  testFreeRdpReportsNetworkErrorAfterCredential();
+  await testFreeRdpReportsNetworkErrorAfterCredential();
 }
 else assert.fail(`unexpected worker backend ${workerVersion}`);
 testStartUsesFrozenNestedDisplay();
+testClipboardFeatureGates();
 testUnsolicitedCertificateResponsesAreNotAcknowledged();
 testStrictJson();
 if (workerVersion === 'mock') testContractPixelCeilingUsesDirtyRectWhenFullFrameWouldExceedPayload();

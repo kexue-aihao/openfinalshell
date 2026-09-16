@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openfinalshell.github.io/schema/ai-service.json",
+  "title": "AI public service profile (local only, never part of export/sync)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "baseUrl", "model", "enabled", "hasToken", "updatedAt"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1, "maxLength": 100},
+    "baseUrl": {"type": "string", "format": "uri"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 200},
+    "enabled": {"type": "boolean"},
+    "hasToken": {"type": "boolean"},
+    "createdAt": {"type": "integer", "minimum": 0},
+    "updatedAt": {"type": "integer", "minimum": 0}
+  },
+  "$comment": "HTTPS, or HTTP only for localhost/127.0.0.1/::1; strip query/fragment, reject URL credentials. Empty path becomes /v1; retain explicit gateway prefixes. Resolve Token only within each service request. POST /chat/completions supports SSE and JSON. GET /models image declarations are yes/no/unknown, never inferred from a model name. Limits: 32768 input characters, 1000000 output characters, 4 concurrent requests."
+}

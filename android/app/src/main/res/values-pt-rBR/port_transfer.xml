@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">Enviar arquivos</string>
+    <string name="port_upload_directory">Enviar pasta</string>
+    <string name="port_resume_note">Documentos sem acesso aleatório reiniciam ao retomar.</string>
+    <string name="port_choose_download">Escolha primeiro uma pasta de download.</string>
+    <string name="port_permission_lost">A permissão expirou. Selecione novamente o arquivo ou a pasta de destino.</string>
+    <string name="port_operation_failed">Falha na operação. Verifique conexão, tipo, tamanho e permissões.</string>
+    <string name="port_session_closed">Sessão SSH encerrada. Reconecte e reabra o arquivo.</string>
+    <string name="port_conflict_title">Já existe um arquivo com este nome</string>
+    <string name="port_edit">Editar</string>
+    <string name="port_saved">Arquivo salvo</string>
+    <string name="port_save">Salvar</string>
+    <string name="port_close">Fechar</string>
+    <string name="port_find">Pesquisar no documento</string>
+    <string name="port_find_count">%1$d resultados</string>
+    <string name="port_discard">Descartar alterações não salvas?</string>
+    <string name="port_editor_conflict">O arquivo remoto foi alterado</string>
+    <string name="port_editor_reload">Recarregue antes de salvar. As alterações não salvas serão perdidas.</string>
+    <string name="port_non_atomic">Substituição atômica indisponível</string>
+    <string name="port_non_atomic_warning">Uma desconexão durante a gravação direta pode deixar o arquivo incompleto. Continuar?</string>
+    <string name="port_proxy_saved">Proxy salvo</string>
+    <string name="port_pack_download">Baixar como arquivo tar</string>
+    <string name="port_pack_fallback">Empacotamento indisponível, destino existente ou espaço insuficiente. Use a transferência SFTP normal.</string>
+    <string name="port_command_single_line">Insira apenas uma linha sem caracteres de controle. Copie e revise scripts de várias linhas.</string>
+    <string name="port_pack_upload">Enviar como arquivo tar</string>
+    <string name="port_editor_encoding">Codificação do editor: %1$s</string>
+    <string name="port_encoding_unavailable">Esta codificação não está disponível neste dispositivo.</string>
+    <string name="port_encoding_lossless">O arquivo ou texto não pode ser representado sem perdas nesta codificação. Escolha a correta e reabra o arquivo. Nada foi salvo.</string>
+    <string name="port_eol_mixed">As terminações de linha mistas são preservadas. Novas linhas mantêm as terminações digitadas.</string>
+</resources>

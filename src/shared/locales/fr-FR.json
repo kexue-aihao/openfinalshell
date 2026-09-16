@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"Ouvrir une nouvelle fenêtre","enable":"Autoriser plusieurs instances","unsupported":"Indisponible sur cette plateforme"},
+  "instance": {
+    "newWindow": "Ouvrir une nouvelle fenêtre",
+    "enable": "Autoriser plusieurs instances",
+    "unsupported": "Indisponible sur cette plateforme"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "FinalShell open source — terminal SSH · SFTP · moniteur de serveur",
+    "subtitle": "Espace d’administration à distance · SSH · SFTP · RDP · Assistant IA",
     "newConnection": "Nouvelle connexion",
     "newConnectionDesc": "Configurez l'hôte et l'authentification, puis enregistrez dans l'arborescence",
     "quickConnect": "Connexion rapide",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "Bienvenue dans OpenFinalShell",
-    "welcomeIntro": "Terminal SSH, gestion de fichiers distants et surveillance de serveur dans une seule fenêtre. Connectez-vous à un hôte pour obtenir un terminal en haut, un éditeur de fichiers distants au milieu, la liste des fichiers en dessous et des graphiques CPU / mémoire / réseau en direct sur le côté.",
+    "welcomeIntro": "Gérez les terminaux SSH, les fichiers SFTP, les bureaux RDP et la surveillance des serveurs dans une seule application, avec une assistance IA facultative pour le dépannage. Sous Windows, activez des fenêtres indépendantes qui partagent les paramètres de connexion.",
     "featuresTitle": "Ce que vous pouvez faire",
     "featureTerminal": "Terminal SSH à onglets avec volets fractionnés, recherche, historique de commandes et fragments",
     "featureSftp": "Gestionnaire de fichiers SFTP : double-cliquez pour ouvrir/éditer, glissez pour téléverser, file de transferts par lots",
@@ -533,7 +537,13 @@
     "proxyPassword": "Mot de passe du proxy",
     "proxyAuthOptional": "Laissez vide si le proxy ne nécessite pas d'authentification",
     "note": "Note",
-    "notePlaceholder": "Une brève description de cette machine, affichée dans la liste des connexions"
+    "notePlaceholder": "Une brève description de cette machine, affichée dans la liste des connexions",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "Proxys et clés",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"Открыть новое окно","enable":"Разрешить несколько экземпляров","unsupported":"Недоступно на этой платформе"},
+  "instance": {
+    "newWindow": "Открыть новое окно",
+    "enable": "Разрешить несколько экземпляров",
+    "unsupported": "Недоступно на этой платформе"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "Открытый FinalShell — SSH-терминал · SFTP · мониторинг сервера",
+    "subtitle": "Рабочее пространство для удалённого администрирования · SSH · SFTP · RDP · ИИ",
     "newConnection": "Новое подключение",
     "newConnectionDesc": "Настройте хост и аутентификацию, сохраните в дереве",
     "quickConnect": "Быстрое подключение",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "Добро пожаловать в OpenFinalShell",
-    "welcomeIntro": "SSH-терминал, управление удалёнными файлами и мониторинг сервера в одном окне. Подключитесь к хосту — и вы получите терминал сверху, редактор удалённых файлов посередине, список файлов снизу и графики CPU / памяти / сети в реальном времени сбоку.",
+    "welcomeIntro": "Управляйте терминалами SSH, файлами SFTP, рабочими столами RDP и мониторингом серверов в одном приложении. При необходимости используйте ИИ для поиска решений. В Windows можно включить независимые окна с общими настройками подключений.",
     "featuresTitle": "Что вы можете делать",
     "featureTerminal": "SSH-терминал со вкладками: разделение панелей, поиск, история команд и сниппеты",
     "featureSftp": "SFTP-менеджер файлов: двойной клик для открытия/редактирования, перетаскивание для загрузки, пакетная очередь передач",
@@ -533,7 +537,13 @@
     "proxyPassword": "Пароль прокси",
     "proxyAuthOptional": "Оставьте пустым, если прокси не требует аутентификации",
     "note": "Заметка",
-    "notePlaceholder": "Краткое описание этой машины, отображаемое в списке подключений"
+    "notePlaceholder": "Краткое описание этой машины, отображаемое в списке подключений",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "Прокси и ключи",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

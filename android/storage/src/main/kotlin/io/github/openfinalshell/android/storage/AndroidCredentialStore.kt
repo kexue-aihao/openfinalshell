@@ -75,10 +75,10 @@ class AndroidCredentialStore(context: Context, database: AppDatabase? = null) {
         return cipher.doFinal(row.ciphertext)
     }
 
-    private fun key(): SecretKey {
+    private fun key(): SecretKey = synchronized(keyCreationLock) {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(keyAlias, null) as? SecretKey)?.let { return it }
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+        (store.getKey(keyAlias, null) as? SecretKey)?.let { return@synchronized it }
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
             init(
                 KeyGenParameterSpec.Builder(
                     keyAlias,
@@ -90,6 +90,8 @@ class AndroidCredentialStore(context: Context, database: AppDatabase? = null) {
             )
         }.generateKey()
     }
+
+    companion object { private val keyCreationLock = Any() }
 }
 
 class CredentialResolutionException(message: String) : IllegalStateException(message)

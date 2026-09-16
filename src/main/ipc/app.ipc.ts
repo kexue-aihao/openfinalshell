@@ -11,6 +11,9 @@ import { getBundle, t } from '../services/i18n'
 import { applyWindowChrome } from '../window'
 import { applyEditorWindowChrome } from '../editorWindow'
 import { scopedLogger } from '../utils/logger'
+import { capability, platformAcceptance } from '../services/platformCapabilities'
+import { unavailableRdp } from '@shared/platformCapabilities'
+import { resolveUpdateCapability } from '../services/updateGate'
 
 const log = scopedLogger('app')
 
@@ -31,6 +34,18 @@ export function finishImportSideEffects(result: ImportResult): void {
 }
 
 export function registerAppIpc(): void {
+  handle('app:capabilities', () => {
+    const update = resolveUpdateCapability({ packaged: app.isPackaged, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR), platform: process.platform,
+      signedMacFeed: typeof __OFS_SIGNED_MAC_FEED__ !== 'undefined' && __OFS_SIGNED_MAC_FEED__ })
+    return {
+      multiInstance: capability(platformAcceptance().multiInstance, 'awaiting-acceptance'),
+      updateCheck: capability(app.isPackaged, 'disabled'),
+      updateInstall: capability(update === 'install', update === 'manual' ? 'manual-update' : 'disabled'),
+      // Installation alone cannot prove the Worker backend, clipboard or device initialized.
+      // The session-specific rdp:capabilities report replaces this unprobed state after HELLO.
+      rdp: unavailableRdp('session-required')
+    }
+  })
   handle('app:getVersions', () => ({
     app: app.getVersion(),
     electron: process.versions.electron ?? '',

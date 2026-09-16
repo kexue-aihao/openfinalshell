@@ -19,6 +19,8 @@ const REFERENCE = 'en-US'
 const CODE_DIRS = ['src/renderer/src', 'src/main', 'src/shared']
 /** 这些前缀下的 key 由模板字符串动态拼接，静态扫描收不到 */
 const DYNAMIC_PREFIXES = [
+  'platform.reason.',
+  'platform.feature.',
   'forward.hint_',
   'settings.section_',
   'sftp.perm_',

@@ -1,0 +1,4 @@
+{
+  "snippetGroups": [{"id": "fixture-group", "name": "维护工具", "order": 0}],
+  "snippets": [{"id": "fixture-command", "groupId": "fixture-group", "name": "磁盘空间", "command": "df -h", "autoEnter": false, "order": 0}]
+}

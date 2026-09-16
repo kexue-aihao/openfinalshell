@@ -5,6 +5,17 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Local release checks may produce unsigned artifacts; publishing always opts into signing.
+val releaseSigningKeys = listOf("ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD")
+val releaseSigningValues = releaseSigningKeys.map { providers.environmentVariable(it).orNull }
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+check(hasReleaseSigning || releaseSigningValues.all { it.isNullOrBlank() }) {
+    "Incomplete Android release signing configuration; provide all four ANDROID_KEYSTORE/KEY variables or none."
+}
+check(providers.gradleProperty("requireReleaseSigning").orNull != "true" || hasReleaseSigning) {
+    "Release publishing requires the Android release keystore and all signing credentials."
+}
+
 android {
     namespace = "io.github.openfinalshell.android"
     compileSdk = 35
@@ -48,7 +59,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else null
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -96,8 +107,8 @@ dependencies {
 }
 
 /**
- * Keep the Android Settings translations at the same completeness bar as the desktop
- * `check:i18n` task. Every string rendered by Settings must exist in every selectable locale.
+ * Keep all Android UI translations at the same completeness bar as the desktop
+ * `check:i18n` task. Include older screens as well as the new ported features.
  */
 val settingsI18nKeys = setOf(
     "settings_title", "settings_general", "settings_language", "settings_language_system",
@@ -141,31 +152,36 @@ val settingsI18nLocales = listOf("zh-rCN", "zh-rTW", "ja-rJP", "ko-rKR", "ru-rRU
 
 tasks.register("checkI18n") {
     group = "verification"
-    description = "Checks that every selectable Android locale translates the Settings screen."
+    description = "Checks that every selectable Android locale translates all UI strings."
     val baseFile = layout.projectDirectory.file("src/main/res/values/strings.xml")
     inputs.file(baseFile)
+    inputs.dir(layout.projectDirectory.dir("src/main/res/values"))
     inputs.files(settingsI18nLocales.map { layout.projectDirectory.dir("src/main/res/values-$it") })
 
     doLast {
-        fun stringNames(file: File): Set<String> {
+        fun stringNames(file: File, translatableOnly: Boolean = false): Set<String> {
             val document = javax.xml.parsers.DocumentBuilderFactory.newInstance()
                 .newDocumentBuilder()
                 .parse(file)
             return (0 until document.getElementsByTagName("string").length)
-                .map { document.getElementsByTagName("string").item(it).attributes.getNamedItem("name").nodeValue }
+                .map { document.getElementsByTagName("string").item(it) }
+                .filter { !translatableOnly || it.attributes.getNamedItem("translatable")?.nodeValue != "false" }
+                .map { it.attributes.getNamedItem("name").nodeValue }
                 .toSet()
         }
 
-        val baseNames = stringNames(baseFile.asFile)
-        check(checkedI18nKeys.all { it in baseNames }) {
+        val baseFiles = baseFile.asFile.parentFile.listFiles { file -> file.extension == "xml" }!!
+        val baseNames = baseFiles.flatMap { stringNames(it) }.toSet()
+        val requiredKeys = checkedI18nKeys + baseFiles.flatMap { stringNames(it, translatableOnly = true) }
+        check(requiredKeys.all { it in baseNames }) {
             "Default strings.xml is missing localized UI keys: ${checkedI18nKeys.filterNot { it in baseNames }.sorted()}"
         }
         settingsI18nLocales.forEach { qualifier ->
             val directory = layout.projectDirectory.dir("src/main/res/values-$qualifier").asFile
             val files = directory.listFiles { file -> file.extension == "xml" }?.toList().orEmpty()
-            val names = files.flatMap(::stringNames).toSet()
-            check(checkedI18nKeys.all { it in names }) {
-                "values-$qualifier is missing localized UI keys: ${checkedI18nKeys.filterNot { it in names }.sorted()}"
+            val names = files.flatMap { stringNames(it) }.toSet()
+            check(requiredKeys.all { it in names }) {
+                "values-$qualifier is missing localized UI keys: ${requiredKeys.filterNot { it in names }.sorted()}"
             }
         }
     }

@@ -300,6 +300,13 @@ jobs:
     name: 打包 macOS ${{ matrix.arch }}
     needs: verify
     runs-on: ${{ matrix.runner }}
+    env:
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MAC_UPDATE_ACCEPTED: ${{ vars.MAC_UPDATE_ACCEPTED }}
     strategy:
       fail-fast: false
       matrix:
@@ -328,6 +335,14 @@ jobs:
             electron-${{ runner.os }}-${{ matrix.arch }}-
 
       - run: npm ci
+      - name: Select signed macOS update mode
+        shell: bash
+        run: |
+          if [ "$MAC_UPDATE_ACCEPTED" = 'true' ] && [ -n "$CSC_LINK" ] && [ -n "$CSC_KEY_PASSWORD" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo 'OFS_SIGNED_MAC_FEED=1' >> "$GITHUB_ENV"
+          else
+            echo 'OFS_SIGNED_MAC_FEED=0' >> "$GITHUB_ENV"
+          fi
       - name: 安装 FreeRDP 构建依赖（macOS）
         if: runner.os == 'macOS'
         run: brew install freerdp pkg-config
@@ -339,10 +354,19 @@ jobs:
 
       - name: electron-builder (macOS ${{ matrix.arch }})
         env:
-          # 当前发布包不配置签名证书；关闭自动发现，避免访问不存在的钥匙串。
+          # 只有通过签名/公证与更新验收门禁的构建才启用身份发现。
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: >-
-          npx electron-builder --mac --${{ matrix.arch }} --publish never
+        shell: bash
+        run: |
+          if [ "$OFS_SIGNED_MAC_FEED" = '1' ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=true
+            npx electron-builder --mac --${{ matrix.arch }} --publish never -c.mac.notarize=true -c.forceCodeSigning=true
+            node scripts/checkMacUpdateFeed.mjs release '${{ matrix.arch }}'
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            npx electron-builder --mac --${{ matrix.arch }} --publish never -c.mac.notarize=false
+            rm -f release/*-mac.yml
+          fi
 
       - name: 断言 macOS 产物
         shell: bash
@@ -382,6 +406,7 @@ jobs:
           path: |
             release/*.dmg
             release/*.zip
+            release/*-mac.yml
           if-no-files-found: error
           retention-days: 14
 
@@ -410,7 +435,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential cmake pkg-config \
+            ca-certificates git tar xz-utils dpkg-dev openssl openssh-client passwd util-linux python3 build-essential cmake pkg-config patchelf \
             freerdp3-dev libwinpr3-dev libgtk-3-dev libglib2.0-dev xvfb xauth dbus-x11 procps rpm
 
       - uses: actions/setup-node@v5
@@ -487,7 +512,7 @@ jobs:
       - name: 安装 Flatpak 构建依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder cmake pkg-config freerdp3-dev libwinpr3-dev libgtk-3-dev libglib2.0-dev
+          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder cmake pkg-config patchelf freerdp3-dev libwinpr3-dev libgtk-3-dev libglib2.0-dev
           # flatpak-bundler 按 runtime/<id>/<arch>/<branch> 安装依赖，
           # 新 runner 默认没有用户级远程仓库，必须先提供 Flathub。
           flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -550,7 +575,7 @@ jobs:
           test -f latest-x64.yml || { echo "::error::缺 latest-x64.yml"; exit 1; }
           test -f latest-ia32.yml || { echo "::error::缺 latest-ia32.yml"; exit 1; }
           test -f latest-arm64.yml || { echo "::error::缺 latest-arm64.yml"; exit 1; }
-          [ "$(count 'latest-*.yml')" -eq 3 ] || { echo "::error::期望 3 个 Windows 架构专属更新 feed"; exit 1; }
+          [ "$(find . -maxdepth 1 -name 'latest-*.yml' ! -name '*-mac.yml' | wc -l)" -eq 3 ] || { echo "::error::期望 3 个 Windows 架构专属更新 feed"; exit 1; }
           if [ -e latest.yml ]; then
             echo "::error::出现裸 latest.yml —— 多架构 feed 会互相覆盖"; exit 1
           fi

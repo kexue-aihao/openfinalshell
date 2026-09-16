@@ -5,6 +5,10 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
     namespace = "io.github.openfinalshell.android.storage"
     compileSdk = 35

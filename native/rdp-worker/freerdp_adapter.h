@@ -25,6 +25,8 @@ class FreeRdpAdapter {
     std::string domain;
     Display display;
     bool clipboard = false;
+    bool clipboardFilesUpload = false;
+    bool clipboardFilesPaste = false;
     bool audioPlayback = true;
     std::string certificatePolicy = "prompt";
   };
@@ -56,13 +58,14 @@ class FreeRdpAdapter {
   using ClipboardProgressCallback = std::function<void(const char* state, std::uint32_t fileIndex,
                                                        std::uint32_t fileCount, const char* fileName,
                                                        std::uint64_t transferred, std::uint64_t total,
-                                                       double speedBps, const char* errorCode)>;
+                                                       double speedBps, const char* errorCode,
+                                                       const char* direction, std::uint64_t taskId)>;
   struct RemoteFileEntry {
     std::string name;
     std::uint64_t size = 0;
     bool directory = false;
   };
-  using RemoteFilesCallback = std::function<void(std::vector<RemoteFileEntry> files)>;
+  using RemoteFilesCallback = std::function<void(std::vector<RemoteFileEntry> files, std::uint64_t taskId)>;
   using AudioCallback = std::function<void(const char* state, const char* errorCode)>;
 
   FreeRdpAdapter();
@@ -82,11 +85,12 @@ class FreeRdpAdapter {
   bool pointer(std::uint32_t x, std::uint32_t y, std::uint32_t buttons,
                std::int32_t wheelX, std::int32_t wheelY);
   bool clipboardSet(std::string_view text);
-  bool clipboardFilesSet(std::vector<ClipboardFile> files);
+  bool clipboardFilesSet(std::vector<ClipboardFile> files, std::uint32_t requestId = 0);
   bool clipboardGet(std::uint32_t requestId);
   bool setClipboardSync(bool enabled);
   bool notifyLocalClipboardChanged();
   bool remoteFilesDownload(std::string destinationDir);
+  bool cancelClipboardTransfer();
   std::uint32_t remoteClipboardFileCount() const;
   void close();
 

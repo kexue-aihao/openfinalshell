@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">ファイルをアップロード</string>
+    <string name="port_upload_directory">フォルダーをアップロード</string>
+    <string name="port_resume_note">ランダムアクセスできない文書は再開時に先頭から転送します。</string>
+    <string name="port_choose_download">先にダウンロード先を選択してください。</string>
+    <string name="port_permission_lost">アクセス権限が失効しました。ファイルまたは保存先を再選択してください。</string>
+    <string name="port_operation_failed">操作に失敗しました。接続、形式、サイズ、権限を確認してください。</string>
+    <string name="port_session_closed">SSH セッションが終了しました。再接続してファイルを開き直してください。</string>
+    <string name="port_conflict_title">同名のファイルが存在します</string>
+    <string name="port_edit">編集</string>
+    <string name="port_saved">保存しました</string>
+    <string name="port_save">保存</string>
+    <string name="port_close">閉じる</string>
+    <string name="port_find">文書内を検索</string>
+    <string name="port_find_count">%1$d 件一致</string>
+    <string name="port_discard">未保存の変更を破棄しますか？</string>
+    <string name="port_editor_conflict">リモートファイルが変更されました</string>
+    <string name="port_editor_reload">保存前に再読み込みしてください。未保存の変更は失われます。</string>
+    <string name="port_non_atomic">アトミック置換を利用できません</string>
+    <string name="port_non_atomic_warning">直接保存中に接続が切れるとファイルが不完全になる場合があります。続行しますか？</string>
+    <string name="port_proxy_saved">プロキシを保存しました</string>
+    <string name="port_pack_download">アーカイブしてダウンロード</string>
+    <string name="port_pack_fallback">アーカイブを利用できない、保存先が存在する、または空き容量が不足しています。通常の SFTP 転送を使用してください。</string>
+    <string name="port_command_single_line">制御文字のない単一行コマンドのみ入力できます。複数行はコピーして別途確認してください。</string>
+    <string name="port_pack_upload">アーカイブしてアップロード</string>
+    <string name="port_editor_encoding">エディターの文字コード：%1$s</string>
+    <string name="port_encoding_unavailable">このデバイスではこの文字コードを利用できません。</string>
+    <string name="port_encoding_lossless">選択した文字コードでは内容を損失なく表現できません。正しい文字コードで開き直してください。変更は保存されていません。</string>
+    <string name="port_eol_mixed">混在する改行を保持します。追加行は入力時の改行を保持します。</string>
+</resources>

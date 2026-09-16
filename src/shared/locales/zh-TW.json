@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"開啟新視窗","enable":"允許多執行個體視窗","unsupported":"目前平台暫不支援"},
+  "instance": {
+    "newWindow": "開啟新視窗",
+    "enable": "允許多執行個體視窗",
+    "unsupported": "目前平台暫不支援"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "開源版 FinalShell — SSH 終端機 · SFTP · 伺服器監控",
+    "subtitle": "遠端維運工作台 · SSH · SFTP · RDP · AI 助手",
     "newConnection": "新增連線",
     "newConnectionDesc": "設定主機與驗證方式，並儲存到連線樹",
     "quickConnect": "快速連線",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "歡迎使用 OpenFinalShell",
-    "welcomeIntro": "把 SSH 終端機、遠端檔案管理與伺服器監控整合在同一個視窗。連上一台主機，上方是終端機、中間是遠端檔案的編輯器、下方是檔案清單，側邊則是即時的 CPU／記憶體／網路曲線圖。",
+    "welcomeIntro": "集中管理 SSH 終端機、SFTP 檔案、RDP 遠端桌面與伺服器監控，按需使用 AI 助手協助排除問題。Windows 可在設定中開啟多個獨立視窗，共用連線設定。",
     "featuresTitle": "你可以做這些",
     "featureTerminal": "多分頁 SSH 終端機，支援分割窗格、搜尋、命令歷史與快捷命令",
     "featureSftp": "SFTP 檔案管理員：連按兩下開啟／編輯、拖曳上傳、批次傳輸佇列",
@@ -533,7 +537,13 @@
     "proxyPassword": "代理伺服器密碼",
     "proxyAuthOptional": "若代理伺服器不需驗證則留空",
     "note": "備註",
-    "notePlaceholder": "為這台機器加上簡短描述，會顯示在連線清單中"
+    "notePlaceholder": "為這台機器加上簡短描述，會顯示在連線清單中",
+    "clipboardTransferPreparing": "正在准备文件…",
+    "clipboardTransferring": "正在传输文件…",
+    "clipboardTransferComplete": "文件传输完成",
+    "clipboardTransferFailed": "文件传输失败",
+    "clipboardTransferCanceled": "文件传输已取消",
+    "clipboardPreparingPaste": "正在准备本地粘贴…"
   },
   "savedRef": {
     "section": "代理伺服器與金鑰",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "连接会话后检测"
+    }
   }
 }

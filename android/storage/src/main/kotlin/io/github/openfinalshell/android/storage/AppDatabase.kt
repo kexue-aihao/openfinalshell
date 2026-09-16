@@ -16,12 +16,14 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ConnectionGroupEntity::class,
         SavedProxyEntity::class,
         KnownHostEntity::class,
-        DocumentEntity::class
+        DocumentEntity::class,
+        AiProfileEntity::class, CommandGroupEntity::class, CommandSnippetEntity::class, CommandHistoryEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun tools(): ToolDao
     abstract fun profiles(): ProfileDao
     abstract fun secrets(): SecretDao
     abstract fun privateKeys(): PrivateKeyDao
@@ -32,6 +34,14 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun documents(): DocumentDao
 
     companion object {
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS ai_profiles (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, baseUrl TEXT NOT NULL, model TEXT NOT NULL, enabled INTEGER NOT NULL, tokenRef TEXT, updatedAt INTEGER NOT NULL)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS command_groups (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, sortOrder INTEGER NOT NULL)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS command_snippets (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, content TEXT NOT NULL, groupId TEXT, updatedAt INTEGER NOT NULL)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS command_history (id TEXT NOT NULL PRIMARY KEY, secretRef TEXT NOT NULL, createdAt INTEGER NOT NULL)")
+            }
+        }
         /**
          * Migrates databases created by the original four-table schema.
          *
@@ -61,6 +71,7 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, "openfinalshell.db")
                 .addMigrations(MIGRATION_1_2)
                 .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_3_4)
                 .build()
 
         private fun rebuildProfiles(database: SupportSQLiteDatabase) {

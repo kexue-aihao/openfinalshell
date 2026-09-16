@@ -47,6 +47,7 @@ import { multiInstanceAvailable, multiInstanceSupported, refreshNewWindowTask } 
 import { cancelAllAi } from './services/aiService'
 import { metaSet } from './store/Database'
 import { configureInstanceStorage, finishStorageBootstrap, releaseStorageBootstrap } from './instances/storage'
+import { t } from './services/i18n'
 
 const instance = currentInstance
 let storageStartupError: Error | undefined
@@ -93,7 +94,10 @@ function installApplicationMenu(): void {
       { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' },
       { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }
     ] },
-    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' },
+    { label: t('platform.newWindow'), submenu: [
+      { id: 'ofs-new-window', label: t('platform.newWindow'), accelerator: 'CmdOrCtrl+Shift+N', enabled: multiInstanceAvailable(), click: launchFromMenu },
+      { role: 'close' }
+    ] }, { role: 'editMenu' }, { role: 'viewMenu' },
     { role: 'windowMenu' }, { role: 'help' }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
@@ -102,7 +106,7 @@ function installApplicationMenu(): void {
 function bindMainWindowLifecycle(win: BrowserWindow): void {
   win.on('closed', () => closeEditorWindowIfOpen())
   win.webContents.on('before-input-event', (event, input) => {
-    if (multiInstanceAvailable() && input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'n') {
+    if (multiInstanceAvailable() && input.type === 'keyDown' && (process.platform === 'darwin' ? input.meta : input.control) && input.shift && input.key.toLowerCase() === 'n') {
       event.preventDefault()
       launchFromMenu()
     }

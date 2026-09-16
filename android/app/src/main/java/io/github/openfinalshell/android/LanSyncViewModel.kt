@@ -123,7 +123,7 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
                     coordinator.send(peer, deviceId, deviceName, BuildConfig.VERSION_NAME, code.toCharArray()) { channelPassphrase ->
                         PortableExport.buildV2FromStorage(
                             profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials,
-                            passphrase = channelPassphrase, includeSecrets = true, appVersion = BuildConfig.VERSION_NAME
+                            passphrase = channelPassphrase, includeSecrets = true, appVersion = BuildConfig.VERSION_NAME, tools = database.tools()
                         )
                     }
                 }
@@ -158,7 +158,7 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
             PortableExport.importInto(
                 PortableExport.parse(envelope), channelPassphrase,
                 profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials,
-                conflict = ImportConflict.SKIP
+                conflict = ImportConflict.SKIP, tools = database.tools()
             )
         } catch (error: Throwable) {
             mutableState.value = mutableState.value.copy(phase = "waiting", message = syncError(error, StatusKey.SYNC_IMPORT_FAILED))
@@ -166,7 +166,7 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
         }
         val applied = LanSyncApplyResult(
             profiles = result.profiles,
-            snippets = 0,
+            snippets = result.snippets,
             forwards = result.forwards,
             knownHosts = result.knownHosts,
             secrets = result.secrets,

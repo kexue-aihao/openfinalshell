@@ -23,7 +23,8 @@ import org.apache.sshd.sftp.client.SftpClientFactory
 
 /** Apache MINA SSHD connection adapter. Channel adapters are isolated behind SshTransport. */
 class MinaSshTransport(
-    private val hostKeyVerifier: HostKeyVerifier? = null
+    private val hostKeyVerifier: HostKeyVerifier? = null,
+    private val proxyPasswordResolver: suspend (String) -> CharArray? = { null }
 ) : SshTransport {
     private companion object {
         const val TAG = "MinaSshTransport"
@@ -36,6 +37,7 @@ class MinaSshTransport(
     private var client: SshClient? = null
     private var session: ClientSession? = null
     private var intentionalClose = false
+    private var proxyTunnel: ProxyTunnel? = null
 
     override suspend fun connect(profile: ConnectionProfile, credentials: Credentials) = withContext(Dispatchers.IO) {
         require(profile.port in 1..65535) { "invalid SSH port" }
@@ -71,7 +73,15 @@ class MinaSshTransport(
             ssh.userInteraction = PasswordKeyboardInteraction(credentials.password ?: credentials.passphrase)
             ssh.start()
             mutableState.value = SessionState.AUTHENTICATING
-            connected = ssh.connect(profile.username, profile.host, profile.port).verify().session
+            val timeout = (profile.options.readyTimeout.coerceIn(5, 120) * 1_000).toLong()
+            val proxy = profile.proxy?.takeUnless { it.type == "none" }
+            if (proxy != null) {
+                val password = proxy.passwordRef?.let { proxyPasswordResolver(it) }
+                try { proxyTunnel = ProxyTunnel.open(proxy, profile.host, profile.port, password, timeout.toInt()) }
+                finally { password?.fill('\u0000') }
+            }
+            connected = ssh.connect(profile.username, if (proxyTunnel != null) "127.0.0.1" else profile.host,
+                proxyTunnel?.port ?: profile.port).verify(timeout).session
             credentials.password?.let { connected.addPasswordIdentity(String(it)) }
             // Key parsing is delegated to Apache MINA's parser so OpenSSH/PEM formats remain supported.
             credentials.privateKey?.let { keyBytes ->
@@ -80,11 +90,13 @@ class MinaSshTransport(
                 parser.loadKeyPairs(null, null, passwordProvider, ByteArrayInputStream(keyBytes))
                     .forEach { connected.addPublicKeyIdentity(it) }
             }
-            connected.auth().verify()
+            connected.auth().verify(timeout)
             session = connected
             connected.addCloseFutureListener {
                 if (!intentionalClose && session === connected) {
                     session = null
+                    proxyTunnel?.close()
+                    proxyTunnel = null
                     mutableState.value = SessionState.CLOSED
                     mutableEvents.tryEmit(TransportEvent.Disconnected())
                 }
@@ -96,6 +108,8 @@ class MinaSshTransport(
             client?.stop()
             client = null
             session = null
+            proxyTunnel?.close()
+            proxyTunnel = null
             mutableState.value = SessionState.CLOSED
             throw error
         }
@@ -116,6 +130,7 @@ class MinaSshTransport(
         require(command.isNotBlank()) { "exec command must not be blank" }
         val current = checkNotNull(session) { "SSH session is not connected" }
         val channel = current.createExecChannel(command)
+        channel.setRedirectErrorStream(true)
         channel.open().verify()
         MinaExecChannel(channel)
     }
@@ -154,6 +169,8 @@ class MinaSshTransport(
     override suspend fun disconnect() = withContext(Dispatchers.IO) {
         intentionalClose = true
         session?.close(false)
+        proxyTunnel?.close()
+        proxyTunnel = null
         client?.stop()
         session = null
         client = null

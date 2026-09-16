@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { instanceResource } from '../instance'
+import { unavailableRdp, type RdpCapabilities, type RdpCapabilityEvent } from '@shared/platformCapabilities'
+import { resolveRdpCapabilities } from '../services/platformCapabilities'
 import { existsSync, realpathSync, statSync, readdirSync, lstatSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -60,6 +62,13 @@ const WORKER_STATES = new Set<RdpSessionState>([
 ])
 const log = scopedLogger('rdp')
 
+/** FILEDESCRIPTOR paths always use Windows names, including on Unix hosts. */
+function safeClipboardName(name: string): boolean {
+  return name.length > 0 && name.length <= 259 && name.split('\\').every(part =>
+    part.length > 0 && part !== '.' && part !== '..' && !/[<>:"/|?*\u0000-\u001f]/.test(part) &&
+    !/[. ]$/.test(part) && !/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))
+}
+
 interface FrozenRdpProfile {
   id: string
   fallbackProfile: ConnectionProfile
@@ -76,6 +85,7 @@ interface FrozenRdpProfile {
 type RdpPointerInput = Extract<RdpInput, { kind: 'pointer' }>
 
 interface Session {
+  capabilities: RdpCapabilities
   id: SessionId
   generation: number
   profile: FrozenRdpProfile
@@ -112,12 +122,15 @@ interface Session {
   forcePasswordPrompt: boolean
   certificatePolicy: 'prompt' | 'strict'
   audioPlayback: boolean
+  audioBackendSupported: boolean
   pendingCertificateRequests: Set<number>
   seenCertificateRequests: Set<number>
   pendingClipboardRequests: Set<number>
   clipboardTimer?: NodeJS.Timeout
   clipboardTransferTimer?: NodeJS.Timeout
-  clipboardTransfer?: { total: number; fileCount: number; active: boolean }
+  clipboardTransfer?: { total: number; fileCount: number; active: boolean; taskId: number }
+  remoteClipboardSelection?: { total: number; fileCount: number; taskId: number; active: boolean }
+  retiredClipboardRequests: Set<number>
   pendingLocalClipboard?: { id: number; timer: NodeJS.Timeout; resolve: (paths: string[]) => void; reject: (error: Error) => void }
   pendingClipboardFileRequests: Map<number, {
     timer: NodeJS.Timeout
@@ -127,6 +140,7 @@ interface Session {
 }
 
 interface RdpSessionManagerOptions {
+  platform?: NodeJS.Platform
   requireFreerdpWorker?: boolean
 }
 
@@ -275,9 +289,11 @@ class RdpInputBuffer {
 export class RdpSessionManager {
   private readonly sessions = new Map<SessionId, Session>()
   private readonly requireFreerdpWorker: boolean
+  private readonly platform: NodeJS.Platform
   private nextGeneration = 1
 
   constructor(options: RdpSessionManagerOptions = {}) {
+    this.platform = options.platform ?? process.platform
     this.requireFreerdpWorker = options.requireFreerdpWorker ?? defaultRequireFreerdpWorker()
   }
 
@@ -399,11 +415,25 @@ export class RdpSessionManager {
       session.pendingLocalClipboard.reject(new Error('CANCELED'))
       session.pendingLocalClipboard = undefined
     }
-    for (const pending of session.pendingClipboardFileRequests.values()) {
+    for (const [id, pending] of session.pendingClipboardFileRequests) {
       clearTimeout(pending.timer)
+      this.retireClipboardRequest(session, id)
       pending.reject(new Error(errorCode))
     }
     session.pendingClipboardFileRequests.clear()
+  }
+
+  private retireClipboardRequest(session: Session, id: number): void {
+    session.retiredClipboardRequests.add(id)
+    if (session.retiredClipboardRequests.size > 128) {
+      session.retiredClipboardRequests.delete(session.retiredClipboardRequests.values().next().value!)
+    }
+  }
+
+  private resetCapabilities(session: Session): void {
+    if (!this.isCurrent(session)) return
+    session.capabilities = unavailableRdp(session.failureCode === 'WORKER_MISSING' ? 'worker-missing' : 'runtime-unavailable')
+    emit('rdp:capabilities', this.capabilities(session.id))
   }
 
   private emitClipboardProgress(
@@ -414,6 +444,9 @@ export class RdpSessionManager {
     if (!this.isCurrent(session)) return
     emit('rdp:clipboardProgress', {
       sessionId: session.id,
+      generation: session.generation,
+      direction: details.direction ?? 'upload',
+      taskId: details.taskId ?? session.clipboardTransfer?.taskId,
       state,
       fileIndex: details.fileIndex ?? 0,
       fileCount: details.fileCount ?? session.clipboardTransfer?.fileCount ?? 0,
@@ -588,6 +621,8 @@ export class RdpSessionManager {
     }
     if (session.closeCompleted) return
     session.closeCompleted = true
+    this.resetCapabilities(session)
+    session.remoteClipboardSelection = undefined
     session.queuedFrames = []
     session.inputBuffer.clear()
     this.clearFrameLedger(session)
@@ -619,6 +654,8 @@ export class RdpSessionManager {
       return completed
     }
     session.closeReason = reason
+    this.resetCapabilities(session)
+    session.remoteClipboardSelection = undefined
     this.emitState(session, 'closing', session.failureCode)
     session.queuedFrames = []
     this.clearFrameLedger(session)
@@ -747,7 +784,12 @@ export class RdpSessionManager {
     if (!capabilities) return this.fail(session, 'PROTOCOL_MISMATCH')
     const profile = session.profile
     if (profile.clipboard && !capabilities.includes('clipboard')) return this.fail(session, 'UNSUPPORTED')
-    const audioSupported = capabilities.includes('audio')
+    session.capabilities = resolveRdpCapabilities({ platform: this.platform, legacy: capabilities,
+      featureSupport: parseJsonObject(payload)?.featureSupport, clipboard: profile.clipboard, audio: profile.audioPlayback })
+    const audioSupported = session.capabilities.audioPlayback.available
+    session.audioBackendSupported = audioSupported
+    if (audioSupported) session.capabilities.audioPlayback = { available: false, reason: 'runtime-unavailable' }
+    emit('rdp:capabilities', this.capabilities(session.id))
     if (profile.audioPlayback && !audioSupported) this.emitAudio(session, 'unavailable', 'AUDIO_UNSUPPORTED')
     session.certificatePolicy = profile.certificatePolicy
     session.helloReceived = true
@@ -763,9 +805,11 @@ export class RdpSessionManager {
       gateway: null,
       display: session.display,
       features: {
-        clipboard: profile.clipboard,
+        clipboard: profile.clipboard && session.capabilities.clipboardText.available,
+        clipboardFilesUpload: session.capabilities.clipboardFilesUpload.available,
+        clipboardFilesPaste: session.capabilities.clipboardFilesPaste.available,
         certificatePolicy: session.certificatePolicy,
-        ...(audioSupported ? { audioPlayback: profile.audioPlayback } : {})
+        audioPlayback: audioSupported && profile.audioPlayback
       }
     })) return
     void this.sendPasswordIfAvailable(session)
@@ -850,6 +894,12 @@ export class RdpSessionManager {
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
+    if (!session.audioBackendSupported && (value.state === 'enabled' || value.state === 'connected')) return
+    const playbackReady = session.audioBackendSupported && value.state === 'connected'
+    if (session.capabilities.audioPlayback.available !== playbackReady) {
+      session.capabilities.audioPlayback = { available: playbackReady, reason: playbackReady ? 'available' : 'runtime-unavailable' }
+      emit('rdp:capabilities', this.capabilities(session.id))
+    }
     this.emitAudio(session, value.state as RdpAudioState,
                    typeof value.errorCode === 'string' ? value.errorCode : undefined)
   }
@@ -901,7 +951,8 @@ export class RdpSessionManager {
   }
 
   private handleClipboard(session: Session, requestId: number, payload: Buffer): void {
-    if (session.state !== 'ready' || !session.profile.clipboard) return
+    if (session.state !== 'ready' || !session.capabilities.clipboardText.available) return
+    if (session.retiredClipboardRequests.has(requestId)) return
     if (requestId === 0 || !session.pendingClipboardRequests.delete(requestId)) {
       log.warn(`RDP session ${session.id}: unsolicited clipboard response ${requestId}`)
       this.fail(session, 'PROTOCOL_ERROR')
@@ -927,24 +978,36 @@ export class RdpSessionManager {
       typeof input === 'number' && Number.isSafeInteger(input) && input >= 0
     const isSafeNumber = (input: unknown): input is number =>
       typeof input === 'number' && Number.isFinite(input) && input >= 0
-    const transfer = session.clipboardTransfer
     if (!value || value.op !== 'clipboardProgress' || typeof value.state !== 'string' ||
         !states.has(value.state) || !isSafeInteger(value.fileIndex) || !isSafeInteger(value.fileCount) ||
         value.fileCount < 1 || value.fileCount > MAX_CLIPBOARD_FILES || value.fileIndex > value.fileCount ||
         !isSafeInteger(value.transferred) || !isSafeInteger(value.total) ||
-        !isSafeNumber(value.speedBps) || value.transferred > value.total ||
-        !transfer || value.fileCount !== transfer.fileCount || value.total !== transfer.total ||
+        !isSafeNumber(value.speedBps) || value.transferred > value.total || value.total > MAX_CLIPBOARD_TOTAL_BYTES ||
+        (value.direction !== undefined && value.direction !== 'upload' && value.direction !== 'download') ||
+        (value.taskId !== undefined && (!isSafeInteger(value.taskId) || value.taskId === 0)) ||
         (value.fileName !== undefined && (typeof value.fileName !== 'string' || value.fileName.length > 2048)) ||
         (value.error !== undefined && typeof value.error !== 'string')) {
       log.warn(`RDP session ${session.id}: invalid clipboard progress payload`)
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
-    if (!transfer.active) return
-    this.armClipboardTransferTimeout(session)
+    const direction = value.direction === 'download' ? 'download' : 'upload'
+    if (!(direction === 'download' ? session.capabilities.clipboardFilesPaste : session.capabilities.clipboardFilesUpload).available) return
+    const transfer = direction === 'download' ? session.remoteClipboardSelection : session.clipboardTransfer
+    // Download progress only belongs to the most recently published manifest.
+    // Upload request ids prevent a late canceled transfer changing a retry.
+    if (!transfer?.active || (value.taskId !== undefined && value.taskId !== transfer.taskId)) return
+    if (value.fileCount !== transfer.fileCount || value.total !== transfer.total) {
+      this.fail(session, 'PROTOCOL_ERROR')
+      return
+    }
+    if (direction === 'upload') this.armClipboardTransferTimeout(session)
     const state = value.state as RdpClipboardTransferState
     emit('rdp:clipboardProgress', {
       sessionId: session.id,
+      generation: session.generation,
+      direction,
+      taskId: transfer.taskId,
       state,
       fileIndex: value.fileIndex,
       fileCount: value.fileCount,
@@ -955,8 +1018,8 @@ export class RdpSessionManager {
       ...(typeof value.error === 'string' ? { error: value.error } : {})
     })
     if (state === 'completed' || state === 'failed' || state === 'canceled') {
-      clearTimeout(session.clipboardTransferTimer)
-      if (session.clipboardTransfer) session.clipboardTransfer.active = false
+      if (direction === 'upload') clearTimeout(session.clipboardTransferTimer)
+      transfer.active = false
     }
   }
 
@@ -966,18 +1029,27 @@ export class RdpSessionManager {
     const validFile = (item: unknown): boolean => {
       if (!item || typeof item !== 'object' || Array.isArray(item)) return false
       const record = item as Record<string, unknown>
-      return typeof record.name === 'string' && record.name.length > 0 && record.name.length <= 2048 &&
-        Number.isSafeInteger(record.size) && (record.size as number) >= 0 &&
+      return typeof record.name === 'string' && safeClipboardName(record.name) &&
+        Number.isSafeInteger(record.size) && (record.size as number) >= 0 && (record.size as number) <= MAX_CLIPBOARD_FILE_BYTES &&
         typeof record.directory === 'boolean'
     }
     if (!value || value.op !== 'remoteFiles' || !Array.isArray(value.files) ||
-        value.files.length > MAX_CLIPBOARD_FILES || !value.files.every(validFile)) {
+        value.files.length > MAX_CLIPBOARD_FILES || !value.files.every(validFile) ||
+        (value.taskId !== undefined && (!Number.isSafeInteger(value.taskId) || (value.taskId as number) < 1))) {
       log.warn(`RDP session ${session.id}: invalid remote files payload`)
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
+    if (!session.capabilities.clipboardFilesPaste.available) return
+    const total = value.files.reduce((sum: number, file: Record<string, unknown>) => sum + (file.size as number), 0)
+    if (total > MAX_CLIPBOARD_TOTAL_BYTES) return this.fail(session, 'PROTOCOL_ERROR')
+    const taskId = typeof value.taskId === 'number' ? value.taskId : 0
+    if (session.remoteClipboardSelection && taskId < session.remoteClipboardSelection.taskId) return
+    session.remoteClipboardSelection = { taskId, total, fileCount: value.files.length, active: value.files.length > 0 }
     emit('rdp:clipboardRemoteFiles', {
       sessionId: session.id,
+      generation: session.generation,
+      taskId,
       files: (value.files as Array<Record<string, unknown>>).map((f) => ({
         name: f.name as string,
         size: f.size as number,
@@ -996,6 +1068,7 @@ export class RdpSessionManager {
       this.fail(session, 'PROTOCOL_ERROR')
       return
     }
+    if (!session.capabilities.clipboardFilesPaste.available) return
     emit('rdp:clipboardDownloadResult', {
       sessionId: session.id,
       state: value.state as 'completed' | 'failed',
@@ -1048,6 +1121,7 @@ export class RdpSessionManager {
         log.warn(`RDP session ${session.id}: invalid Worker error payload`)
         this.fail(session, 'PROTOCOL_ERROR')
       } else {
+        if (session.retiredClipboardRequests.has(requestId)) return
         const pending = session.pendingClipboardFileRequests.get(requestId)
         if (pending) {
           clearTimeout(pending.timer)
@@ -1139,10 +1213,12 @@ export class RdpSessionManager {
       inputBuffer: new RdpInputBuffer(),
       pendingClipboardRequests: new Set(),
       pendingClipboardFileRequests: new Map(),
+      retiredClipboardRequests: new Set(),
       processEnded: true,
       workerStdinBroken: false,
       state: 'starting',
       helloReceived: false,
+      capabilities: unavailableRdp('worker-missing'),
       workerReady: false,
       firstFrameReceived: false,
       workerStderr: '',
@@ -1159,6 +1235,7 @@ export class RdpSessionManager {
       forcePasswordPrompt,
       certificatePolicy: profile.certificatePolicy,
       audioPlayback: profile.audioPlayback,
+      audioBackendSupported: false,
       pendingCertificateRequests: new Set(),
       seenCertificateRequests: new Set()
     }
@@ -1173,6 +1250,7 @@ export class RdpSessionManager {
   ): void {
     const session = this.createSession(sessionId, profile, display, forcePasswordPrompt)
     this.sessions.set(sessionId, session)
+    emit('rdp:capabilities', this.capabilities(session.id))
     const path = workerPath()
     if (!existsSync(path)) {
       this.fail(session, 'WORKER_MISSING')
@@ -1340,13 +1418,13 @@ export class RdpSessionManager {
 
   clipboardSet(sessionId: SessionId, text: string): void {
     const session = this.requireReady(sessionId)
-    if (!session.profile.clipboard || text.length > 1_000_000) throw new Error('UNSUPPORTED')
+    if (!session.capabilities.clipboardText.available || text.length > 1_000_000) throw new Error('UNSUPPORTED')
     this.write(session, 0x16, this.nextRequestId(session), { op: 'clipboardSet', mime: 'text/plain', text })
   }
 
   clipboardLocalFiles(sessionId: SessionId): Promise<string[]> {
     const session = this.requireReady(sessionId)
-    if (!session.profile.clipboard || session.pendingLocalClipboard) return Promise.reject(new Error('UNSUPPORTED'))
+    if (!session.capabilities.clipboardFilesUpload.available || session.pendingLocalClipboard) return Promise.reject(new Error('UNSUPPORTED'))
     return new Promise((resolve, reject) => {
       const id = this.nextRequestId(session)
       const timer = setTimeout(() => {
@@ -1364,20 +1442,23 @@ export class RdpSessionManager {
 
   clipboardFilesSet(sessionId: SessionId, paths: string[]): Promise<void> {
     const session = this.requireReady(sessionId)
-    if (!session.profile.clipboard || !Array.isArray(paths) || paths.length < 1 || paths.length > MAX_CLIPBOARD_FILES) {
+    if (!session.capabilities.clipboardFilesUpload.available || !Array.isArray(paths) || paths.length < 1 || paths.length > MAX_CLIPBOARD_FILES) {
       throw new Error('UNSUPPORTED')
     }
     const files: Array<{ path: string; name: string; size: number; directory?: boolean }> = []
     const seen = new Set<string>()
+    const seenNames = new Set<string>()
     let total = 0
     const append = (rawPath: string, name: string): void => {
-      if (rawPath.length < 1 || rawPath.length > 32_768 || name.length > 259 ||
+      if (rawPath.length < 1 || rawPath.length > 32_768 || !safeClipboardName(name) ||
           files.length >= MAX_CLIPBOARD_FILES) throw new Error('UNSUPPORTED')
       // Do not traverse junctions or symlinks outside the user's selection.
       if (lstatSync(rawPath).isSymbolicLink()) throw new Error('UNSUPPORTED')
       const normalized = realpathSync(rawPath)
       if (seen.has(normalized)) return
       seen.add(normalized)
+      if (seenNames.has(name.toLowerCase())) throw new Error('UNSUPPORTED')
+      seenNames.add(name.toLowerCase())
       const stats = statSync(normalized)
       if (stats.isDirectory()) {
         files.push({ path: normalized, name, size: 0, directory: true })
@@ -1395,15 +1476,16 @@ export class RdpSessionManager {
     }
     if (files.length < 1) throw new Error('UNSUPPORTED')
     if (session.clipboardTransfer?.active) throw new Error('TRANSFER_IN_PROGRESS')
-    session.clipboardTransfer = { total, fileCount: files.length, active: true }
+    const requestId = this.nextRequestId(session)
+    session.clipboardTransfer = { total, fileCount: files.length, active: true, taskId: requestId }
     this.armClipboardTransferTimeout(session)
     this.emitClipboardProgress(session, 'preparing', { fileCount: files.length, total })
-    const requestId = this.nextRequestId(session)
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         const pending = session.pendingClipboardFileRequests.get(requestId)
         if (!pending) return
         session.pendingClipboardFileRequests.delete(requestId)
+        this.retireClipboardRequest(session, requestId)
         this.failClipboardTransfer(session, 'CLIPBOARD_TIMEOUT')
         pending.reject(new Error('CLIPBOARD_TIMEOUT'))
       }, CLIPBOARD_TIMEOUT_MS)
@@ -1421,13 +1503,14 @@ export class RdpSessionManager {
 
   clipboardGet(sessionId: SessionId): void {
     const session = this.requireReady(sessionId)
-    if (!session.profile.clipboard) throw new Error('UNSUPPORTED')
+    if (!session.capabilities.clipboardText.available) throw new Error('UNSUPPORTED')
     if (session.pendingClipboardRequests.size > 0) return
     const requestId = this.nextRequestId(session)
     session.pendingClipboardRequests.add(requestId)
     session.clipboardTimer = setTimeout(() => {
       session.clipboardTimer = undefined
       session.pendingClipboardRequests.delete(requestId)
+      this.retireClipboardRequest(session, requestId)
     }, CLIPBOARD_TIMEOUT_MS)
     session.clipboardTimer.unref()
     if (!this.write(session, 0x17, requestId, { op: 'clipboardGet', requestId })) {
@@ -1445,7 +1528,7 @@ export class RdpSessionManager {
    */
   clipboardSync(sessionId: SessionId, enabled: boolean): void {
     const session = this.sessions.get(sessionId)
-    if (!session || !this.isRunning(session) || !session.profile.clipboard) return
+    if (!session || !this.isRunning(session) || !session.capabilities.clipboardText.available) return
     this.write(session, 0x1a, this.nextRequestId(session), { op: 'clipboardSync', enabled })
   }
 
@@ -1458,12 +1541,24 @@ export class RdpSessionManager {
    */
   remoteFilesDownload(sessionId: SessionId, directory: string): Promise<void> {
     const session = this.requireReady(sessionId)
-    if (!session.profile.clipboard) return Promise.reject(new Error('UNSUPPORTED'))
+    if (!session.capabilities.clipboardFilesPaste.available) return Promise.reject(new Error('UNSUPPORTED'))
     const requestId = this.nextRequestId(session)
     if (this.write(session, 0x1b, requestId, { op: 'remoteFilesDownload', directory })) {
       return Promise.resolve()
     }
     return Promise.reject(new Error('WORKER_CRASHED'))
+  }
+
+  clipboardCancel(sessionId: SessionId): void {
+    const session = this.requireReady(sessionId)
+    this.write(session, 0x1c, this.nextRequestId(session), { op: 'clipboardCancel' })
+    this.clearClipboardFileRequests(session)
+    this.clearClipboardTransfer(session, 'canceled')
+    const remote = session.remoteClipboardSelection
+    if (remote?.active) this.emitClipboardProgress(session, 'canceled', {
+      direction: 'download', taskId: remote.taskId, total: remote.total, fileCount: remote.fileCount
+    })
+    if (remote) remote.active = false
   }
 
   async close(sessionId: SessionId): Promise<void> {
@@ -1507,6 +1602,11 @@ export class RdpSessionManager {
       if (session.worker && !session.processEnded) count++
     }
     return count
+  }
+
+  capabilities(sessionId: SessionId): RdpCapabilityEvent {
+    const session = this.sessions.get(sessionId)
+    return { sessionId, generation: session?.generation ?? 0, capabilities: session?.capabilities ?? unavailableRdp('worker-missing') }
   }
 
   async closeAll(): Promise<void> {

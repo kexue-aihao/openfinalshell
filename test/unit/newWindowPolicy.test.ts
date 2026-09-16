@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({
   settings: { multiInstanceEnabled: false as unknown },
   app: { isPackaged: true, setJumpList: vi.fn(() => 'ok') }
 }))
-vi.mock('electron', () => ({ app: mocks.app }))
+vi.mock('electron', () => ({ app: mocks.app, Menu: { getApplicationMenu: () => null } }))
 vi.mock('../../src/main/services/settings', () => ({ getSettings: () => mocks.settings }))
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!

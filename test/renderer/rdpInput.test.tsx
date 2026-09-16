@@ -6,6 +6,7 @@ import React from 'react'
 import '@/i18n'
 import { RdpPane } from '@/features/sessions/RdpPane'
 import type { SessionTab } from '@/stores/useSessionStore'
+import { RDP_FEATURES, unavailableRdp, type RdpCapabilities } from '../../src/shared/platformCapabilities'
 
 const { invoke, send, clipboardFilePaths, getPathForFile, listeners } = vi.hoisted(() => ({
   invoke: vi.fn(async () => undefined),
@@ -44,17 +45,27 @@ const tab: SessionTab = {
   shellEpoch: 0
 }
 
-function renderPane(overrides: Partial<SessionTab> = {}, active = true): HTMLCanvasElement {
+const availableCapabilities = Object.fromEntries(RDP_FEATURES.map(key => [key, { available: true, reason: 'available' }])) as RdpCapabilities
+function reportCapabilities(capabilities = availableCapabilities, generation = 1): void {
+  act(() => {
+    for (const listener of listeners.get('rdp:capabilities') ?? []) {
+      listener({ sessionId: 'rdp-1', generation, capabilities })
+    }
+  })
+}
+
+function renderPane(overrides: Partial<SessionTab> = {}, active = true, capabilities = availableCapabilities): HTMLCanvasElement {
   render(
     <AntdApp>
       <RdpPane tab={{ ...tab, ...overrides }} active={active} />
     </AntdApp>
   )
+  reportCapabilities(capabilities)
   return document.querySelector('canvas')!
 }
 
 beforeEach(() => {
-  invoke.mockClear()
+  invoke.mockReset().mockResolvedValue(undefined)
   send.mockClear()
   clipboardFilePaths.mockReset()
   clipboardFilePaths.mockReturnValue([])
@@ -130,7 +141,7 @@ describe('RdpPane input gating', () => {
     fireEvent.keyDown(canvas, { code: 'KeyA', key: 'a' })
     fireEvent.paste(canvas, { clipboardData: { getData: () => 'secret' } })
 
-    expect(invoke).not.toHaveBeenCalled()
+    expect(invoke.mock.calls.filter(([channel]) => channel !== 'rdp:capabilities')).toHaveLength(0)
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -302,6 +313,59 @@ describe('RdpPane input gating', () => {
 
     expect(screen.getByRole('status').textContent).toContain('report.pdf')
     expect(screen.getByRole('status').textContent).toContain('1.00 KB / 2.00 KB')
+  })
+
+  it('does not publish unsupported text or file clipboard input', async () => {
+    const readText = vi.fn(async () => 'private clipboard')
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText } })
+    getPathForFile.mockReturnValue('C:\\not-enabled.txt')
+    const canvas = renderPane({}, true, unavailableRdp('awaiting-acceptance'))
+    const file = new File(['data'], 'not-enabled.txt')
+    fireEvent.paste(canvas, { clipboardData: { files: [file], getData: () => 'private clipboard' } })
+    fireEvent.drop(canvas, { dataTransfer: { files: [file] } })
+    fireEvent.copy(canvas)
+    fireEvent.keyDown(canvas, { code: 'KeyV', key: 'v', ctrlKey: true })
+    await act(async () => {})
+    expect(readText).not.toHaveBeenCalled()
+    expect(invoke.mock.calls.filter(([channel]) => String(channel).startsWith('rdp:clipboard'))).toHaveLength(0)
+  })
+
+  it('does not inject a delayed paste after its RDP tab is closed', async () => {
+    let resolveFiles!: (value: unknown) => void
+    invoke.mockImplementation((channel: string) => channel === 'rdp:clipboardLocalFiles'
+      ? new Promise(resolve => { resolveFiles = resolve }) : Promise.resolve(undefined))
+    const view = render(<AntdApp><RdpPane tab={tab} active /></AntdApp>)
+    reportCapabilities()
+    const canvas = document.querySelector('canvas')!
+    fireEvent.keyDown(canvas, { code: 'KeyV', key: 'v', ctrlKey: true })
+    view.rerender(<AntdApp><RdpPane tab={{ ...tab, state: 'closed' }} active /></AntdApp>)
+    send.mockClear()
+    await act(async () => { resolveFiles(['C:\\late.txt']) })
+    expect(invoke).not.toHaveBeenCalledWith('rdp:clipboardFilesSet', expect.anything())
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('keeps newer capability events when an older query finishes afterwards', async () => {
+    let resolveCapabilities!: (value: unknown) => void
+    invoke.mockImplementation((channel: string) => channel === 'rdp:capabilities'
+      ? new Promise(resolve => { resolveCapabilities = resolve }) : Promise.resolve(undefined))
+    const canvas = renderPane()
+    reportCapabilities(unavailableRdp('runtime-unavailable'), 2)
+    await act(async () => { resolveCapabilities({ sessionId: 'rdp-1', generation: 1, capabilities: availableCapabilities }) })
+    fireEvent.paste(canvas, { clipboardData: { getData: () => 'private' } })
+    expect(invoke).not.toHaveBeenCalledWith('rdp:clipboardSet', expect.anything())
+  })
+
+  it('ignores file progress from an older Worker generation', async () => {
+    renderPane()
+    reportCapabilities(availableCapabilities, 2)
+    await act(async () => {
+      for (const listener of listeners.get('rdp:clipboardProgress') ?? []) listener({
+        sessionId: 'rdp-1', generation: 1, state: 'transferring', fileIndex: 1, fileCount: 1,
+        fileName: 'stale.txt', transferred: 1, total: 2, speedBps: 1
+      })
+    })
+    expect(screen.queryByText('stale.txt')).toBeNull()
   })
 
   it('shows an explicit system-client fallback label on failed RDP tabs', () => {

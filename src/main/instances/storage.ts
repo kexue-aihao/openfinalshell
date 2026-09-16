@@ -28,8 +28,13 @@ function alive(pid: number): boolean {
 export function configureInstanceStorage(): void {
   const root = app.getPath('userData')
   const directory = join(root, 'instances', currentInstance.instanceId)
-  mkdirSync(directory, { recursive: true })
-  if (process.platform !== 'win32') return // multi-instance remains disabled on these platforms
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  if (process.platform !== 'win32') {
+    // Keychain/libsecret use the application identity, not Chromium Local State.
+    // userData and the application name stay shared; only browser caches vary.
+    app.setPath('sessionData', directory)
+    return
+  }
   sharedState = join(root, 'Local State')
   bootstrapFile = join(root, 'instances', 'crypto-bootstrap.json')
   const deadline = Date.now() + 30_000

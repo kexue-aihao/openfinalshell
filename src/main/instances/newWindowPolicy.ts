@@ -1,12 +1,13 @@
-import { app } from 'electron'
+import { app, Menu } from 'electron'
 import { getSettings } from '../services/settings'
 import { scopedLogger } from '../utils/logger'
+import { platformAcceptance } from '../services/platformCapabilities'
 
 const log = scopedLogger('new-window')
 let installedTaskState: boolean | undefined
 
 export function multiInstanceSupported(): boolean {
-  return process.platform === 'win32'
+  return platformAcceptance().multiInstance
 }
 
 export function multiInstanceAvailable(): boolean {
@@ -15,7 +16,9 @@ export function multiInstanceAvailable(): boolean {
 
 /** The shared preference also controls taskbar entry points in already open instances. */
 export function refreshNewWindowTask(): void {
-  if (!multiInstanceSupported() || !app.isPackaged) return
+  const menuItem = Menu.getApplicationMenu()?.getMenuItemById('ofs-new-window')
+  if (menuItem) menuItem.enabled = multiInstanceAvailable()
+  if (process.platform !== 'win32' || !multiInstanceSupported() || !app.isPackaged) return
   const enabled = multiInstanceAvailable()
   if (installedTaskState === enabled) return
   try {

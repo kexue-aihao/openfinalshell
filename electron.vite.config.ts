@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
+    define: { __OFS_SIGNED_MAC_FEED__: JSON.stringify(process.platform === 'darwin' && process.env.OFS_SIGNED_MAC_FEED === '1') },
     plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: { '@shared': resolve(__dirname, 'src/shared') }

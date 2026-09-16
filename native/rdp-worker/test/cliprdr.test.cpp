@@ -67,11 +67,17 @@ struct FreeRdpAdapterTestPeer {
     adapter.disp = nullptr;
     adapter.displayControlReady = false;
     adapter.config.clipboard = true;
+    adapter.config.clipboardFilesUpload = true;
+    adapter.config.clipboardFilesPaste = false;
     CliprdrClientContext clip{};
     clip.custom = &adapter;
     adapter.cliprdr = &clip;
     unsigned progress = 0;
-    adapter.clipboardProgress = [&](const char*, auto...) { ++progress; };
+    adapter.clipboardProgress = [&](const char*, std::uint32_t, std::uint32_t, const char*,
+        std::uint64_t, std::uint64_t, double, const char*, const char* direction, std::uint64_t taskId) {
+      assert(std::string(direction) == "upload" && taskId == 81);
+      ++progress;
+    };
 
     clip.ClientCapabilities = [](auto*, const CLIPRDR_CAPABILITIES* caps) -> UINT {
       const auto* general = reinterpret_cast<const CLIPRDR_GENERAL_CAPABILITY_SET*>(caps->capabilitySets);
@@ -93,10 +99,17 @@ struct FreeRdpAdapterTestPeer {
     };
     assert(Impl::clipboardMonitorReady(&clip, nullptr) == 0);
     assert(adapter.clipboardReady);
-    // A nonexistent source can be advertised: copy must only send metadata.
+    // Publishing verifies metadata but does not read file contents. Removing
+    // the source after the advertisement must produce a failure response.
+    const auto advertised = std::filesystem::temp_directory_path() / "ofs-advertised.txt";
+    { std::ofstream out(advertised, std::ios::binary); out << "hello"; }
     Impl::Command upload;
     upload.kind = Impl::CommandKind::clipboardFilesSet;
-    upload.files = {{"missing-source.txt", "folder\\hello.txt", 5, false}};
+    upload.requestId = 81;
+    upload.files = {{advertised.u8string(), "folder\\hello.txt", 5, false}};
+    adapter.config.clipboardFilesUpload = false;
+    assert(!adapter.execute(upload));
+    adapter.config.clipboardFilesUpload = true;
     assert(adapter.execute(upload));
     assert(pumps > 0 && adapter.fileListResponse == 1);
     assert(progress == 1);
@@ -112,6 +125,7 @@ struct FreeRdpAdapterTestPeer {
     metadata.requestedFormatId = adapter.clipboardFileDescriptorFormatId;
     assert(Impl::serverFormatDataRequest(&clip, &metadata) == 0);
 
+    std::filesystem::remove(advertised);
     bool failed = false;
     clip.ClientFileContentsResponse = [](auto* c, const CLIPRDR_FILE_CONTENTS_RESPONSE* response) -> UINT {
       auto* flag = static_cast<bool*>(c->handle);
@@ -202,6 +216,32 @@ struct FreeRdpAdapterTestPeer {
     assert(!adapter.execute(download));
     assert(!adapter.remoteDownloadActive);
     std::filesystem::remove_all(directory);
+
+    // A manifest announces the same selection identity that all later cache
+    // progress uses. Metadata remains usable when native paste is gated off.
+    std::uint64_t announced = 0;
+    adapter.remoteFiles = [&](std::vector<FreeRdpAdapter::RemoteFileEntry> files, std::uint64_t taskId) {
+      assert(files.size() == 1 && files[0].name == "remote.txt");
+      announced = taskId;
+    };
+    std::vector<std::uint8_t> descriptor;
+    assert(ofs::rdp::encodeFileDescriptors({{"remote.txt", 3, false}}, descriptor));
+    adapter.descriptorPending = true;
+    adapter.descriptorGeneration = 9;
+    CLIPRDR_FORMAT_DATA_RESPONSE descriptorResponse{};
+    descriptorResponse.common.msgFlags = CB_RESPONSE_OK;
+    descriptorResponse.common.dataLen = static_cast<UINT32>(descriptor.size());
+    descriptorResponse.requestedFormatData = descriptor.data();
+    assert(Impl::serverFormatDataResponse(&clip, &descriptorResponse) == 0 && announced == 9);
+    adapter.remoteFiles = {};
+
+    // A user cancellation invalidates active reads without waiting for the
+    // remote peer or a timeout, while subsequent transfers can start again.
+    clip.ClientFileContentsRequest = [](auto* c, const CLIPRDR_FILE_CONTENTS_REQUEST*) -> UINT {
+      queued = [c] { ++static_cast<Impl*>(c->custom)->transferEpoch; };
+      return 0;
+    };
+    assert(!adapter.readRemoteFile(9, 0, 0, 3, false, bytes));
 
     // An empty successful response before EOF must fail, not spin forever.
     clip.ClientFileContentsRequest = [](auto* c, const CLIPRDR_FILE_CONTENTS_REQUEST* request) -> UINT {

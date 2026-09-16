@@ -2,5 +2,5 @@
 package io.github.openfinalshell.android.core.protocol
 
 object SharedSchemaRegistry {
-    val files: Set<String> = setOf("export-envelope", "lansync", "monitor-snapshot", "port-traffic")
+    val files: Set<String> = setOf("ai-service", "command-library", "export-envelope", "lansync", "monitor-snapshot", "port-traffic")
 }

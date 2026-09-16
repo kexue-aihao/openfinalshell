@@ -58,7 +58,8 @@ function isPortable(): boolean {
 const capability = resolveUpdateCapability({
   packaged: app.isPackaged,
   portable: isPortable(),
-  platform: process.platform
+  platform: process.platform,
+  signedMacFeed: typeof __OFS_SIGNED_MAC_FEED__ !== 'undefined' && __OFS_SIGNED_MAC_FEED__
 })
 
 let state: UpdateState = { status: 'idle', capability, current: app.getVersion() }

@@ -34,7 +34,13 @@ function canRunTarget(targetPlatform, targetArch) {
   return false
 }
 function runtimeEnv(workerPath) {
-  if (process.platform !== 'win32') return process.env
+  if (process.platform !== 'win32') {
+    const env = { ...process.env }
+    // Validate loader paths in the packaged binary, not a developer shell's
+    // Homebrew/SDK overrides. System loader defaults remain available.
+    for (const name of ['LD_LIBRARY_PATH', 'LD_PRELOAD', 'DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH', 'DYLD_INSERT_LIBRARIES']) delete env[name]
+    return env
+  }
   const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
   const system32 = join(systemRoot, 'System32')
   return {
@@ -63,6 +69,9 @@ function assertFreerdpCapability(workerPath) {
   const capabilities = Array.isArray(hello.capabilities) ? hello.capabilities : []
   if (hello.workerVersion !== 'freerdp' || !capabilities.includes('freerdp') || capabilities.includes('mock')) {
     throw new Error(`Worker is not a FreeRDP backend build: ${JSON.stringify(hello)}`)
+  }
+  for (const feature of ['clipboardText', 'clipboardFilesUpload', 'clipboardFilesPaste', 'dragUpload', 'audioPlayback']) {
+    if (typeof hello.featureSupport?.[feature] !== 'boolean') throw new Error(`Worker HELLO is missing ${feature} capability evidence`)
   }
 }
 const platform = arg('--platform')

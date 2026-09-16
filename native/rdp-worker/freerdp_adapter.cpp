@@ -2,6 +2,8 @@
 
 #include "unicode.h"
 #include "file_clipboard.h"
+#include "rdp_clipboard_core.h"
+#include "audio_backend.h"
 #include "frame_protocol.h"
 
 #include <algorithm>
@@ -77,6 +79,7 @@ struct FreeRdpAdapter::Impl {
     setClipboardSync,
     localClipboardChanged,
     remoteFilesDownload,
+    cancelClipboard,
     stop
   };
 
@@ -107,6 +110,7 @@ struct FreeRdpAdapter::Impl {
   std::thread eventThread;
   bool running = false;
   std::atomic_bool stopping{false};
+  std::atomic_uint64_t transferEpoch{0};
 
   // These fields are owned exclusively by eventThread. FreeRDP callbacks run
   // on that thread too; the stdin thread only enqueues Command values.
@@ -119,7 +123,7 @@ struct FreeRdpAdapter::Impl {
   bool clipboardReady = false;
   int fileListResponse = 0;
   std::unique_ptr<ofs::rdp::FileClipboard> nativeClipboard;
-  std::uint64_t remoteGeneration = 0;
+  std::atomic_uint64_t remoteGeneration{0};
   std::uint32_t remoteDescriptorId = 0;
   std::uint64_t descriptorGeneration = 0;
   bool descriptorPending = false;
@@ -147,6 +151,7 @@ struct FreeRdpAdapter::Impl {
   std::uint64_t clipboardTotalTransferred = 0;
   std::uint64_t clipboardTotal = 0;
   bool clipboardTransferActive = false;
+  std::uint32_t clipboardUploadTaskId = 0;
   std::chrono::steady_clock::time_point clipboardTransferStarted;
   std::deque<std::uint32_t> pendingClipboardRequests;
   std::uint32_t remoteTextFormatId = 0;
@@ -232,7 +237,7 @@ struct FreeRdpAdapter::Impl {
       }
     } else if (isAudioChannel(event->name)) {
       self->audioChannelConnected = true;
-      self->emitAudio("connected", nullptr);
+      // Transport connection is not proof that a playback device opened.
     }
   }
 
@@ -334,7 +339,7 @@ struct FreeRdpAdapter::Impl {
     ++self->remoteGeneration;
     traceClipboard("server-format-list", self->remoteGeneration);
     self->remoteClipboardFiles.clear();
-    if (self->remoteFiles) self->remoteFiles({});
+    if (self->remoteFiles) self->remoteFiles({}, self->remoteGeneration.load());
     self->remoteDescriptorId = 0;
     if (self->nativeClipboard) self->nativeClipboard->clear();
     self->remoteTextFormatId = 0;
@@ -411,7 +416,7 @@ struct FreeRdpAdapter::Impl {
       if (result == 0 && self->clipboardTotal == 0 && self->clipboardTransferActive) {
         self->clipboardTransferActive = false;
         if (self->clipboardProgress) self->clipboardProgress("completed", 0,
-            static_cast<std::uint32_t>(self->clipboardFiles.size()), nullptr, 0, 0, 0.0, nullptr);
+            static_cast<std::uint32_t>(self->clipboardFiles.size()), nullptr, 0, 0, 0.0, nullptr, "upload", self->clipboardUploadTaskId);
       }
       return result;
     }
@@ -514,43 +519,15 @@ struct FreeRdpAdapter::Impl {
         const auto* bytes = response->requestedFormatData;
         const auto dataLen = response->common.dataLen;
         self->remoteClipboardFiles.clear();
- #if defined(_WIN32)
-        if (dataLen >= 4) {
-          UINT count = 0;
-          std::memcpy(&count, bytes, 4);
-          if (count <= 64 && dataLen == 4 + static_cast<std::size_t>(count) * sizeof(FILEDESCRIPTORW)) {
-            self->remoteClipboardFiles.reserve(count);
-            for (UINT i = 0; i < count; ++i) {
-              FILEDESCRIPTORW descriptor{};
-              std::memcpy(&descriptor, bytes + 4 + i * sizeof(descriptor), sizeof(descriptor));
-              const auto* nameStart = descriptor.cFileName;
-              const auto* nameEnd = nameStart + sizeof(descriptor.cFileName) / sizeof(descriptor.cFileName[0]);
-              const auto* terminator = std::find(nameStart, nameEnd, WCHAR(0));
-              if (terminator == nameEnd) { self->remoteClipboardFiles.clear(); return 0; }
-              std::wstring wideName(nameStart, terminator);
-              std::string utf8Name;
-              const auto utf8Length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                  wideName.data(), static_cast<int>(wideName.size()), nullptr, 0, nullptr, nullptr);
-              if (utf8Length > 0) {
-                utf8Name.resize(static_cast<std::size_t>(utf8Length));
-                WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS,
-                    wideName.data(), static_cast<int>(wideName.size()),
-                    utf8Name.data(), utf8Length, nullptr, nullptr);
-              }
-              const auto size = (static_cast<std::uint64_t>(descriptor.nFileSizeHigh) << 32) |
-                                descriptor.nFileSizeLow;
-              if (!ofs::rdp::clipboardFileNameSafeUtf8(utf8Name.data(), utf8Name.size())) {
-                // Filtering entries changes listIndex and can download a different file.
-                self->remoteClipboardFiles.clear();
-                return 0;
-              }
-              self->remoteClipboardFiles.push_back(
-                  {std::move(utf8Name), size,
-                   (descriptor.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0});
-            }
-          }
-        }
-        const bool published = self->nativeClipboard->publish(
+        std::vector<ofs::rdp::RdpFileEntry> entries;
+        if (!ofs::rdp::decodeFileDescriptors(bytes, dataLen, entries)) return 0;
+        for (const auto& entry : entries)
+          self->remoteClipboardFiles.push_back({entry.relativePath, entry.size, entry.directory});
+        // The host must know this task before the cache thread can emit its
+        // first progress event; matching sizes/counts is not correlation.
+        if (self->remoteFiles) self->remoteFiles(self->remoteClipboardFiles, generation);
+        bool published = true;
+        if (self->config.clipboardFilesPaste) published = self->nativeClipboard->publish(
             {bytes, bytes + dataLen},
             [self, generation](std::uint32_t index, std::uint64_t offset, std::uint32_t count,
                                std::vector<std::uint8_t>& bytes) {
@@ -562,12 +539,16 @@ struct FreeRdpAdapter::Impl {
               auto result = command.bytes;
               if (!self->submit(std::move(command))) return false;
               bytes = std::move(*result); return true;
+            },
+            [self, entries, generation](const char* state, std::uint32_t index, std::uint64_t transferred, std::uint64_t total) {
+              if (self->stopping || self->remoteGeneration.load() != generation) return;
+              if (self->clipboardProgress) self->clipboardProgress(state, index,
+                  static_cast<std::uint32_t>(entries.size()), nullptr, transferred, total, 0.0,
+                  std::strcmp(state, "failed") == 0 ? "FILE_TRANSFER_FAILED" : nullptr, "download", generation);
             });
         traceClipboard("descriptors-accepted", published ? self->remoteClipboardFiles.size() : 0);
         if (!published) self->remoteClipboardFiles.clear();
-        if (self->remoteFiles) {
-          self->remoteFiles(self->remoteClipboardFiles);
-        }
+        if (!published && self->remoteFiles) self->remoteFiles({}, generation);
       }
       return 0;
     }
@@ -581,13 +562,7 @@ struct FreeRdpAdapter::Impl {
           self->pendingClipboardRequests.pop_front();
           if (self->clipboard) self->clipboard(id, {}, false);
         }
- #else
-        // Native file descriptor decoding is platform-specific.  Keep the
-        // FreeRDP worker buildable on non-Windows while the native provider
-        // is supplied by the platform clipboard backend.
-        (void)bytes;
-        (void)dataLen;
- #endif
+
         self->requestRemoteDescriptors();
       }
       return 0;
@@ -603,7 +578,7 @@ struct FreeRdpAdapter::Impl {
     }
     if (requestId != 0 && self->clipboard) self->clipboard(requestId, std::move(text), false);
     else if (self->autoTextPullPending && self->autoClipboardSync.load() &&
-             !self->remoteDescriptorId && !text.empty()) {
+             !self->remoteDescriptorId && !ofs::rdp::localClipboardHasFiles()) {
       // Automatic remote->local text mirroring (no manual Ctrl+C involved).
       // Write straight into the local system clipboard; remember the sequence
       // number so the local clipboard monitor ignores this echo and does not
@@ -645,7 +620,7 @@ struct FreeRdpAdapter::Impl {
       self->clipboardProgress("failed", fileIndex < self->clipboardFiles.size() ? fileIndex + 1u : 0u,
                               static_cast<std::uint32_t>(self->clipboardFiles.size()), fileName,
                               self->clipboardTotalTransferred, self->clipboardTotal, 0.0,
-                              errorCode ? errorCode : "FILE_TRANSFER_FAILED");
+                              errorCode ? errorCode : "FILE_TRANSFER_FAILED", "upload", self->clipboardUploadTaskId);
     }
   }
 
@@ -660,25 +635,6 @@ struct FreeRdpAdapter::Impl {
     return context->ClientFileContentsResponse(context, &response);
   }
 
- #if defined(_WIN32)
-  static bool fillFileDescriptor(const ClipboardFile& file, FILEDESCRIPTORW& descriptor) {
-    descriptor = FILEDESCRIPTORW{};
-    if (file.size > 8ull * 1024 * 1024 * 1024 ||
-        !ofs::rdp::clipboardFileNameSafeUtf8(file.name.data(), file.name.size())) return false;
-    descriptor.dwFlags = FD_FILESIZE | FD_UNICODE | FD_ATTRIBUTES;
-    descriptor.dwFileAttributes = file.directory ? FILE_ATTRIBUTE_DIRECTORY : FILE_ATTRIBUTE_NORMAL;
-    descriptor.nFileSizeHigh = static_cast<DWORD>(file.size >> 32);
-    descriptor.nFileSizeLow = static_cast<DWORD>(file.size & 0xffffffffu);
-    std::vector<std::uint8_t> utf16;
-    if (!ofs::rdp::utf8ToUtf16Le(file.name, utf16, false) || utf16.size() > 259u * 2u) return false;
-    for (std::size_t index = 0; index < utf16.size() / 2u; ++index) {
-      descriptor.cFileName[index] = static_cast<WCHAR>(
-          static_cast<std::uint16_t>(utf16[index * 2u]) |
-          (static_cast<std::uint16_t>(utf16[index * 2u + 1u]) << 8));
-    }
-    return true;
-  }
-
   // FreeRDP invokes channel callbacks from its event pump.  No C++ exception
   // may cross that C callback boundary: an exception there terminates the
   // worker before the main protocol loop can report a useful error.  Keep the
@@ -691,7 +647,7 @@ struct FreeRdpAdapter::Impl {
       if (self) failClipboardTransfer(self, 0, "FILE_TRANSFER_FAILED");
       return 1;
     }
-    if (request->listIndex >= self->clipboardFiles.size())
+    if (!self->config.clipboardFilesUpload || request->listIndex >= self->clipboardFiles.size())
       return sendFileContentsFailure(self, context, request->streamId);
     traceClipboard("file-request-index", request->listIndex);
     const bool sizeRequest = (request->dwFlags & FILECONTENTS_SIZE) != 0;
@@ -714,10 +670,9 @@ struct FreeRdpAdapter::Impl {
       const auto count = static_cast<std::uint32_t>(std::min<std::uint64_t>(
           request->cbRequested, file.size - offset));
       if (count > 0) {
-        std::error_code fileSizeError;
-        const auto currentSize = std::filesystem::file_size(
-            std::filesystem::u8path(file.path), fileSizeError);
-        if (fileSizeError || currentSize != file.size)
+        std::uint64_t currentSize = 0; bool directory = false;
+        if (!ofs::rdp::safeLocalFile(std::filesystem::u8path(file.path), currentSize, directory) ||
+            directory || currentSize != file.size)
           return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
         std::ifstream input(std::filesystem::u8path(file.path), std::ios::binary);
         if (!input) return sendFileContentsFailure(self, context, request->streamId, request->listIndex);
@@ -750,7 +705,7 @@ struct FreeRdpAdapter::Impl {
       if (self->clipboardProgress) {
         self->clipboardProgress("completed", static_cast<std::uint32_t>(request->listIndex + 1u),
                                 static_cast<std::uint32_t>(self->clipboardFiles.size()),
-                                file.name.c_str(), 0, 0, 0.0, nullptr);
+                                file.name.c_str(), 0, 0, 0.0, nullptr, "upload", self->clipboardUploadTaskId);
       }
       self->clipboardTransferActive = false;
       return result;
@@ -796,25 +751,12 @@ struct FreeRdpAdapter::Impl {
                               static_cast<std::uint32_t>(request->listIndex + 1u),
                               static_cast<std::uint32_t>(self->clipboardFiles.size()),
                               file.name.c_str(), self->clipboardTotalTransferred,
-                              self->clipboardTotal, speed, nullptr);
+                              self->clipboardTotal, speed, nullptr, "upload", self->clipboardUploadTaskId);
     }
     if (completed) self->clipboardTransferActive = false;
     return result;
   }
- #else
-  static UINT serverFileContentsRequestImpl(CliprdrClientContext* context,
-                                            const CLIPRDR_FILE_CONTENTS_REQUEST* request) {
-    // FileGroupDescriptorW/FileContents are currently provided by the native
-    // platform clipboard backends.  Unix workers must return a protocol
-    // failure instead of referencing Win32 descriptor types.
-    if (!context || !context->ClientFileContentsResponse || !request) return 1;
-    CLIPRDR_FILE_CONTENTS_RESPONSE response{};
-    response.common.msgType = CB_FILECONTENTS_RESPONSE;
-    response.common.msgFlags = CB_RESPONSE_FAIL;
-    response.streamId = request->streamId;
-    return context->ClientFileContentsResponse(context, &response);
-  }
- #endif
+
 
   static UINT serverFileContentsRequest(CliprdrClientContext* context,
                                         const CLIPRDR_FILE_CONTENTS_REQUEST* request) noexcept {
@@ -1215,23 +1157,18 @@ struct FreeRdpAdapter::Impl {
     // The bundled Windows backend is FreeRDP's WinMM device. Probe it before
     // loading channels so a machine without a playback device still gets a
     // working desktop session with audio gracefully disabled.
+    bool audioUnavailable = config.audioPlayback && !ofs::rdp::audioBackendAvailable();
 #if defined(_WIN32)
-    bool audioUnavailable = false;
-    if (config.audioPlayback && waveOutGetNumDevs() == 0) {
-      config.audioPlayback = false;
-      audioUnavailable = true;
-      emitAudio("unavailable", "AUDIO_DEVICE_UNAVAILABLE");
-    }
-#else
-    // rdpsnd is currently backed by WinMM in this worker.  Do not advertise
-    // audio on Unix until a native backend is actually wired up.
-    constexpr bool audioUnavailable = true;
+    audioUnavailable = audioUnavailable || (config.audioPlayback && waveOutGetNumDevs() == 0);
 #endif
     if (audioUnavailable) {
-      // The unavailable event already explains why playback was disabled.
+      config.audioPlayback = false;
+      emitAudio("unavailable", "AUDIO_DEVICE_UNAVAILABLE");
     } else if (!config.audioPlayback) {
       emitAudio("disabled", nullptr);
     } else {
+      // Requested, but not playing yet. The wrapped rdpsnd Open callback is
+      // the only source of the connected playback event.
       emitAudio("enabled", nullptr);
     }
     // stdout is the binary OFSR protocol stream. FreeRDP's console logger is
@@ -1246,7 +1183,9 @@ struct FreeRdpAdapter::Impl {
     // freerdp_context_new() creates the core context but does not install the
     // client channel provider. Without it, the static cliprdr and disp
     // add-ins cannot be resolved by freerdp_client_load_addins().
-    if (freerdp_register_addin_provider(freerdp_channels_load_static_addin_entry, 0) != 0) {
+    if (!ofs::rdp::registerAudioBackend([this](bool opened) {
+          emitAudio(opened ? "connected" : "unavailable", opened ? nullptr : "AUDIO_DEVICE_UNAVAILABLE");
+        })) {
       std::cerr << "[rdp-worker] FreeRDP static add-in provider registration failed\n";
       std::cerr.flush();
       return false;
@@ -1279,9 +1218,9 @@ struct FreeRdpAdapter::Impl {
                                       config.clipboard ? TRUE : FALSE) &&
            freerdp_settings_set_uint32(settings, FreeRDP_ClipboardFeatureMask,
                                        CLIPRDR_FLAG_LOCAL_TO_REMOTE |
-                                       CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES |
+                                       (config.clipboardFilesUpload ? CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES : 0) |
                                        CLIPRDR_FLAG_REMOTE_TO_LOCAL |
-                                       CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES) &&
+                                       (config.clipboardFilesPaste ? CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES : 0)) &&
            freerdp_settings_set_bool(settings, FreeRDP_DeviceRedirection, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectDrives, FALSE) &&
            freerdp_settings_set_bool(settings, FreeRDP_RedirectSmartCards, FALSE) &&
@@ -1409,6 +1348,7 @@ struct FreeRdpAdapter::Impl {
   bool readRemoteFile(std::uint64_t generation, std::uint32_t index,
                       std::uint64_t offset, std::uint32_t count, bool sizeRequest,
                       std::vector<std::uint8_t>& bytes) {
+    const auto epoch = transferEpoch.load();
     if (stopping || generation != remoteGeneration || !remoteDescriptorId || !cliprdr ||
         !cliprdr->ClientFileContentsRequest || count > 1024 * 1024) return false;
     CLIPRDR_FILE_CONTENTS_REQUEST request{};
@@ -1424,11 +1364,11 @@ struct FreeRdpAdapter::Impl {
     traceClipboard("request-file-bytes", request.cbRequested);
     if (cliprdr->ClientFileContentsRequest(cliprdr, &request) != 0) return false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while (remoteReadStatus == 0 && !stopping && generation == remoteGeneration) {
+    while (remoteReadStatus == 0 && !stopping && generation == remoteGeneration && epoch == transferEpoch.load()) {
       if (std::chrono::steady_clock::now() >= deadline || !pumpEvents()) return false;
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
-    if (stopping || remoteReadStatus != 1 || generation != remoteGeneration ||
+    if (stopping || epoch != transferEpoch.load() || remoteReadStatus != 1 || generation != remoteGeneration ||
         remoteReadData.size() != request.cbRequested) return false;
     bytes = std::move(remoteReadData);
     return true;
@@ -1441,6 +1381,20 @@ struct FreeRdpAdapter::Impl {
     }
     if (!connected || !instance || !instance->context) return false;
     switch (command.kind) {
+      case CommandKind::cancelClipboard: {
+        ++remoteGeneration;
+        remoteDescriptorId = 0;
+        remoteReadStatus = -1;
+        if (nativeClipboard) nativeClipboard->clear();
+        remoteClipboardFiles.clear();
+        if (remoteFiles) remoteFiles({}, remoteGeneration.load());
+        if (clipboardTransferActive && clipboardProgress)
+          clipboardProgress("canceled", 0, static_cast<std::uint32_t>(clipboardFiles.size()), nullptr,
+                            clipboardTotalTransferred, clipboardTotal, 0, nullptr, "upload", clipboardUploadTaskId);
+        clipboardTransferActive = false;
+        clipboardFiles.clear(); clipboardFileDescriptorData.clear();
+        return true;
+      }
       case CommandKind::resize:
         return sendMonitorLayout(command.display);
       case CommandKind::key: {
@@ -1522,7 +1476,7 @@ struct FreeRdpAdapter::Impl {
       }
       case CommandKind::clipboardFilesSet: {
         traceClipboard("files-set-begin", command.files.size());
-        if (!config.clipboard || command.files.empty()) {
+        if (!config.clipboard || !config.clipboardFilesUpload || command.files.empty()) {
           traceClipboard("files-set-rejected", 1);
           return false;
         }
@@ -1534,33 +1488,25 @@ struct FreeRdpAdapter::Impl {
           traceClipboard("files-set-channel-missing");
           return false;
         }
-#if defined(_WIN32)
-        const UINT descriptorId = RegisterClipboardFormatW(L"FileGroupDescriptorW");
-        const UINT contentsId = RegisterClipboardFormatW(L"FileContents");
-        traceClipboard("files-set-formats", (static_cast<std::uint64_t>(descriptorId) << 32) | contentsId);
-        if (descriptorId == 0 || contentsId == 0) return false;
-        std::vector<FILEDESCRIPTORW> descriptors(command.files.size());
-        for (std::size_t index = 0; index < command.files.size(); ++index) {
-          if (!fillFileDescriptor(command.files[index], descriptors[index])) {
-            failClipboardTransfer(this, static_cast<std::uint32_t>(index), "FILE_DESCRIPTOR_FAILED");
-            return false;
-          }
+        // Registered format IDs are private to this CLIPRDR connection. The
+        // formatName is authoritative; a Win32 registration is unnecessary.
+        constexpr UINT descriptorId = 0xc001;
+        constexpr UINT contentsId = 0xc002;
+        std::vector<ofs::rdp::RdpFileEntry> entries;
+        for (const auto& file : command.files) {
+          std::uint64_t size = 0; bool directory = false;
+          if (!ofs::rdp::safeLocalFile(std::filesystem::u8path(file.path), size, directory) ||
+              size != file.size || directory != file.directory) return false;
+          entries.push_back({file.name, file.size, file.directory});
         }
-        BYTE* serialized = nullptr;
-        UINT32 serializedLength = 0;
-        const auto serializeResult = cliprdr_serialize_file_list_ex(CB_STREAM_FILECLIP_ENABLED | CB_HUGE_FILE_SUPPORT_ENABLED,
-                                             descriptors.data(), static_cast<UINT32>(descriptors.size()),
-                                             &serialized, &serializedLength);
-        traceClipboard("files-set-serialized", (static_cast<std::uint64_t>(serializeResult) << 32) | serializedLength);
-        if (serializeResult != 0 || !serialized) {
+        if (!ofs::rdp::encodeFileDescriptors(entries, clipboardFileDescriptorData)) {
           failClipboardTransfer(this, 0, "FILE_DESCRIPTOR_FAILED");
           return false;
         }
         clipboardFiles = std::move(command.files);
+        clipboardUploadTaskId = command.requestId;
         clipboardFileTransferred.assign(clipboardFiles.size(), 0);
         clipboardFileRanges.assign(clipboardFiles.size(), {});
-        clipboardFileDescriptorData.assign(serialized, serialized + serializedLength);
-        free(serialized);
         clipboardFileDescriptorFormatId = descriptorId;
         clipboardFileContentsFormatId = contentsId;
         clipboardText.clear();
@@ -1580,7 +1526,7 @@ struct FreeRdpAdapter::Impl {
         list.formats = formats;
         if (clipboardProgress) clipboardProgress("preparing", 0,
                                                   static_cast<std::uint32_t>(clipboardFiles.size()),
-                                                  nullptr, 0, clipboardTotal, 0.0, nullptr);
+                                                  nullptr, 0, clipboardTotal, 0.0, nullptr, "upload", clipboardUploadTaskId);
         fileListResponse = 0;
         const auto formatListResult = cliprdr->ClientFormatList(cliprdr, &list);
         traceClipboard("files-set-format-list-sent", formatListResult);
@@ -1590,9 +1536,6 @@ struct FreeRdpAdapter::Impl {
         const bool sent = formatListResult == 0 && responseReady && fileListResponse == 1;
         if (!sent) failClipboardTransfer(this, 0, "CLIPBOARD_CHANNEL_FAILED");
         return sent;
-#else
-        return false;
-#endif
       }
       case CommandKind::remoteFileRead: {
         return command.bytes && readRemoteFile(command.generation, command.x,
@@ -1639,16 +1582,16 @@ struct FreeRdpAdapter::Impl {
         // deliberately excluded: the renderer drives file pastes through the
         // explicit Ctrl+V clipboardFilesSet path with progress feedback.
         if (!config.clipboard || !autoClipboardSync.load()) return true;
-#if defined(_WIN32)
-        if (GetClipboardSequenceNumber() == lastLocalWriteSeq.load() ||
-            IsClipboardFormatAvailable(CF_HDROP) ||
-            IsClipboardFormatAvailable(RegisterClipboardFormatW(L"FileGroupDescriptorW"))) return true;
-#endif
+        // Clearing/replacing our old native file selection may itself emit a
+        // local clipboard event while the new remote descriptors are loading.
+        // Do not turn that event into an empty text publication to the server.
+        if (remoteDescriptorId && (descriptorPending || !remoteClipboardFiles.empty())) return true;
+        if (ofs::rdp::localClipboardSequence() == lastLocalWriteSeq.load() ||
+            ofs::rdp::localClipboardHasFiles()) return true;
         if (!waitForChannel([&] { return clipboardReady && cliprdr && cliprdr->ClientFormatList; }))
           return true;
         if (!cliprdr || !cliprdr->ClientFormatList) return true;
         const std::string text = ofs::rdp::readLocalClipboardText();
-        if (text.empty()) return true;
         // Skip content we already advertised: this is either our own
         // remote->local write (echo suppression by sequence) or a repeated
         // copy of the same text, neither of which should round-trip again.
@@ -1663,12 +1606,12 @@ struct FreeRdpAdapter::Impl {
         // remote file clipboard manifest and stream each file into the chosen
         // local directory. Unlike OLE delayed rendering this does not depend
         // on Explorer; the user drives it from the RDP tab.
-        if (!config.clipboard || command.files.size() != 1 || command.text.empty() ||
+        if (!config.clipboard || command.text.empty() ||
             remoteClipboardFiles.empty() || remoteDescriptorId == 0 || !cliprdr ||
             !cliprdr->ClientFileContentsRequest || remoteDownloadActive)
           return false;
         remoteDownloadActive = true;
-        const auto generation = remoteGeneration;
+        const auto generation = remoteGeneration.load();
         // Event pumping can replace the live manifest. Keep indices and names
         // from this selection together until generation validation completes.
         const auto files = remoteClipboardFiles;
@@ -1681,11 +1624,11 @@ struct FreeRdpAdapter::Impl {
               !ofs::rdp::clipboardFileNameSafeUtf8(utf8Name.data(), utf8Name.size())) { ok = false; break; }
           std::error_code ioError;
           const auto destination = std::filesystem::u8path(command.text) /
-                                   std::filesystem::u8path(utf8Name);
+                                   ofs::rdp::relativeFilePath(utf8Name);
           // Refuse reparse points and existing files instead of truncating an
           // unrelated local file (including through a junction).
           auto current = std::filesystem::u8path(command.text);
-          for (const auto& component : std::filesystem::u8path(utf8Name)) {
+          for (const auto& component : ofs::rdp::relativeFilePath(utf8Name)) {
             current /= component;
             std::error_code linkError;
             const bool link = std::filesystem::is_symlink(current, linkError);
@@ -1705,7 +1648,7 @@ struct FreeRdpAdapter::Impl {
           std::uint64_t fileSize = 0;
           for (std::size_t byte = 0; byte < 8; ++byte)
             fileSize |= static_cast<std::uint64_t>(bytes[byte]) << (byte * 8);
-          if (fileSize > 8ull * 1024 * 1024 * 1024 ||
+          if (fileSize != entry.size || fileSize > 8ull * 1024 * 1024 * 1024 ||
               total + fileSize > 32ull * 1024 * 1024 * 1024) { ok = false; break; }
           total += fileSize;
           std::ofstream output(destination, std::ios::binary | std::ios::trunc);
@@ -1773,6 +1716,7 @@ struct FreeRdpAdapter::Impl {
   }
 
   void cleanup() {
+    ofs::rdp::clearAudioBackend();
     if (nativeClipboard) nativeClipboard->clear();
     failPendingCommands();
     nativeClipboard.reset();
@@ -2072,15 +2016,17 @@ bool FreeRdpAdapter::clipboardGet(std::uint32_t requestId) {
 #endif
 }
 
-bool FreeRdpAdapter::clipboardFilesSet(std::vector<ClipboardFile> files) {
+bool FreeRdpAdapter::clipboardFilesSet(std::vector<ClipboardFile> files, std::uint32_t requestId) {
 #if OFS_RDP_HAS_FREERDP
   if (!impl_ || files.empty()) return false;
   Impl::Command command;
   command.kind = Impl::CommandKind::clipboardFilesSet;
+  command.requestId = requestId;
   command.files = std::move(files);
   return impl_->submit(std::move(command));
 #else
   (void)files;
+  (void)requestId;
   return false;
 #endif
 }
@@ -2122,6 +2068,18 @@ bool FreeRdpAdapter::remoteFilesDownload(std::string destinationDir) {
 #endif
 }
 
+bool FreeRdpAdapter::cancelClipboardTransfer() {
+#if OFS_RDP_HAS_FREERDP
+  if (!impl_) return false;
+  ++impl_->transferEpoch;
+  Impl::Command command;
+  command.kind = Impl::CommandKind::cancelClipboard;
+  return impl_->enqueue(std::move(command));
+#else
+  return false;
+#endif
+}
+
 std::uint32_t FreeRdpAdapter::remoteClipboardFileCount() const {
 #if OFS_RDP_HAS_FREERDP
   if (!impl_) return 0;
@@ -2135,9 +2093,10 @@ void FreeRdpAdapter::close() {
   if (!impl_) return;
 #if OFS_RDP_HAS_FREERDP
   if (impl_->eventThread.joinable()) {
-    Impl::Command command;
-    command.kind = Impl::CommandKind::stop;
-    impl_->submit(std::move(command));
+    // An OLE/cache request may currently be waiting for a remote chunk.
+    // Interrupt its event-pump loop immediately rather than queuing CLOSE
+    // behind a 30-second read timeout.
+    impl_->stopping = true;
     impl_->commandCv.notify_all();
     impl_->eventThread.join();
   }

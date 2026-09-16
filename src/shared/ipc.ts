@@ -78,11 +78,15 @@ import type {
   TransferTask
 } from './types'
 import type { RemoteCharset } from './constants'
+import type { PlatformCapabilities, RdpCapabilityEvent } from './platformCapabilities'
 
 // ---------------------------------------------------------------------------
 // ① renderer → main，请求/响应
 // ---------------------------------------------------------------------------
 export interface InvokeMap {
+  'app:capabilities': { args: []; result: PlatformCapabilities }
+  'rdp:capabilities': { args: [SessionId]; result: RdpCapabilityEvent }
+  'rdp:clipboardCancel': { args: [SessionId]; result: void }
   'app:newWindow': { args: []; result: void }
   'app:instanceInfo': { args: []; result: { instanceId: string; pid: number; multiInstanceSupported: boolean; canOpenNewWindow: boolean } }
   // --- AI assistant ---
@@ -420,6 +424,7 @@ export interface SendMap {
 // ③ main → renderer 事件
 // ---------------------------------------------------------------------------
 export interface EventMap {
+  'rdp:capabilities': RdpCapabilityEvent
   'app:configChanged': { entity: 'connections' | 'references' | 'ai' | 'settings' | 'snippets' | 'forwards'; revision: number; sourceInstanceId: string }
   'ai:delta': { requestId: string; text: string }
   'ai:completed': { requestId: string }
@@ -434,7 +439,7 @@ export interface EventMap {
   'rdp:frame': { sessionId: SessionId; frame: RdpFrame }
   'rdp:clipboard': { sessionId: SessionId; text: string }
   'rdp:clipboardProgress': RdpClipboardProgress
-  'rdp:clipboardRemoteFiles': { sessionId: SessionId; files: RdpClipboardRemoteFile[] }
+  'rdp:clipboardRemoteFiles': { sessionId: SessionId; generation?: number; taskId?: number; files: RdpClipboardRemoteFile[] }
   'rdp:clipboardDownloadResult': RdpClipboardDownloadResult
   /** 终端下行数据批量帧（Uint8Array 结构化克隆） */
   'term:data': { termId: TermId; data: Uint8Array }
@@ -528,6 +533,9 @@ function channelSet<K extends string>(channels: Record<K, true>): ReadonlySet<K>
 
 /** Runtime preload allowlists. Record<K, true> makes omissions and extra names type errors. */
 export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
+  'app:capabilities': true,
+  'rdp:capabilities': true,
+  'rdp:clipboardCancel': true,
   'app:newWindow': true,
   'app:instanceInfo': true,
   'ai:profiles:list': true,
@@ -644,6 +652,7 @@ export const SEND_CHANNELS = channelSet<SendChannel>({
 })
 
 export const EVENT_CHANNELS = channelSet<EventChannel>({
+  'rdp:capabilities': true,
   'app:configChanged': true,
   'ai:delta': true,
   'ai:completed': true,

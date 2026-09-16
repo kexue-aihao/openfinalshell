@@ -107,10 +107,11 @@ function framePacket(sequence: number, width = 640, height = 480): Buffer {
 
 async function openReady() {
   const { RdpSessionManager } = await import('../../src/main/rdp/RdpSessionManager')
-  const manager = new RdpSessionManager()
+  const manager = new RdpSessionManager({ platform: 'win32' })
   const { sessionId } = manager.open('profile-1', { width: 1280, height: 720, dpi: 96 })
   currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
-    op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard']
+    op: 'hello', protocol: 1, workerVersion: 'test', capabilities: ['framebuffer', 'input', 'resize', 'clipboard'],
+    featureSupport: { connection: true, framebuffer: true, input: true, resize: true, clipboardText: true, clipboardFilesUpload: true, clipboardFilesPaste: true, dragUpload: true, audioPlayback: true }
   }))
   currentWorker.stdout.emit('data', jsonPacket(0x20, 0, { op: 'state', state: 'ready' }))
   await Promise.resolve()
@@ -536,13 +537,13 @@ describe('RdpSessionManager protocol/state behavior', () => {
       rdp: { audioPlayback: true, clipboard: false, certificatePolicy: 'prompt' }
     } as ReturnType<typeof getProfile>)
     const { manager, sessionId } = await import('../../src/main/rdp/RdpSessionManager').then(({ RdpSessionManager }) => {
-      const instance = new RdpSessionManager()
+      const instance = new RdpSessionManager({ platform: 'win32' })
       const opened = instance.open('profile-1', { width: 1280, height: 720, dpi: 96 })
       return { manager: instance, sessionId: opened.sessionId }
     })
     currentWorker.stdout.emit('data', jsonPacket(0x01, 0, {
       op: 'hello', protocol: 1, workerVersion: 'freerdp',
-      capabilities: ['freerdp', 'framebuffer', 'input', 'resize', 'clipboard', 'audio']
+      capabilities: ['freerdp', 'framebuffer', 'input', 'resize', 'clipboard', 'audio'], featureSupport: { connection:true,framebuffer:true,input:true,resize:true,clipboardText:true,audioPlayback:true }
     }))
     await Promise.resolve()
     const start = currentWorker.writes.find((bytes) => bytes[6] === 0x10)
@@ -647,7 +648,7 @@ describe('RdpSessionManager protocol/state behavior', () => {
     const start = currentWorker.writes.find((bytes) => bytes[6] === 0x10)
     expect(start).toBeDefined()
     expect(JSON.parse(start!.subarray(16).toString('utf8')).features).toEqual({
-      clipboard: false,
+      clipboard: false, clipboardFilesUpload:false, clipboardFilesPaste:false, audioPlayback:true,
       certificatePolicy: 'strict'
     })
 
@@ -1020,6 +1021,8 @@ describe('RdpSessionManager protocol/state behavior', () => {
     }))
     expect(emit).toHaveBeenCalledWith('rdp:clipboardRemoteFiles', {
       sessionId,
+      generation: expect.any(Number),
+      taskId: 0,
       files: [{ name: 'a.txt', size: 10, directory: false }, { name: 'd', size: 0, directory: true }]
     })
 
@@ -1039,6 +1042,82 @@ describe('RdpSessionManager protocol/state behavior', () => {
     currentWorker.stdout.emit('data', jsonPacket(0x26, 0, { op: 'remoteFiles', files: [{ name: '', size: 0, directory: false }] }))
     expect(emit).toHaveBeenCalledWith('rdp:state', expect.objectContaining({ sessionId, state: 'failed', errorCode: 'PROTOCOL_ERROR' }))
     expect(spawnedWorkers[spawnedWorkers.length - 1].writes.some((bytes) => bytes[6] === 0x12)).toBe(true)
+  })
+
+  it('revokes capabilities immediately on close and rejects old Worker capability or file events', async () => {
+    getProfile.mockReturnValueOnce({ id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' }, rdp: { clipboard: true, certificatePolicy: 'prompt' } })
+    const { manager, sessionId } = await openReady()
+    expect(manager.capabilities(sessionId).capabilities.clipboardFilesPaste.available).toBe(true)
+    const closed = manager.close(sessionId)
+    expect(Object.values(manager.capabilities(sessionId).capabilities).every(value => !value.available)).toBe(true)
+    emit.mockClear()
+    currentWorker.stdout.emit('data', jsonPacket(0x26, 0, { op: 'remoteFiles', taskId: 10, files: [{ name: 'late', size: 1, directory: false }] }))
+    currentWorker.stdout.emit('data', jsonPacket(0x23, 0, { op: 'audio', state: 'enabled' }))
+    expect(emit).not.toHaveBeenCalled()
+    currentWorker.emit('exit', 0, null)
+    await closed
+  })
+
+  it('opens the audio capability only after the playback device initializes', async () => {
+    const { manager, sessionId } = await openReady()
+    expect(manager.capabilities(sessionId).capabilities.audioPlayback.available).toBe(false)
+    currentWorker.stdout.emit('data', jsonPacket(0x23, 0, { op: 'audio', state: 'enabled' }))
+    expect(manager.capabilities(sessionId).capabilities.audioPlayback.available).toBe(false)
+    currentWorker.stdout.emit('data', jsonPacket(0x23, 0, { op: 'audio', state: 'connected' }))
+    expect(manager.capabilities(sessionId).capabilities.audioPlayback.available).toBe(true)
+    currentWorker.stdout.emit('data', jsonPacket(0x23, 0, { op: 'audio', state: 'unavailable' }))
+    expect(manager.capabilities(sessionId).capabilities.audioPlayback.available).toBe(false)
+  })
+
+  it('cancels pending upload acknowledgments and ignores their late error while allowing retry', async () => {
+    getProfile.mockReturnValueOnce({ id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' }, rdp: { clipboard: true, certificatePolicy: 'prompt' } })
+    const { manager, sessionId } = await openReady()
+    manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', framePacket(1))
+    const pending = manager.clipboardFilesSet(sessionId, ['package.json'])
+    const old = currentWorker.writes.filter(bytes => bytes[6] === 0x18).at(-1)!
+    const canceled = expect(pending).rejects.toThrow('CANCELED')
+    manager.clipboardCancel(sessionId)
+    await canceled
+    const retry = manager.clipboardFilesSet(sessionId, ['package.json'])
+    const request = currentWorker.writes.filter(bytes => bytes[6] === 0x18).at(-1)!
+    const metadata = JSON.parse(request.subarray(16).toString('utf8'))
+    emit.mockClear()
+    currentWorker.stdout.emit('data', jsonPacket(0x7f, old.readUInt32LE(12), { op: 'error', code: 'CANCELED' }))
+    currentWorker.stdout.emit('data', jsonPacket(0x24, 0, { op: 'clipboardProgress', direction: 'upload', taskId: old.readUInt32LE(12),
+      state: 'failed', fileIndex: 0, fileCount: 1, transferred: 0, total: metadata.files[0].size, speedBps: 0 }))
+    expect(emit).not.toHaveBeenCalled()
+    currentWorker.stdout.emit('data', jsonPacket(0x20, request.readUInt32LE(12), { op: 'ack' }))
+    await retry
+    expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).not.toThrow()
+  })
+
+  it('tracks remote cache progress by manifest task and ignores canceled or replaced selections', async () => {
+    getProfile.mockReturnValueOnce({ id: 'profile-1', protocol: 'rdp', host: 'rdp.example', port: 3389,
+      username: 'alice', auth: { method: 'password' }, rdp: { clipboard: true, certificatePolicy: 'prompt' } })
+    const { manager, sessionId } = await openReady()
+    manager.attachPort(sessionId, new FakePort() as never)
+    currentWorker.stdout.emit('data', framePacket(1))
+    const manifest = (taskId: number) => currentWorker.stdout.emit('data', jsonPacket(0x26, 0,
+      { op: 'remoteFiles', taskId, files: [{ name: 'a.txt', size: 10, directory: false }] }))
+    const progress = (taskId: number) => currentWorker.stdout.emit('data', jsonPacket(0x24, 0,
+      { op: 'clipboardProgress', direction: 'download', taskId, state: 'transferring', fileIndex: 1, fileCount: 1, transferred: 5, total: 10, speedBps: 1 }))
+    manifest(3)
+    progress(3)
+    expect(emit).toHaveBeenCalledWith('rdp:clipboardProgress', expect.objectContaining({ direction: 'download', taskId: 3, transferred: 5 }))
+    manager.clipboardCancel(sessionId)
+    emit.mockClear()
+    progress(3)
+    expect(emit).not.toHaveBeenCalled()
+    manifest(4)
+    emit.mockClear()
+    progress(3)
+    expect(emit).not.toHaveBeenCalled()
+    progress(4)
+    expect(emit).toHaveBeenCalledWith('rdp:clipboardProgress', expect.objectContaining({ direction: 'download', taskId: 4 }))
+    expect(() => manager.input(sessionId, { kind: 'key', scanCode: 30, pressed: true })).not.toThrow()
   })
 
   it('serializes renderer input as the frozen worker protocol payloads', async () => {

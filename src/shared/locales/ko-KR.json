@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"새 창 열기","enable":"다중 인스턴스 허용","unsupported":"이 플랫폼에서는 사용할 수 없습니다"},
+  "instance": {
+    "newWindow": "새 창 열기",
+    "enable": "다중 인스턴스 허용",
+    "unsupported": "이 플랫폼에서는 사용할 수 없습니다"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "오픈소스 FinalShell — SSH 터미널 · SFTP · 서버 모니터",
+    "subtitle": "원격 운영 작업 공간 · SSH · SFTP · RDP · AI 도우미",
     "newConnection": "새 연결",
     "newConnectionDesc": "호스트와 인증을 설정하고 트리에 저장",
     "quickConnect": "빠른 연결",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "OpenFinalShell에 오신 것을 환영합니다",
-    "welcomeIntro": "SSH 터미널, 원격 파일 관리, 서버 모니터링을 한 창에서. 호스트에 연결하면 위에는 터미널, 가운데에는 원격 파일 편집기, 아래에는 파일 목록, 옆에는 실시간 CPU / 메모리 / 네트워크 그래프가 표시됩니다.",
+    "welcomeIntro": "SSH 터미널, SFTP 파일, RDP 데스크톱과 서버 모니터링을 한 앱에서 관리하고 필요할 때 AI의 도움으로 문제를 해결하세요. Windows에서는 설정에서 독립 창을 활성화하고 연결 설정을 공유할 수 있습니다.",
     "featuresTitle": "할 수 있는 것",
     "featureTerminal": "분할 창, 검색, 명령 기록, 스니펫을 지원하는 탭형 SSH 터미널",
     "featureSftp": "SFTP 파일 관리자: 더블클릭으로 열기/편집, 드래그로 업로드, 일괄 전송 큐",
@@ -533,7 +537,13 @@
     "proxyPassword": "프록시 비밀번호",
     "proxyAuthOptional": "프록시에 인증이 필요 없으면 비워 두세요",
     "note": "메모",
-    "notePlaceholder": "연결 목록에 표시될 이 컴퓨터에 대한 짧은 설명"
+    "notePlaceholder": "연결 목록에 표시될 이 컴퓨터에 대한 짧은 설명",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "프록시 및 키",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

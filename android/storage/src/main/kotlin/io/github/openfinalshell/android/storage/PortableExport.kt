@@ -51,7 +51,8 @@ data class PortableImportResult(
     val secrets: Int,
     val skipped: Int,
     val invalid: Int,
-    val notes: List<String> = emptyList()
+    val notes: List<String> = emptyList(),
+    val snippets: Int = 0
 )
 
 /**
@@ -86,9 +87,10 @@ object PortableExport {
         groups: List<ConnectionGroupEntity> = emptyList(),
         proxies: List<SavedProxyEntity> = emptyList(),
         privateKeys: List<PrivateKeyEntity> = emptyList(),
-        knownHosts: List<KnownHostEntity> = emptyList()
+        knownHosts: List<KnownHostEntity> = emptyList(),
+        toolsData: JsonObject = JsonObject(emptyMap())
     ): String {
-        val data = buildData(profiles, forwards, settings, groups, proxies, privateKeys, knownHosts)
+        val data = buildData(profiles, forwards, settings, groups, proxies, privateKeys, knownHosts, toolsData)
         val secrets = if (includeSecrets) {
             ImportExportCrypto.seal(
                 ProtocolJson.instance.encodeToString(
@@ -116,7 +118,8 @@ object PortableExport {
         includeSecrets: Boolean = false,
         passphrase: CharArray? = null,
         settings: JsonObject? = null,
-        appVersion: String = "android"
+        appVersion: String = "android",
+        tools: ToolDao? = null
     ): String {
         val snapshot = collectStorage(profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials, settings)
         return buildV1(
@@ -130,7 +133,8 @@ object PortableExport {
             snapshot.groups,
             snapshot.proxies,
             snapshot.privateKeys,
-            snapshot.knownHosts
+            snapshot.knownHosts,
+            ToolPortable.export(tools)
         )
     }
 
@@ -144,10 +148,11 @@ object PortableExport {
         groups: List<ConnectionGroupEntity> = emptyList(),
         proxies: List<SavedProxyEntity> = emptyList(),
         privateKeys: List<PrivateKeyEntity> = emptyList(),
-        knownHosts: List<KnownHostEntity> = emptyList()
+        knownHosts: List<KnownHostEntity> = emptyList(),
+        toolsData: JsonObject = JsonObject(emptyMap())
     ): String {
         val blob = buildJsonObject {
-            put("data", buildData(profiles, forwards, settings, groups, proxies, privateKeys, knownHosts))
+            put("data", buildData(profiles, forwards, settings, groups, proxies, privateKeys, knownHosts, toolsData))
             put("secrets", buildJsonObject { secretValues.forEach { (key, value) -> put(key, value) } })
         }
         val block = ImportExportCrypto.seal(
@@ -172,7 +177,8 @@ object PortableExport {
         passphrase: CharArray,
         includeSecrets: Boolean = true,
         settings: JsonObject? = null,
-        appVersion: String = "android"
+        appVersion: String = "android",
+        tools: ToolDao? = null
     ): String {
         val snapshot = collectStorage(profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials, settings)
         return buildV2(
@@ -185,7 +191,8 @@ object PortableExport {
             snapshot.groups,
             snapshot.proxies,
             snapshot.privateKeys,
-            snapshot.knownHosts
+            snapshot.knownHosts,
+            ToolPortable.export(tools)
         )
     }
 
@@ -229,7 +236,8 @@ object PortableExport {
         privateKeys: PrivateKeyRepository,
         knownHosts: KnownHostRepository,
         credentials: AndroidCredentialStore,
-        conflict: ImportConflict = ImportConflict.SKIP
+        conflict: ImportConflict = ImportConflict.SKIP,
+        tools: ToolDao? = null
     ): PortableImportResult {
         require(envelope.app == "openfinalshell") { "unsupported export application" }
         val decryptedV2 = if (envelope.formatVersion == 2) {
@@ -376,7 +384,8 @@ object PortableExport {
             credentials.put(value, ref)
             secretCount++
         }
-        return PortableImportResult(profileCount, groupCount, proxyCount, keyCount, forwardCount, hostCount, secretCount, skipped, invalid, notes)
+        val commandResult = ToolPortable.import(root, tools, conflict)
+        return PortableImportResult(profileCount, groupCount, proxyCount, keyCount, forwardCount, hostCount, secretCount, skipped + commandResult.skipped, invalid + commandResult.invalid, notes, commandResult.applied)
     }
 
     private fun clearUnavailableSecretRefs(
@@ -414,7 +423,8 @@ object PortableExport {
         groups: List<ConnectionGroupEntity> = emptyList(),
         proxies: List<SavedProxyEntity> = emptyList(),
         privateKeys: List<PrivateKeyEntity> = emptyList(),
-        knownHosts: List<KnownHostEntity> = emptyList()
+        knownHosts: List<KnownHostEntity> = emptyList(),
+        toolsData: JsonObject = JsonObject(emptyMap())
     ): JsonObject = buildJsonObject {
         put("profiles", JsonArray(profiles.map { ProtocolJson.instance.encodeToJsonElement(ConnectionProfile.serializer(), it) }))
         put("forwards", JsonArray(forwards.map { ProtocolJson.instance.encodeToJsonElement(ForwardRule.serializer(), it) }))
@@ -451,6 +461,7 @@ object PortableExport {
             put("fingerprintSha256", host.fingerprintSha256)
             put("addedAt", host.addedAt)
         } }))
+        for (key in listOf("snippets", "snippetGroups")) toolsData[key]?.let { put(key,it) }
         settings?.let { put("settings", it) }
     }
 

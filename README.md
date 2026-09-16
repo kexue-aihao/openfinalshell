@@ -1,21 +1,36 @@
 # OpenFinalShell
 
-OpenFinalShell 是一个开源、跨平台的 SSH/SFTP 服务器运维工作台。它把远程终端、文件管理、在线编辑、服务器监控、端口转发和快捷命令集中在同一套工作流中，适合日常登录服务器、排查运行状态、修改配置和传输文件。
+OpenFinalShell 是一个开源、跨平台的远程运维工作台，集成 SSH 终端、SFTP 文件管理、嵌入式 RDP 远程桌面、AI 助手、在线编辑、服务器监控和端口转发。你可以在同一应用中管理 Linux 服务器和 Windows 远程桌面，传输文件、修改配置、查看运行状态，并按需调用自己的 AI API 辅助排障。
 
 项目由两部分组成：
 
-- **桌面端**：基于 Electron、React 和 TypeScript，支持 Windows x86/x64/ARM64、Linux（Debian/RPM/AppImage/Flatpak）以及 macOS Intel、Apple Silicon 和 Universal。
+- **桌面端**：基于 Electron、React 和 TypeScript，提供 Windows x86/x64/ARM64、macOS Intel x64 / Apple Silicon ARM64、Linux x64/ARM64 安装包；Flatpak 目前仅提供 x64。
 - **Android 端**：独立的 Kotlin 原生客户端，使用 Jetpack Compose、Apache MINA SSHD、Room 和 Android Keystore，支持 API 26 及以上的常见 CPU 架构。
 
 核心能力：
 
-- 一次 SSH 会话可同时使用多标签终端、SFTP 文件管理和实时服务器监控，并支持断线自动重连。
-- 终端支持 WebGL、真彩色、中文与 Emoji 宽度处理、搜索、命令历史和快捷命令；SFTP 支持在线编辑、拖拽上传、传输队列、暂停恢复、重试和断点续传。
-- 监控提供 CPU、内存、磁盘、网络、连接数、进程和双延迟指标；端口转发支持本地、远程和动态 SOCKS5 模式。
-- 密码、私钥口令和连接配置按平台安全存储；支持加密导入导出、局域网配对同步、可移动磁盘私钥路径恢复和应用内更新（安装前由用户确认）。
-- 桌面端和 Android 端遵循相同的 SSH、监控、端口流量、LAN Sync 及导入导出协议，不需要修改服务器配置。
+- **SSH / SFTP**：多标签终端、搜索与命令历史、拖拽上传、文件冲突处理、传输队列和断点续传，支持独立窗口编辑远程文件。
+- **RDP 远程桌面**：在标签页内连接远程桌面，支持键鼠操作和窗口自适应；Windows x64 支持原生文件双向复制粘贴、本地文件拖入远程桌面和远程音频播放。
+- **AI 助手**：接入 OpenAI、DeepSeek 或第三方兼容 API，获取模型列表、检测图片输入、选择流式或非流式回答，将回答中的命令复制或手动填入 SSH。
+- **服务器监控与转发**：CPU、内存、磁盘、网络、进程、连接数、双延迟和端口流量视图；支持本地、远程及动态 SOCKS5 转发。
+- **Windows 多实例**：在设置中开启多个独立窗口，连接配置和凭据共享，会话、传输和窗口退出互相隔离。
+- **数据与界面**：系统安全存储、加密导入导出、局域网配对传送、10 种界面语言、主题和缩放设置。
 
-OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入式 RDP 远程桌面；macOS、Linux、Windows ARM64 和 Android 本版本不宣称提供原生嵌入式 RDP。Telnet、串口、VNC 或 GSSAPI 仍不在范围内。项目采用 MIT 许可证，界面提供简体中文和 English。
+桌面端与 Android 的功能范围不同。下表按当前代码和发布配置列出支持情况；构建通过不等于已完成所有远程服务器、文件管理器和显示环境的实机验收。
+
+| 平台 | SSH / SFTP | 嵌入式 RDP | RDP 原生双向文件粘贴 | AI 助手 | 独立多实例窗口 |
+| --- | --- | --- | --- | --- | --- |
+| Windows x64 | 支持 | 支持 | Windows Explorer | 支持 | 支持，设置中开启 |
+| Windows x86 / ARM64 | 支持 | 未打包 Worker，可使用系统 RDP | 由系统 RDP 客户端提供 | 支持 | 支持，设置中开启 |
+| macOS x64 / ARM64 | 支持 | 真实 FreeRDP Worker | 缓存后原生粘贴已接入，待实机验收、默认关闭 | 支持 | 已适配，待验收 |
+| Linux x64 / ARM64 | 支持 | 真实 FreeRDP Worker | 缓存后原生粘贴已接入，待实机验收、默认关闭 | 支持 | 已适配，待验收 |
+| Android 8.0+ | 原生客户端，本轮补齐代理、SAF 和编辑 | 暂不支持 | 暂不支持 | 已接入，APK 与模拟器测试通过，待实机验收 | 不适用 |
+
+macOS/Linux 的 RDP 基础连接、画面、键鼠和缩放已有实现。本轮将文本剪贴板替换为 macOS NSPasteboard 与 Linux GTK3 原生接口，不再依赖 `pbcopy`、`xclip` 或 `wl-clipboard`。文件粘贴采用完整下载到私有缓存后再发布文件 URL 的方式；新增音频后端和多实例适配仍受实机验收门槛控制。当前仅有 Windows 验证环境，不能将这些代码接入视为 macOS/Linux 正式验收通过。系统 RDP 入口仍通过 `.rdp` 文件调用已安装的默认处理程序。
+
+本轮逐项实现和验证状态见 [多端增量移植记录](docs/platform-port-status.md)。
+
+[下载最新版本](https://github.com/kexue-aihao/openfinalshell/releases/latest) · [多实例说明](docs/multi-instance.md) · [AI 模型与图片检测](docs/ai-model-capabilities.md) · [RDP 文件传输诊断](docs/rdp-clipboard-debugging.md)
 
 ---
 
@@ -53,18 +68,63 @@ OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入
 - 6 套终端配色（One Dark / Dracula / Nord / Solarized Dark / GitHub Light / Solarized Light），也可跟随界面主题；设置页里有实时预览
 - 主进程侧对下行数据做批处理（8ms / 256KB 双阈值）并按水位背压：`cat` 一个大文件不会撑爆内存，`Ctrl+C` 立即生效
 
+### 嵌入式 RDP 远程桌面
+
+新建连接时选择 RDP，配置主机、端口、用户名、域、凭据及证书策略，即可在应用标签页内连接远程桌面。
+
+- 使用独立 FreeRDP Worker，支持画面渲染、键盘、鼠标、滚轮及远程分辨率调整；窗口或面板尺寸变化时自动适配显示。
+- 可配置剪贴板同步和音频播放。Windows x64 音频使用本机默认播放设备；没有设备时不影响桌面连接。
+- **Windows x64 文件上传**：在本地 Explorer 复制文件或目录，到远程 Explorer 的目标目录粘贴；也可把本地文件拖入 RDP 画面，由远程桌面处理粘贴。
+- **Windows x64 文件下载**：在远程 Explorer 复制文件或目录，到本地 Explorer 粘贴；界面另提供“下载到目录”入口。
+- 文件传输使用 RDP `cliprdr`，按需分块读取并显示传输状态；断线或关闭会话时使挂起读取失效。拖放的目标需要能够接收文件，例如远程桌面或 Explorer 文件夹窗口。
+- 关闭标签只结束当前会话，RDP 重连由用户显式触发。旧 Worker 的认证、画面和剪贴板回调不会接管新会话。
+- Worker 不可用时可显式选择系统远程桌面；生成的 `.rdp` 文件不包含密码。
+
+原生文件粘贴依赖服务端允许剪贴板重定向。当前限制为最多 64 个文件/目录条目、单文件 8 GiB、合计 32 GiB；拒绝符号链接及不安全的相对路径。macOS/Linux 不作为原生双向文件粘贴已完成的平台，详见上方支持表。
+
+### AI 助手
+
+在 **设置 → AI 助手** 开启功能，添加服务名称、API Base URL、Token 和模型；随后可从侧栏 AI 图标或 SSH 终端工具条打开独立的助手面板，无需先选中文字。
+
+- 支持 OpenAI 官方、DeepSeek 官方及 OpenAI Chat Completions 兼容服务，可保存并切换多个服务配置。
+- 填写 API 地址和 Token 后点击“获取模型”，通过 `/models` 获取列表并在可搜索下拉框中选择，也支持手动填写模型名称。
+- “测试连接”显示请求耗时，包含网络传输和模型处理；“测试图片输入”单独检查当前接口是否接受图片请求。
+- 支持文字和 PNG / JPEG / WebP / GIF 图片输入，当前面板每次可附加一张不超过 8 MiB 的图片；实际图片理解能力取决于模型与网关。
+- 可选择流式或非流式响应，支持停止生成、清空当前回答和错误提示。
+- 选中终端文本后可显式发送给 AI，用于解释错误、解释命令、生成修复方案或自定义提问；不会自动读取整段终端历史、服务器文件或登录凭据。
+- 回答中的 shell 命令提供“复制”和“填入 SSH”，可以选择目标 SSH 终端。填入不发送回车；多行命令需要终端启用 bracketed paste。
+- Token 由主进程保存到系统安全存储，查询配置只返回是否已设置。AI 配置和 Token 不进入普通数据导出或局域网同步。
+
+功能默认关闭，API 费用由所选服务商收取。Base URL 通常填写到 `/v1`，程序追加 `/chat/completions`；第三方接口可保留自己的路径前缀。仅允许 HTTPS，本机 `localhost`、`127.0.0.1`、`::1` 可使用 HTTP。当前每次发送仅提交本次填写/选中的文本与图片，不自动携带之前问答，也不持久化聊天记录。单条文本上限为 32,768 个字符。
+
+模型列表中的“图片未声明”不表示模型不可用；可用“测试图片输入”进一步检查。接口接受测试图片也不能证明它实际理解了图片，详细判定规则见 [AI 模型与图片检测](docs/ai-model-capabilities.md)。
+
+### Windows 多实例窗口
+
+在 **设置 → 常规 → 允许多实例窗口** 开启或关闭，无需重启。默认关闭；普通双击始终优先聚焦已有默认窗口。
+
+- 开启后可通过左上角应用名称菜单、`Ctrl+Shift+N`、任务栏“打开新窗口”或 `OpenFinalShell.exe --new-instance` 创建独立进程和窗口。
+- 各窗口的 SSH/RDP 会话、终端、传输、监控、端口转发和 AI 请求互相隔离；关闭一个窗口只清理自己的资源。
+- 连接、AI 服务配置和凭据共享。配置变更自动刷新，编辑过期版本会提示冲突；已连接会话不被配置刷新替换。
+- 关闭开关只禁止新建实例，已有窗口、会话和传输继续运行；偏好跨重启保留。
+- 安装更新由协调实例统一处理，等待其他实例清理并退出；超时显示仍在运行的实例，不强制结束进程。
+
+当前仅 Windows 开放多实例；不支持跨实例接管运行中的会话。架构和测试记录见 [多实例说明](docs/multi-instance.md)。
+
 ### SFTP 文件管理
 
 - 会话连上后**自动展开**下方分屏（可关），起始目录是远端 home
-- 虚拟表格，上万个文件也不卡；名称 / 大小 / 权限 / 所有者 / 修改时间可排序；目录恒排最前
+- 虚拟表格减少大目录的渲染开销；名称 / 大小 / 权限 / 所有者 / 修改时间可排序；目录恒排最前
 - 默认**显示隐藏文件**（工具栏眼睛按钮随时切换）
 - 导航：后退 / 前进 / 上级 / 刷新、面包屑逐段跳转、点一下变成可编辑的路径输入框
+- 可开启跟随终端 `cd`，将文件列表切换到终端进入的目录。
 - 新建文件 / 文件夹（重名或无权限会明确报错，不静默失败）、`F2` 重命名、复制路径
 - 权限编辑：八进制输入框 + 读/写/执行九宫格
 - **上传**：工具栏选文件，或直接把文件拖进来 —— **拖到某个目录行上就传进那个目录**（那一行会高亮）
 - **下载**：可设默认下载目录（留空则每次询问）；落地文件名会做 Windows 非法名归一
+- 同名冲突支持询问、覆盖、跳过或重命名；上传前可逐项裁决，也可批量应用策略。
 - 传输队列：单会话并发数与全局并发数可配，支持暂停 / 继续 / 取消 / 重试 / 清除已完成，显示速度与剩余时间；暂停后按 `.part` 偏移**断点续传**
-- 目录传输**渐进式展开**（边遍历边入队），十万文件也不会卡在建树上
+- 目录传输**渐进式展开**，边遍历边入队，无需等整棵目录树扫描完成。
 - 传输走**第二条 SSH 连接**（懒创建、空闲 60 秒自动关），所以传大文件不会给击键加延迟
 - 文件名不是合法 UTF-8 的条目标黄并禁止操作（见"已知限制"）
 - **快速删除（`rm -rf`）**：在服务器上跑一条命令删整棵目录树，比逐个 unlink 快几个数量级。只对目录提供、独立的二次确认框、**把将要执行的那条命令原样列出来**给你过目；层级少于两级的路径（`/`、`/etc`、`/root`…）一律拒绝
@@ -72,7 +132,7 @@ OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入
 
 ### 内置编辑器（改远端文件）
 
-右键一个文件 →「打开」或「内置编辑器查看」，在会话内开出第三格（终端 / 编辑器 / 文件管理）。**远端零副作用、本机不落任何明文副本** —— 内容一直在编辑器缓冲区里。
+右键一个文件 →「内置编辑器查看」，或按设置双击文件，在独立编辑器窗口中以多标签查看和编辑。打开文件只读取内容；保存前内容保留在内存，不生成本地明文编辑副本。
 
 - CodeMirror 6：行号、结构折叠、括号匹配、撤销历史、`Ctrl+F` 查找、`Tab` 插缩进
 - 语法高亮 16 种：json / yaml 用真解析器（有语法树），shell、nginx、properties、toml、dockerfile、diff、lua、perl、python、javascript、xml、html、sql、css 走 legacy 模式
@@ -92,6 +152,8 @@ OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入
 - **CPU**：总占用 + 折线，展开看每个核心；1/5/15 分钟负载
 - **内存**：已用/总量 + 折线，有 Swap 时单独一条
 - **网络**：上行/下行速率双线图
+- **双延迟**：并列显示本机直连 ICMP 延迟与当前 SSH 数据通道延迟，便于区分直接网络和代理/隧道链路。
+- **端口流量**：从监控面板打开独立工具标签，查看各端口连接数和收发速率；远端缺少可用计数器时显示不可用，不把缺失值当作零流量。
 - **磁盘**：各挂载点容量条（>75% 变黄、>90% 变红）+ 每设备读写速率
 - **连接数**：TCP 总数、TIME_WAIT、ESTABLISHED / LISTEN / CLOSE_WAIT 明细、孤儿连接、已打开的 UDP 套接字
 - **进程 Top**：按 CPU 排序的前 8 个（可折叠）
@@ -118,16 +180,17 @@ OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入
 
 ### 界面与设置
 
-设置页七个区段：常规 / 外观 / 终端 / 传输与监控 / 安全与数据 / 快捷键 / 关于。
+设置页提供十个区段：常规 / 外观 / AI 助手 / 终端 / 传输与监控 / 代理与私钥 / 安全与数据 / 局域网同步 / 快捷键 / 关于。
 
 - 深色 / 浅色 / 跟随系统，8 种强调色，界面缩放 90%–150%
-- 简体中文与 English
+- 10 种界面语言：简体中文、繁体中文、英语、日语、韩语、俄语、西班牙语、法语、德语和巴西葡萄牙语；部分新增文案及机器翻译仍需母语校对。
 - 关闭标签前确认（仅在会话仍连接时问）、禁用硬件加速（老显卡黑屏时用）
-- 侧栏四个视图：连接 / 快捷命令 / 端口转发 / 传输队列；面板尺寸与折叠状态都记住
+- 侧栏四个视图：连接 / 快捷命令 / 端口转发 / 传输队列；启用 AI 后增加助手入口。面板尺寸与折叠状态会保留，标题栏使用统一软件 Logo。
 
 | 快捷键 | 作用 |
 |---|---|
 | `Ctrl + Shift + T` | 复制当前会话 |
+| `Ctrl + Shift + N` | 打开新实例窗口（Windows，需开启多实例） |
 | `Ctrl + W` | 关闭当前标签 |
 | `Ctrl + Tab` / `Ctrl + Shift + Tab` | 下一个 / 上一个标签 |
 | `Alt + 1…9` | 切换到第 N 个标签 |
@@ -139,6 +202,8 @@ OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入
 | `Ctrl + Enter` | 命令编辑器：发送 |
 | `F2` | 重命名文件（文件管理器内） |
 | `Esc` | 关闭查找条 / 取消重命名 |
+
+macOS 常用快捷键采用 Cmd / Option 语义，以“设置 → 快捷键”的平台说明为准。
 
 ### 数据安全与迁移
 
@@ -159,28 +224,30 @@ OpenFinalShell 专注 SSH/SFTP 运维，并在 Windows x64 桌面端提供嵌入
 
 ## 安装
 
-到 [Releases](https://github.com/kexue-aihao/openfinalshell/releases) 下载安装包。每个版本提供 Windows x86/x64/ARM64、Linux x86_64/ARM64/ARMv7、macOS x64/ARM64/Universal，以及 Android 各 ABI APK 和 AAB：
+到 [最新正式版](https://github.com/kexue-aihao/openfinalshell/releases/latest) 下载安装包。当前发布矩阵为 Windows x86/x64/ARM64、Linux x64/ARM64、macOS Intel x64 / Apple Silicon ARM64，以及 Android 各 ABI APK 和 AAB：
 
-Linux i386 暂不提供：Electron 43 没有官方 Linux ia32 运行时，无法生成可维护的安装包。
+当前不提供 Linux i386 / ARMv7 或 macOS Universal 包；Flatpak 仅提供 x64。Linux i386 缺少 Electron 43 官方运行时。
 
 | 文件 | 说明 |
 |---|---|
 | `OpenFinalShell-<版本>-setup-x64.exe` | 64 位安装版（NSIS，免管理员，装到 `%LOCALAPPDATA%`） |
 | `OpenFinalShell-<版本>-setup-ia32.exe` | 32 位安装版 |
 | `OpenFinalShell-<版本>-setup-arm64.exe` | ARM64 安装版 |
-| `OpenFinalShell-<版本>-x64.exe` | 64 位免安装版 |
-| `OpenFinalShell-<版本>-ia32.exe` | 32 位免安装版 |
+| `OpenFinalShell-<版本>-portable-x64.exe` | 64 位免安装版 |
+| `OpenFinalShell-<版本>-portable-ia32.exe` | 32 位免安装版 |
 | `OpenFinalShell-<版本>-portable-arm64.exe` | ARM64 免安装版 |
-| `OpenFinalShell-<版本>-debian13-{amd64,arm64,armv7l}.deb` | Debian 13 安装包 |
-| `OpenFinalShell-<版本>-linux-{x86_64,aarch64,armv7l}.rpm` | RPM 安装包（Fedora/RHEL/openSUSE） |
-| `OpenFinalShell-<版本>-linux-{x86_64,arm64,armv7l}.AppImage` | 通用 Linux 免安装包 |
+| `OpenFinalShell-<版本>-debian13-{amd64,arm64}.deb` | Debian 13 安装包 |
+| `OpenFinalShell-<版本>-linux-{x86_64,aarch64}.rpm` | RPM 格式安装包 |
+| `OpenFinalShell-<版本>-linux-{x86_64,arm64}.AppImage` | Linux 免安装包 |
 | `OpenFinalShell-<版本>-linux-x86_64.flatpak` | x86_64 Flatpak 包 |
-| `OpenFinalShell-<版本>-{x64,arm64,universal}.dmg` | macOS 安装镜像 |
-| `OpenFinalShell-<版本>-{x64,arm64,universal}.zip` | macOS 免安装压缩包 |
+| `OpenFinalShell-<版本>.dmg` / `OpenFinalShell-<版本>-arm64.dmg` | macOS Intel / Apple Silicon 安装镜像 |
+| `OpenFinalShell-<版本>-mac.zip` / `OpenFinalShell-<版本>-arm64-mac.zip` | macOS Intel / Apple Silicon 压缩包 |
 | `OpenFinalShell-<版本>-android-{arm64-v8a,armeabi-v7a,x86_64,x86,universal}.apk` | Android APK |
 | `OpenFinalShell-<版本>-android.aab` | Android App Bundle |
 
 同目录的 `SHA256SUMS.txt` 和 `SHA256SUMS-android.txt` 可校验（另有 `latest-*.yml` 与 `*.blockmap`，那是更新检查元数据，不用手工下载）。Windows 和 macOS 安装包暂未做代码签名，首次运行可能出现系统安全提示；Linux 同时提供 Debian、RPM 和 AppImage 包，Flatpak 目前提供 x86_64 版本。
+
+Linux 包的可运行范围取决于系统库版本，RPM/AppImage 文件格式不代表兼容所有旧发行版。当前源码通过 GTK3 接入 X11/Wayland 的 RDP 文本剪贴板，无需安装 `xclip` 或 `wl-clipboard`；对应发布包仍需验证 GTK3 运行库和桌面会话访问，Flatpak 另需验收沙箱权限。
 
 Debian 13 安装或覆盖升级：
 
@@ -197,29 +264,33 @@ sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb
 - **直接盖装**：下新版安装包双击即可，不必先卸载，数据也不会丢
   （安装器升级时会给旧卸载器传 `--updated`，`deleteAppDataOnUninstall` 那条清理被跳过）。
 
-⚠️ Windows 免安装版**不支持应用内更新**（它没有安装器，装 NSIS 包等于把它变成安装版），只提示去下载。Debian 版会检查新版本并打开 Releases，但不会在应用内调用 `sudo`、`dpkg` 或 `apt`；下载新版 `.deb` 后用上面的 APT 命令覆盖安装。
+Windows 免安装版通过下载新版替换；Linux 检查新版后打开 Releases，不在应用内提权安装。macOS 当前发布资产未提供自动更新 feed，请下载对应架构的 DMG/ZIP 更新。Android 提供 APK 下载、校验和系统安装流程。多实例下的 Windows 安装更新会先汇总各窗口活动，并协调退出。
 
 ## 技术栈
 
-Electron 43 + React 18 + TypeScript · [ssh2](https://github.com/mscdex/ssh2) · [xterm.js](https://xtermjs.org/) · [CodeMirror 6](https://codemirror.net/) · Ant Design 5 · zustand · ECharts
+Electron 43 + React 18 + TypeScript · [ssh2](https://github.com/mscdex/ssh2) · [xterm.js](https://xtermjs.org/) · [CodeMirror 6](https://codemirror.net/) · Ant Design 5 · zustand · C++ / FreeRDP Worker
 
 运行时依赖四个：`ssh2`、`iconv-lite`、`electron-log`、`electron-updater`。渲染层的库全是 devDependency，由 Vite 打成一个 bundle。
 
-四条贯穿全项目的取向：
+主要架构：
 
-- **零 native 硬依赖**。数据落 SQLite 但用的是 Electron/Node 内置的 `node:sqlite`，凭据用内置 `safeStorage`，SOCKS5 自己实现 —— 不引 better-sqlite3 / argon2 / keytar / socksv5。这不是洁癖：`better-sqlite3` 这类原生模块在 32 位上要现编，会直接掐死 x86 产物。（`electron-updater` 及它带进来的 16 个传递依赖**全是纯 JS**，这条红线不受影响 —— 变的只是"三个运行时依赖"这个数。）
+- **主进程存储与原生 RDP 分离**。数据库使用内置 `node:sqlite`，凭据使用 Electron `safeStorage`；RDP 由独立 C++ Worker 与 FreeRDP/WinPR 运行库提供。嵌入式 RDP 发布构建要求真实 FreeRDP，不能用协议模拟 Worker 替代。
 - **渲染进程是纯视图**。`contextIsolation` + `sandbox` 全开，ssh2 / fs 只在主进程；能力经 preload 白名单暴露，IPC 入参一律 zod 校验。CSP 是 `script-src 'self'`（无 `unsafe-eval`、无 `blob:`）—— 这也是内置编辑器选 CodeMirror 而不是 Monaco 的决定性原因。
 - **凭据引用（credentialRef）模式**。明文密码只在保存表单时单向进主进程，加密落盘后仅返回一个引用；渲染进程从来拿不到明文，也拿不到冲突检测用的文件基线。
 - **IPC 契约唯一事实来源**是 `src/shared/ipc.ts`，main / preload / renderer 三层都只从那里取 channel 名与类型。
-- **全球多语种**。所有用户可见文案（含主进程报错）走 i18n；语言唯一来源 `src/shared/locales/*.json`，加一门语言 = 注册表加一条 + 加一份 json。中/英人工权威，其余为 AI 初翻待母语校对。详见 `agent.md` 的 i18n 段。语言包不进渲染 JS bundle（不吃字节预算）。
+- **多语种**。语言注册表与资源位于 `src/shared/locales/`。简体中文/英文随 renderer 打包，其余语言按需加载；翻译规范见 [agent.md](agent.md)。
+- **独立实例**。每个应用进程拥有自己的会话资源，通过本机控制通道协调配置变更和更新；控制消息不携带终端、文件或凭据内容。
 
 代码结构：
 
 ```
 src/shared    IPC 契约、共享类型与常量（禁止运行时依赖）
-src/main      SSH / SFTP / 监控 / 转发 / 存储 / 导入导出，全部逻辑在这里
+src/main      SSH / SFTP / RDP 会话 / AI / 监控 / 转发 / 存储 / 实例协调
 src/preload   白名单桥
 src/renderer  React 界面（features 按功能分目录，stores 用 zustand）
+native        FreeRDP Worker、剪贴板与协议测试
+android       Kotlin / Compose 原生客户端
+shared-schema 跨桌面与 Android 的数据契约
 ```
 
 ### Android 原生客户端
@@ -229,25 +300,27 @@ src/renderer  React 界面（features 按功能分目录，stores 用 zustand）
 Keystore 实现原生连接体验。跨端数据协议定义在 `shared-schema/`，保持现有
 监控帧、端口流量、LAN Sync 和 v1/v2 导入导出格式兼容。
 
-本地需要 JDK 17、Android SDK 35 和 Gradle 8.10.2：
+本地需要 JDK 17 和 Android SDK 35，设置 `JAVA_HOME` 与 `ANDROID_HOME`。仓库自带 Gradle Wrapper，会下载并校验 Gradle 8.10.2，无需全局安装 Gradle。Windows PowerShell：
 
 ```text
 npm run android:generate-schema
-gradle -p android testDebugUnitTest
-gradle -p android :app:assembleDebug
+.\android\gradlew.bat -p android :app:checkI18n testDebugUnitTest
+.\android\gradlew.bat -p android :app:assembleDebug :app:assembleDebugAndroidTest
 ```
 
-Android 支持 API 26 及以上和 `arm64-v8a`、`armeabi-v7a`、`x86_64`。桌面端
+macOS/Linux 使用 `sh android/gradlew -p android` 执行相同任务。当前 Windows 开发机已通过 70 项 Android 单元测试和 API 26/35 模拟器各 12 项仪器测试，覆盖导航、数据迁移、凭据隔离及系统文件接口。四种 ABI 及 universal Debug APK、未签名 Release APK/AAB 和完整 lint 均通过；正式签名与实机功能验收另行记录。
+
+Android 支持 API 26 及以上和 `arm64-v8a`、`armeabi-v7a`、`x86_64`、`x86`，另提供 universal APK。桌面端
 `safeStorage`/Windows DPAPI 密文不能直接在 Android 解密，跨设备迁移请使用
 口令保护的加密导出文件。GitHub Actions 会在 Android 相关变更时运行编译、
 单元测试和 API 26/35 仪器测试；推送 `v*` 标签时，签名 APK/AAB 会上传到同一
 Release。Android 发布需要配置 `ANDROID_KEYSTORE_B64`、
 `ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS` 和 `ANDROID_KEY_PASSWORD`
-四个仓库 Secrets。
+四个仓库 Secrets。Android 现有功能包括 SSH 终端、SFTP、监控、端口转发、连接管理、加密导入导出和局域网传送。本轮源码增加代理连接、SAF 传输、命令库、AI 助手和远程文本编辑，仍需完成真实服务与设备验收；暂不包含嵌入式 RDP 或多实例能力。详见 [Android 文档](android/README.md)。
 
 ## 开发
 
-Windows 多实例窗口已作为正式功能提供，可在“设置 → 常规 → 允许多实例窗口”中开启或关闭。默认保持单实例，开启后可通过应用名称菜单、`Ctrl+Shift+N` 或任务栏打开新窗口。启动方式、共享凭据设计、测试命令和验收记录见 [多实例窗口说明](docs/multi-instance.md)。
+使用 Node.js 24 和 npm，先安装依赖再启动开发环境。开发机网络代理按自己的环境配置，不应把个人代理地址提交到仓库。
 
 ```bash
 npm install
@@ -267,9 +340,12 @@ npm run dev
 | `npm run check:deb` | 检查 deb 元数据、依赖、desktop entry 与安装路径 |
 | `npm run package:dir` | 只打免安装目录，用于快速验证 |
 | `npm run smoke:packaged` | 驱动打包产物跑端到端冒烟 |
+| `npm run smoke:multi-instance` | Windows 真实多进程 SSH / SFTP / Vault / AI 隔离测试 |
+| `npm run build:rdp-worker -- --platform win --arch x64 --require-freerdp` | 构建真实 Windows x64 RDP Worker；其他目标使用 `mac` / `linux` 和对应架构 |
+| `npm run check:rdp-worker -- --platform win --arch x64 --require-freerdp` | 校验 Worker、运行库与发布能力 |
 | `npm run icon` | 重新生成应用图标 |
 
-跨平台构建不能复用 `node_modules`；在 Debian 13 上先运行干净的 `npm ci`，再执行 `npm run package:deb`。
+跨平台构建不能复用 `node_modules`。真实 RDP Worker 需要 CMake、C++ 工具链及 FreeRDP/WinPR 开发依赖；按目标平台参考 [发布工作流](.github/workflows/build-windows.yml) 安装。未构建本地 Worker 时，`npm run dev` 仍可调试 SSH 和界面，但嵌入式 RDP 会提示 Worker 缺失。
 
 浏览器调试：`npm run dev` 后直接打开 <http://localhost:5173>，渲染层在缺少 preload 时会启用 mock IPC（含模拟终端、假 SFTP 目录树、周期监控数据），便于纯 UI 迭代。
 
@@ -339,33 +415,36 @@ npm run smoke:packaged
 
 ### 渲染进程的字节预算
 
-渲染层的库全是 devDependency，由 Vite 打成一个 bundle —— 好处是不碰"少量运行时依赖 / 零 native"这条红线，代价是**没人看得见它在长**。`npm run check:bundle` 把它变成一个会报红的事实：JS ≤ 3.3MB、gzip ≤ 950KB、**CSS ≤ 80KB**。
+渲染层依赖由 Vite 打包，`npm run check:bundle` 检查实际产物：JS ≤ 3.3MB、gzip ≤ 950KB、CSS ≤ 80KB。FreeRDP Worker 与原生运行库独立打包，不计入 renderer bundle。
 
 三条反空转断言比阈值本身更重要：产物必须真的找到且 > 1MB（路径写错时"0 ≤ 阈值"永远成立）；JS 必须真的被 minify 过；CSS 那条卡得很紧是**故意的** —— 它同时是"编辑器不引入自带样式表"的护栏（Monaco 光 `editor.main.css` 就 412KB）。
 
-顺带修掉一处：electron-vite 的 renderer 预设把 `minify` 写死成 `false`，覆盖后产物 4,560,893 → 2,240,967 字节。内置编辑器进包之后 JS 2,240,967 → 2,757,891、gzip 693,656 → 862,493 —— **gzip 只剩 87KB 余量**，下一个要进包的东西得先量再说。
+生产 renderer 构建显式启用压缩；大小以当前构建的检查输出为准。
 
 ### 传输吞吐
 
-SFTP 传输走**并发窗口**（同时保持 64 个 32KB 读/写请求在管道里），而不是顺序 pipe —— 顺序写每块都要等一次 ACK，在高延迟链路上会被 RTT 打死。在一台 RTT 220ms 的境外服务器上实测（20MB）：
+SFTP 传输走**并发窗口**（同时保持 64 个 32KB 读/写请求在管道里），减少高延迟链路上的逐块等待。下面是在一台 RTT 220ms 的服务器上进行的历史基准（20MB），不代表所有版本、服务器或网络的速度保证：
 
 | 实现 | 上传 | 下载 |
 |---|---|---|
 | 顺序 pipe（早期实现） | 0.16 MB/s | 0.04 MB/s |
 | ssh2 内置 fastPut / fastGet | 1.05 MB/s | 0.06 MB/s |
-| **当前实现（并发窗口）** | **2.0 MB/s** | **0.1 MB/s** |
+| **并发窗口实现** | **2.0 MB/s** | **0.1 MB/s** |
 
 下载三者都慢是因为那台服务器的**出口带宽**受限 —— 纯 SSH 数据通道（`cat` 大文件，完全不经 SFTP）同样只有 0.04 MB/s。判断下载慢是链路还是客户端问题，可以用 `node scripts/benchSftp.mjs 20` 对比。并发窗口仍完整支持暂停/继续/取消：暂停时停止发放新请求并等在途请求收尾，`.part` 里的数据保持连续，所以续传只需按字节偏移接上。
 
 ### 发布（GitHub Actions）
 
-[`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml) 只构建 Windows 的 **x64** 与 **ia32**：
+[桌面发布工作流](.github/workflows/build-windows.yml) 构建 Windows x64/ia32/ARM64、macOS x64/ARM64、Linux x64/ARM64 和 Flatpak x64，共 8 个打包任务。[Android 发布工作流](.github/workflows/android-release.yml) 同时生成签名 APK/AAB。
 
 ```bash
-git tag v0.2.1 && git push origin v0.2.1
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
-推 `v*` tag 即触发：先跑类型检查 / i18n 校验 / 全量测试，再按架构分别打包，最后建 Release 并上传 4 个安装包与 `SHA256SUMS.txt`。手动触发只产出 artifact，不发 Release。工作流还会校验 tag 与 `package.json` 的版本一致，免得发出一个"v0.2.1 的 Release 里装着 0.2.0 的安装包"。
+把 `X.Y.Z` 替换为待发布版本，并先同步 `package.json`、锁文件及应用内更新说明；可在 `docs/releases/vX.Y.Z.md` 补充发行说明。工作流校验 tag 与包版本一致，通过类型、语言、全量测试和 Windows 多进程冒烟后再打包。当前完整 Release 共 31 个文件：17 个桌面包、6 个 Android 包、3 个 Windows 更新 feed、3 个 blockmap 和 2 份校验和。
+
+桌面工作流手动触发只生成 artifacts；Android 手动发布要求指定已有 tag。原生 Worker 的构建和依赖校验属于打包门禁，真实服务器/原生文件管理器的验收仍需对应平台环境。
 
 三点踩过的坑：
 
@@ -377,7 +456,7 @@ git tag v0.2.1 && git push origin v0.2.1
 
 ## 已知限制
 
-这些都是**清楚的取舍**，不是没做完。
+以下列出当前实现边界与尚未完成的能力，选择平台和工作流程时请以此为准。
 
 **远程文件名只支持 UTF-8。** ssh2 对文件名做有损 UTF-8 解码，非 UTF-8 编码（如 GB18030）的文件名无法可靠还原，此类条目在列表中标黄且禁止操作。终端流的编码不受此限制（GBK 等经 iconv-lite 双向转码）。
 
@@ -387,7 +466,7 @@ git tag v0.2.1 && git push origin v0.2.1
 
 **凭据不能直接换机。** Windows 上 `safeStorage` 走 DPAPI，密文与当前系统用户绑定 —— 重装系统或换机后数据库里的密文无法解密。走"导出（勾含密码）→ 新机导入并填同一口令"这条路，导入时会用新机的 DPAPI 重新加密入库。
 
-**已知风险：首次保存密码后立刻被强杀，那批密码会永久解不开。** `safeStorage` 在 Windows 上用 Chromium 的 OSCrypt：真正的 AES 密钥随机生成后写在用户数据目录的 `Local State` 里（本身受 DPAPI 保护），而这个文件是延迟落盘的。首次加密与落盘之间若进程被杀，密钥就丢了。表现是"连接时又来问密码"，重新输入并勾选记住即可恢复。
+**Windows 凭据依赖系统密钥元数据。** `safeStorage` 使用的系统保护密钥保存在用户数据目录的 `Local State` 中，多实例会共享相同密钥来源。不要只复制或删除其中一个数据文件；已有密文而密钥元数据丢失时，程序会中止初始化，避免生成不匹配的替代密钥。迁移请使用加密导出。
 
 **编辑远端文件的边界：**
 
@@ -429,11 +508,9 @@ git tag v0.2.1 && git push origin v0.2.1
   不在那个缓存里。所以第一次自动更新大概率下整包，之后每一跳才吃到差量。
 - **没有代码签名。** 更新包的可信度靠 HTTPS + `latest-*.yml` 里的 sha512（CI 会在打包后
   重算一次核对），不靠签名。这与现在"首次运行有 SmartScreen 提示"是同一件事的延续。
-- **32 位装的会一直留在 32 位。** 两个架构各有自己的 feed（`latest-x64.yml` /
-  `latest-ia32.yml`），安装包里烧的是对应那一个 —— 更新器不做架构迁移，想换到 64 位得手工重装。
+- **更新不切换 CPU 架构。** Windows 使用 `latest-x64.yml`、`latest-ia32.yml`、`latest-arm64.yml` 三份独立 feed，切换架构需手动选择对应安装包。
 - **免安装版不自更新**，只提示。
-- 安装那一下会**断开所有终端会话、取消进行中的传输、停掉端口转发**。这是退出应用的必然结果，
-  所以确认框里会把条数说清楚；传输的已完成部分留在 `.part` 里，下次可以续传。
+- 安装会退出相关实例、断开会话、取消进行中的传输并停止转发，确认前会汇总活动数量。传输队列尚未跨重启持久化；应先完成重要传输，再安装更新。
 
 **命令历史的边界：**
 
@@ -471,14 +548,18 @@ git tag v0.2.1 && git push origin v0.2.1
 - **打包与解包期间进度是未知的**（两端 tar 都不吐进度）。进度条停在上次的百分比，由阶段名（"正在远端打包 / 正在本地解包"）承载含义 —— 不会编一个假百分比。
 - **暂停会连临时包一起清掉**，所以"继续"是从重新打包开始的。
 - **Windows 上解包会跳过符号链接**（没有 `SeCreateSymbolicLinkPrivilege`），其余文件全部解出并附一句"跳过 N 个符号链接"。两个方向都**不保留 xattr / ACL / SELinux 标签**，稀疏文件被展开，属主不保留。
-- **中途断连会在远端留下一个 `ofs-pack.XXXXXXXX` 孤儿**（名字可识别，`/tmp` 有发行版清理）。本机那份临时包放 `%TEMP%\ofs-pack`，启动时整目录清扫。
+- **中途断连可能在远端留下 `ofs-pack.XXXXXXXX` 临时包**。本机临时包按实例放在 `%TEMP%\ofs-pack\<实例 ID>` 下，各实例只清理自己的目录。
 - **不支持多选打包**：一个目录 ⇒ 归档里恰好一个顶层项，多选时每个目录各走一次判定。
-- 远端 tar 认不出来（toybox 之类）就退回逐文件；BusyBox 的 tar 下载方向可用。本机必须有 `%SystemRoot%\System32\tar.exe`（**Windows 10 1803+**），**绝不走 PATH**（开发机上 `where tar` 命中的第一个是 Git 自带的 MSYS GNU tar，它会做路径改写）。
+- 远端 tar 不兼容时退回逐文件；BusyBox tar 可用于下载打包。本地 tar 使用固定路径：Windows 为 `%SystemRoot%\System32\tar.exe`，macOS/Linux 为 `/usr/bin/tar` 或 `/bin/tar`；不通过 PATH 搜索，避免误用会改写路径的工具。
 - **解包前会把归档成员名单整个过一遍**：拒绝绝对路径、盘符路径、任何拼法的 `..`、以及多于一个顶层项，不通过就一个字节都不解。注意 `tar -tf` 在 Windows 上按系统 ANSI 代码页输出成员名，所以那些检查一律只依赖 ASCII 字节。
 
 **升级到 v0.1.6+ 会把"显示隐藏文件"打开一次**：该默认值从关改成开，而这个开关的旧值已显式存在库里，所以做了一次性迁移。工具栏那个眼睛按钮随时能关回去，关掉后不会再被掀开。
 
-**当前不做**：Telnet / 串口 / VNC、RDP 打印机、磁盘、摄像头和多显示器重定向、音频采集、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、**解密 FinalShell 保存的密码**（连接本身能导入，见上）。嵌入式 RDP 音频播放通过 FreeRDP `rdpsnd`/Windows WinMM 输出到本机默认播放设备；没有可用播放设备时仅关闭音频，不影响桌面连接。嵌入式 RDP 本版本仅在 Windows x64 桌面端提供，Worker 不可用时可显式改用系统远程桌面。
+**RDP 平台边界**：Windows x64 的 Explorer 文件剪贴板和 WinMM 音频已有实现；macOS/Linux 已构建真实 Worker，但原生双向文件剪贴板与音频后端尚未完成。Windows x86/ARM64 不打包真实 Worker，使用系统客户端入口。详情见开头的平台支持表。
+
+**AI 边界**：当前使用 OpenAI Chat Completions 兼容协议，不提供 OpenAI Responses / Anthropic 原生协议、自定义请求模板、自动执行服务器命令或持久化多轮会话。模型与图片能力以实际网关支持为准；系统安全存储不可用时无法保存 AI Token。
+
+**当前未提供**：Telnet / 串口 / VNC、RDP 打印机/磁盘/摄像头/多显示器重定向、音频采集、与 OpenSSH `known_hosts` 文件互通、GSSAPI 认证、配置云同步、FinalShell 密码解密。普通数据导出与 LAN Sync 不包含 AI 服务配置、AI Token、AI 问答及托管私钥内容。
 
 ## 路线图
 
@@ -496,8 +577,13 @@ git tag v0.2.1 && git push origin v0.2.1
 | v0.2.x | 命令历史：记终端里真正执行过的命令，浮层过滤 / 回填 / 清空，落库 | ✅ |
 | v0.2.x | 命令编辑器：多行命令临时拼装 → 发到当前 / 所有会话 | ✅ |
 | v0.2.x | 从 FinalShell 导入连接与分组（密码除外，见已知限制） | ✅ |
+| 已实现 | SFTP 同名冲突处理、跟随终端目录、独立编辑器窗口、双延迟及端口流量 | ✅ |
+| v0.30.x | 嵌入式 FreeRDP 桌面、自适应显示；Windows x64 文件拖放/双向粘贴和音频 | 已提供，平台差异见支持表 |
+| v0.30.x | AI 服务配置、模型列表、图片检测、流式/非流式响应、命令复制与填入 SSH | ✅ 桌面端 |
+| v0.30.x | Windows 多实例设置开关、运行态隔离、配置共享及更新协调 | ✅ Windows |
+| 已实现 | Windows 安装版应用内更新、Android 签名 APK/AAB 发布 | ✅ |
 
-往后：跳板机 ProxyJump（字段已预留）、SFTP 传输冲突策略（同名文件目前直接覆盖）、主密码保险库、传输队列持久化、SFTP 压缩/解压、拖出到系统、上传方向的打包传输、自动更新、快捷键改键、Playwright e2e。
+待完善：macOS/Linux 原生 RDP 文件剪贴板与音频、这些平台的多实例验收、Windows x86/ARM64 嵌入式 Worker、Android AI/RDP、跳板机 ProxyJump、主密码保险库、传输队列持久化、上传方向打包传输和快捷键改键。此列表不代表交付日期或已开放能力。
 
 ## 许可
 

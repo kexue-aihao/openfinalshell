@@ -383,9 +383,12 @@ export const RDP_CLIPBOARD_TRANSFER_STATES = [
 
 export type RdpClipboardTransferState = (typeof RDP_CLIPBOARD_TRANSFER_STATES)[number]
 
-/** Progress metadata for a local-file → embedded RDP clipboard transfer. */
+/** Metadata only; remote native paste preparation and uploads use distinct task identities. */
 export interface RdpClipboardProgress {
   sessionId: SessionId
+  generation?: number
+  direction?: 'upload' | 'download'
+  taskId?: number
   state: RdpClipboardTransferState
   fileIndex: number
   fileCount: number

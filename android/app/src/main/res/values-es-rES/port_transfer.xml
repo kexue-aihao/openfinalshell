@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">Subir archivos</string>
+    <string name="port_upload_directory">Subir carpeta</string>
+    <string name="port_resume_note">Los documentos sin acceso aleatorio se reinician al reanudar.</string>
+    <string name="port_choose_download">Seleccione primero una carpeta de descarga.</string>
+    <string name="port_permission_lost">El permiso ha caducado. Vuelva a seleccionar el archivo o la carpeta de destino.</string>
+    <string name="port_operation_failed">Error en la operación. Compruebe conexión, tipo, tamaño y permisos.</string>
+    <string name="port_session_closed">Sesión SSH cerrada. Vuelva a conectar y abra el archivo.</string>
+    <string name="port_conflict_title">Ya existe un archivo con este nombre</string>
+    <string name="port_edit">Editar</string>
+    <string name="port_saved">Archivo guardado</string>
+    <string name="port_save">Guardar</string>
+    <string name="port_close">Cerrar</string>
+    <string name="port_find">Buscar en el documento</string>
+    <string name="port_find_count">%1$d coincidencias</string>
+    <string name="port_discard">¿Descartar los cambios sin guardar?</string>
+    <string name="port_editor_conflict">El archivo remoto cambió</string>
+    <string name="port_editor_reload">Recargue antes de guardar. Se perderán los cambios sin guardar.</string>
+    <string name="port_non_atomic">Reemplazo atómico no disponible</string>
+    <string name="port_non_atomic_warning">Una desconexión durante el guardado directo puede dejar un archivo incompleto. ¿Continuar?</string>
+    <string name="port_proxy_saved">Proxy guardado</string>
+    <string name="port_pack_download">Descargar como archivo tar</string>
+    <string name="port_pack_fallback">Empaquetado no disponible, destino existente o espacio insuficiente. Use la transferencia SFTP normal.</string>
+    <string name="port_command_single_line">Solo se puede insertar una línea sin caracteres de control. Copie y revise los scripts de varias líneas.</string>
+    <string name="port_pack_upload">Subir empaquetado</string>
+    <string name="port_editor_encoding">Codificación del editor: %1$s</string>
+    <string name="port_encoding_unavailable">Esta codificación no está disponible en el dispositivo.</string>
+    <string name="port_encoding_lossless">El archivo o texto no se puede representar sin pérdidas con esta codificación. Seleccione la correcta y vuelva a abrirlo. No se guardaron cambios.</string>
+    <string name="port_eol_mixed">Se conservan los finales de línea mixtos. Las líneas nuevas mantienen los finales introducidos.</string>
+</resources>

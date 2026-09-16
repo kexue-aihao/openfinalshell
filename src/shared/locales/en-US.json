@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"Open new window","enable":"Allow multiple instances","unsupported":"Unavailable on this platform"},
+  "instance": {
+    "newWindow": "Open new window",
+    "enable": "Allow multiple instances",
+    "unsupported": "Unavailable on this platform"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -49,7 +53,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "Open-source FinalShell — SSH terminal · SFTP · server monitor",
+    "subtitle": "Remote operations workspace · SSH · SFTP · RDP · AI assistant",
     "newConnection": "New connection",
     "newConnectionDesc": "Configure host and authentication, save to the tree",
     "quickConnect": "Quick connect",
@@ -60,7 +64,7 @@
   },
   "onboarding": {
     "welcomeTitle": "Welcome to OpenFinalShell",
-    "welcomeIntro": "SSH terminal, remote file management, and server monitoring in one window. Connect to a host and get a terminal on top, an editor for remote files in the middle, the file list below, and live CPU / memory / network graphs on the side.",
+    "welcomeIntro": "Manage SSH terminals, SFTP files, RDP desktops, and server monitoring in one app, with optional AI assistance for troubleshooting. On Windows, enable independent windows with shared connection settings.",
     "featuresTitle": "What you can do",
     "featureTerminal": "Tabbed SSH terminal with split panes, search, command history, and snippets",
     "featureSftp": "SFTP file manager: double-click to open/edit, drag to upload, batch transfer queue",
@@ -529,7 +533,13 @@
     "proxyPassword": "Proxy password",
     "proxyAuthOptional": "Leave empty if the proxy needs no auth",
     "note": "Note",
-    "notePlaceholder": "A short description for this machine, shown in the connection list"
+    "notePlaceholder": "A short description for this machine, shown in the connection list",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "Proxies & keys",
@@ -1075,5 +1085,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

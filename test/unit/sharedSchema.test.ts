@@ -4,6 +4,8 @@ import { SHARED_SCHEMA_FILES } from '../../src/shared/generated/sharedSchema'
 describe('shared protocol schema registry', () => {
   it('contains every cross-platform contract', () => {
     expect(SHARED_SCHEMA_FILES).toEqual([
+      'ai-service',
+      'command-library',
       'export-envelope',
       'lansync',
       'monitor-snapshot',

@@ -1,5 +1,9 @@
 {
-  "instance": {"newWindow":"Neues Fenster öffnen","enable":"Mehrere Instanzen erlauben","unsupported":"Auf dieser Plattform nicht verfügbar"},
+  "instance": {
+    "newWindow": "Neues Fenster öffnen",
+    "enable": "Mehrere Instanzen erlauben",
+    "unsupported": "Auf dieser Plattform nicht verfügbar"
+  },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",
@@ -53,7 +57,7 @@
   },
   "welcome": {
     "title": "OpenFinalShell",
-    "subtitle": "Open-Source-FinalShell — SSH-Terminal · SFTP · Server-Monitor",
+    "subtitle": "Arbeitsbereich für Fernadministration · SSH · SFTP · RDP · KI-Assistent",
     "newConnection": "Neue Verbindung",
     "newConnectionDesc": "Host und Authentifizierung konfigurieren, im Baum speichern",
     "quickConnect": "Schnellverbindung",
@@ -64,7 +68,7 @@
   },
   "onboarding": {
     "welcomeTitle": "Willkommen bei OpenFinalShell",
-    "welcomeIntro": "SSH-Terminal, Fernverwaltung von Dateien und Server-Überwachung in einem Fenster. Verbinde dich mit einem Host und du erhältst oben ein Terminal, in der Mitte einen Editor für entfernte Dateien, darunter die Dateiliste und an der Seite Live-Grafiken zu CPU / Speicher / Netzwerk.",
+    "welcomeIntro": "Verwalten Sie SSH-Terminals, SFTP-Dateien, RDP-Desktops und die Serverüberwachung in einer Anwendung. Bei Bedarf hilft die KI bei der Fehlersuche. Unter Windows können Sie unabhängige Fenster mit gemeinsamen Verbindungseinstellungen aktivieren.",
     "featuresTitle": "Was du tun kannst",
     "featureTerminal": "SSH-Terminal mit Tabs, geteilten Bereichen, Suche, Befehlsverlauf und Snippets",
     "featureSftp": "SFTP-Dateimanager: Doppelklick zum Öffnen/Bearbeiten, Ziehen zum Hochladen, Warteschlange für Stapelübertragungen",
@@ -533,7 +537,13 @@
     "proxyPassword": "Proxy-Passwort",
     "proxyAuthOptional": "Leer lassen, wenn der Proxy keine Authentifizierung benötigt",
     "note": "Notiz",
-    "notePlaceholder": "Eine kurze Beschreibung für diesen Rechner, die in der Verbindungsliste angezeigt wird"
+    "notePlaceholder": "Eine kurze Beschreibung für diesen Rechner, die in der Verbindungsliste angezeigt wird",
+    "clipboardTransferPreparing": "Preparing files…",
+    "clipboardTransferring": "Transferring files…",
+    "clipboardTransferComplete": "File transfer complete",
+    "clipboardTransferFailed": "File transfer failed",
+    "clipboardTransferCanceled": "File transfer cancelled",
+    "clipboardPreparingPaste": "Preparing local paste…"
   },
   "savedRef": {
     "section": "Proxys & Schlüssel",
@@ -1079,5 +1089,27 @@
     "responseMode": "Response mode",
     "stream": "Streaming",
     "nonstream": "Non-streaming"
+  },
+  "platform": {
+    "newWindow": "New window",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "feature": {
+      "clipboardText": "Text clipboard",
+      "clipboardFilesUpload": "File upload",
+      "clipboardFilesPaste": "Native file paste",
+      "audioPlayback": "Audio"
+    },
+    "reason": {
+      "available": "Available in this session",
+      "not-implemented": "Not implemented",
+      "awaiting-acceptance": "Platform validation pending",
+      "worker-missing": "Worker not connected",
+      "legacy-worker": "Worker does not report this capability",
+      "runtime-unavailable": "Required backend or device is unavailable",
+      "disabled": "Disabled in connection settings",
+      "manual-update": "Update using the installer for your platform",
+      "session-required": "Detected after connecting a session"
+    }
   }
 }

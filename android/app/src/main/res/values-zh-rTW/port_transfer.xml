@@ -1,0 +1,30 @@
+<resources>
+    <string name="port_upload_files">上傳檔案</string>
+    <string name="port_upload_directory">上傳目錄</string>
+    <string name="port_resume_note">不支援隨機存取的文件繼續傳輸時會重新開始。</string>
+    <string name="port_choose_download">請先選擇下載目錄。</string>
+    <string name="port_permission_lost">檔案存取權限已失效，請重新選擇檔案或下載目錄。</string>
+    <string name="port_operation_failed">檔案操作失敗，請檢查連線、檔案類型、大小和權限。</string>
+    <string name="port_session_closed">SSH 工作階段已關閉，請重新連線並開啟檔案後儲存。</string>
+    <string name="port_conflict_title">已存在同名檔案</string>
+    <string name="port_edit">編輯</string>
+    <string name="port_saved">檔案已儲存</string>
+    <string name="port_save">儲存</string>
+    <string name="port_close">關閉</string>
+    <string name="port_find">在文件中尋找</string>
+    <string name="port_find_count">找到 %1$d 處</string>
+    <string name="port_discard">放棄未儲存的變更？</string>
+    <string name="port_editor_conflict">遠端檔案已變更</string>
+    <string name="port_editor_reload">儲存前請重新載入。重新載入會捨棄未儲存的變更。</string>
+    <string name="port_non_atomic">伺服器不支援原子替換</string>
+    <string name="port_non_atomic_warning">直接儲存時若連線中斷，檔案可能不完整。是否繼續？</string>
+    <string name="port_proxy_saved">代理已儲存</string>
+    <string name="port_pack_download">打包下載</string>
+    <string name="port_pack_fallback">無法打包、目標已存在或暫存空間不足，請使用一般 SFTP 傳輸。</string>
+    <string name="port_command_single_line">僅可填入不含控制字元的單行命令，多行腳本請複製後另行檢查。</string>
+    <string name="port_pack_upload">打包上傳</string>
+    <string name="port_editor_encoding">編輯器編碼：%1$s</string>
+    <string name="port_encoding_unavailable">此裝置不支援此編碼。</string>
+    <string name="port_encoding_lossless">所選編碼無法無損表示檔案或輸入文字。請選擇正確編碼並重新開啟，未儲存任何變更。</string>
+    <string name="port_eol_mixed">保留原有混合行尾，新插入行保留輸入時的行尾。</string>
+</resources>

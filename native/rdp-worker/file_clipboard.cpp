@@ -40,6 +40,13 @@ std::string wideToUtf8(const WCHAR* value, int length) {
 
 }  // namespace
 
+int runClipboardEventLoop(std::function<int()> worker) { return worker(); }
+bool nativeClipboardAvailable() { return true; }
+std::uint32_t localClipboardSequence() { return GetClipboardSequenceNumber(); }
+bool localClipboardHasFiles() {
+  return IsClipboardFormatAvailable(CF_HDROP) || IsClipboardFormatAvailable(RegisterClipboardFormatW(L"FileGroupDescriptorW"));
+}
+
 std::vector<std::string> localClipboardFiles() {
   std::vector<std::string> paths;
   if (!OpenClipboard(nullptr)) return paths;
@@ -392,7 +399,7 @@ void FileClipboard::clear() {
   if (impl->selection) impl->selection->valid = false;
   impl->selection.reset();
 }
-bool FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader) {
+bool FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader, Progress) {
   static_assert(sizeof(FILEDESCRIPTORW) == 592);
   clear();
   if (bytes.size() < 4 || !reader) return false;
@@ -414,102 +421,5 @@ bool FileClipboard::publish(std::vector<std::uint8_t> bytes, Reader reader) {
   std::lock_guard<std::mutex> lock(impl->mutex); impl->selection = std::move(s);
   return true;
 }
-}
-#else
-namespace ofs::rdp {
-namespace {
-#define OFS_POPEN popen
-#define OFS_PCLOSE pclose
-std::string clipboardCommand(const char* command) {
-  std::array<char, 4096> buffer{};
-  std::string result;
-  FILE* pipe = OFS_POPEN(command, "r");
-  if (!pipe) return result;
-  while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe)) result.append(buffer.data());
-  OFS_PCLOSE(pipe);
-  return result;
-}
-const char* readCommand() {
-#if defined(__APPLE__)
-  return "pbpaste 2>/dev/null";
-#else
-  const char* wayland = std::getenv("WAYLAND_DISPLAY");
-  return wayland ? "wl-paste --no-newline 2>/dev/null" : "xclip -selection clipboard -o 2>/dev/null";
-#endif
-}
-const char* fileReadCommand() {
-#if defined(__APPLE__)
-  return "osascript -e 'the clipboard as text' 2>/dev/null";
-#else
-  const char* wayland = std::getenv("WAYLAND_DISPLAY");
-  return wayland ? "wl-paste --type text/uri-list 2>/dev/null" : "xclip -selection clipboard -t text/uri-list -o 2>/dev/null";
-#endif
-}
-}
-
-bool clipboardFileNameSafeUtf8(const char* name, std::size_t length) {
-  return name != nullptr && safeRelativePath(std::string_view(name, length));
-}
-std::vector<std::string> localClipboardFiles() {
-  std::vector<std::string> files;
-  const auto data = clipboardCommand(fileReadCommand());
-  std::size_t start = 0;
-  while (start < data.size()) {
-    const auto end = data.find('\n', start);
-    auto line = data.substr(start, end == std::string::npos ? data.size() - start : end - start);
-    if (!line.empty() && line.back() == '\r') line.pop_back();
-    if (line.rfind("file://", 0) == 0) {
-      line.erase(0, 7);
-      if (!line.empty()) files.push_back(line);
-    }
-    if (files.size() >= 64) break;
-    start = end == std::string::npos ? data.size() : end + 1;
-  }
-  return files;
-}
-std::string readLocalClipboardText() { return clipboardCommand(readCommand()); }
-std::uint32_t writeLocalClipboardText(const std::string& text) {
-#if defined(__APPLE__)
-  const char* command = "pbcopy";
-#else
-  const char* command = std::getenv("WAYLAND_DISPLAY") ? "wl-copy" : "xclip -selection clipboard -i";
-#endif
-  FILE* pipe = OFS_POPEN(command, "w");
-  if (!pipe) return 0;
-  const auto written = std::fwrite(text.data(), 1, text.size(), pipe);
-  const auto status = OFS_PCLOSE(pipe);
-  return written == text.size() && status == 0 ? 1u : 0u;
-}
-struct LocalClipboardMonitor::Impl {
-  std::atomic<bool> running{false};
-  std::thread thread;
-};
-LocalClipboardMonitor::LocalClipboardMonitor() : impl(std::make_unique<Impl>()) {}
-LocalClipboardMonitor::~LocalClipboardMonitor() { stop(); }
-void LocalClipboardMonitor::start(Listener listener) {
-  stop();
-  impl->running = true;
-  impl->thread = std::thread([this, listener = std::move(listener)] {
-    std::string previous;
-    while (impl->running) {
-      const auto current = readLocalClipboardText();
-      if (!current.empty() && current != previous) {
-        previous = current;
-        if (listener) listener();
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    }
-  });
-}
-void LocalClipboardMonitor::stop() {
-  if (!impl) return;
-  impl->running = false;
-  if (impl->thread.joinable()) impl->thread.join();
-}
-struct FileClipboard::Impl {};
-FileClipboard::FileClipboard() : impl(std::make_unique<Impl>()) {}
-FileClipboard::~FileClipboard() = default;
-void FileClipboard::clear() {}
-bool FileClipboard::publish(std::vector<std::uint8_t>, Reader) { return false; }
 }
 #endif

@@ -2,6 +2,7 @@ package io.github.openfinalshell.android
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -60,6 +61,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import io.github.openfinalshell.android.storage.AndroidSettings
+import io.github.openfinalshell.android.transfer.SafDocuments
+import io.github.openfinalshell.android.transfer.SafEntry
+import io.github.openfinalshell.android.transfer.PortTransferState
+import io.github.openfinalshell.android.core.sftp.RemoteTextEditor
+import io.github.openfinalshell.android.core.sftp.RemoteTextConflict
+import io.github.openfinalshell.android.core.sftp.RemoteTextEncoding
+import io.github.openfinalshell.android.core.sftp.RemoteTextEncodingFailure
+import io.github.openfinalshell.android.core.sftp.RemoteTextEncodingUnavailable
+import io.github.openfinalshell.android.core.sftp.SafeTar
+import io.github.openfinalshell.android.core.ssh.AtomicReplaceUnavailable
 
 data class HostKeyPrompt(
     val host: String,
@@ -106,13 +121,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val terminalControllers = mutableMapOf<String, SshTerminalController>()
     private var monitorJob: Job? = null
     private val transferQueue = TransferQueue(viewModelScope)
+    private var transferSettings = AndroidSettings()
+    private val documents = SafDocuments(application.contentResolver)
+    private val mutablePortTransfer = MutableStateFlow(PortTransferState())
+    val portTransfer: StateFlow<PortTransferState> = mutablePortTransfer.asStateFlow()
+    private val transferSessions = mutableMapOf<String, String>()
+    private val preparationJobs = mutableMapOf<String, MutableList<Job>>()
+    private val archiveRetries = mutableMapOf<String, () -> Unit>()
+    private val conflictMutex = Mutex()
+    private var conflictDecision: CompletableDeferred<Boolean>? = null
+    private var editorSessionId: String? = null
     private val forwarding = io.github.openfinalshell.android.storage.ForwardRepository(database.forwards())
     private val forwardingHandles = mutableMapOf<String, AutoCloseable>()
     private val forwardingSessions = mutableMapOf<String, String>()
     @Volatile private var pendingHostKey: CompletableDeferred<Boolean>? = null
 
     private val sessions = SshSessionManager(
-        transportFactory = { MinaSshTransport(hostKeyVerifier = io.github.openfinalshell.android.core.ssh.HostKeyVerifier { host, port, key -> verifyHostKey(host, port, key) }) },
+        transportFactory = { MinaSshTransport(hostKeyVerifier = io.github.openfinalshell.android.core.ssh.HostKeyVerifier { host, port, key -> verifyHostKey(host, port, key) },
+            proxyPasswordResolver = { credentialStore.getText(it) }) },
         scope = viewModelScope,
         credentialsResolver = CredentialsResolver { profile, supplied ->
             if (supplied.password != null && profile.auth.privateKeyId == null && profile.auth.passphraseRef == null) {
@@ -131,6 +157,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val monitor = MonitorSession(sessions)
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            val staleBefore = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+            getApplication<Application>().cacheDir.listFiles()?.filter {
+                it.isFile && it.name.startsWith("ofs-pack-") && it.name.endsWith(".tar") && it.lastModified() < staleBefore
+            }?.forEach { it.delete() }
+        }
         viewModelScope.launch {
             runCatching { refreshStorage() }
                 .onFailure { setStatus(readableError(it, StatusKey.LOCAL_STORAGE_UNAVAILABLE)) }
@@ -165,7 +197,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         updateState { it.copy(status = status) }
                         when (event.state) {
-                            SessionState.CLOSED -> markForwardingsError(event.sessionId, event.error ?: "SSH session disconnected")
+                            SessionState.CLOSED -> {
+                                cancelSessionTransfers(event.sessionId)
+                                markForwardingsError(event.sessionId, event.error ?: "SSH session disconnected")
+                            }
                             SessionState.READY -> restoreAutoForwardings(event.sessionId)
                             else -> Unit
                         }
@@ -526,9 +561,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 require(!encryptAll || passphrase.length >= 8) { "export passphrase must be at least 8 characters" }
                 val text = if (encryptAll) {
-                    PortableExport.buildV2FromStorage(profiles, io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies, privateKeys, knownHosts, credentialStore, passphrase.toCharArray(), includeSecrets)
+                    PortableExport.buildV2FromStorage(profiles, io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies, privateKeys, knownHosts, credentialStore, passphrase.toCharArray(), includeSecrets, tools = database.tools())
                 } else {
-                    PortableExport.buildV1FromStorage(profiles, io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies, privateKeys, knownHosts, credentialStore, includeSecrets, passphrase.takeIf { it.isNotEmpty() }?.toCharArray())
+                    PortableExport.buildV1FromStorage(profiles, io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies, privateKeys, knownHosts, credentialStore, includeSecrets, passphrase.takeIf { it.isNotEmpty() }?.toCharArray(), tools = database.tools())
                 }
                 getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
                     ?: error("unable to create export file")
@@ -545,7 +580,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val result = PortableExport.importInto(
                     PortableExport.parse(text), passphrase.takeIf { it.isNotEmpty() }?.toCharArray(), profiles,
                     io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies,
-                    privateKeys, knownHosts, credentialStore, conflict
+                    privateKeys, knownHosts, credentialStore, conflict, tools = database.tools()
                 )
                 refreshStorage()
                 setStatus(StatusKey.IMPORT_COMPLETED, result.profiles, result.groups, result.proxies, result.notes.size)
@@ -571,10 +606,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun connect(profile: ConnectionProfile, password: String = "") {
         viewModelScope.launch {
             try {
-                if (profile.proxy != null || profile.proxyId != null || profile.proxyMode == "custom") {
-                    setStatus(StatusKey.PROXY_UNAVAILABLE)
-                    return@launch
+                val effectiveProfile = when {
+                    profile.proxyMode == "direct" || profile.proxyMode == "none" -> profile.copy(proxy = null, proxyId = null)
+                    profile.proxyId != null -> {
+                        val saved = requireNotNull(savedProxies.find(requireNotNull(profile.proxyId)))
+                        profile.copy(proxy = ConnectionProxy(saved.type, saved.host, saved.port, saved.username, saved.passwordRef))
+                    }
+                    else -> profile
                 }
+                if (profile.proxyMode == "custom") require(effectiveProfile.proxy?.type in setOf("http", "socks5"))
                 monitor.stop()
                 monitor.reset()
                 val existing = state.value.sessions.values
@@ -595,7 +635,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
                 val sessionId = sessions.connect(
-                    profile,
+                    effectiveProfile,
                     Credentials(password = password.takeIf { it.isNotEmpty() }?.toCharArray())
                 )
                 sessions.select(sessionId)
@@ -652,7 +692,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var channel: io.github.openfinalshell.android.core.ssh.SftpChannel? = null
             try {
                 channel = sessions.openSftp(sessionId)
-                val entries = channel.list(path).filterNot { it.name == "." || it.name == ".." }
+                val entries = channel.list(path).filterNot { it.name == "." || it.name == ".." || (!transferSettings.sftpShowHiddenFiles && it.name.startsWith('.')) }
                 updateState { it.copy(sftpPath = path, sftpEntries = entries, status = UiStatus(StatusKey.SFTP_READY)) }
             } catch (error: Throwable) {
                 setStatus(readableError(error, StatusKey.SFTP_BROWSE_FAILED))
@@ -675,6 +715,389 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 try { channel?.close() } catch (_: Throwable) { }
             }
+        }
+    }
+
+    fun applyTransferSettings(settings: AndroidSettings) {
+        val refresh = transferSettings.sftpShowHiddenFiles != settings.sftpShowHiddenFiles
+        transferSettings = settings
+        transferQueue.setConcurrency(settings.sftpConcurrency)
+        if (refresh && state.value.selectedSessionId != null) browseSftp()
+    }
+
+    fun clearTransferMessage() { mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = null) }
+    fun dismissEditorConflict() { mutablePortTransfer.value = mutablePortTransfer.value.copy(editorConflict = false) }
+
+    fun configuredDownloadTree(): Uri? = transferSettings.downloadDirectoryUri?.let(Uri::parse)
+
+    fun setTransferDownloadTree(uri: Uri): Boolean = try {
+        getApplication<Application>().contentResolver.takePersistableUriPermission(uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        transferSettings = transferSettings.copy(downloadDirectoryUri = uri.toString())
+        true
+    } catch (_: Exception) {
+        mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_permission_lost)
+        false
+    }
+
+    fun resolveTransferConflict(overwrite: Boolean) { conflictDecision?.complete(overwrite) }
+
+    private suspend fun shouldOverwrite(path: String): Boolean = when (transferSettings.sftpConflictPolicy) {
+        "overwrite" -> true
+        "skip" -> false
+        else -> conflictMutex.withLock {
+            val decision = CompletableDeferred<Boolean>()
+            conflictDecision = decision
+            mutablePortTransfer.value = mutablePortTransfer.value.copy(conflictPath = path)
+            try { decision.await() } finally {
+                conflictDecision = null
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(conflictPath = null)
+            }
+        }
+    }
+
+    private fun transferPreparation(sessionId: String, block: suspend () -> Unit) {
+        val job = viewModelScope.launch {
+            try { block() }
+            catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: SecurityException) { mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = false, messageRes = R.string.port_permission_lost) }
+            catch (_: Exception) { mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = false, messageRes = R.string.port_operation_failed) }
+        }
+        preparationJobs.getOrPut(sessionId) { mutableListOf() }.apply { removeAll { it.isCompleted }; add(job) }
+    }
+
+    private fun cancelSessionTransfers(sessionId: String) {
+        preparationJobs.remove(sessionId)?.forEach(Job::cancel)
+        transferSessions.filterValues { it == sessionId }.keys.toList().forEach { transferQueue.cancel(it); transferSessions.remove(it); archiveRetries.remove(it) }
+        if (editorSessionId == sessionId) {
+            editorSessionId = null
+            mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = false, messageRes = R.string.port_session_closed)
+        }
+    }
+
+    fun uploadDocuments(uris: List<Uri>, directory: Boolean = false) {
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
+        val remoteDirectory = state.value.sftpPath
+        transferPreparation(sessionId) {
+            val channel = sessions.openSftp(sessionId)
+            var count = 0
+            suspend fun upload(entry: SafEntry, parent: String, depth: Int) {
+                check(++count <= 10_000 && depth <= 64)
+                val target = resolveChild(parent, SafDocuments.safeName(entry.name))
+                val existing = channel.list(parent).firstOrNull { it.name == entry.name }
+                if (entry.directory) {
+                    check(existing == null || existing.type == SftpEntry.Type.DIRECTORY)
+                    if (existing == null) channel.mkdir(target)
+                    for (child in withContext(Dispatchers.IO) { documents.children(entry.uri) }) upload(child, target, depth + 1)
+                } else {
+                    check(existing == null || existing.type == SftpEntry.Type.FILE)
+                    if (existing != null && !shouldOverwrite(target)) return
+                    val source = withContext(Dispatchers.IO) { documents.source(entry) }
+                    val id = transferQueue.enqueueUpload(target, source, channelProvider = { sessions.openSftp(sessionId) }, localPath = entry.uri.toString())
+                    transferSessions[id] = sessionId
+                }
+            }
+            try {
+                for (uri in uris) {
+                    val actual = if (directory) documents.root(uri) else uri
+                    val entry = withContext(Dispatchers.IO) { documents.info(actual) }
+                    upload(entry, remoteDirectory, 0)
+                }
+                setStatus(StatusKey.UPLOAD_QUEUED)
+            } finally { channel.close() }
+        }
+    }
+
+    fun downloadDocument(remotePath: String, treeUri: Uri? = null) {
+        val sessionId = state.value.selectedSessionId ?: return setStatus(StatusKey.SESSION_REQUIRED)
+        val tree = treeUri ?: transferSettings.downloadDirectoryUri?.let(Uri::parse)
+        if (tree == null) { mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_choose_download); return }
+        transferPreparation(sessionId) {
+            val channel = sessions.openSftp(sessionId)
+            var count = 0
+            suspend fun download(entry: SftpEntry, parent: Uri, depth: Int) {
+                check(++count <= 10_000 && depth <= 64)
+                if (entry.type != SftpEntry.Type.FILE && entry.type != SftpEntry.Type.DIRECTORY) return
+                SafDocuments.safeName(entry.name)
+                val existing = withContext(Dispatchers.IO) { documents.children(parent).firstOrNull { it.name == entry.name } }
+                val isDirectory = entry.type == SftpEntry.Type.DIRECTORY
+                check(existing == null || existing.directory == isDirectory)
+                if (!isDirectory && existing != null && !shouldOverwrite(entry.name)) return
+                val destination = existing?.uri ?: withContext(Dispatchers.IO) { documents.create(parent, entry.name, isDirectory) }
+                if (isDirectory) {
+                    for (child in channel.list(entry.path).filterNot { it.name == "." || it.name == ".." }) download(child, destination, depth + 1)
+                } else {
+                    val sink = withContext(Dispatchers.IO) { documents.sink(destination) }
+                    val id = transferQueue.enqueueDownload(entry.path, sink, channelProvider = { sessions.openSftp(sessionId) },
+                        bytesTotal = entry.size ?: -1, localPath = destination.toString())
+                    transferSessions[id] = sessionId
+                }
+            }
+            try {
+                val entry = channel.list(parentPath(remotePath)).first { it.path == remotePath }
+                download(entry, documents.root(tree), 0)
+                setStatus(StatusKey.DOWNLOAD_QUEUED)
+            } finally { channel.close() }
+        }
+    }
+
+    private suspend fun execTransfer(sessionId: String, command: String): String = kotlinx.coroutines.withTimeout(120_000L) {
+        val channel = sessions.openExec(sessionId, command)
+        try {
+            val output = StringBuilder()
+            channel.output.collect { bytes -> check(output.length + bytes.size <= 16 * 1024); output.append(bytes.toString(Charsets.UTF_8)) }
+            check(channel.exitCode.value == 0)
+            output.toString().trim()
+        } finally { channel.close() }
+    }
+
+    /** Pack a SAF directory without following links; existing remote roots use normal conflict-aware SFTP. */
+    fun uploadPackedDirectory(tree: Uri) {
+        val sessionId = state.value.selectedSessionId ?: return
+        val remoteDirectory = state.value.sftpPath
+        transferPreparation(sessionId) {
+            var remoteTemp: String? = null
+            val cache = withContext(Dispatchers.IO) { File.createTempFile("ofs-pack-", ".tar", getApplication<Application>().cacheDir) }
+            var queued = false
+            suspend fun cleanup() = withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                cache.delete()
+                remoteTemp?.let { path -> runCatching {
+                    val channel = sessions.openSftp(sessionId)
+                    try { channel.delete(path, recursive = true) } finally { channel.close() }
+                } }
+            }
+            try {
+                val root = withContext(Dispatchers.IO) { documents.info(documents.root(tree)) }
+                require(root.directory)
+                val entries = mutableListOf<Pair<String, SafEntry>>()
+                var bytesTotal = 1024L
+                suspend fun enumerate(path: String, entry: SafEntry, depth: Int) {
+                    require(depth < 64 && entries.size < 10_000)
+                    SafeTar.header(path, entry.size.coerceAtLeast(0), entry.directory)
+                    if (!entry.directory) require(entry.size >= 0)
+                    entries += path to entry
+                    bytesTotal += 512 + (if (entry.directory) 0 else ((entry.size + 511) / 512) * 512)
+                    require(bytesTotal <= 32L * 1024 * 1024 * 1024)
+                    if (entry.directory) for (child in withContext(Dispatchers.IO) { documents.children(entry.uri) }) enumerate("$path/${child.name}", child, depth + 1)
+                }
+                enumerate(root.name, root, 0)
+                require(cache.parentFile!!.usableSpace > bytesTotal + 64L * 1024 * 1024)
+                val checkChannel = sessions.openSftp(sessionId)
+                try { require(checkChannel.list(remoteDirectory).none { it.name == root.name }) }
+                finally { checkChannel.close() }
+                check(execTransfer(sessionId, "command -v tar >/dev/null && command -v mktemp >/dev/null && printf OFS_OK") == "OFS_OK")
+                val freeKb = execTransfer(sessionId, "df -Pk ${SafeTar.quote(remoteDirectory)} | awk 'NR==2 {print \$4}'").toLong()
+                require(freeKb * 1024 > bytesTotal * 2 + 64L * 1024 * 1024)
+                val temp = execTransfer(sessionId, "mktemp -d ${SafeTar.quote(resolveChild(remoteDirectory, ".ofs-pack-XXXXXXXX"))}")
+                require(parentPath(temp) == remoteDirectory.trimEnd('/').ifEmpty { "/" } && temp.substringAfterLast('/').startsWith(".ofs-pack-"))
+                remoteTemp = temp
+                withContext(Dispatchers.IO) {
+                    cache.outputStream().buffered().use { output ->
+                        for ((path, entry) in entries) {
+                            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                            output.write(SafeTar.header(path, entry.size.coerceAtLeast(0), entry.directory))
+                            if (!entry.directory) {
+                                val source = documents.source(entry)
+                                try {
+                                    var offset = 0L
+                                    while (offset < entry.size) {
+                                        val data = source.read(offset, minOf(32 * 1024L, entry.size - offset).toInt())
+                                        require(data.isNotEmpty())
+                                        output.write(data); offset += data.size
+                                    }
+                                    output.write(ByteArray(((512 - entry.size % 512) % 512).toInt()))
+                                } finally { source.close() }
+                            }
+                        }
+                        output.write(ByteArray(1024))
+                    }
+                    SafeTar.entries(cache)
+                }
+                val source = object : TransferSource {
+                    private val file = FileTransferSource(cache)
+                    override val size = cache.length()
+                    override suspend fun read(offset: Long, maxBytes: Int) = file.read(offset, maxBytes)
+                    override suspend fun abort() { cleanup() }
+                    override suspend fun complete() {
+                        try {
+                            execTransfer(sessionId, "mkdir ${SafeTar.quote("$temp/payload")} && tar -xf ${SafeTar.quote("$temp/files.tar")} -C ${SafeTar.quote("$temp/payload")}")
+                            val channel = sessions.openSftp(sessionId)
+                            try {
+                                require(channel.list(remoteDirectory).none { it.name == root.name })
+                                channel.rename("$temp/payload/${root.name}", resolveChild(remoteDirectory, root.name))
+                            } finally { channel.close() }
+                        } finally { cleanup() }
+                    }
+                }
+                val id = transferQueue.enqueueUpload("$temp/files.tar", source, channelProvider = { sessions.openSftp(sessionId) }, localPath = tree.toString())
+                transferSessions[id] = sessionId
+                archiveRetries[id] = { if (state.value.selectedSessionId == sessionId) uploadPackedDirectory(tree) }
+                queued = true
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_pack_fallback) }
+            finally { if (!queued) cleanup() }
+        }
+    }
+
+    /** Transfer the archive through the same retryable queue, validate it fully, then materialize SAF files. */
+    fun downloadPackedDirectory(remotePath: String) {
+        val sessionId = state.value.selectedSessionId ?: return
+        val tree = configuredDownloadTree() ?: run {
+            mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_choose_download); return
+        }
+        transferPreparation(sessionId) {
+            var remoteTemp: String? = null
+            val cache = withContext(Dispatchers.IO) { File.createTempFile("ofs-pack-", ".tar", getApplication<Application>().cacheDir) }
+            var queued = false
+            suspend fun cleanup() = withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                cache.delete()
+                remoteTemp?.let { path -> runCatching {
+                    val channel = sessions.openSftp(sessionId)
+                    try { channel.delete(path, recursive = true) } finally { channel.close() }
+                } }
+            }
+            suspend fun exec(command: String): String = kotlinx.coroutines.withTimeout(120_000L) {
+                val channel = sessions.openExec(sessionId, command)
+                try {
+                    val output = StringBuilder()
+                    channel.output.collect { bytes -> check(output.length + bytes.size <= 16 * 1024); output.append(bytes.toString(Charsets.UTF_8)) }
+                    check(channel.exitCode.value == 0)
+                    output.toString().trim()
+                } finally { channel.close() }
+            }
+            try {
+                require(remotePath.startsWith('/') && remotePath != "/")
+                val channel = sessions.openSftp(sessionId)
+                var size = 1024L
+                var count = 0
+                suspend fun inspect(path: String, depth: Int) {
+                    require(depth <= 64)
+                    for (entry in channel.list(path).filterNot { it.name == "." || it.name == ".." }) {
+                        require(++count <= 10_000 && entry.type in setOf(SftpEntry.Type.FILE, SftpEntry.Type.DIRECTORY))
+                        SafeTar.safePath(entry.name)
+                        size += (((entry.size ?: 0) + 511) / 512) * 512 + 512
+                        require(size in 0..(32L * 1024 * 1024 * 1024))
+                        if (entry.type == SftpEntry.Type.DIRECTORY) inspect(entry.path, depth + 1)
+                    }
+                }
+                try { inspect(remotePath, 0) } finally { channel.close() }
+                check(cache.parentFile!!.usableSpace > size + 64L * 1024 * 1024)
+                check(exec("command -v tar >/dev/null && command -v mktemp >/dev/null && printf OFS_OK") == "OFS_OK")
+                val freeKb = exec("df -Pk /tmp | awk 'NR==2 {print \$4}'").toLong()
+                check(freeKb * 1024 > size + 64L * 1024 * 1024)
+                val directory = exec("mktemp -d /tmp/ofs-pack.XXXXXXXX")
+                check(Regex("^/tmp/ofs-pack\\.[A-Za-z0-9]+$").matches(directory))
+                remoteTemp = directory
+                val archive = "$directory/files.tar"
+                exec("tar --format=ustar -cf ${SafeTar.quote(archive)} -C ${SafeTar.quote(parentPath(remotePath))} -- ${SafeTar.quote(remotePath.substringAfterLast('/'))}")
+                val metadata = sessions.openSftp(sessionId)
+                val archiveSize = try { metadata.list(directory).first { it.name == "files.tar" }.size!! } finally { metadata.close() }
+                require(archiveSize <= cache.parentFile!!.usableSpace - 64L * 1024 * 1024)
+                val fileSink = FileTransferSink(cache)
+                val sink = object : TransferSink {
+                    override suspend fun reset() = fileSink.reset()
+                    override suspend fun write(offset: Long, data: ByteArray) = fileSink.write(offset, data)
+                    override suspend fun abort() { fileSink.abort(); cleanup() }
+                    override suspend fun complete(totalBytes: Long) {
+                        fileSink.complete(totalBytes)
+                        val entries = withContext(Dispatchers.IO) { SafeTar.entries(cache) }
+                        val directories = mutableMapOf("" to documents.root(tree))
+                        try {
+                            for (entry in entries.sortedWith(compareBy({ it.path.count { c -> c == '/' } }, { !it.directory }))) {
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                val parent = directories[entry.path.substringBeforeLast('/', "")] ?: error("archive parent is absent")
+                                val name = entry.path.substringAfterLast('/')
+                                val previous = withContext(Dispatchers.IO) { documents.children(parent).firstOrNull { it.name == name } }
+                                require(previous == null || previous.directory == entry.directory)
+                                if (!entry.directory && previous != null && !shouldOverwrite(entry.path)) continue
+                                val uri = previous?.uri ?: withContext(Dispatchers.IO) { documents.create(parent, name, entry.directory) }
+                                if (entry.directory) directories[entry.path] = uri else {
+                                    val destination = withContext(Dispatchers.IO) { documents.sink(uri) }
+                                    try {
+                                        destination.reset()
+                                        var offset = 0L
+                                        while (offset < entry.size) {
+                                            val data = withContext(Dispatchers.IO) {
+                                                RandomAccessFile(cache, "r").use { input -> input.seek(entry.offset + offset)
+                                                    ByteArray(minOf(32 * 1024L, entry.size - offset).toInt()).also(input::readFully) }
+                                            }
+                                            destination.write(offset, data)
+                                            offset += data.size
+                                        }
+                                        destination.complete(entry.size)
+                                    } catch (error: Throwable) { destination.abort(); throw error }
+                                }
+                            }
+                        } finally { cleanup() }
+                    }
+                }
+                val id = transferQueue.enqueueDownload(archive, sink, channelProvider = { sessions.openSftp(sessionId) }, bytesTotal = archiveSize, localPath = tree.toString())
+                transferSessions[id] = sessionId
+                archiveRetries[id] = { if (state.value.selectedSessionId == sessionId) downloadPackedDirectory(remotePath) }
+                queued = true
+            } catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
+            catch (_: Exception) { mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_pack_fallback) }
+            finally { if (!queued) cleanup() }
+        }
+    }
+
+    fun chooseRemoteEditorEncoding(id: String) {
+        val encoding = RemoteTextEncoding.entries.firstOrNull { it.id == id }
+        if (encoding == null || !RemoteTextEditor.isEncodingAvailable(encoding)) {
+            mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_encoding_unavailable)
+            return
+        }
+        mutablePortTransfer.value = mutablePortTransfer.value.copy(editorEncoding = id)
+    }
+
+    fun openRemoteEditor(path: String, encoding: String = mutablePortTransfer.value.editorEncoding) {
+        if (mutablePortTransfer.value.editorBusy) return
+        val sessionId = state.value.selectedSessionId ?: return
+        editorSessionId = sessionId
+        mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = true, editorConflict = false, messageRes = null)
+        transferPreparation(sessionId) {
+            val channel = sessions.openSftp(sessionId)
+            try {
+                val document = RemoteTextEditor.load(channel, path, encoding)
+                if (editorSessionId == sessionId) mutablePortTransfer.value = mutablePortTransfer.value.copy(editor = document, editorText = document.text)
+            } catch (_: RemoteTextEncodingUnavailable) {
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_encoding_unavailable)
+            } catch (_: RemoteTextEncodingFailure) {
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_encoding_lossless)
+            } finally { channel.close(); mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = false) }
+        }
+    }
+
+    fun editRemoteText(text: String) { mutablePortTransfer.value = mutablePortTransfer.value.copy(editorText = text) }
+
+    fun closeRemoteEditor() {
+        if (mutablePortTransfer.value.editorBusy) return
+        editorSessionId = null
+        mutablePortTransfer.value = mutablePortTransfer.value.copy(editor = null, nonAtomicConfirmation = false, editorConflict = false)
+    }
+
+    fun cancelNonAtomicSave() { mutablePortTransfer.value = mutablePortTransfer.value.copy(nonAtomicConfirmation = false) }
+
+    fun saveRemoteEditor(nonAtomic: Boolean = false) {
+        val sessionId = editorSessionId ?: return
+        val original = mutablePortTransfer.value.editor ?: return
+        if (mutablePortTransfer.value.editorBusy) return
+        val text = mutablePortTransfer.value.editorText
+        mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = true, nonAtomicConfirmation = false)
+        transferPreparation(sessionId) {
+            val channel = sessions.openSftp(sessionId)
+            try {
+                val saved = RemoteTextEditor.save(channel, original, text, nonAtomic)
+                if (editorSessionId == sessionId) mutablePortTransfer.value = mutablePortTransfer.value.copy(editor = saved, editorText = saved.text, editorConflict = false, messageRes = R.string.port_saved)
+            } catch (_: RemoteTextEncodingUnavailable) {
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_encoding_unavailable)
+            } catch (_: RemoteTextEncodingFailure) {
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_encoding_lossless)
+            } catch (_: AtomicReplaceUnavailable) {
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(nonAtomicConfirmation = true)
+            } catch (_: RemoteTextConflict) {
+                mutablePortTransfer.value = mutablePortTransfer.value.copy(editorConflict = true)
+            } finally { channel.close(); mutablePortTransfer.value = mutablePortTransfer.value.copy(editorBusy = false) }
         }
     }
 
@@ -736,7 +1159,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun cancelTransfer(id: String) = transferQueue.cancel(id)
     fun pauseTransfer(id: String) = transferQueue.pause(id)
     fun resumeTransfer(id: String) = transferQueue.resume(id)
-    fun retryTransfer(id: String) = transferQueue.retry(id)
+    fun retryTransfer(id: String) { archiveRetries[id]?.invoke() ?: transferQueue.retry(id) }
 
     fun acceptHostKey() {
         pendingHostKey?.complete(true)
@@ -823,6 +1246,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun sendTerminalInput(sessionId: String, data: String) =
         sendTerminalInput(sessionId, data.toByteArray(Charsets.UTF_8))
 
+    fun insertAssistantCommand(sessionId: String, text: String) {
+        if (state.value.sessions[sessionId]?.state != SessionState.READY) return setStatus(StatusKey.SESSION_REQUIRED)
+        // Filling a command must never inject Enter, ESC, DEL or other terminal controls.
+        val command = text.trimEnd('\r', '\n')
+        if (command.length > 32_768 || command.any { it.code < 32 || it.code in 127..159 }) {
+            mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_command_single_line)
+            return
+        }
+        sendTerminalInput(sessionId, command)
+    }
+
+    /** Only the separate, explicit Execute action can submit Enter. */
+    fun executeAssistantCommand(sessionId: String, text: String, onSubmitted: () -> Unit) {
+        if (state.value.sessions[sessionId]?.state != SessionState.READY) return setStatus(StatusKey.SESSION_REQUIRED)
+        val command = text.trimEnd('\r', '\n')
+        if (command.isBlank() || command.length > 32_768 || command.any { it.code < 32 || it.code in 127..159 }) {
+            mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_command_single_line)
+            return
+        }
+        val controller = terminalControllers[sessionId] ?: return setStatus(StatusKey.SESSION_REQUIRED)
+        viewModelScope.launch {
+            try {
+                if (terminalControllers[sessionId] !== controller || state.value.sessions[sessionId]?.state != SessionState.READY) return@launch
+                controller.sendInput((command + "\r").toByteArray(Charsets.UTF_8))
+                onSubmitted()
+            } catch (error: Exception) { setStatus(readableError(error, StatusKey.TERMINAL_WRITE_FAILED)) }
+        }
+    }
+
     /** Snapshot stream for a native terminal view; the SSH channel remains private to the VM. */
     fun terminalSnapshot(sessionId: String): StateFlow<TerminalSnapshot>? =
         terminalControllers[sessionId]?.snapshot
@@ -845,6 +1297,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect(sessionId: String) {
+        cancelSessionTransfers(sessionId)
         openingShells.remove(sessionId)
         forwardingSessions.filterValues { it == sessionId }.keys.toList().forEach(::stopForward)
         shellOutputJobs.remove(sessionId)?.cancel()
@@ -910,6 +1363,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        transferQueue.cancelAll()
+        conflictDecision?.complete(false)
         forwardingHandles.values.forEach { runCatching { it.close() } }
         forwardingHandles.clear()
         forwardingSessions.clear()
@@ -925,6 +1380,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun probeDirectLatency(profile: ConnectionProfile) {
+        if (profile.proxy?.type?.let { it != "none" } == true || profile.proxyId != null) return
         viewModelScope.launch {
             monitor.applyDirectLatency(LatencyProbe.measure(profile.host, profile.port))
         }
