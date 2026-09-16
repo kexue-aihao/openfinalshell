@@ -1,4 +1,5 @@
 import { createServer, Socket, type Server } from 'node:net'
+import { instanceResource } from '../instance'
 import type { Duplex } from 'node:stream'
 import type { ForwardId, ForwardRule, ForwardRuntime, SessionId } from '@shared/types'
 import { emit } from '../ipc/registry'
@@ -273,5 +274,5 @@ class ForwardManager {
   }
 }
 
-export const forwardManager = new ForwardManager()
+export const forwardManager = instanceResource('forwardManager', () => new ForwardManager())
 export { buildReply }

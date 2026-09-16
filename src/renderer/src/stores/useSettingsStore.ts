@@ -46,6 +46,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     const current = get().settings
     if (!current) return
     set({ settings: deepMergeLocal(current, patch) })
-    void ofs.invoke('settings:set', patch)
+    void ofs.invoke('settings:set', patch, current).then((settings) => set({ settings })).catch(async () => {
+      // A stale optimistic write must not leave the UI claiming the save succeeded.
+      const settings = await ofs.invoke('settings:get')
+      set({ settings })
+      window.dispatchEvent(new CustomEvent('ofs:configConflict', { detail: '设置保存失败或已被其他窗口修改，已重新加载。' }))
+    })
   }
 }))

@@ -3,26 +3,69 @@ import type { ZodType } from 'zod'
 import type { EventMap, InvokeMap, SendMap } from '@shared/ipc'
 import { scopedLogger } from '../utils/logger'
 import { t } from '../services/i18n'
+import { currentInstance, type InstanceContext } from '../instance'
+import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 
 const log = scopedLogger('ipc')
 
-let mainWindow: BrowserWindow | null = null
-let editorWindow: BrowserWindow | null = null
+const instances = new Map<string, InstanceContext>([[currentInstance.instanceId, currentInstance]])
+const windows = new Map<number, InstanceContext>()
+let defaultInstance: InstanceContext = currentInstance
+
+export function bindInstance(instance: InstanceContext): void {
+  if (instance !== currentInstance) throw new Error('Only one application instance is allowed per process')
+  defaultInstance = instance
+  instances.set(instance.instanceId, instance)
+}
 
 export function bindMainWindow(win: BrowserWindow): void {
-  mainWindow = win
+  bindMainWindowForInstance(defaultInstance, win)
 }
 
 /** 编辑器窗口创建/销毁时由 editorWindow.ts 绑定与解绑（null = 已关闭） */
 export function bindEditorWindow(win: BrowserWindow | null): void {
-  editorWindow = win
+  bindEditorWindowForInstance(defaultInstance, win)
+}
+
+export function bindMainWindowForInstance(instance: InstanceContext, win: BrowserWindow): void {
+  registerWindow(instance, win)
+  instance.mainWindow = win
+}
+
+export function bindEditorWindowForInstance(instance: InstanceContext, win: BrowserWindow | null): void {
+  if (win) registerWindow(instance, win)
+  instance.editorWindow = win
+}
+
+function registerWindow(instance: InstanceContext, win: BrowserWindow): void {
+  if (instances.get(instance.instanceId) !== instance) throw new Error('Unregistered instance')
+  const id = win.webContents.id
+  if (windows.has(id)) return
+  windows.set(id, instance)
+  win.once('closed', () => {
+    windows.delete(id)
+    if (instance.mainWindow === win) instance.mainWindow = null
+    if (instance.editorWindow === win) instance.editorWindow = null
+  })
+}
+
+export function instanceForSender(event: IpcMainInvokeEvent | IpcMainEvent): InstanceContext {
+  const owner = windows.get(event.sender.id)
+  if (!owner || owner.closing || event.senderFrame !== event.sender.mainFrame) throw new Error('IPC window is not registered or is closing')
+  return owner
 }
 
 /** 只接受本应用页面发来的 IPC（dev server 或打包后的 file://） */
 function assertTrustedSender(event: IpcMainInvokeEvent | IpcMainEvent): void {
+  instanceForSender(event)
   const url = event.senderFrame?.url ?? ''
   const devUrl = process.env['ELECTRON_RENDERER_URL']
-  const trusted = (devUrl && url.startsWith(devUrl)) || url.startsWith('file://')
+  let trusted = false
+  try {
+    trusted = devUrl ? new URL(url).origin === new URL(devUrl).origin :
+      resolve(fileURLToPath(url.split('#')[0])) === resolve(join(import.meta.dirname, '../renderer/index.html'))
+  } catch { /* malformed or non-file URL */ }
   if (!trusted) {
     log.warn(`rejected IPC from untrusted sender: ${url}`)
     throw new Error('IPC sender not trusted')
@@ -46,7 +89,7 @@ export function handle<K extends keyof InvokeMap>(
           .slice(0, 4)
           .map((i) => `${i.path.slice(1).join('.') || t('err.ipc.paramRoot')}=${i.code}`)
           .join('; ')
-        log.warn(`invalid args for ${channel}: ${parsed.error.message}`)
+        log.warn(`invalid args for ${channel}: ${where}`)
         throw new Error(t('err.ipc.validationFailed', { channel, where }))
       }
       // 用校验后的数据而不是原始 args：zod 会剥掉未声明的字段，
@@ -80,14 +123,12 @@ export function onPort(
 
 /** 向主窗口推事件；窗口不存在/已销毁时静默丢弃 */
 export function emit<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  mainWindow.webContents.send(channel, payload)
+  emitForInstance(defaultInstance, channel, payload)
 }
 
 /** 向编辑器窗口推事件；窗口不存在/已销毁时静默丢弃 */
 export function emitEditor<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
-  if (!editorWindow || editorWindow.isDestroyed()) return
-  editorWindow.webContents.send(channel, payload)
+  emitEditorForInstance(defaultInstance, channel, payload)
 }
 
 /**
@@ -96,6 +137,17 @@ export function emitEditor<K extends keyof EventMap>(channel: K, payload: EventM
  * 每个数据块多一次结构化克隆，编辑器窗口根本不消费它们。
  */
 export function broadcast<K extends keyof EventMap>(channel: K, payload: EventMap[K]): void {
+  if (!['settings:changed', 'session:state', 'app:configChanged'].includes(channel)) throw new Error('Runtime data must not be broadcast')
   emit(channel, payload)
   emitEditor(channel, payload)
+}
+
+export function emitForInstance<K extends keyof EventMap>(instance: InstanceContext, channel: K, payload: EventMap[K]): void {
+  if (instance.closing || !instance.mainWindow || instance.mainWindow.isDestroyed()) return
+  instance.mainWindow.webContents.send(channel, payload)
+}
+
+export function emitEditorForInstance<K extends keyof EventMap>(instance: InstanceContext, channel: K, payload: EventMap[K]): void {
+  if (instance.closing || !instance.editorWindow || instance.editorWindow.isDestroyed()) return
+  instance.editorWindow.webContents.send(channel, payload)
 }

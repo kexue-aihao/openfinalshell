@@ -15,6 +15,7 @@ import { decField, encField, tryDecJson } from './crypto'
 import { vault } from './Vault'
 import { t } from '../services/i18n'
 import { expandPath } from '../utils/expandPath'
+import { assertRevision, nextRevision } from './conflict'
 
 /**
  * 「已保存的代理」与「已保存的私钥」——两类**被连接引用**的实体。
@@ -92,9 +93,10 @@ export function upsertProxy(p: SavedProxy): void {
 }
 
 export function saveProxy(draft: SavedProxyDraft): SavedProxy {
-  const now = Date.now()
   return tx(() => {
     const existing = draft.id ? getProxy(draft.id) : undefined
+    assertRevision(draft.expectedUpdatedAt, existing?.updatedAt)
+    const now = nextRevision(existing?.updatedAt)
     let passwordRef = existing?.passwordRef
 
     if (draft.clearSecret) {
@@ -192,9 +194,10 @@ export function savePrivateKey(
   draft: SavedPrivateKeyDraft,
   source?: PrivateKeySource
 ): SavedPrivateKey {
-  const now = Date.now()
   return tx(() => {
     const existing = draft.id ? getPrivateKey(draft.id) : undefined
+    assertRevision(draft.expectedUpdatedAt, existing?.updatedAt)
+    const now = nextRevision(existing?.updatedAt)
     let passphraseRef = existing?.passphraseRef
     let materialRef = existing?.materialRef
 
@@ -256,10 +259,12 @@ export function updatePrivateKeySource(
   path: string,
   sourceFingerprint: string
 ): void {
-  const existing = getPrivateKey(id)
-  if (!existing) return
-  if (existing.path === path && existing.sourceFingerprint === sourceFingerprint) return
-  upsertPrivateKey({ ...existing, path, sourceFingerprint, updatedAt: Date.now() })
+  tx(() => {
+    const existing = getPrivateKey(id)
+    if (!existing) return
+    if (existing.path === path && existing.sourceFingerprint === sourceFingerprint) return
+    upsertPrivateKey({ ...existing, path, sourceFingerprint, updatedAt: nextRevision(existing.updatedAt) })
+  })
 }
 
 /** 解开用户主动保存的本机副本；缺失、损坏或换了系统账户时安全地回退 null。 */

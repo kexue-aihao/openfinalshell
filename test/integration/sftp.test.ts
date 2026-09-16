@@ -1,3 +1,4 @@
+import { currentInstance } from '../../src/main/instance'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, promises as fs, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -6,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
 import type { ProfileDraft, TransferTask } from '@shared/types'
 import { DEFAULT_SETTINGS, TRANSFER_FINAL_STATES } from '@shared/constants'
-import { bindMainWindow } from '../../src/main/ipc/registry'
+import { bindMainWindow } from '../fakeMainWindow'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { patchSettings } from '../../src/main/services/settings'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'
@@ -240,7 +241,7 @@ describe('SFTP 传输', () => {
     const task = await waitTask(taskId, ['done', 'error'])
     expect(task.state).toBe('done')
     expect(await fs.readFile(join(localDir, 'hello.txt'), 'utf8')).toBe('hello sftp\n')
-    expect(existsSync(join(localDir, 'hello.txt.part'))).toBe(false)
+    expect(existsSync(join(localDir, `hello.txt.${currentInstance.instanceId}.part`))).toBe(false)
   })
 
   it('上传文件：.ofspart 中转后 rename，远端内容一致', async () => {
@@ -256,7 +257,7 @@ describe('SFTP 传输', () => {
     const remote = await fs.readFile(join(sftpRoot, 'uploaded.bin'))
     expect(remote.length).toBe(payload.length)
     expect(remote.equals(payload)).toBe(true)
-    expect(existsSync(join(sftpRoot, 'uploaded.bin.ofspart'))).toBe(false)
+    expect(existsSync(join(sftpRoot, `uploaded.bin.${currentInstance.instanceId}.ofspart`))).toBe(false)
   })
 
   /*
@@ -375,7 +376,7 @@ describe('SFTP 传输', () => {
     // 新内容落在 (2) 上，且任务的 remotePath 已经反映真实落地名
     expect(await fs.readFile(join(sftpRoot, 'dup (2).txt'), 'utf8')).toBe('incoming')
     expect(task.remotePath).toBe('/dup (2).txt')
-    expect(existsSync(join(sftpRoot, 'dup.txt.ofspart'))).toBe(false)
+    expect(existsSync(join(sftpRoot, `dup.txt.${currentInstance.instanceId}.ofspart`))).toBe(false)
   })
 
   /**
@@ -401,7 +402,7 @@ describe('SFTP 传输', () => {
     const task = await waitTask(taskId, ['skipped', 'done', 'error'])
     expect(task.state).toBe('skipped')
     expect(task.transferred).toBe(0)
-    expect(existsSync(join(sftpRoot, 'exists.txt.ofspart'))).toBe(false)
+    expect(existsSync(join(sftpRoot, `exists.txt.${currentInstance.instanceId}.ofspart`))).toBe(false)
   })
 
   it('大文件下载有进度事件且字节数完整', async () => {
@@ -450,7 +451,7 @@ describe('SFTP 传输', () => {
       const task = await waitTask(taskId, ['canceled', 'done', 'error'])
       // 无条件断言：钩子让取消一定赶在传输前面（见 onFirstProgress 的说明）
       expect(task.state).toBe('canceled')
-      expect(existsSync(`${target}.part`)).toBe(false)
+      expect(existsSync(`${target}.${currentInstance.instanceId}.part`)).toBe(false)
       expect(existsSync(target)).toBe(false)
     } finally {
       stop()
@@ -472,7 +473,7 @@ describe('SFTP 传输', () => {
     try {
       const task = await waitTask(taskId, ['canceled', 'done', 'error'])
       expect(task.state).toBe('canceled')
-      expect(existsSync(join(sftpRoot, 'cancel-up.bin.ofspart'))).toBe(false)
+      expect(existsSync(join(sftpRoot, `cancel-up.bin.${currentInstance.instanceId}.ofspart`))).toBe(false)
       expect(existsSync(join(sftpRoot, 'cancel-up.bin'))).toBe(false)
     } finally {
       stop()
@@ -492,7 +493,7 @@ describe('SFTP 传输', () => {
       const paused = await waitTask(taskId, ['paused', 'done'])
       expect(paused.state).toBe('paused')
       // 暂停与取消相反：.part 必须留着，续传才接得上
-      expect(existsSync(`${target}.part`)).toBe(true)
+      expect(existsSync(`${target}.${currentInstance.instanceId}.part`)).toBe(true)
     } finally {
       stop()
     }

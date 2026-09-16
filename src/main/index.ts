@@ -1,8 +1,10 @@
 import { rm } from 'node:fs/promises'
-import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
+import { spawn } from 'node:child_process'
+import { app, BrowserWindow, Menu, dialog, type MenuItemConstructorOptions } from 'electron'
 import { initLogger, logger } from './utils/logger'
 import { getSettings, settingsStore } from './services/settings'
-import { bindMainWindow } from './ipc/registry'
+import { bindInstance, handle } from './ipc/registry'
+import { currentInstance } from './instance'
 import { registerAppIpc } from './ipc/app.ipc'
 import { registerSettingsIpc } from './ipc/settings.ipc'
 import { registerConnIpc } from './ipc/conn.ipc'
@@ -15,7 +17,7 @@ import { registerPortTrafficIpc } from './ipc/portTraffic.ipc'
 import { registerForwardIpc } from './ipc/forward.ipc'
 import { registerHistoryIpc } from './ipc/history.ipc'
 import { registerEditorIpc } from './ipc/editor.ipc'
-import { closeEditorWindowIfOpen } from './editorWindow'
+import { closeEditorWindowIfOpen, requestEditorCloseForQuit } from './editorWindow'
 import { registerSavedRefsIpc } from './ipc/savedRefs.ipc'
 import { registerUpdateIpc } from './ipc/update.ipc'
 import { registerSyncIpc } from './ipc/sync.ipc'
@@ -37,95 +39,151 @@ import { flushSnippets } from './store/snippets'
 import { flushKnownHosts } from './ssh/hostkeys'
 import { vault } from './store/Vault'
 import { createMainWindow } from './window'
-import { startUpdateChecks, stopUpdateChecks } from './services/updater'
+import { startUpdateChecks, stopUpdateChecks, updateActivity, updateState, checkForUpdate, downloadUpdate, installUpdate } from './services/updater'
 
+
+import { instanceCoordinator, multiInstanceAvailable, startInstanceCoordinator } from './instances/service'
+import { cancelAllAi } from './services/aiService'
+import { metaSet } from './store/Database'
+import { configureInstanceStorage, finishStorageBootstrap, releaseStorageBootstrap } from './instances/storage'
+
+const instance = currentInstance
+let storageStartupError: Error | undefined
+try { configureInstanceStorage() } catch (error) {
+  storageStartupError = error instanceof Error ? error : new Error('实例存储初始化失败。')
+  releaseStorageBootstrap()
+}
 initLogger()
+bindInstance(instance)
 
-/** Install the native macOS application menu; other platforms keep no menu. */
+async function launchNewInstance(): Promise<void> {
+  if (!multiInstanceAvailable()) throw new Error('当前平台尚未开放多窗口，请等待平台验收完成。')
+  instanceCoordinator?.assertCanStart()
+  const executable = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
+  const args = [...(app.isPackaged ? [] : [app.getAppPath()]), '--new-instance', `--user-data-dir=${app.getPath('userData')}`]
+  const before = new Set(instanceCoordinator?.snapshot().map((m) => m.id))
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(executable, args, { detached: true, stdio: 'ignore', shell: false, windowsHide: true })
+    child.once('error', () => reject(new Error('新窗口启动失败，请检查应用文件是否完整。')))
+    child.once('spawn', () => { child.unref(); resolve() })
+  })
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    if (instanceCoordinator?.snapshot().some((m) => !before.has(m.id))) return
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  throw new Error('新窗口未完成启动，请检查启动错误提示或诊断日志。')
+}
+
+function launchFromMenu(): void {
+  void launchNewInstance().catch((error: Error) => dialog.showErrorBox('打开新窗口失败', error.message))
+}
+
 function installApplicationMenu(): void {
   if (process.platform !== 'darwin') {
+    if (multiInstanceAvailable() && app.isPackaged) {
+      const result = app.setJumpList([{
+        type: 'tasks',
+        items: [{ type: 'task', title: '打开新窗口', description: '启动独立窗口',
+          program: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
+          args: '--new-instance', iconPath: process.execPath, iconIndex: 0 }]
+      }])
+      if (result !== 'ok') logger.warn(`Jump List registration failed: ${result}`)
+    }
     Menu.setApplicationMenu(null)
     return
   }
   const template: MenuItemConstructorOptions[] = [
-    {
-      label: app.getName(),
-      submenu: [
-        { role: 'about' },
-        { type: 'separator' },
-        { role: 'services' },
-        { type: 'separator' },
-        { role: 'hide' },
-        { role: 'hideOthers' },
-        { role: 'unhide' },
-        { type: 'separator' },
-        { role: 'quit' }
-      ]
-    },
-    { role: 'fileMenu' },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
-    { role: 'help' }
+    { label: app.getName(), submenu: [
+      { role: 'about' }, { type: 'separator' }, { role: 'services' },
+      { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' },
+      { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }
+    ] },
+    { role: 'fileMenu' }, { role: 'editMenu' }, { role: 'viewMenu' },
+    { role: 'windowMenu' }, { role: 'help' }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 function bindMainWindowLifecycle(win: BrowserWindow): void {
-  bindMainWindow(win)
   win.on('closed', () => closeEditorWindowIfOpen())
-}
-
-// ---- 崩溃兜底：main 进程任何未捕获异常只记日志，不崩进程 ----
-process.on('uncaughtException', (err) => {
-  logger.error('uncaughtException', err)
-})
-process.on('unhandledRejection', (reason) => {
-  logger.error('unhandledRejection', reason)
-})
-
-// ---- 单实例锁 ----
-if (!app.requestSingleInstanceLock()) {
-  app.quit()
-} else {
-  let quitCleanupStarted = false
-  let quitCleanupComplete = false
-
-  app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (win) {
-      if (win.isMinimized()) win.restore()
-      win.focus()
+  win.webContents.on('before-input-event', (event, input) => {
+    if (multiInstanceAvailable() && input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'n') {
+      event.preventDefault()
+      launchFromMenu()
     }
   })
+}
 
-  if (getSettings().disableGpu) {
-    app.disableHardwareAcceleration()
+process.on('uncaughtException', (err) => logger.error('uncaughtException', err))
+process.on('unhandledRejection', (reason) => logger.error('unhandledRejection', reason))
+
+// The lock remains tied to shared userData; renderer partitions are process-specific.
+const explicitNewInstance = instance.isExplicitNewInstance && multiInstanceAvailable()
+const unsupportedNewInstance = instance.isExplicitNewInstance && !multiInstanceAvailable()
+const ownsSingleInstanceLock = !storageStartupError && !unsupportedNewInstance && (explicitNewInstance || app.requestSingleInstanceLock())
+if (!ownsSingleInstanceLock) {
+  if (storageStartupError) void app.whenReady().then(() => {
+    dialog.showErrorBox('OpenFinalShell 启动失败', storageStartupError!.message)
+    closeDatabase()
+    app.quit()
+  })
+  else if (unsupportedNewInstance) void app.whenReady().then(() => {
+    dialog.showErrorBox('新窗口尚未开放', '当前发行包或平台尚未通过多实例完整验收，保持单实例模式。')
+    app.quit()
+  })
+  else app.quit()
+} else {
+  logger.info(`instance started id=${instance.instanceId} pid=${process.pid} explicitNewInstance=${explicitNewInstance}`)
+  let quitCleanupStarted = false
+  let quitCleanupComplete = false
+  let windowCreationReady = false
+
+  const focusMainWindow = (): void => {
+    if (!instance.mainWindow && windowCreationReady && !instance.closing) bindMainWindowLifecycle(createMainWindow(instance))
+    const win = instance.mainWindow
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore()
+      win.show()
+      win.focus()
+    }
+  }
+  app.on('second-instance', focusMainWindow)
+
+  try {
+    if (getSettings().disableGpu) app.disableHardwareAcceleration()
+  } catch (error) {
+    storageStartupError = error instanceof Error ? error : new Error('配置读取失败。')
   }
 
-  /**
-   * 在建窗之前安装平台菜单：macOS 使用原生 Application/File/Edit/View/Window/Help
-   * 菜单，其他平台显式移除 Electron 默认菜单，避免隐藏菜单仍注册 Chromium 加速键
-   * （例如 Ctrl/Cmd+R 重载 renderer 或 Ctrl/Cmd+Shift+I 打开开发者工具）。
-   */
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    if (storageStartupError) throw storageStartupError
+    await finishStorageBootstrap()
     installApplicationMenu()
+    if (process.argv.includes('--updated')) metaSet('instance_install_until', '0')
+    await startInstanceCoordinator({
+      onFocus: focusMainWindow,
+      activity: updateActivity,
+      update: async (op, force) => {
+        if (op === 'state') return updateState()
+        if (op === 'check') return checkForUpdate()
+        if (op === 'download') return downloadUpdate()
+        return installUpdate(force)
+      },
+      prepareExit: async () => {
+        if (!await requestEditorCloseForQuit()) throw new Error('编辑器仍有未处理的更改，退出已取消。')
+        setImmediate(() => app.quit())
+      }
+    })
+    if (!explicitNewInstance && !instanceCoordinator?.isLeader) {
+      await instanceCoordinator?.focusLeader()
+      app.quit()
+      return
+    }
+    handle('app:newWindow', () => launchNewInstance())
+    handle('app:instanceInfo', () => ({ instanceId: instance.instanceId, pid: process.pid, canOpenNewWindow: multiInstanceAvailable() }))
 
-    /**
-     * 内联代理/私钥 → 可复用实体的一次性迁移。
-     *
-     * 显式排在注册 IPC 之前，而不是挂在 listConnections() 这种读路径上：
-     * 迁移会改写 profiles 表，让它发生在一个确定的时刻比"第一次有人列连接时"好排查；
-     * 而且拨号侧（auth.ts）读 profile 时不该还有没迁移完的可能。
-     * 函数内部由 meta 标记挡住，重复调用无副作用。
-     */
     migrateInlineRefsOnce()
-
-    /**
-     * 配置数据静态加密（at-rest）的一次性迁移：把库里现有明文行就地加密。
-     * 排在 migrateInlineRefsOnce 之后——那步可能新建代理/私钥行，这步再统一把全库扫成密文。
-     * 内部由 meta 标记挡住，且 safeStorage 不可用时直接跳过、不写标记（等可用了再跑）。
-     */
     encryptExistingRowsOnce()
 
     registerAppIpc()
@@ -145,34 +203,19 @@ if (!app.requestSingleInstanceLock()) {
     registerSyncIpc()
     registerRdpIpc()
     registerAiIpc()
+    windowCreationReady = true
 
-    /**
-     * 清掉上次崩溃/被杀时留下的编辑临时根：里面是远端文件的**明文副本**，
-     * 不该在 %TEMP% 下长住。放在这儿的两个理由：
-     *  - 必须在 app ready 之后 —— 它要 app.getPath('temp')，模块顶层那会儿还没准备好；
-     *  - 必须在 requestSingleInstanceLock 之后（我们就在那个 else 分支里）——
-     *    否则第二个实例启动时会把第一个实例正在用的目录删掉。
-     * best-effort：函数内部逐个 catch，不会抛，失败也不该拦住启动。
-     */
-
-    /**
-     * 同理清掉打包下载的本地临时目录。它整个目录都是可丢的（里面只有 `<taskId>.tar`），
-     * 所以直接删整棵 —— 与上面那条一样，必须排在单实例锁之后，否则会删掉另一个实例正在传的包。
-     * 没有这条，一次 4GB 打包下载崩在中途就静默漏 4GB 的 %TEMP%。
-     */
+    // This directory belongs exclusively to this UUID; never remove another process's files.
     void rm(packTempDir(), { recursive: true, force: true }).catch(() => {})
-
-    const win = createMainWindow()
-    bindMainWindowLifecycle(win)
-
-    // 更新检查排在建窗之后：它要往窗口推状态事件，而且延迟 10 秒才真的查
+    bindMainWindowLifecycle(createMainWindow(instance))
     startUpdateChecks()
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        bindMainWindowLifecycle(createMainWindow())
-      }
+      if (BrowserWindow.getAllWindows().length === 0) bindMainWindowLifecycle(createMainWindow(instance))
     })
+  }).catch((error: Error) => {
+    dialog.showErrorBox('OpenFinalShell 启动失败', error.message)
+    app.quit()
   })
 
   app.on('window-all-closed', () => {
@@ -186,31 +229,31 @@ if (!app.requestSingleInstanceLock()) {
     quitCleanupStarted = true
 
     void (async () => {
+      if (!await requestEditorCloseForQuit()) { quitCleanupStarted = false; return }
+      instance.closing = true
       stopUpdateChecks()
+      cancelAllAi()
       transferQueue.cancelAll()
       monitorManager.stopAll()
       portTrafficManager.stopAll()
       forwardManager.stopAll()
-      // 局域网同步：关监听 + 停发现应答 + 销毁连接。必须先于 closeDatabase()
       lanSyncManager.stopAll()
       sshManager.closeAll()
-
-      // 每个 RDP Worker 自带 2 秒关闭上限；必须等它们退出后才能关库和结束 main。
       await rdpSessionManager.closeAll()
-
-      void settingsStore().flush()
-      void flushConnections()
-      void flushSavedRefs()
-      void flushKnownHosts()
-      void flushSnippets()
-      void flushForwards()
-      void vault.flush()
-      // 关掉数据库连接：WAL 会在最后一个连接关闭时归并回主库，
-      // 不关会留下 -wal/-shm 文件（能自愈，但卸载清理与备份都更干净些）
+      await transferQueue.waitForIdle()
+      await instanceCoordinator?.stop()
+      await rm(packTempDir(), { recursive: true, force: true }).catch(() => {})
+      await Promise.all([settingsStore().flush(), flushConnections(), flushSavedRefs(),
+        flushKnownHosts(), flushSnippets(), flushForwards(), vault.flush()])
       closeDatabase()
-    })().finally(() => {
+      releaseStorageBootstrap()
       quitCleanupComplete = true
       app.quit()
+    })().catch((error) => {
+      logger.error('instance cleanup failed', error)
+      quitCleanupStarted = false
+      instance.closing = false
+      dialog.showErrorBox('退出未完成', '会话资源尚未全部释放，请重试退出。')
     })
   })
 }

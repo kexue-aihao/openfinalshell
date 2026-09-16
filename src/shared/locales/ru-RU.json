@@ -1,4 +1,5 @@
 {
+  "instance": { "newWindow": "Открыть новое окно" },
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",

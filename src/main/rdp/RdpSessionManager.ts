@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { instanceResource } from '../instance'
 import { existsSync, realpathSync, statSync, readdirSync, lstatSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -1513,4 +1514,4 @@ export class RdpSessionManager {
   }
 }
 
-export const rdpSessionManager = new RdpSessionManager()
+export const rdpSessionManager = instanceResource('rdpSessionManager', () => new RdpSessionManager())

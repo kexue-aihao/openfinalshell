@@ -18,7 +18,7 @@ describe('RDP shutdown ordering', () => {
   })
 
   it('waits for RDP workers before update install closes the database', () => {
-    const body = flat(blockAfter(stripComments(read('src/main/services/updater.ts')), 'export function installUpdate'))
+    const body = flat(blockAfter(stripComments(read('src/main/services/updater.ts')), 'export async function installUpdate'))
     const awaitRdp = body.indexOf('await rdpSessionManager.closeAll()')
     const closeDb = body.indexOf('closeDatabase()')
     const install = body.indexOf('quitAndInstall(')

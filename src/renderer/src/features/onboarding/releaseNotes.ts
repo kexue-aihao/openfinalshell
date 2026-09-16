@@ -16,6 +16,13 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: ReleaseNote[] = [
+  {
+    version: '0.30.19',
+    items: [
+      { type: 'feat', zh: '新增 Windows 多实例窗口预览：独立会话与传输、共享配置和凭据、配置自动刷新及更新协调；安装包默认保持单实例，预览需显式开启', en: 'Add a Windows multi-instance preview with isolated sessions and transfers, shared configuration and credentials, automatic configuration refresh, and coordinated updates; packaged apps remain single-instance unless preview is explicitly enabled' },
+      { type: 'fix', zh: '修复多进程 Windows 安全存储密钥不一致与旧配置覆盖问题，关闭窗口仅清理所属资源，并等待其他进程退出后才安装更新', en: 'Fix inconsistent Windows secure-storage keys and stale configuration writes across processes; close only owned resources and wait for peer processes to exit before installing updates' }
+    ]
+  },
   { version: '0.30.18', items: [{ type: 'feat', zh: 'AI 助手支持流式和非流式聊天响应模式', en: 'Add streaming and non-streaming response modes to the AI assistant' }] },
   { version: '0.30.17', items: [{ type: 'fix', zh: '修复 AI 回答中的命令操作：新增复制按钮、SSH 目标选择和安全填入，避免命令重复显示', en: 'Fix AI answer command actions with copy buttons, SSH target selection, safe filling, and no duplicate command display' }] },
   { version: '0.30.16', items: [{ type: 'feat', zh: 'AI 助手支持图片能力检测，并可将回答中的命令手动填入当前 SSH 终端', en: 'Add AI image capability testing and let users manually fill commands from answers into the current SSH terminal' }] },

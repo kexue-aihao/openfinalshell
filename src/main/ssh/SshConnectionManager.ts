@@ -1,4 +1,5 @@
 import type { ForwardRule, ProfileId, SessionId, TermId } from '@shared/types'
+import { instanceResource } from '../instance'
 import { SshConnection, type ShellExitInfo } from './SshConnection'
 import type { ShellSession } from './ShellSession'
 import { getProfile, touchProfile } from '../store/connections'
@@ -151,4 +152,4 @@ class SshConnectionManager {
   }
 }
 
-export const sshManager = new SshConnectionManager()
+export const sshManager = instanceResource('sshManager', () => new SshConnectionManager())

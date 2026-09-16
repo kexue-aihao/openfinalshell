@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { instanceResource } from '../instance'
 import type { SessionId, SessionPrompt, SessionPromptKind, SessionPromptReply } from '@shared/types'
 import { emit } from '../ipc/registry'
 import { scopedLogger } from '../utils/logger'
@@ -86,4 +87,4 @@ class PromptBroker {
   }
 }
 
-export const promptBroker = new PromptBroker()
+export const promptBroker = instanceResource('promptBroker', () => new PromptBroker())

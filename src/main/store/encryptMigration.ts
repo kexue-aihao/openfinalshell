@@ -35,6 +35,7 @@ export function encryptExistingRowsOnce(): void {
   if (!isDataEncryptionAvailable()) return
 
   tx((conn) => {
+    if (metaGet(FLAG) && metaGet(DATA_ENCRYPTION_DIRTY_META_KEY) !== '1') return
     // ---- Tier A：json / name 列就地加密 ----
     const encodeCol = (table: string, idCol: string, cols: string[]): void => {
       const rows = conn.prepare(`SELECT ${idCol}, ${cols.join(', ')} FROM ${table}`).all() as Array<

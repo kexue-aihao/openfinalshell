@@ -25,6 +25,11 @@ const log = scopedLogger('db')
 const SCHEMA_VERSION = 1
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS config_revisions (entity TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS app_instances (
+  id TEXT PRIMARY KEY, pid INTEGER NOT NULL, version TEXT NOT NULL,
+  endpoint TEXT NOT NULL, auth TEXT NOT NULL, started INTEGER NOT NULL, heartbeat INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -146,13 +151,25 @@ export function database(): DatabaseSync {
   mkdirSync(configDir(), { recursive: true })
   const conn = new DatabaseSync(databaseFile())
   // WAL：写入不重写整库、崩溃安全；busy_timeout 让多实例并发写等一会儿而不是直接报错
-  conn.exec('PRAGMA journal_mode = WAL')
+  conn.exec('PRAGMA busy_timeout = 500')
+  retryBusy(() => conn.exec('PRAGMA journal_mode = WAL'))
   conn.exec('PRAGMA synchronous = NORMAL')
-  conn.exec('PRAGMA busy_timeout = 5000')
-  conn.exec(SCHEMA)
-  ensureColumns(conn)
-  const current = Number(readMeta(conn, 'schema_version') ?? '0')
-  if (current === 0) writeMeta(conn, 'schema_version', String(SCHEMA_VERSION))
+  retryBusy(() => conn.exec('BEGIN IMMEDIATE'))
+  try {
+    conn.exec(SCHEMA)
+    ensureColumns(conn)
+    const tables = { profiles: 'connections', conn_groups: 'connections', proxies: 'references', private_keys: 'references', ai_profiles: 'ai', documents: 'settings', snippets: 'snippets', snippet_groups: 'snippets', forwards: 'forwards' }
+    for (const [table, entity] of Object.entries(tables)) {
+      conn.prepare('INSERT OR IGNORE INTO config_revisions(entity, revision) VALUES (?, 0)').run(entity)
+      for (const op of ['INSERT', 'UPDATE', 'DELETE']) {
+        conn.exec(`CREATE TRIGGER IF NOT EXISTS revision_${table}_${op} AFTER ${op} ON ${table}
+          BEGIN UPDATE config_revisions SET revision = revision + 1 WHERE entity = '${entity}'; END`)
+      }
+    }
+    const current = Number(readMeta(conn, 'schema_version') ?? '0')
+    if (current === 0) writeMeta(conn, 'schema_version', String(SCHEMA_VERSION))
+    conn.exec('COMMIT')
+  } catch (error) { conn.exec('ROLLBACK'); conn.close(); throw error }
   db = conn
   importLegacyJson(conn)
   return conn
@@ -189,20 +206,22 @@ export function metaGet(key: string): string | null {
 }
 
 export function metaSet(key: string, value: string): void {
-  writeMeta(database(), key, value)
+  retryBusy(() => writeMeta(database(), key, value))
 }
 
 /** 事务包装：抛异常即整体回滚 */
 export function tx<T>(fn: (conn: DatabaseSync) => T): T {
   const conn = database()
-  conn.exec('BEGIN IMMEDIATE')
+  const nested = conn.isTransaction
+  const savepoint = `nested_${++savepointId}`
+  retryBusy(() => conn.exec(nested ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE'))
   try {
     const out = fn(conn)
-    conn.exec('COMMIT')
+    conn.exec(nested ? `RELEASE ${savepoint}` : 'COMMIT')
     return out
   } catch (err) {
     try {
-      conn.exec('ROLLBACK')
+      conn.exec(nested ? `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}` : 'ROLLBACK')
     } catch {
       /* 回滚失败无可挽回，交给上层报错 */
     }
@@ -211,24 +230,38 @@ export function tx<T>(fn: (conn: DatabaseSync) => T): T {
 }
 
 export function prepare(sql: string): StatementSync {
-  return database().prepare(sql)
+  const stmt = database().prepare(sql)
+  return new Proxy(stmt, {
+    get(target, key) {
+      const value = Reflect.get(target, key)
+      if (typeof value !== 'function') return value
+      if (key === 'run' || key === 'get' || key === 'all') return (...args: unknown[]) => retryBusy(() => value.apply(target, args))
+      return value.bind(target)
+    }
+  })
+}
+
+let savepointId = 0
+
+/** Retry SQLite lock acquisition only; never replay a partially executed transaction. */
+export function retryBusy<T>(fn: () => T): T {
+  for (let attempt = 0; ; attempt++) {
+    try { return fn() } catch (error) {
+      const busy = error instanceof Error && /database is (locked|busy)|SQLITE_BUSY|SQLITE_LOCKED/.test(error.message)
+      if (!busy) throw error
+      if (attempt >= 2) throw new Error('配置数据库正被其他窗口使用，请稍后重试（DATABASE_BUSY）')
+    }
+  }
 }
 
 /**
  * 老库补列：at-rest 加密新增的 known_hosts.host_enc / command_history.cmd_enc。
- * SCHEMA 里的 CREATE 只对新库生效；老库靠这里幂等补上——`ADD COLUMN` 遇到已存在的列会抛错，
- * try/catch 吞掉即可（SQLite 没有 `ADD COLUMN IF NOT EXISTS`）。
+ * 在初始化事务内检查列是否存在，再添加缺少的列；不吞掉迁移失败。
  */
 function ensureColumns(conn: DatabaseSync): void {
-  for (const sql of [
-    'ALTER TABLE known_hosts ADD COLUMN host_enc TEXT',
-    'ALTER TABLE command_history ADD COLUMN cmd_enc TEXT'
-  ]) {
-    try {
-      conn.exec(sql)
-    } catch {
-      /* duplicate column name —— 列已存在，忽略 */
-    }
+  for (const [table, column, type] of [['known_hosts', 'host_enc', 'TEXT'], ['command_history', 'cmd_enc', 'TEXT'], ['conn_groups', 'updated_at', 'INTEGER NOT NULL DEFAULT 0']]) {
+    const columns = conn.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    if (!columns.some((c) => c.name === column)) conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
   }
 }
 
@@ -253,7 +286,8 @@ function importLegacyJson(conn: DatabaseSync): void {
 
   const imported: string[] = []
   try {
-    conn.exec('BEGIN IMMEDIATE')
+    retryBusy(() => conn.exec('BEGIN IMMEDIATE'))
+    if (readMeta(conn, 'legacy_json_imported')) { conn.exec('COMMIT'); return }
 
     const settings = read<Record<string, unknown>>(configFile.settings())
     if (settings) {

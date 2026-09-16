@@ -1,4 +1,5 @@
 import log from 'electron-log/main'
+import { currentInstance } from '../instance'
 
 /** 命中即整值替换，防止密钥进日志 */
 const SENSITIVE_KEY = /password|passphrase|privatekey|secret|token/i
@@ -20,6 +21,7 @@ function redactValue(value: unknown, depth: number, seen: WeakSet<object>): unkn
 }
 
 export function initLogger(): void {
+  log.transports.file.fileName = `main-${currentInstance.instanceId}.log`
   log.initialize()
   log.transports.file.level = 'info'
   log.transports.file.maxSize = 5 * 1024 * 1024
@@ -32,5 +34,5 @@ export function initLogger(): void {
 
 export const logger = log.scope('main')
 export function scopedLogger(scope: string): ReturnType<typeof log.scope> {
-  return log.scope(scope)
+  return log.scope(`${scope}:${currentInstance.instanceId}`)
 }

@@ -27,7 +27,9 @@ export function registerTermIpc(): void {
   handle(
     'term:exec',
     ({ termId, command }) => {
-      sshManager.getTerm(termId)?.write(command)
+      const term = sshManager.getTerm(termId)
+      if (!term) throw new Error('终端不属于当前窗口或已关闭')
+      term.write(command)
     },
     z.tuple([z.object({ termId: z.string(), command: z.string().max(65536) })])
   )

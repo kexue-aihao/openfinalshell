@@ -83,6 +83,8 @@ import type { RemoteCharset } from './constants'
 // ① renderer → main，请求/响应
 // ---------------------------------------------------------------------------
 export interface InvokeMap {
+  'app:newWindow': { args: []; result: void }
+  'app:instanceInfo': { args: []; result: { instanceId: string; pid: number; canOpenNewWindow: boolean } }
   // --- AI assistant ---
   'ai:profiles:list': { args: []; result: AiProviderProfile[] }
   'ai:profiles:save': { args: [AiProviderProfileDraft]; result: AiProviderProfile }
@@ -142,7 +144,7 @@ export interface InvokeMap {
 
   // --- 设置 ---
   'settings:get': { args: []; result: AppSettings }
-  'settings:set': { args: [Partial<AppSettings>]; result: AppSettings }
+  'settings:set': { args: [Partial<AppSettings>, Partial<AppSettings>?]; result: AppSettings }
 
   // --- 独立编辑器窗口 ---
   /**
@@ -418,6 +420,7 @@ export interface SendMap {
 // ③ main → renderer 事件
 // ---------------------------------------------------------------------------
 export interface EventMap {
+  'app:configChanged': { entity: 'connections' | 'references' | 'ai' | 'settings' | 'snippets' | 'forwards'; revision: number; sourceInstanceId: string }
   'ai:delta': { requestId: string; text: string }
   'ai:completed': { requestId: string }
   'ai:error': { requestId: string; code: string; message: string }
@@ -525,6 +528,8 @@ function channelSet<K extends string>(channels: Record<K, true>): ReadonlySet<K>
 
 /** Runtime preload allowlists. Record<K, true> makes omissions and extra names type errors. */
 export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
+  'app:newWindow': true,
+  'app:instanceInfo': true,
   'ai:profiles:list': true,
   'ai:profiles:save': true,
   'ai:profiles:delete': true,
@@ -639,6 +644,7 @@ export const SEND_CHANNELS = channelSet<SendChannel>({
 })
 
 export const EVENT_CHANNELS = channelSet<EventChannel>({
+  'app:configChanged': true,
   'ai:delta': true,
   'ai:completed': true,
   'ai:error': true,

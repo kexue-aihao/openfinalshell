@@ -526,7 +526,9 @@ function attachSftp(sftp) {
     try {
       const bytes = fs.readSync(h.fd, buf, 0, length, offset)
       if (bytes === 0) return sftp.status(reqid, SFTP_STATUS_CODE.EOF)
-      sftp.data(reqid, buf.subarray(0, bytes))
+      const delayMs = Math.min(2000, Math.max(0, Number(process.env.OFS_TEST_SFTP_READ_DELAY_MS) || 0))
+      if (delayMs) setTimeout(() => { if (!sftp.destroyed) sftp.data(reqid, buf.subarray(0, bytes)) }, delayMs)
+      else sftp.data(reqid, buf.subarray(0, bytes))
     } catch (err) {
       sftp.status(reqid, statusFromError(err))
     }

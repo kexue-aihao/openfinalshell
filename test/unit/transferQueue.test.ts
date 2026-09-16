@@ -57,7 +57,7 @@ vi.mock('../../src/main/ssh/SshConnectionManager', () => ({
 vi.mock('../../src/main/services/settings', () => ({ getSettings: () => stub.settings }))
 
 const { transferQueue } = await import('../../src/main/sftp/TransferQueue')
-const { bindMainWindow } = await import('../../src/main/ipc/registry')
+const { bindMainWindow } = await import('../fakeMainWindow')
 
 const events: Array<{ channel: keyof EventMap; payload: unknown }> = []
 bindMainWindow({

@@ -1,4 +1,5 @@
 {
+  "instance": { "newWindow": "打开新窗口" },
   "aiConnectionTest": {
     "button": "测试连接",
     "success": "连接测试成功 · 耗时 {{latencyMs}} ms",

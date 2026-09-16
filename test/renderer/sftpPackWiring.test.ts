@@ -134,9 +134,10 @@ describe('清场', () => {
 
 describe('child_process 的用处清单', () => {
   /**
-   * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力。现在有两处：
+   * 起子进程这件事在本项目里是**逐个批准**的，不是随便用的能力：
    * `localTar.ts` 调 System32 的 bsdtar 列/解归档，`directLatency.ts` 调系统 ping 测 ICMP RTT，
    * `RdpSessionManager.ts` 仅启动随应用分发的固定 Worker（不接受 renderer 路径）。
+   * `index.ts` 只启动当前应用，传固定的新实例参数与共享配置目录，不接受 renderer 命令。
    *
    * 曾经还有 `RemoteEditManager.ts`（起用户指定的那个外部编辑器 exe）——
    * 外部编辑器整条路删掉之后它也没了，之后新增的每一处都必须在这里说明风险边界。
@@ -147,6 +148,7 @@ describe('child_process 的用处清单', () => {
    */
   const DL = 'src/main/monitor/directLatency.ts'
   const RDP = 'src/main/rdp/RdpSessionManager.ts'
+  const INDEX = 'src/main/index.ts'
 
   it('src/main 下引用 child_process 的文件必须全部在清单中', () => {
     const offenders: string[] = []
@@ -161,7 +163,7 @@ describe('child_process 的用处清单', () => {
       }
     }
     walk('src/main')
-    expect(offenders).toEqual([DL, RDP, LT])
+    expect(offenders).toEqual([INDEX, DL, RDP, LT])
   })
 
   it('直连 Ping 使用系统绝对路径与 argv，且不经过 shell', () => {

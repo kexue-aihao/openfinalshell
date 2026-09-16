@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { prepare, tx } from '../store/Database'
+import { metaGet, metaSet, prepare, tx } from '../store/Database'
 import { vault } from '../store/Vault'
+import { assertRevision, nextRevision } from '../store/conflict'
 import type { AiProviderProfile, AiProviderProfileDraft } from '@shared/types'
 
 const DEFAULT_PROFILES = [
@@ -34,13 +35,18 @@ function rowToProfile(row: Record<string, unknown>): AiProviderProfile {
 }
 
 function ensureDefaults(): void {
-  const count = Number((prepare('SELECT COUNT(*) AS count FROM ai_profiles').get() as { count: number }).count)
-  if (count > 0) return
-  const now = Date.now()
-  for (const profile of DEFAULT_PROFILES) {
-    prepare('INSERT INTO ai_profiles(id,name,base_url,model,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
-      .run(randomUUID(), profile.name, profile.baseUrl, profile.model, 1, now, now)
-  }
+  if (metaGet('ai_defaults_v1')) return
+  tx(() => {
+    if (metaGet('ai_defaults_v1')) return
+    const count = Number((prepare('SELECT COUNT(*) AS count FROM ai_profiles').get() as { count: number }).count)
+    metaSet('ai_defaults_v1', '1')
+    if (count > 0) return
+    const now = Date.now()
+    for (const profile of DEFAULT_PROFILES) {
+      prepare('INSERT INTO ai_profiles(id,name,base_url,model,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?)')
+        .run(randomUUID(), profile.name, profile.baseUrl, profile.model, 1, now, now)
+    }
+  })
 }
 
 export function listAiProfiles(): AiProviderProfile[] {
@@ -62,6 +68,7 @@ export function saveAiProfile(draft: AiProviderProfileDraft): AiProviderProfile 
   const baseUrl = normalizeAiBaseUrl(draft.baseUrl)
   return tx(() => {
     const old = draft.id ? getAiProfile(draft.id) : undefined
+    assertRevision(draft.expectedUpdatedAt, old?.updatedAt)
     if (draft.id && !old) throw new Error('AI 服务配置不存在')
     let secretRef = old?.secretRef
     if (draft.clearToken) {
@@ -72,7 +79,7 @@ export function saveAiProfile(draft: AiProviderProfileDraft): AiProviderProfile 
       secretRef = vault.putSecretIfAvailable(draft.token.trim(), secretRef)
       if (!secretRef) throw new Error('系统安全存储不可用，无法保存 AI Token')
     }
-    const now = Date.now()
+    const now = nextRevision(old?.updatedAt)
     const id = old?.id ?? randomUUID()
     const createdAt = old?.createdAt ?? now
     prepare(`INSERT INTO ai_profiles(id,name,base_url,model,enabled,secret_ref,created_at,updated_at)

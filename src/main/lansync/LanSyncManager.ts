@@ -1,4 +1,5 @@
 import { createServer, Socket, type Server } from 'node:net'
+import { instanceResource } from '../instance'
 import { hostname } from 'node:os'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { app } from 'electron'
@@ -671,4 +672,4 @@ function safeTranslate(code: string, params?: Record<string, string | number>): 
   return msg === code ? t('err.sync.remoteError', { code }) : msg
 }
 
-export const lanSyncManager = new LanSyncManager()
+export const lanSyncManager = instanceResource('lanSyncManager', () => new LanSyncManager())

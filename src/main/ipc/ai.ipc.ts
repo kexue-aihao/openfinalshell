@@ -10,6 +10,7 @@ const endpointDraft = z.object({
   token: z.string().max(4096).optional()
 })
 const draft = z.object({
+  expectedUpdatedAt: z.number().int().nonnegative().optional(),
   id: id.optional(),
   name: z.string().trim().min(1).max(100),
   baseUrl: z.string().trim().min(1).max(2048),

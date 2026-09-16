@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { currentInstance, instanceResource } from '../instance'
 import { promises as fs } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { app } from 'electron'
@@ -36,12 +37,10 @@ import { scopedLogger } from '../utils/logger'
 import { t } from '../services/i18n'
 
 /**
- * 打包用的本地临时目录。放在 app.getPath('temp') 下的固定子目录，
- * 于是启动时可以整目录清扫（见 main/index.ts）—— 没有这条，一次 4GB 打包下载
- * 崩在中途就静默漏 4GB 的 %TEMP%。
+ * 打包临时文件按实例 UUID 隔离；退出只能清理本进程的目录。
  */
 export function packTempDir(): string {
-  return join(app.getPath('temp'), 'ofs-pack')
+  return join(app.getPath('temp'), 'ofs-pack', currentInstance.instanceId)
 }
 
 /**
@@ -294,6 +293,15 @@ class TransferQueue {
     this.expandQueue.length = 0
   }
 
+  /** Called after cancellation and SSH shutdown, before deleting temporary files or installing. */
+  async waitForIdle(timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (this.running > 0 || this.expanding > 0) {
+      if (Date.now() >= deadline) throw new Error('文件传输尚未完成清理，请稍后重试退出。')
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  }
+
   /**
    * 取消必须先更新公开状态，再等待 worker 收尾。
    *
@@ -539,6 +547,7 @@ class TransferQueue {
       const resume = await this.resolveResume(entry, sftp)
       if (isCanceled()) return
       const { promise, handle } = runTransfer({
+        partialNamespace: currentInstance.instanceId,
         sftp,
         task,
         resume,
@@ -701,10 +710,10 @@ class TransferQueue {
     if (!entry.attempted) return false
     const { task } = entry
     if (task.kind === 'download') {
-      const partial = await fs.stat(longPath(`${task.localPath}.part`)).catch(() => null)
+      const partial = await fs.stat(longPath(`${task.localPath}.${currentInstance.instanceId}.part`)).catch(() => null)
       return Boolean(partial && partial.size > 0)
     }
-    const existing = await statSize(sftp, toRemotePath(`${task.remotePath}.ofspart`))
+    const existing = await statSize(sftp, toRemotePath(`${task.remotePath}.${currentInstance.instanceId}.ofspart`))
     return existing.exists && existing.size > 0
   }
 
@@ -777,4 +786,4 @@ class TransferQueue {
   }
 }
 
-export const transferQueue = new TransferQueue()
+export const transferQueue = instanceResource('transfers', () => new TransferQueue())

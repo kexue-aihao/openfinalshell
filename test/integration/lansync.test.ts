@@ -1,7 +1,7 @@
 import { connect } from 'node:net'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
-import { bindMainWindow } from '../../src/main/ipc/registry'
+import { bindMainWindow } from '../fakeMainWindow'
 import { database, prepare } from '../../src/main/store/Database'
 import * as conns from '../../src/main/store/connections'
 import { patchSettings } from '../../src/main/services/settings'

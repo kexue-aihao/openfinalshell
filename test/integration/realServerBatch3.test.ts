@@ -28,7 +28,7 @@ import type {
   TransferTask
 } from '@shared/types'
 import { DEFAULT_SETTINGS, TRANSFER_FINAL_STATES } from '@shared/constants'
-import { bindMainWindow } from '../../src/main/ipc/registry'
+import { bindMainWindow } from '../fakeMainWindow'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { patchSettings } from '../../src/main/services/settings'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'

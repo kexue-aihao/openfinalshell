@@ -247,6 +247,8 @@ Release。Android 发布需要配置 `ANDROID_KEYSTORE_B64`、
 
 ## 开发
 
+Windows 多实例窗口已提供开发预览，正式包保持验收门禁。启动方式、共享凭据设计、测试命令和待验收项目见 [多实例窗口说明](docs/multi-instance.md)。
+
 ```bash
 npm install
 npm run dev

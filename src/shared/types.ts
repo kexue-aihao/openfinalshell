@@ -35,6 +35,7 @@ export interface AiProviderProfile {
 
 /** Renderer draft. token is accepted only on writes and is never returned. */
 export interface AiProviderProfileDraft {
+  expectedUpdatedAt?: number
   id?: AiProfileId
   name: string
   baseUrl: string
@@ -193,6 +194,7 @@ export interface SavedPrivateKey {
  * **明文口令只单向进 main**，`undefined` 或空串 = 保持原值，要清掉得显式 `clearSecret`。
  */
 export interface SavedProxyDraft {
+  expectedUpdatedAt?: number
   id?: ProxyId
   name: string
   type: Exclude<ProxyType, 'none'>
@@ -206,6 +208,7 @@ export interface SavedProxyDraft {
 }
 
 export interface SavedPrivateKeyDraft {
+  expectedUpdatedAt?: number
   id?: PrivateKeyId
   name: string
   path: string
@@ -327,6 +330,7 @@ export interface RdpProfileDraft extends Omit<RdpProfileOptions, 'passwordRef'> 
 export interface ProfileDraft
   extends Omit<ConnectionProfile, 'id' | 'auth' | 'proxy' | 'rdp' | 'createdAt' | 'updatedAt'> {
   id?: ProfileId
+  expectedUpdatedAt?: number
   auth: {
     method: AuthMethod
     /** 明文，仅在保存表单时单向传给 main；undefined = 保持原值 */
@@ -340,6 +344,7 @@ export interface ProfileDraft
 }
 
 export interface ConnectionGroup {
+  updatedAt?: number
   id: GroupId
   name: string
   parentId: GroupId | null

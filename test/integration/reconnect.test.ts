@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
-import { bindMainWindow } from '../../src/main/ipc/registry'
+import { bindMainWindow } from '../fakeMainWindow'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'
 import { sshManager } from '../../src/main/ssh/SshConnectionManager'

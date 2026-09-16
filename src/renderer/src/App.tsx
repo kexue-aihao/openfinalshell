@@ -20,6 +20,7 @@ import { wireUpdateEvents } from '@/stores/useUpdateStore'
 import { wireLanSyncEvents } from '@/stores/useLanSyncStore'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AiAssistantModal } from '@/features/ai/AiAssistantModal'
+import { wireConfigRefresh } from '@/stores/configRefresh'
 
 export default function App(): React.JSX.Element {
   const settings = useSettingsStore((s) => s.settings)
@@ -39,6 +40,7 @@ export default function App(): React.JSX.Element {
     wireForwardEvents()
     wireUpdateEvents()
     wireLanSyncEvents()
+    return wireConfigRefresh()
   }, [init])
 
   // 主题 / 语言 / 缩放：与独立编辑器窗口共用同一份实现（见 useWindowShell.ts）

@@ -38,6 +38,7 @@ export function AiSettingsPanel(): React.JSX.Element {
   const endpointRevision = useRef(0)
   const probeRevision = useRef(0)
   const connectionRevision = useRef(0)
+  const draftRevision = useRef<number>()
 
   const invalidateConnection = (): void => {
     connectionRevision.current++
@@ -61,15 +62,23 @@ export function AiSettingsPanel(): React.JSX.Element {
     void ofs.invoke('ai:profiles:list').then((items) => {
       setProfiles(items)
       const p = items.find((v) => v.id === selected) ?? items[0]
-      if (p) { setSelected(p.id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model) }
+      if (p) { draftRevision.current = p.updatedAt; setSelected(p.id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model) }
     }).catch((e) => setError(e instanceof Error ? e.message : String(e)))
   }
   useEffect(load, [])
-  const choose = (id: string): void => { const p = profiles.find((v) => v.id === id); if (!p) return; invalidateEndpoint(); setSelected(id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken('') }
+  useEffect(() => {
+    const refresh = (): void => { void ofs.invoke('ai:profiles:list').then(setProfiles).catch(() => {}) }
+    const off = ofs.on('app:configChanged', (e) => { if (e.entity === 'ai') refresh() })
+    window.addEventListener('focus', refresh)
+    const timer = setInterval(refresh, 30_000)
+    return () => { off(); window.removeEventListener('focus', refresh); clearInterval(timer) }
+  }, [])
+  const choose = (id: string): void => { const p = profiles.find((v) => v.id === id); if (!p) return; draftRevision.current = p.updatedAt; invalidateEndpoint(); setSelected(id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken('') }
   const save = async (): Promise<void> => {
     invalidateConnection()
     try {
-      const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, token: token || undefined })
+      const p = await ofs.invoke('ai:profiles:save', { id: selected, expectedUpdatedAt: selected ? draftRevision.current : undefined, name, baseUrl, model, token: token || undefined })
+      draftRevision.current = p.updatedAt
       setProfiles((all) => all.some((v) => v.id === p.id) ? all.map((v) => v.id === p.id ? p : v) : [...all, p])
       setSelected(p.id); setName(p.name); setBaseUrl(p.baseUrl); setModel(p.model); setToken('')
       setNotice('配置已保存'); setError('')
@@ -96,7 +105,7 @@ export function AiSettingsPanel(): React.JSX.Element {
       if (revision === connectionRevision.current) setTestingConnection(false)
     }
   }
-  const clear = async (): Promise<void> => { if (!selected) return; try { const p = await ofs.invoke('ai:profiles:save', { id: selected, name, baseUrl, model, clearToken: true }); setProfiles((all) => all.map((v) => v.id === p.id ? p : v)); setToken(''); setNotice('Token 已清除') } catch (e) { setError(e instanceof Error ? e.message : String(e)) } }
+  const clear = async (): Promise<void> => { if (!selected) return; try { const p = await ofs.invoke('ai:profiles:save', { id: selected, expectedUpdatedAt: draftRevision.current, name, baseUrl, model, clearToken: true }); draftRevision.current = p.updatedAt; setProfiles((all) => all.map((v) => v.id === p.id ? p : v)); setToken(''); setNotice('Token 已清除') } catch (e) { setError(e instanceof Error ? e.message : String(e)) } }
   const discover = async (): Promise<void> => {
     if (!baseUrl.trim() || (!token.trim() && !profiles.find((p) => p.id === selected)?.hasToken)) { setError('请先填写 API 地址和 Token，再获取模型列表'); return }
     const revision = ++endpointRevision.current

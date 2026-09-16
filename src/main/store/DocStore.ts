@@ -1,5 +1,5 @@
 import { deepMerge } from './ConfigStore'
-import { prepare } from './Database'
+import { prepare, tx } from './Database'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('store')
@@ -14,6 +14,7 @@ const log = scopedLogger('store')
  */
 export class DocStore<T extends object> {
   private cache: T | null = null
+  private lastJson: string | undefined
 
   constructor(
     private readonly name: string,
@@ -21,10 +22,11 @@ export class DocStore<T extends object> {
   ) {}
 
   get data(): T {
-    if (this.cache) return this.cache
     const row = prepare('SELECT json FROM documents WHERE name = ?').get(this.name) as
       | { json: string }
       | undefined
+    if (this.cache && this.lastJson === row?.json) return this.cache
+    this.lastJson = row?.json
     if (!row) {
       this.cache = this.defaults()
       return this.cache
@@ -39,22 +41,25 @@ export class DocStore<T extends object> {
   }
 
   set(next: T): void {
+    this.persist(next)
     this.cache = next
-    this.persist()
   }
 
   update(mutate: (draft: T) => void): T {
-    const draft = this.data
-    mutate(draft)
-    this.persist()
-    return draft
+    return tx(() => {
+      const draft = structuredClone(this.data)
+      mutate(draft)
+      this.set(draft)
+      return draft
+    })
   }
 
-  private persist(): void {
-    const json = JSON.stringify(this.cache)
+  private persist(value: T): void {
+    const json = JSON.stringify(value)
     prepare(
       'INSERT INTO documents(name, json) VALUES(?, ?) ON CONFLICT(name) DO UPDATE SET json = ?'
     ).run(this.name, json, json)
+    this.lastJson = json
   }
 
   /** 写入是同步落库的，保留此方法只为兼容退出前的 flush 调用 */

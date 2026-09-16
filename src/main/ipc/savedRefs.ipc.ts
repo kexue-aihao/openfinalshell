@@ -18,6 +18,7 @@ import {
  * `type` 的枚举里**没有 `'none'`** —— 独立实体里"存在即启用"，不用代理就是不引用。
  */
 const proxyDraftSchema = z.object({
+  expectedUpdatedAt: z.number().int().nonnegative().optional(),
   id: z.string().optional(),
   name: z.string().min(1).max(120),
   type: z.enum(['http', 'socks5']),
@@ -29,6 +30,7 @@ const proxyDraftSchema = z.object({
 })
 
 const keyDraftSchema = z.object({
+  expectedUpdatedAt: z.number().int().nonnegative().optional(),
   id: z.string().optional(),
   name: z.string().min(1).max(120),
   path: z.string().min(1).max(1024),

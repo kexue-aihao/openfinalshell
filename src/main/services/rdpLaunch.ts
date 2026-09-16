@@ -49,7 +49,7 @@ export function buildRdpContent(profile: ConnectionProfile): string {
  */
 export async function launchRdp(profile: ConnectionProfile): Promise<void> {
   if (!profile.host.trim()) throw new Error(t('err.data.rdpNoHost'))
-  const file = join(app.getPath('userData'), `rdp-${profile.id}.rdp`)
+  const file = join(app.getPath('userData'), `rdp-${process.pid}-${profile.id}.rdp`)
   await writeFile(file, buildRdpContent(profile), 'utf8')
   const err = await shell.openPath(file)
   if (err) {

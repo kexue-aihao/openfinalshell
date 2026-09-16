@@ -17,6 +17,12 @@ import { rdpSessionManager } from '../rdp/RdpSessionManager'
 import { closeDatabase } from '../store/Database'
 import { scopedLogger } from '../utils/logger'
 import { checkLatestRelease } from './manualUpdateCheck'
+import { instanceCoordinator } from '../instances/service'
+import { portTrafficManager } from '../monitor/PortTrafficManager'
+import { lanSyncManager } from '../lansync/LanSyncManager'
+import { cancelAllAi } from './aiService'
+import { requestEditorCloseForQuit } from '../editorWindow'
+import { currentInstance } from '../instance'
 
 const log = scopedLogger('updater')
 
@@ -37,10 +43,8 @@ const log = scopedLogger('updater')
  * 3. **dev 里整个短路。** 未打包时 autoUpdater 会去找项目根的 `dev-app-update.yml`
  *    然后抛错，那个报错对开发毫无意义。
  *
- * 安装前的收摊顺序是刻意的：`before-quit` 里那几个 flush 是 `void` 掉的 async，
- * 而 NSIS 在 `--updated` 路径下**不弹"应用正在运行"对话框、直接 kill**
- * （allowOnlyOneInstallerInstance.nsh）。所以不能指望退出钩子跑完 ——
- * 自己按顺序停掉、并**同步**关库（closeDatabase 本来就是同步的），再交给安装器。
+ * 安装前先等待所有其他实例的 PID 退出，再清理本实例的传输、会话与 Worker。
+ * NSIS 可能在 --updated 路径结束旧进程，因此不能只依赖之后的 before-quit 钩子。
  */
 
 // electron-updater 是 CJS；延迟读取 getter，Debian manual 模式不构造 AppImageUpdater。
@@ -59,6 +63,8 @@ const capability = resolveUpdateCapability({
 
 let state: UpdateState = { status: 'idle', capability, current: app.getVersion() }
 let timer: NodeJS.Timeout | null = null
+let initialTimer: NodeJS.Timeout | null = null
+let installInProgress = false
 let wired = false
 
 function publish(patch: Partial<UpdateState>): void {
@@ -118,6 +124,11 @@ function wire(): NonNullable<typeof autoUpdater> {
     publish({ status: 'downloaded', version: info.version, percent: 100 })
   )
   autoUpdater.on('error', (err) => {
+    if (installInProgress) {
+      instanceCoordinator?.cancelInstall()
+      currentInstance.closing = false
+      installInProgress = false
+    }
     // 网络不通、feed 404、校验失败都会走这里；不重试也不弹窗，界面上留一行
     log.warn(`update error: ${err.message}`)
     publish({ status: 'error', error: err.message })
@@ -130,6 +141,7 @@ function wire(): NonNullable<typeof autoUpdater> {
  * 断网的人不该每次启动都看见一条红字。
  */
 export async function checkForUpdate(silent = false): Promise<UpdateState> {
+  if (instanceCoordinator && !instanceCoordinator.isLeader) return await instanceCoordinator.requestUpdate('check') as UpdateState
   if (!app.isPackaged) return state
   if (capability === 'unsupported') {
     publish({ status: 'unsupported' })
@@ -164,6 +176,7 @@ export async function checkForUpdate(silent = false): Promise<UpdateState> {
 
 /** 手动触发下载（autoDownload 已开，这条是给"检查到但没自动下"兜底用的） */
 export async function downloadUpdate(): Promise<void> {
+  if (instanceCoordinator && !instanceCoordinator.isLeader) { await instanceCoordinator.requestUpdate('download'); return }
   if (!app.isPackaged || capability !== 'install') return
   const updater = wire()
   try {
@@ -178,29 +191,36 @@ export async function downloadUpdate(): Promise<void> {
  * 一个字节都不装 —— 与内置编辑器保存那三道闸门是同一套思路：
  * main 侧持有事实，界面负责问，用户确认后带着 force 再来一次。
  */
-export function installUpdate(force: boolean): Promise<UpdateInstallResult> {
-  const activity = updateActivity()
-  // 判断本身在 updateGate.ts（不 import electron-updater，所以有真正的行为用例）
-  const decision = decideInstall({
-    packaged: app.isPackaged,
-    capability,
-    downloaded: state.status === 'downloaded',
-    force,
-    activity
-  })
-  if (decision.kind === 'reject') {
-    return Promise.resolve({
-      error: {
-        notPackaged: t('err.data.updateDevMode'),
-        portable: t('err.data.updatePortable'),
-        manual: t('err.data.updateManual'),
-        notDownloaded: t('err.data.updateNotDownloaded')
-      }[decision.reason]
+export async function installUpdate(force: boolean): Promise<UpdateInstallResult> {
+  if (instanceCoordinator && !instanceCoordinator.isLeader) return await instanceCoordinator.requestUpdate('install', force) as UpdateInstallResult
+  if (installInProgress) return { error: '正在协调安装更新，请等待当前操作完成。' }
+  installInProgress = true
+  let accepted = false
+  try {
+    const activity = instanceCoordinator ? await instanceCoordinator.allActivity() : updateActivity()
+    const decision = decideInstall({
+      packaged: app.isPackaged,
+      capability,
+      downloaded: state.status === 'downloaded',
+      force,
+      activity
     })
-  }
-  if (decision.kind === 'confirm') return Promise.resolve({ needsConfirm: decision.activity })
-
-  return (async () => {
+    if (decision.kind === 'reject') {
+      return {
+        error: {
+          notPackaged: t('err.data.updateDevMode'),
+          portable: t('err.data.updatePortable'),
+          manual: t('err.data.updateManual'),
+          notDownloaded: t('err.data.updateNotDownloaded')
+        }[decision.reason]
+      }
+    }
+    if (decision.kind === 'confirm') return { needsConfirm: decision.activity }
+    if (!await requestEditorCloseForQuit()) return { error: '请先保存或关闭编辑器，再安装更新。' }
+    try { await instanceCoordinator?.prepareInstall() } catch (error) {
+      return { error: error instanceof Error ? error.message : '其他窗口未退出，更新安装已取消。' }
+    }
+    currentInstance.closing = true
     log.info(`installing update ${state.version ?? ''}: ${JSON.stringify(activity)}`)
     /*
      * 按顺序收摊。不能指望 before-quit：安装器在 --updated 路径下可能直接结束进程。
@@ -208,16 +228,30 @@ export function installUpdate(force: boolean): Promise<UpdateInstallResult> {
      */
     transferQueue.cancelAll()
     monitorManager.stopAll()
+    portTrafficManager.stopAll()
+    lanSyncManager.stopAll()
+    cancelAllAi()
     forwardManager.stopAll()
     sshManager.closeAll()
     await rdpSessionManager.closeAll()
-    closeDatabase()
+    await transferQueue.waitForIdle()
+    // Keep the coordinator record/heartbeat alive until the normal before-quit cleanup.
+    if (!instanceCoordinator) closeDatabase()
 
     // isSilent=false：assisted installer（oneClick:false）下让安装器自己走它那套页面；
     // isForceRunAfter=true：装完自动把应用拉起来，用户不用自己再点一次图标
-    wire().quitAndInstall(false, true)
+    try { wire().quitAndInstall(false, true) } catch {
+      instanceCoordinator?.cancelInstall()
+      currentInstance.closing = false
+      return { error: '更新安装器启动失败，请重试。' }
+    }
+    accepted = true
     return { installing: true }
-  })()
+  } catch (error) {
+    currentInstance.closing = false
+    instanceCoordinator?.cancelInstall()
+    return { error: error instanceof Error ? error.message : '更新协调失败，请检查其他窗口状态后重试。' }
+  } finally { if (!accepted) installInProgress = false }
 }
 
 /**
@@ -227,20 +261,24 @@ export function installUpdate(force: boolean): Promise<UpdateInstallResult> {
  * 而用户开着软件的第一件事通常是连服务器。
  */
 export function startUpdateChecks(): void {
+  stopUpdateChecks()
   if (!app.isPackaged) return
   if (capability === 'unsupported') {
     publish({ status: 'unsupported' })
     return
   }
   const tick = (): void => {
+    if (instanceCoordinator && !instanceCoordinator.isLeader) return
     if (!getSettings().autoCheckUpdate) return
     void checkForUpdate(true)
   }
-  setTimeout(tick, 10_000)
+  initialTimer = setTimeout(tick, 10_000)
   timer = setInterval(tick, 6 * 60 * 60 * 1000)
 }
 
 export function stopUpdateChecks(): void {
+  if (initialTimer) clearTimeout(initialTimer)
+  initialTimer = null
   if (timer) clearInterval(timer)
   timer = null
 }

@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import type { StartupNotice } from '@shared/types'
-import { metaGet, metaSet } from '../store/Database'
+import { metaGet, metaSet, tx } from '../store/Database'
 
 /**
  * 开机弹窗判定：全新安装弹"功能/快捷键"引导，增量更新弹"更新了什么"。
@@ -25,11 +25,12 @@ export function classifyLaunch(last: string | null, current: string): StartupNot
 
 export function getStartupNotice(): StartupNotice {
   if (cached) return cached
-  const current = app.getVersion()
-  const last = metaGet(META_KEY)
-  cached = classifyLaunch(last, current)
-  // 记为已见（幂等）：写在读取时而不是"弹窗关闭后"—— 少一条来回 IPC，代价只是极端情况下
-  // （渲染进程问过但没显示就退出）漏弹一次，对引导/更新说明这种一次性提示可以接受。
-  metaSet(META_KEY, current)
-  return cached
+  return tx(() => {
+    const current = app.getVersion()
+    const last = metaGet(META_KEY)
+    // Only cache after persistence succeeds; a busy database must permit a later retry.
+    metaSet(META_KEY, current)
+    cached = classifyLaunch(last, current)
+    return cached
+  })
 }

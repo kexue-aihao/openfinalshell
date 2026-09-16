@@ -32,6 +32,7 @@ export interface WorkerHandle {
 }
 
 interface RunOptions {
+  partialNamespace?: string
   sftp: SFTPWrapper
   task: TransferTask
   onProgress: (transferred: number) => void
@@ -59,6 +60,7 @@ export class TransferAborted extends Error {
  */
 export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle: WorkerHandle } {
   const { sftp, task, onProgress, onLanded, resume } = opts
+  const namespace = opts.partialNamespace ? `.${opts.partialNamespace}` : ''
   const state = { paused: false, canceled: false }
 
   const handle: WorkerHandle = {
@@ -80,7 +82,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
 
   async function upload(): Promise<void> {
     const remoteFinal = toRemotePath(task.remotePath)
-    const remotePart = toRemotePath(`${remoteFinal}${PART_SUFFIX_REMOTE}`)
+    const remotePart = toRemotePath(`${remoteFinal}${namespace}${PART_SUFFIX_REMOTE}`)
     await mkdirp(sftp, remoteDirname(remoteFinal))
 
     const localPath = longPath(task.localPath)
@@ -196,7 +198,7 @@ export function runTransfer(opts: RunOptions): { promise: Promise<void>; handle:
   async function download(): Promise<void> {
     const remote = toRemotePath(task.remotePath)
     const finalLocal = longPath(task.localPath)
-    const partLocal = `${finalLocal}${PART_SUFFIX_LOCAL}`
+    const partLocal = `${finalLocal}${namespace}${PART_SUFFIX_LOCAL}`
     await fs.mkdir(dirname(finalLocal), { recursive: true })
 
     const info = await statSize(sftp, remote)

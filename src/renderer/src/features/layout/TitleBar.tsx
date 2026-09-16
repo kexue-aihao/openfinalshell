@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
-import { Dropdown, Input } from 'antd'
+import { useEffect, useRef, useState } from 'react'
+import { App as AntdApp, Dropdown, Input } from 'antd'
+import { ofs } from '@/ipc/api'
 import { Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
@@ -36,6 +37,14 @@ function tabMenuItems(tab: SessionTab, t: (key: string) => string) {
  */
 export function TitleBar(): React.JSX.Element {
   const { t } = useTranslation()
+  const { message } = AntdApp.useApp()
+  const [canOpenWindow, setCanOpenWindow] = useState(false)
+  useEffect(() => {
+    void ofs.invoke('app:instanceInfo').then((info) => setCanOpenWindow(info.canOpenNewWindow)).catch(() => {})
+    const conflict = (e: Event): void => { void message.error((e as CustomEvent<string>).detail) }
+    window.addEventListener('ofs:configConflict', conflict)
+    return () => window.removeEventListener('ofs:configConflict', conflict)
+  }, [message])
   const tabs = useSessionStore((s) => s.tabs)
   const activeTabId = useSessionStore((s) => s.activeTabId)
   const setActiveTab = useSessionStore((s) => s.setActiveTab)
@@ -82,10 +91,15 @@ export function TitleBar(): React.JSX.Element {
 
   return (
     <header className={styles.titleBar}>
-      <div className={styles.brand}>
-        <span className={styles.logoDot} />
-        {t('app.name')}
-      </div>
+      <Dropdown disabled={!canOpenWindow} trigger={['click']} menu={{
+        items: [{ key: 'newWindow', label: t('instance.newWindow'), extra: 'Ctrl+Shift+N' }],
+        onClick: () => { void ofs.invoke('app:newWindow').catch((e: Error) => message.error(e.message)) }
+      }}>
+        <div className={styles.brand} role={canOpenWindow ? 'button' : undefined} tabIndex={canOpenWindow ? 0 : undefined}>
+          <span className={styles.logoDot} />
+          {t('app.name')}
+        </div>
+      </Dropdown>
       <div className={styles.tabStrip} role="tablist" aria-label={t('app.name')}>
         {tabs.map((tab, index) => (
           <Dropdown

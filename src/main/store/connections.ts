@@ -14,6 +14,7 @@ import { metaGet, metaSet, prepare, tx } from './Database'
 import { decField, encField, tryDecField, tryDecJson } from './crypto'
 import { listPrivateKeys, listProxies, upsertPrivateKey, upsertProxy } from './savedRefs'
 import { vault } from './Vault'
+import { assertRevision, nextRevision } from './conflict'
 
 /**
  * 连接与分组。profiles 表里领域对象整体存 json 列，
@@ -34,18 +35,19 @@ export function listConnections(): { profiles: ConnectionProfile[]; groups: Conn
     .filter((p): p is ConnectionProfile => p !== null)
   // name 列可能已加密，故不再 `ORDER BY name`（那会按密文排）——解密后在 JS 里按 (order, name) 排
   const groups = (
-    prepare('SELECT id, name, parent_id, sort_order FROM conn_groups ORDER BY sort_order').all() as Array<{
+    prepare('SELECT id, name, parent_id, sort_order, updated_at FROM conn_groups ORDER BY sort_order').all() as Array<{
       id: string
       name: string
       parent_id: string | null
       sort_order: number
+      updated_at: number
     }>
   )
     .map((g) => {
       const name = tryDecField(g.name)
-      return name === null ? null : { id: g.id, name, parentId: g.parent_id, order: g.sort_order }
+      return name === null ? null : { id: g.id, name, parentId: g.parent_id, order: g.sort_order, updatedAt: g.updated_at }
     })
-    .filter((g): g is ConnectionGroup => g !== null)
+    .filter((g) => g !== null)
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
   return { profiles, groups }
 }
@@ -78,10 +80,10 @@ export function upsertProfile(p: ConnectionProfile): void {
 
 /** 保存草稿：明文密码/口令转 Vault 引用后落盘 */
 export function saveProfile(draft: ProfileDraft): ConnectionProfile {
-  const now = Date.now()
-  const existing = draft.id ? getProfile(draft.id) : undefined
-
   return tx(() => {
+    const existing = draft.id ? getProfile(draft.id) : undefined
+    assertRevision(draft.expectedUpdatedAt, existing?.updatedAt)
+    const now = nextRevision(existing?.updatedAt)
     let passwordRef = existing?.auth.passwordRef
 
     if (draft.auth.clearPassword) {
@@ -211,10 +213,12 @@ export function duplicateProfile(id: ProfileId): ConnectionProfile {
 }
 
 export function touchProfile(id: ProfileId): void {
+  tx(() => {
   const p = getProfile(id)
   if (!p) return
   p.lastUsedAt = Date.now()
   upsertProfile(p)
+  })
 }
 
 /** 保存密码到已有 profile（临时密码勾选"记住"时） */
@@ -223,6 +227,7 @@ export function rememberPassword(id: ProfileId, password: string): void {
     const p = getProfile(id)
     if (!p) return
     p.auth.passwordRef = vault.putSecret(password, p.auth.passwordRef)
+    p.updatedAt = nextRevision(p.updatedAt)
     upsertProfile(p)
   })
 }
@@ -242,18 +247,23 @@ export function rememberRdpPassword(id: ProfileId, password: string): string | u
       audioPlayback: current.audioPlayback ?? true,
       certificatePolicy: current.certificatePolicy ?? 'prompt'
     }
+    p.updatedAt = nextRevision(p.updatedAt)
     upsertProfile(p)
   })
   return passwordRef
 }
 
 export function saveGroup(group: ConnectionGroup): void {
+  tx(() => {
   const id = group.id || randomUUID()
+  const previous = prepare('SELECT updated_at FROM conn_groups WHERE id = ?').get(id) as { updated_at: number } | undefined
+  assertRevision(group.updatedAt, previous?.updated_at)
   prepare(
-    `INSERT INTO conn_groups(id, name, parent_id, sort_order) VALUES(?, ?, ?, ?)
+    `INSERT INTO conn_groups(id, name, parent_id, sort_order, updated_at) VALUES(?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET name = excluded.name, parent_id = excluded.parent_id,
-                                   sort_order = excluded.sort_order`
-  ).run(id, encField(group.name), group.parentId, group.order)
+                                   sort_order = excluded.sort_order, updated_at = excluded.updated_at`
+  ).run(id, encField(group.name), group.parentId, group.order, nextRevision(previous?.updated_at))
+  })
 }
 
 export function deleteGroup(id: GroupId): void {
@@ -268,9 +278,10 @@ export function deleteGroup(id: GroupId): void {
     }>) {
       const p = rowToProfile(row)
       p.groupId = parent
+      p.updatedAt = nextRevision(p.updatedAt)
       upsertProfile(p)
     }
-    prepare('UPDATE conn_groups SET parent_id = ? WHERE parent_id = ?').run(parent, id)
+    prepare('UPDATE conn_groups SET parent_id = ?, updated_at = MAX(updated_at + 1, ?) WHERE parent_id = ?').run(parent, Date.now(), id)
     prepare('DELETE FROM conn_groups WHERE id = ?').run(id)
   })
 }
@@ -294,6 +305,7 @@ export function deleteGroup(id: GroupId): void {
 export function migrateInlineRefsOnce(): void {
   if (metaGet('inline_proxy_key_migrated_v1')) return
   tx(() => {
+    if (metaGet('inline_proxy_key_migrated_v1')) return
     const profiles = (
       prepare('SELECT json FROM profiles').all() as Array<{ json: string }>
     ).map(rowToProfile)
@@ -318,9 +330,7 @@ export function extractInlineRefs(profiles: ConnectionProfile[]): {
 } {
   /*
    * ⚠️ **本函数不自己开事务，调用方必须已经在一个 tx() 里。**
-   * `tx()` 用的是 `BEGIN IMMEDIATE`，SQLite 不支持嵌套 —— 自己开的话，
-   * 从 applyImport（它整段都在一个事务里）调过来会当场炸 "cannot start a
-   * transaction within a transaction"。两个调用方都已经在事务里了。
+   * 调用方在同一写事务内读取并迁移，避免用锁外读取的旧配置覆盖其他实例。
    */
   {
     const now = Date.now()

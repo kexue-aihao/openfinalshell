@@ -1,4 +1,5 @@
 import type { MonitorStaticInfo, SessionId } from '@shared/types'
+import { instanceResource } from '../instance'
 import { MONITOR_DEFAULT_INTERVAL_MS } from '@shared/constants'
 import { emit } from '../ipc/registry'
 import { sshManager } from '../ssh/SshConnectionManager'
@@ -65,4 +66,4 @@ class MonitorManager {
   }
 }
 
-export const monitorManager = new MonitorManager()
+export const monitorManager = instanceResource('monitorManager', () => new MonitorManager())

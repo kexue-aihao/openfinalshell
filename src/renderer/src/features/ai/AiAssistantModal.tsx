@@ -37,7 +37,11 @@ export function AiAssistantModal(): React.JSX.Element {
   useEffect(() => { if (open && aiPrefill) setInput(aiPrefill) }, [open, aiPrefill])
   useEffect(() => {
     if (!open) return
-    void ofs.invoke('ai:profiles:list').then((items) => { setProfiles(items); if (!selected && items[0]) setSelected(items[0].id) }).catch((e) => setError(e instanceof Error ? e.message : String(e)))
+    const refresh = (): void => { void ofs.invoke('ai:profiles:list').then((items) => { setProfiles(items); setSelected((current) => items.some((p) => p.id === current) ? current : items[0]?.id) }).catch((e) => setError(e instanceof Error ? e.message : String(e))) }
+    refresh()
+    const off = ofs.on('app:configChanged', (e) => { if (e.entity === 'ai') refresh() })
+    const timer = setInterval(refresh, 30_000)
+    return () => { off(); clearInterval(timer) }
   }, [open])
   useEffect(() => {
     const offDelta = ofs.on('ai:delta', (e) => { if (e.requestId === requestRef.current) setAnswer((v) => v + e.text) })

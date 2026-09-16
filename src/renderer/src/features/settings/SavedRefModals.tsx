@@ -63,6 +63,7 @@ export function ProxyEditModal({ target, onClose, onSaved }: ProxyProps): React.
     try {
       const saved = await saveProxy({
         id: editing?.id,
+        expectedUpdatedAt: editing?.updatedAt,
         name: v.name.trim(),
         type: v.type,
         host: v.host.trim(),
@@ -186,6 +187,7 @@ export function PrivateKeyEditModal({ target, onClose, onSaved }: KeyProps): Rea
     try {
       const saved = await saveKey({
         id: editing?.id,
+        expectedUpdatedAt: editing?.updatedAt,
         name: v.name.trim(),
         path: v.path.trim(),
         passphrase: v.passphrase || undefined,

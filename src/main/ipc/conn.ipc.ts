@@ -14,6 +14,7 @@ import { getProfile } from '../store/connections'
 import { launchRdp } from '../services/rdpLaunch'
 
 export const profileDraftSchema = z.object({
+  expectedUpdatedAt: z.number().int().nonnegative().optional(),
   id: z.string().optional(),
   name: z.string().min(1).max(120),
   protocol: z.enum(['ssh', 'rdp']).optional(),
@@ -69,6 +70,7 @@ export const profileDraftSchema = z.object({
 })
 
 const groupSchema = z.object({
+  updatedAt: z.number().int().nonnegative().optional(),
   id: z.string(),
   name: z.string().min(1).max(120),
   parentId: z.string().nullable(),

@@ -55,7 +55,7 @@ describe('绝不自己重启', () => {
 
   it('quitAndInstall 只有一处，且排在收摊之后', () => {
     expect(src.match(/quitAndInstall\(/g) ?? []).toHaveLength(1)
-    const body = flat(blockAfter(src, 'export function installUpdate'))
+    const body = flat(blockAfter(src, 'export async function installUpdate'))
     for (const step of [
       'transferQueue.cancelAll()',
       'monitorManager.stopAll()',
@@ -71,7 +71,7 @@ describe('绝不自己重启', () => {
   it('判断走 updateGate，不在这儿再写一遍', () => {
     expect(src).toContain('decideInstall({')
     // 第二份判断的特征
-    expect(flat(blockAfter(src, 'export function installUpdate'))).not.toContain(
+    expect(flat(blockAfter(src, 'export async function installUpdate'))).not.toContain(
       'activity.sessions > 0'
     )
   })

@@ -15,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
 import type { ProfileDraft, ProxyType } from '@shared/types'
-import { bindMainWindow } from '../../src/main/ipc/registry'
+import { bindMainWindow } from '../fakeMainWindow'
 import { deleteProfile, saveProfile } from '../../src/main/store/connections'
 import { saveProxy } from '../../src/main/store/savedRefs'
 import { promptBroker } from '../../src/main/ssh/PromptBroker'

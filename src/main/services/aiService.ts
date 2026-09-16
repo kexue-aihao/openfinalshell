@@ -298,3 +298,7 @@ export async function chatAi(requestId: string, profileId: string, messages: AiC
 export function cancelAi(requestId: string): void {
   active.get(requestId)?.abort()
 }
+
+export function cancelAllAi(): void {
+  for (const controller of active.values()) controller.abort()
+}

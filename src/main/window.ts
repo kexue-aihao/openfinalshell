@@ -3,7 +3,10 @@ import { release } from 'node:os'
 import { join } from 'node:path'
 import type { AppSettings } from '@shared/types'
 import { scopedLogger } from './utils/logger'
-import { getSettings, patchSettings, settingsStore } from './services/settings'
+import { currentInstance, type InstanceContext } from './instance'
+import { bindMainWindowForInstance } from './ipc/registry'
+import { getSettings } from './services/settings'
+import { instanceWindowState, saveInstanceWindowState } from './instances/windowState'
 import {
   applyWindowBackgroundMaterial,
   resolveWindowBackgroundMaterial,
@@ -59,14 +62,13 @@ function applyTitleBarOverlay(
   })
 }
 
-let mainWindow: BrowserWindow | null = null
-
 export function getMainWindow(): BrowserWindow | null {
-  return mainWindow
+  return currentInstance.mainWindow
 }
 
 /** 主题变化时同步 titleBarOverlay 配色（Windows） */
 export function applyWindowChrome(settings: AppSettings): void {
+  const mainWindow = currentInstance.mainWindow
   if (!mainWindow || mainWindow.isDestroyed()) return
   const chrome = CHROME[resolveMode(settings)]
   mainWindow.setBackgroundColor(chrome.bg)
@@ -83,14 +85,15 @@ export function applyWindowChrome(settings: AppSettings): void {
   applyTitleBarOverlay(mainWindow, chrome, material)
 }
 
-export function createMainWindow(): BrowserWindow {
+export function createMainWindow(instance: InstanceContext = currentInstance): BrowserWindow {
   const settings = getSettings()
+  const bounds = instanceWindowState(settings.window)
   const chrome = CHROME[resolveMode(settings)]
   const isMac = process.platform === 'darwin'
 
   const win = new BrowserWindow({
-    width: settings.window.width,
-    height: settings.window.height,
+    width: bounds.width,
+    height: bounds.height,
     minWidth: 940,
     minHeight: 600,
     show: false,
@@ -103,6 +106,7 @@ export function createMainWindow(): BrowserWindow {
         : { transparent: true, vibrancy: 'under-window' as const }
       : { titleBarOverlay: { color: chrome.overlayBg, symbolColor: chrome.symbol, height: TITLEBAR_HEIGHT } }),
     webPreferences: {
+      partition: `ofs-${instance.instanceId}`,
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -111,7 +115,7 @@ export function createMainWindow(): BrowserWindow {
       spellcheck: false
     }
   })
-  mainWindow = win
+  bindMainWindowForInstance(instance, win)
   const material = applyNativeWindowMaterial(win, settings)
   applyTitleBarOverlay(win, chrome, material)
 
@@ -142,7 +146,7 @@ export function createMainWindow(): BrowserWindow {
   })
 
   win.on('ready-to-show', () => {
-    if (settings.window.maximized) win.maximize()
+    if (bounds.maximized) win.maximize()
     win.show()
   })
 
@@ -150,16 +154,17 @@ export function createMainWindow(): BrowserWindow {
   const persistBounds = (): void => {
     if (win.isDestroyed()) return
     const maximized = win.isMaximized()
-    const patch: Partial<AppSettings> = { window: { ...getSettings().window, maximized } }
+    const next = { ...instanceWindowState(getSettings().window), maximized }
     if (!maximized && !win.isMinimized()) {
       const b = win.getBounds()
-      patch.window = { ...getSettings().window, width: b.width, height: b.height, maximized }
+      next.width = b.width
+      next.height = b.height
     }
-    patchSettings(patch)
+    saveInstanceWindowState(next)
   }
   win.on('close', persistBounds)
   win.on('closed', () => {
-    mainWindow = null
+    if (instance.mainWindow === win) instance.mainWindow = null
   })
 
   // 外链兜底：即便有漏网的 target=_blank，也走系统浏览器且仅 http/https
@@ -172,11 +177,11 @@ export function createMainWindow(): BrowserWindow {
   }
 
   // 跟随系统主题时，系统切换 → 更新 chrome 配色
-  nativeTheme.on('updated', () => {
+  const onTheme = (): void => {
     if (getSettings().themeMode === 'system') applyWindowChrome(getSettings())
-  })
-
-  void settingsStore // 确保 store 初始化
+  }
+  nativeTheme.on('updated', onTheme)
+  win.once('closed', () => nativeTheme.removeListener('updated', onTheme))
 
   return win
 }

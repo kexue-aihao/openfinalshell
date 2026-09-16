@@ -7,9 +7,10 @@ import { t } from '../services/i18n'
 /** 首次使用时铺一组常用命令，空面板对新用户不友好 */
 function seedIfEmpty(): void {
   if (metaGet('snippets_seeded')) return
-  const count = prepare('SELECT COUNT(*) AS c FROM snippets').get() as { c: number }
-  if (count.c === 0) {
-    tx(() => {
+  tx(() => {
+    if (metaGet('snippets_seeded')) return
+    const count = prepare('SELECT COUNT(*) AS c FROM snippets').get() as { c: number }
+    if (count.c === 0) {
       prepare('INSERT INTO snippet_groups(id, name, sort_order) VALUES(?, ?, ?)').run(
         'default',
         encField(t('err.net.snippetGroupCommon')),
@@ -37,9 +38,9 @@ function seedIfEmpty(): void {
           i
         )
       })
-    })
-  }
-  metaSet('snippets_seeded', String(Date.now()))
+    }
+    metaSet('snippets_seeded', String(Date.now()))
+  })
 }
 
 export function listSnippets(): { groups: SnippetGroup[]; snippets: Snippet[] } {

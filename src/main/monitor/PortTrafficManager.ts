@@ -1,4 +1,5 @@
 import type { SessionId } from '@shared/types'
+import { instanceResource } from '../instance'
 import { emit } from '../ipc/registry'
 import { sshManager } from '../ssh/SshConnectionManager'
 import { PortTrafficCollector } from './PortTrafficCollector'
@@ -44,4 +45,4 @@ class PortTrafficManager {
   }
 }
 
-export const portTrafficManager = new PortTrafficManager()
+export const portTrafficManager = instanceResource('portTrafficManager', () => new PortTrafficManager())

@@ -2,10 +2,12 @@ import { BrowserWindow, nativeTheme } from 'electron'
 import { join } from 'node:path'
 import type { AppSettings, EditorOpenRequest } from '@shared/types'
 import { scopedLogger } from './utils/logger'
-import { getSettings, patchSettings } from './services/settings'
+import { getSettings } from './services/settings'
+import { instanceWindowState, saveInstanceWindowState } from './instances/windowState'
 import { applyNativeWindowMaterial, resolveChrome, TITLEBAR_HEIGHT } from './window'
 import { resolveWindowControlsOverlayColor } from './windowMaterial'
 import { bindEditorWindow, emitEditor } from './ipc/registry'
+import { currentInstance } from './instance'
 
 const log = scopedLogger('editorWindow')
 
@@ -58,7 +60,7 @@ nativeTheme.on('updated', () => {
 function createWindow(): BrowserWindow {
   const settings = getSettings()
   const chrome = resolveChrome(settings)
-  const bounds = settings.window.editor
+  const bounds = instanceWindowState(settings.window).editor
   const isMac = process.platform === 'darwin'
 
   const w = new BrowserWindow({
@@ -75,6 +77,7 @@ function createWindow(): BrowserWindow {
         : { transparent: true, vibrancy: 'under-window' as const }
       : { titleBarOverlay: { color: chrome.overlayBg, symbolColor: chrome.symbol, height: TITLEBAR_HEIGHT } }),
     webPreferences: {
+      partition: `ofs-${currentInstance.instanceId}`,
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
@@ -119,7 +122,7 @@ function createWindow(): BrowserWindow {
   })
 
   w.on('ready-to-show', () => {
-    if (getSettings().window.editor.maximized) w.maximize()
+    if (bounds.maximized) w.maximize()
     w.show()
   })
 
@@ -127,13 +130,13 @@ function createWindow(): BrowserWindow {
   w.on('close', (e) => {
     if (!w.isDestroyed()) {
       const maximized = w.isMaximized()
-      const cur = getSettings().window
+      const cur = instanceWindowState(getSettings().window)
       let editor = { ...cur.editor, maximized }
       if (!maximized && !w.isMinimized()) {
         const b = w.getBounds()
         editor = { width: b.width, height: b.height, maximized }
       }
-      patchSettings({ window: { ...cur, editor } })
+      saveInstanceWindowState({ ...cur, editor })
     }
     /*
      * 关闭裁决：renderer 就绪时一律拦下来交给它（只有它知道有没有脏文件）。
@@ -201,4 +204,16 @@ export function confirmCloseEditorWindow(): void {
  */
 export function closeEditorWindowIfOpen(): void {
   if (win && !win.isDestroyed()) win.close()
+}
+
+/** Keep IPC available while the editor asks about unsaved work. Cancellation aborts quit/update. */
+export function requestEditorCloseForQuit(): Promise<boolean> {
+  const editor = win
+  if (!editor || editor.isDestroyed()) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { editor.removeListener('closed', closed); resolve(false) }, 15_000)
+    const closed = (): void => { clearTimeout(timer); resolve(true) }
+    editor.once('closed', closed)
+    editor.close()
+  })
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   App as AntdApp,
   Alert,
@@ -83,6 +83,8 @@ export function ProfileEditDrawer(): React.JSX.Element {
     [editingId, profiles]
   )
   const open = editingId !== null
+  const draftId = useRef<string | null>(null)
+  const draftRevision = useRef<number>()
   const hasSavedPassword = Boolean(editing?.auth.passwordRef)
   const hasSavedRdpPassword = Boolean(editing?.rdp?.passwordRef)
 
@@ -91,7 +93,10 @@ export function ProfileEditDrawer(): React.JSX.Element {
   }, [open, refsLoaded, loadRefs])
 
   useEffect(() => {
-    if (!open) return
+    if (!open) { draftId.current = null; return }
+    if (draftId.current === editingId) return
+    draftId.current = editingId
+    draftRevision.current = editing?.updatedAt
     if (editing) {
       form.setFieldsValue({
         name: editing.name,
@@ -157,7 +162,8 @@ export function ProfileEditDrawer(): React.JSX.Element {
     setSaving(true)
     try {
       const draft: ProfileDraft = {
-        id: editing?.id,
+        id: editingId && editingId !== 'new' ? editingId : undefined,
+        expectedUpdatedAt: draftRevision.current,
         name: v.name.trim(),
         protocol: v.protocol ?? 'ssh',
         groupId: v.groupId ?? null,

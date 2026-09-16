@@ -4,6 +4,7 @@ import { getSettings, patchSettings, stripMainOnlyPaths } from '../services/sett
 import { applyWindowChrome } from '../window'
 import { applyEditorWindowChrome } from '../editorWindow'
 import { secureStorageAvailable } from '../store/secureStorage'
+import { tx } from '../store/Database'
 
 /**
  * 设置整体仍兼容历史的自由形状 patch；新加的透明度偏好在 IPC 边界必须是布尔值。
@@ -31,7 +32,13 @@ export function registerSettingsIpc(): void {
    */
   handle(
     'settings:set',
-    (patch) => {
+    (patch, expected) => tx(() => {
+      if (expected) {
+        const current = getSettings()
+        for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
+          if (JSON.stringify(expected[key]) !== JSON.stringify(current[key])) throw new Error('设置已在其他窗口修改，请重新加载后保存（CONFIG_CONFLICT）')
+        }
+      }
       const guarded = stripMainOnlyPaths(patch, getSettings())
       const next = patchSettings(guarded.patch)
       applyWindowChrome(next)
@@ -39,8 +46,8 @@ export function registerSettingsIpc(): void {
       // 广播而不是只发主窗口：编辑器窗口的主题/语言也要跟着热更
       broadcast('settings:changed', next)
       return next
-    },
-    z.tuple([settingsPatchSchema])
+    }),
+    z.union([z.tuple([settingsPatchSchema]), z.tuple([settingsPatchSchema, settingsPatchSchema])])
   )
 
   handle('vault:isAvailable', () => secureStorageAvailable())

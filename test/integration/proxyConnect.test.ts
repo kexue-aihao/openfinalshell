@@ -9,7 +9,7 @@ import { createServer, connect, type AddressInfo, type Server, type Socket } fro
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import type { EventMap } from '@shared/ipc'
 import type { ProfileDraft } from '@shared/types'
-import { bindMainWindow } from '../../src/main/ipc/registry'
+import { bindMainWindow } from '../fakeMainWindow'
 import { deleteProfile, getProfile, saveProfile } from '../../src/main/store/connections'
 import { getProxy, saveProxy } from '../../src/main/store/savedRefs'
 import { vault } from '../../src/main/store/Vault'

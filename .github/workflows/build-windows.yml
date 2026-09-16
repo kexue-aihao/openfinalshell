@@ -61,6 +61,23 @@ jobs:
       - name: npm test（Windows 串行 shell）
         run: npm test -- --no-file-parallelism --maxWorkers=1 --testTimeout=120000 --reporter=dot
 
+      - name: 构建多实例测试应用
+        run: npm run build
+
+      - name: Windows 多进程 SSH / SFTP / Vault 冒烟
+        run: npm run smoke:multi-instance
+        env:
+          OFS_MULTI_INSTANCE_REPORT: ${{ runner.temp }}/multi-instance/report.json
+
+      - name: 上传多实例验收结果
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-multi-instance-${{ github.run_id }}
+          path: ${{ runner.temp }}/multi-instance/report.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: 收集 Windows 测试环境诊断
         if: ${{ failure() }}
         shell: pwsh
@@ -504,6 +521,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
@@ -592,6 +611,11 @@ jobs:
           > 迁移走「导出并勾选含密码」→ 新机「选择文件导入…」填同一口令：
           > 那一段是用导出口令重新加密的，不依赖 DPAPI。
           EOF
+          version_notes="docs/releases/$GITHUB_REF_NAME.md"
+          if [ -f "$version_notes" ]; then
+            cat "$version_notes" notes.md > combined-notes.md
+            mv combined-notes.md notes.md
+          fi
           prerelease=()
           # v0.1.0-rc1 这类带后缀的 tag 视为预发布
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi

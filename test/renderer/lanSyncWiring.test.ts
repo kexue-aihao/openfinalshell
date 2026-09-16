@@ -125,7 +125,7 @@ describe('生命周期', () => {
   })
 
   it('before-quit 里 lanSyncManager.stopAll() 排在 closeDatabase() 之前', () => {
-    const src = flat(stripComments(read(INDEX)))
+    const src = flat(stripComments(read(INDEX)).split("app.on('before-quit'")[1])
     const stop = src.indexOf('lanSyncManager.stopAll()')
     const close = src.indexOf('closeDatabase()')
     expect(stop, 'before-quit 缺 lanSyncManager.stopAll()').toBeGreaterThan(-1)

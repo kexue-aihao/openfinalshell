@@ -3,7 +3,7 @@ import { MAIN_ONLY_SETTINGS_PATHS } from '@shared/ipc'
 import type { AppSettings } from '@shared/types'
 import { deepMerge } from '../store/ConfigStore'
 import { DocStore } from '../store/DocStore'
-import { metaGet, metaSet } from '../store/Database'
+import { metaGet, metaSet, tx } from '../store/Database'
 import { scopedLogger } from '../utils/logger'
 
 const log = scopedLogger('settings')
@@ -44,7 +44,7 @@ function migrateOnce(): void {
 export function settingsStore(): DocStore<AppSettings> {
   if (!store) {
     store = new DocStore<AppSettings>('settings', () => structuredClone(DEFAULT_SETTINGS))
-    migrateOnce()
+    tx(() => migrateOnce())
   }
   return store
 }
@@ -54,9 +54,12 @@ export function getSettings(): AppSettings {
 }
 
 export function patchSettings(patch: Partial<AppSettings>): AppSettings {
-  const merged = deepMerge(settingsStore().data, patch)
-  settingsStore().set(merged)
-  return merged
+  const currentStore = settingsStore()
+  return tx(() => {
+    const merged = deepMerge(currentStore.data, patch)
+    currentStore.set(merged)
+    return merged
+  })
 }
 
 // ---------------------------------------------------------------------------

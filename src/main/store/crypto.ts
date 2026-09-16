@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto'
 import { safeStorage } from 'electron'
-import { metaGet, metaSet } from './Database'
+import { metaGet, metaSet, tx } from './Database'
 import { t } from '../services/i18n'
 import { scopedLogger } from '../utils/logger'
 import { secureStorageAvailable } from './secureStorage'
@@ -34,6 +34,7 @@ export const DATA_ENCRYPTION_DIRTY_META_KEY = 'rows_need_encryption_v1'
 
 let encKey: Buffer | null = null
 let macKey: Buffer | null = null
+let cachedWrappedKey: string | null = null
 let loggedKeyLoss = false
 let loggedDirtyMarkFailure = false
 
@@ -61,25 +62,26 @@ function loadOrCreateKey(): Buffer | null {
   // 此时返回 null、且 keys() 不缓存它——否则启动早期（app ready 前）的一次读取
   // 会把整个会话的加密永久关掉。
   if (!secureStorageAvailable()) return null
-  const stored = metaGet(MDK_META_KEY)
-  if (stored) {
-    try {
-      const inner = safeStorage.decryptString(Buffer.from(stored, 'base64'))
-      return Buffer.from(inner, 'base64')
-    } catch (err) {
-      // 换机/换账户：DPAPI 解不开。**绝不能重新生成**——那会把已有密文变成永久孤儿。
-      // 只记一次日志：keys() 不缓存 null，会反复走到这里。
-      if (!loggedKeyLoss) {
-        log.error('data key undecryptable (machine/account changed?); encrypted rows unreadable', err)
-        loggedKeyLoss = true
+  return tx(() => {
+    const stored = metaGet(MDK_META_KEY)
+    if (stored) {
+      try {
+        const inner = safeStorage.decryptString(Buffer.from(stored, 'base64'))
+        return Buffer.from(inner, 'base64')
+      } catch (err) {
+        // Never replace an undecryptable key: existing ciphertext must remain recoverable.
+        if (!loggedKeyLoss) {
+          log.error('data key undecryptable (machine/account changed?); encrypted rows unreadable', err)
+          loggedKeyLoss = true
+        }
+        return null
       }
-      return null
     }
-  }
-  const key = randomBytes(32)
-  const wrapped = safeStorage.encryptString(key.toString('base64'))
-  metaSet(MDK_META_KEY, wrapped.toString('base64'))
-  return key
+    const key = randomBytes(32)
+    const wrapped = safeStorage.encryptString(key.toString('base64'))
+    metaSet(MDK_META_KEY, wrapped.toString('base64'))
+    return key
+  })
 }
 
 /**
@@ -88,10 +90,11 @@ function loadOrCreateKey(): Buffer | null {
  * 决定是否禁用 GPU）不会把整会话的加密永久关掉；ready 后再调即可解析成功、自愈。
  */
 function keys(): { enc: Buffer; mac: Buffer } | null {
-  if (encKey && macKey) return { enc: encKey, mac: macKey }
+  if (encKey && macKey && cachedWrappedKey === metaGet(MDK_META_KEY)) return { enc: encKey, mac: macKey }
   const key = loadOrCreateKey()
   if (!key) return null
   deriveKeys(key)
+  cachedWrappedKey = metaGet(MDK_META_KEY)
   return { enc: encKey!, mac: macKey! }
 }
 
@@ -99,6 +102,7 @@ function keys(): { enc: Buffer; mac: Buffer } | null {
 export function _resetDataKeyCacheForTests(): void {
   encKey = null
   macKey = null
+  cachedWrappedKey = null
   loggedKeyLoss = false
   loggedDirtyMarkFailure = false
 }
