@@ -1,5 +1,6 @@
 #include "../rdp_clipboard_core.h"
 #include <cassert>
+#include <chrono>
 #include <fstream>
 
 int main() {
@@ -34,7 +35,13 @@ int main() {
   assert(!encodeFileDescriptors({{"huge", kMaxClipboardFileSize + 1, false}}, invalid));
   auto tooMany = std::vector<RdpFileEntry>(65, {"file", 0, false});
   assert(!encodeFileDescriptors(tooMany, invalid));
-  const auto path = std::filesystem::temp_directory_path() / "ofs-rdp-clipboard-core-test.bin";
+  // macOS temporary roots commonly pass through /var -> /private/var.
+  // Resolve the trusted fixture root, not the paths passed to safeLocalFile:
+  // that production check must continue rejecting links in any component.
+  const auto root = std::filesystem::canonical(std::filesystem::temp_directory_path()) /
+      ("ofs-rdp-clipboard-core-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  assert(std::filesystem::create_directory(root));
+  const auto path = root / "file.bin";
   { std::ofstream out(path, std::ios::binary); out << "abcdef"; }
   std::uint64_t size = 0; bool directory = true;
   assert(safeLocalFile(path, size, directory) && size == 6 && !directory);
@@ -43,5 +50,18 @@ int main() {
   assert(readFileChunk(path, 4, 5, chunk) && chunk == "ef");
   assert(!readFileChunk(path, 7, 1, chunk));
   assert(!readFileChunk(path, 0, 5 * 1024 * 1024, chunk));
-  std::error_code ec; std::filesystem::remove(path, ec);
+#ifndef _WIN32
+  const auto fileLink = root / "file-link";
+  std::filesystem::create_symlink(path, fileLink);
+  assert(!safeLocalFile(fileLink, size, directory));
+  assert(!readFileChunk(fileLink, 0, 1, chunk));
+  const auto parentLink = root / "parent-link";
+  std::filesystem::create_directory_symlink(root, parentLink);
+  assert(!safeLocalFile(parentLink / "file.bin", size, directory));
+  assert(!readFileChunk(parentLink / "file.bin", 0, 1, chunk));
+  // Canonical fixture paths work, but callers cannot bypass link rejection.
+  assert(readFileChunk(path, 0, 6, chunk) && chunk == "abcdef");
+#endif
+  std::error_code ec; std::filesystem::remove_all(root, ec);
+  assert(!ec);
 }

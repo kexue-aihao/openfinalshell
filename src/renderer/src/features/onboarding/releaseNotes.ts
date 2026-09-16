@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.25',
+    items: [
+      { type: 'fix', zh: '修复 macOS 临时目录符号链接导致的原生测试失败，恢复 Intel 与 Apple Silicon 安装包构建；保留文件传输的符号链接拒绝检查', en: 'Fix native tests failing on macOS temporary-directory aliases, restoring Intel and Apple Silicon package builds while preserving file-transfer symlink rejection' }
+    ]
+  },
+  {
     version: '0.30.24',
     items: [
       { type: 'feat', zh: 'Android 新增代理拨号、系统文件选择与目录传输、命令库、AI 助手和远程文本编辑；AI 支持模型选择、流式和非流式回答及手动填入 SSH', en: 'Add Android proxy connections, system file selection and directory transfers, a command library, an AI assistant, and remote text editing; AI supports model selection, streaming and JSON replies, and manual SSH insertion' },
