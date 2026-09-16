@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing version tag to build and publish"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: android-release-${{ github.ref }}
+  group: android-release-${{ inputs.release_tag || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -18,6 +24,7 @@ env:
   GRADLE_VERSION: "8.10.2"
   ANDROID_PLATFORM: "android-35"
   ANDROID_BUILD_TOOLS: "35.0.0"
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 jobs:
   release:
@@ -28,6 +35,8 @@ jobs:
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -43,6 +52,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
@@ -57,10 +68,12 @@ jobs:
         shell: bash
         run: |
           pkg=$(node -p "require('./package.json').version")
-          tag=${GITHUB_REF_NAME#v}
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Expected an existing release version tag"; exit 1; }
+          git show-ref --verify "refs/tags/$RELEASE_TAG" >/dev/null || { echo "::error::Release tag not checked out"; exit 1; }
+          tag=${RELEASE_TAG#v}
           echo "package.json=$pkg tag=$tag"
           if [ "$pkg" != "$tag" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $pkg"
+            echo "::error::tag $RELEASE_TAG does not match package.json version $pkg"
             exit 1
           fi
 
@@ -139,7 +152,7 @@ jobs:
       - name: Upload Android build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-release-${{ github.ref_name }}
+          name: android-release-${{ env.RELEASE_TAG }}
           path: android-release/*
           if-no-files-found: error
           retention-days: 30
@@ -153,19 +166,19 @@ jobs:
           # the Release first; retry briefly to absorb a concurrent create or API
           # propagation delay, without waiting for the desktop build itself.
           for attempt in $(seq 1 12); do
-            if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              echo "Release $GITHUB_REF_NAME is available"
+            if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $RELEASE_TAG is available"
               exit 0
             fi
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "OpenFinalShell $GITHUB_REF_NAME" \
+              --title "OpenFinalShell $RELEASE_TAG" \
               --notes "Android assets are being uploaded; desktop assets will follow." \
               --verify-tag >/dev/null 2>&1 && exit 0 || true
-            echo "Waiting for Release $GITHUB_REF_NAME ($attempt/12)"
+            echo "Waiting for Release $RELEASE_TAG ($attempt/12)"
             sleep 5
           done
-          echo "::error::Unable to create or locate Release $GITHUB_REF_NAME"
+          echo "::error::Unable to create or locate Release $RELEASE_TAG"
           exit 1
 
       - name: Remove stale Android assets
@@ -173,11 +186,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
             while IFS= read -r asset; do
               case "$asset" in
                 *-android-*.apk|*-android.aab)
-                  gh release delete-asset "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
+                  gh release delete-asset "$RELEASE_TAG" "$asset" --repo "$GITHUB_REPOSITORY" --yes
                   ;;
               esac
             done
@@ -185,4 +198,4 @@ jobs:
       - name: Upload Android assets to Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" android-release/* --repo "$GITHUB_REPOSITORY" --clobber
+        run: gh release upload "$RELEASE_TAG" android-release/* --repo "$GITHUB_REPOSITORY" --clobber
