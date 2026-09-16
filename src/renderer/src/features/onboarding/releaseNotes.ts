@@ -17,7 +17,7 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    version: '0.30.20',
+    version: '0.30.21',
     items: [
       { type: 'feat', zh: '新增 Windows 多实例窗口预览：独立会话与传输、共享配置和凭据、配置自动刷新及更新协调；安装包默认保持单实例，预览需显式开启', en: 'Add a Windows multi-instance preview with isolated sessions and transfers, shared configuration and credentials, automatic configuration refresh, and coordinated updates; packaged apps remain single-instance unless preview is explicitly enabled' },
       { type: 'fix', zh: '修复多进程 Windows 安全存储密钥不一致与旧配置覆盖问题，关闭窗口仅清理所属资源，并等待其他进程退出后才安装更新', en: 'Fix inconsistent Windows secure-storage keys and stale configuration writes across processes; close only owned resources and wait for peer processes to exit before installing updates' },

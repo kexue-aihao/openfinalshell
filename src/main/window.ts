@@ -55,11 +55,27 @@ function applyTitleBarOverlay(
   material: WindowBackgroundMaterial
 ): void {
   if (process.platform !== 'win32') return
-  win.setTitleBarOverlay({
+  const options = {
     color: resolveWindowControlsOverlayColor(material, chrome.overlayBg),
     symbolColor: chrome.symbol,
     height: TITLEBAR_HEIGHT
-  })
+  }
+  try {
+    win.setTitleBarOverlay(options)
+  } catch (error) {
+    // Electron versions shipped by some Windows runners reject CSS `transparent`
+    // even though it is valid CSS. The caption overlay is cosmetic; retry with
+    // the opaque theme color so a malformed/older parser can never abort startup.
+    if (options.color !== chrome.overlayBg) {
+      try {
+        win.setTitleBarOverlay({ ...options, color: chrome.overlayBg })
+        return
+      } catch {
+        // Fall through and report the original error below.
+      }
+    }
+    throw error
+  }
 }
 
 export function getMainWindow(): BrowserWindow | null {
