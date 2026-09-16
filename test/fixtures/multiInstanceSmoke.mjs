@@ -15,6 +15,7 @@ const exe = process.argv[2] || resolve('node_modules/electron/dist/electron.exe'
 const dev = /^electron(?:\.exe)?$/i.test(basename(exe))
 const processes = [], sockets = [], report = []
 const launchErrors = []
+const childDiagnostics = []
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 async function until(fn, timeout = 20000) {
@@ -27,13 +28,18 @@ async function port() {
   const p = s.address().port; await new Promise((r) => s.close(r)); return p
 }
 function launch(args) {
-  const child = spawn(exe, [...(dev ? [resolve('.')] : []), `--user-data-dir=${data}`, ...args], { env, stdio: 'ignore', windowsHide: true })
+  const child = spawn(exe, [...(dev ? [resolve('.')] : []), `--user-data-dir=${data}`, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  const diagnostic = { pid: child.pid, args, output: '', exitCode: null, signal: null }
+  childDiagnostics.push(diagnostic)
+  const capture = (chunk) => { diagnostic.output = (diagnostic.output + chunk.toString()).slice(-16384) }
+  child.stdout.on('data', capture); child.stderr.on('data', capture)
+  child.once('exit', (code, signal) => { diagnostic.exitCode = code; diagnostic.signal = signal })
   child.once('error', (error) => launchErrors.push(error))
   processes.push(child); return child
 }
 async function connect(cdpPort) {
   const target = await until(async () => {
-    try { const tabs = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`)).json(); return tabs.find((t) => t.type === 'page' && t.webSocketDebuggerUrl) } catch { return false }
+    try { const tabs = await (await fetch(`http://127.0.0.1:${cdpPort}/json/list`, { signal: AbortSignal.timeout(1500) })).json(); return tabs.find((t) => t.type === 'page' && t.webSocketDebuggerUrl) } catch { return false }
   }, 40000)
   const ws = new WebSocket(target.webSocketDebuggerUrl); sockets.push(ws)
   await new Promise((r, j) => { ws.addEventListener('open', r, { once: true }); ws.addEventListener('error', j, { once: true }) })
@@ -183,7 +189,13 @@ try {
   writeReport({ passed: true, sha256: createHash('sha256').update(bytes).digest('hex'), externalRdp: 'not tested; requires a Windows RDP target', updateInstaller: 'not executed' })
   console.log(`Report: ${join(root, 'report.json')}`)
 } catch (error) {
-  writeReport({ passed: false, failure: error instanceof Error ? error.message : 'Smoke failed' })
+  const logDirectory = join(data, 'logs')
+  const startupLogs = existsSync(logDirectory) ? readdirSync(logDirectory).map((file) => ({ file, tail: readFileSync(join(logDirectory, file), 'utf8').slice(-16384) })) : []
+  // Only this fixture's isolated data is inspected. Never publish Chromium Local State or the database.
+  const redact = (value) => JSON.parse(JSON.stringify(value).replaceAll('test123', '[redacted]').replaceAll('smoke-ai-token', '[redacted]'))
+  const diagnostics = redact({ processes: childDiagnostics, startupLogs, localStateExists: existsSync(join(data, 'Local State')) })
+  writeReport({ passed: false, failure: error instanceof Error ? error.message : 'Smoke failed', diagnostics })
+  console.error(JSON.stringify(diagnostics, null, 2))
   console.error(error); process.exitCode = 1
   console.error(`Isolated diagnostics retained at ${root}`)
 } finally {

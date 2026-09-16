@@ -214,6 +214,7 @@ if (!ownsSingleInstanceLock) {
       if (BrowserWindow.getAllWindows().length === 0) bindMainWindowLifecycle(createMainWindow(instance))
     })
   }).catch((error: Error) => {
+    logger.error('instance startup failed', error)
     dialog.showErrorBox('OpenFinalShell 启动失败', error.message)
     app.quit()
   })

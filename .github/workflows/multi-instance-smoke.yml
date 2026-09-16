@@ -1,0 +1,32 @@
+name: multi-instance-smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Windows real multi-process smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - run: npm run build
+      - run: npm run smoke:multi-instance
+        env:
+          OFS_MULTI_INSTANCE_REPORT: ${{ runner.temp }}/multi-instance/report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-multi-instance-${{ github.run_id }}
+          path: ${{ runner.temp }}/multi-instance/report.json
+          if-no-files-found: error
+          retention-days: 7
