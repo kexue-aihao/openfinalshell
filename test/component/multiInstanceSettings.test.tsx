@@ -31,7 +31,7 @@ afterEach(cleanup)
 describe('multi-instance settings and menu', () => {
   it('saves both switch states and refreshes the new-window menu without restarting', async () => {
     render(<AntdApp><SettingsModal /><TitleBar /></AntdApp>)
-    const toggle = await screen.findByRole('switch', { name: '允许多实例窗口（预览）' })
+    const toggle = await screen.findByRole('switch', { name: '允许多实例窗口' })
     await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false))
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     expect(screen.queryByRole('button', { name: 'OpenFinalShell' })).toBeNull()
@@ -49,7 +49,7 @@ describe('multi-instance settings and menu', () => {
     fakeOfs.handle('app:instanceInfo', () => ({ multiInstanceSupported: false, canOpenNewWindow: false }))
     render(<AntdApp><SettingsModal /></AntdApp>)
     await screen.findByText('当前平台暂不支持')
-    const toggle = screen.getByRole('switch', { name: '允许多实例窗口（预览）' })
+    const toggle = screen.getByRole('switch', { name: '允许多实例窗口' })
     expect(toggle.hasAttribute('disabled')).toBe(true)
     fireEvent.click(toggle)
     expect(fakeOfs.invokes.some((call) => call.channel === 'settings:set')).toBe(false)
@@ -69,7 +69,7 @@ describe('multi-instance settings and menu', () => {
   it('restores the stored switch state after a failed save', async () => {
     fakeOfs.handle('settings:set', () => Promise.reject(new Error('DATABASE_BUSY')))
     render(<AntdApp><SettingsModal /><TitleBar /></AntdApp>)
-    const toggle = await screen.findByRole('switch', { name: '允许多实例窗口（预览）' })
+    const toggle = await screen.findByRole('switch', { name: '允许多实例窗口' })
     await waitFor(() => expect(toggle.hasAttribute('disabled')).toBe(false))
     fireEvent.click(toggle)
     await waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'))

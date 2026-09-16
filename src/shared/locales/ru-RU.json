@@ -1,5 +1,5 @@
 {
-  "instance": {"newWindow":"Открыть новое окно","enable":"Разрешить несколько экземпляров (предпросмотр)","unsupported":"Недоступно на этой платформе"},
+  "instance": {"newWindow":"Открыть новое окно","enable":"Разрешить несколько экземпляров","unsupported":"Недоступно на этой платформе"},
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",

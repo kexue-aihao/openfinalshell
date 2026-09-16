@@ -1,5 +1,5 @@
 {
-  "instance": {"newWindow":"새 창 열기","enable":"다중 인스턴스 허용 (미리 보기)","unsupported":"이 플랫폼에서는 사용할 수 없습니다"},
+  "instance": {"newWindow":"새 창 열기","enable":"다중 인스턴스 허용","unsupported":"이 플랫폼에서는 사용할 수 없습니다"},
   "aiConnectionTest": {
     "button": "Test connection",
     "success": "Connection test successful · {{latencyMs}} ms",

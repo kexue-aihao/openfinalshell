@@ -247,7 +247,7 @@ Release。Android 发布需要配置 `ANDROID_KEYSTORE_B64`、
 
 ## 开发
 
-Windows 多实例窗口已提供开发预览，正式包保持验收门禁。启动方式、共享凭据设计、测试命令和待验收项目见 [多实例窗口说明](docs/multi-instance.md)。
+Windows 多实例窗口已作为正式功能提供，可在“设置 → 常规 → 允许多实例窗口”中开启或关闭。默认保持单实例，开启后可通过应用名称菜单、`Ctrl+Shift+N` 或任务栏打开新窗口。启动方式、共享凭据设计、测试命令和验收记录见 [多实例窗口说明](docs/multi-instance.md)。
 
 ```bash
 npm install

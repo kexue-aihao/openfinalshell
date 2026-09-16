@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.23',
+    items: [
+      { type: 'feat', zh: 'Windows 多实例窗口作为正式功能提供，设置项移除“预览”标记，并同步全部界面语言', en: 'Make Windows multi-instance windows a standard feature and remove the preview label in all interface languages' },
+      { type: 'fix', zh: '修复标题栏左上角只显示纯色方块的问题，改为显示与欢迎页一致的软件 Logo', en: 'Replace the solid placeholder in the title bar with the application logo used on the welcome page' }
+    ]
+  },
+  {
     version: '0.30.22',
     items: [
       { type: 'feat', zh: '在设置 → 常规中新增多实例窗口开关，Windows 可直接启用或关闭多实例；关闭时不影响已打开窗口、会话和传输', en: 'Add a Settings → General switch for Windows multi-instance windows; turning it off blocks new instances without affecting existing windows, sessions, or transfers' },

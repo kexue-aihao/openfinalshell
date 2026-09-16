@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useSessionStore, type SessionTab } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useUiStore } from '@/stores/useUiStore'
+import logoUrl from '@/assets/openfinalshell-logo.svg'
 import styles from './TitleBar.module.css'
 
 function stateDotClass(tab: SessionTab): string {
@@ -108,7 +109,7 @@ export function TitleBar(): React.JSX.Element {
         onClick: () => { void ofs.invoke('app:newWindow').catch((e: Error) => message.error(e.message)) }
       }}>
         <div className={styles.brand} role={canOpenWindow ? 'button' : undefined} tabIndex={canOpenWindow ? 0 : undefined}>
-          <span className={styles.logoDot} />
+          <img className={styles.logo} src={logoUrl} alt="" draggable={false} />
           {t('app.name')}
         </div>
       </Dropdown>
