@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer as tcpServer } from 'node:net'
 import { createServer as httpServer } from 'node:http'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
 import { join, resolve, basename, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -14,11 +14,12 @@ mkdirSync(data); mkdirSync(remote)
 const exe = process.argv[2] || resolve('node_modules/electron/dist/electron.exe')
 const dev = /^electron(?:\.exe)?$/i.test(basename(exe))
 const processes = [], sockets = [], report = []
+const launchErrors = []
 const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE
 const delay = (ms) => new Promise((r) => setTimeout(r, ms))
 async function until(fn, timeout = 20000) {
   const deadline = Date.now() + timeout
-  while (Date.now() < deadline) { const result = await fn(); if (result) return result; await delay(100) }
+  while (Date.now() < deadline) { if (launchErrors.length) throw launchErrors[0]; const result = await fn(); if (result) return result; await delay(100) }
   throw new Error('Smoke condition timed out')
 }
 async function port() {
@@ -27,6 +28,7 @@ async function port() {
 }
 function launch(args) {
   const child = spawn(exe, [...(dev ? [resolve('.')] : []), `--user-data-dir=${data}`, ...args], { env, stdio: 'ignore', windowsHide: true })
+  child.once('error', (error) => launchErrors.push(error))
   processes.push(child); return child
 }
 async function connect(cdpPort) {
@@ -64,6 +66,7 @@ function writeReport(extra) {
 
 let ssh, ai
 try {
+  if (!existsSync(exe)) throw new Error('Electron executable is missing; run node node_modules/electron/install.js before this smoke test.')
   const sshPort = await port()
   ssh = spawn(process.execPath, ['test/fixtures/testSshServer.mjs', String(sshPort), remote], { env: { ...env, OFS_TEST_SFTP_READ_DELAY_MS: '500' }, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
   await new Promise((r, j) => { const timer = setTimeout(() => j(new Error('SSH fixture startup timeout')), 15000); ssh.stdout.on('data', (d) => { if (d.toString().includes('listening')) { clearTimeout(timer); r() } }) })

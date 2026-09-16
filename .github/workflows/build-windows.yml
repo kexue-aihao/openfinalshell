@@ -65,7 +65,11 @@ jobs:
         run: npm run build
 
       - name: Windows 多进程 SSH / SFTP / Vault 冒烟
-        run: npm run smoke:multi-instance
+        # npm may block dependency install scripts; install the locked Electron binary explicitly.
+        run: |
+          node node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run smoke:multi-instance
         env:
           OFS_MULTI_INSTANCE_REPORT: ${{ runner.temp }}/multi-instance/report.json
 

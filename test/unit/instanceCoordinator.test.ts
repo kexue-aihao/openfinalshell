@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { createConnection } from 'node:net'
 import { spawn } from 'node:child_process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { InstanceCoordinator } from '../../src/main/instances/InstanceCoordinator'
+import { InstanceCoordinator, instanceEndpoint } from '../../src/main/instances/InstanceCoordinator'
 import { closeDatabase, metaSet, prepare } from '../../src/main/store/Database'
 
 const running: InstanceCoordinator[] = []
@@ -16,6 +16,15 @@ function create(prepareExit: () => Promise<void> = async () => {}) {
 afterEach(async () => { for (const c of running.splice(0)) await c.stop(); closeDatabase() })
 
 describe('real local instance control transport', () => {
+  it('fits macOS Unix socket limits even for long user data paths', () => {
+    const id = randomUUID(), profile = '/var/folders/ab/' + 'x'.repeat(120) + '/OpenFinalShell/openfinalshell.db'
+    const endpoint = instanceEndpoint(profile, id, 'darwin')
+    expect(Buffer.byteLength(endpoint)).toBeLessThan(104)
+    expect(endpoint.startsWith('/tmp/')).toBe(true)
+    expect(instanceEndpoint(profile + '-other', id, 'darwin')).not.toBe(endpoint)
+    expect(instanceEndpoint(profile, randomUUID(), 'darwin')).not.toBe(endpoint)
+    expect(instanceEndpoint(profile, id, 'win32').startsWith('\\\\.\\pipe\\')).toBe(true)
+  })
   it('elects one leader, forwards update requests, then elects a survivor', async () => {
     const a = create(), b = create()
     await a.coordinator.start(); await b.coordinator.start()

@@ -1,8 +1,7 @@
 import { createServer, createConnection, type Server, type Socket } from 'node:net'
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { dirname } from 'node:path'
 import { z } from 'zod'
 import { databaseFile, metaGet, metaSet, prepare, tx } from '../store/Database'
 import type { UpdateActivity, UpdateInstallResult, UpdateState } from '@shared/types'
@@ -37,6 +36,12 @@ function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH' }
 }
 
+/** Darwin's sockaddr_un is limited to 104 bytes, including the terminating NUL. */
+export function instanceEndpoint(databasePath: string, id: string, platform: NodeJS.Platform = process.platform): string {
+  const namespace = createHash('sha256').update(databasePath).digest('hex').slice(0, 20)
+  return platform === 'win32' ? `\\\\.\\pipe\\ofs-${namespace}-${id}` : `/tmp/ofs-ipc-${namespace}/${id}.sock`
+}
+
 /** Authenticated local socket only. SQL rows contain routing/authentication metadata, never application data. */
 export class InstanceCoordinator {
   private server: Server | undefined
@@ -69,10 +74,8 @@ export class InstanceCoordinator {
   }
 
   async start(): Promise<void> {
-    const namespace = createHash('sha256').update(databaseFile()).digest('hex').slice(0, 20)
-    const directory = join(tmpdir(), `ofs-ipc-${namespace}`)
-    if (process.platform !== 'win32') mkdirSync(directory, { recursive: true, mode: 0o700 })
-    const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\ofs-${namespace}-${this.id}` : join(directory, `${this.id}.sock`)
+    const endpoint = instanceEndpoint(databaseFile(), this.id)
+    if (process.platform !== 'win32') mkdirSync(dirname(endpoint), { recursive: true, mode: 0o700 })
     this.server = createServer((socket) => this.accept(socket))
     await new Promise<void>((resolve, reject) => {
       this.server!.once('error', reject)

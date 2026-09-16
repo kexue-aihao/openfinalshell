@@ -28,7 +28,7 @@ $env:OFS_MULTI_INSTANCE_PREVIEW = '1'
 & '实际安装路径\OpenFinalShell.exe' --new-instance
 ```
 
-预览变量仅在 Windows 生效。0.30.19 安装包默认不开放多实例，直到文末待验收项目通过。
+预览变量仅在 Windows 生效。0.30.20 安装包默认不开放多实例，直到文末待验收项目通过。
 
 ## 进程与窗口隔离
 
