@@ -1,6 +1,6 @@
 {
   "name": "openfinalshell",
-  "version": "0.30.25",
+  "version": "0.30.26",
   "description": "开源跨平台远程运维工作台，集成 SSH/SFTP、嵌入式 RDP、AI 助手、服务器监控与端口转发",
   "desktopName": "openfinalshell.desktop",
   "type": "module",

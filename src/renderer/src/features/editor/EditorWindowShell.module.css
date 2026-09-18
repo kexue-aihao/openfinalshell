@@ -18,23 +18,50 @@
   padding: 6px 6px 0;
   border-bottom: 1px solid var(--ofs-shell-border);
   background: var(--ofs-shell-surface);
-  /* 整条默认可拖拽窗口；标签与按钮单独 no-drag */
+  /* 整条默认可拖拽窗口；标签、滚动区与按钮单独 no-drag */
   -webkit-app-region: drag;
   /* 右侧给原生窗口按钮（titleBarOverlay）留位 */
   padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 4px);
-  /* 打开十个文件时横向滚动，而不是把每个标签挤成两个字 */
+}
+
+/*
+ * 标签的横向滚动区（打开十个文件时横着滚，而不是把每个标签挤成两个字）。
+ *
+ * **这一层必须独立出来并标 no-drag —— overflow 留在 .tabs 上时横条拖不动。**
+ * 拖拽区的判据是盒子的矩形，而滚动条就长在滚动盒子的底边上：留在 .tabs 上，
+ * 整条滚动条落进拖拽区，按下去被系统当成标题栏（Windows 上就是 HTCAPTION）
+ * 直接开始拖窗口，滚动条一个事件都收不到 —— 症状正是"横条看得见、拖不动"。
+ * 滚动条不是 DOM 元素，没法单独给它标 no-drag（父盒已经把这块矩形算进去了），
+ * 所以唯一的解法是让它长在一个**不是**拖拽区的盒子里。
+ *
+ * flex: 0 1 auto —— 标签少时不去抢空间（右边那条空档留给拖窗），
+ * 标签多到装不下时才收缩出滚动条（min-width: 0，否则 flex 的最小尺寸是内容宽度，永远不滚）。
+ */
+.tabsScroll {
+  -webkit-app-region: no-drag;
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
 }
 
-:global(:root[data-platform-ui='macos-hig']) .tabs {
-  padding-left: 72px;
+/*
+ * 标签与工具按钮之间的空档，兼作**拖窗把手**：标签少时它撑满剩余宽度，
+ * 标签多时留 8px 的握把。滚动区下沉成 no-drag 之后，这里是这条标题栏上仅剩的
+ * 好抓的地方（其余的可拖面积只有 6px 的 padding）。
+ */
+.tabsGap {
+  flex: 1 0 8px;
+  align-self: stretch;
+  -webkit-app-region: drag;
 }
 
-.tabsGap {
-  flex: 1;
-  min-width: 8px;
+:global(:root[data-platform-ui='macos-hig']) .tabs {
+  padding-left: 72px;
 }
 
 .tab {
@@ -114,6 +141,20 @@
 .tabClose:hover {
   opacity: 1;
   color: var(--ofs-error);
+}
+
+/*
+ * 保存/重读两个按钮。**在滚动区外面** —— 上一版它们跟在标签后面，标签一多就被
+ * 推出视口，想按保存得先把标签条滚到最右边（那时候也拖不动，见 .tabsScroll）。
+ * align-self: stretch 是为了让按钮垂直居中的基准和标签少时一致（容器 align-items 是 flex-end）。
+ */
+.tabsTools {
+  -webkit-app-region: no-drag;
+  flex: none;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .toolBtn {

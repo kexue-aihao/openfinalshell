@@ -227,3 +227,25 @@ describe('超上限', () => {
     expect(useEditorStore.getState().files).toHaveLength(10)
   })
 })
+
+describe('标签条的结构', () => {
+  /**
+   * 保存/重读按钮挂在滚动区**外面**：跟着标签一起滚的话，十个文件开着时
+   * 它们被推出视口，而那条滚动条本身在真机上还拖不动（拖拽区问题，见
+   * editorWiring.test.ts 的 CSS 护栏）—— 两件事凑一起就是"保存点不到"。
+   */
+  it('工具按钮在 tablist 外面，标签在里面', async () => {
+    const { container } = mount()
+    await flush()
+    act(() => fakeOfs.emit('editor:open', req('s1', '/a.txt', 'web-1')))
+    await act(async () => readD('s1', '/a.txt').resolve(view('a', '/a.txt')))
+    await flush()
+
+    const save = container.querySelector('button[data-ofs-save]')
+    expect(save, '保存按钮没渲染出来').toBeTruthy()
+    const tablist = screen.getByRole('tablist')
+    expect(tablist.contains(save), '保存按钮跟着标签一起滚了').toBe(false)
+    // 反空转：标签本身得真在这个容器里，否则上面那条断言在空容器上也会过
+    expect(tablist.contains(screen.getAllByRole('tab')[0])).toBe(true)
+  })
+})

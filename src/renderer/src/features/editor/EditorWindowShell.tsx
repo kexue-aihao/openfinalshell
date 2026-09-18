@@ -321,69 +321,78 @@ export function EditorWindowShell(): React.JSX.Element {
 
   return (
     <div className={styles.host}>
-      <div className={styles.tabs} role="tablist">
-        {files.map((f) => (
-          <div
-            key={f.key}
-            role="tab"
-            aria-selected={f.key === active.key}
-            className={`${styles.tab} ${f.key === active.key ? styles.tabActive : ''}`}
-            onClick={() => setActive(f.key)}
-            // 中键关闭：这是标签条的通用手感，缺了会显得这个标签条是半成品
-            onAuxClick={(e) => {
-              if (e.button === 1) {
-                e.preventDefault()
-                tryClose(f.key)
-              }
-            }}
-          >
-            <Tooltip title={`${f.origin}: ${f.path}`}>
-              <span className={styles.tabName}>
-                {/* 来源会话名做前缀：这条标签条聚合所有机器的文件 */}
-                <span className={styles.tabOrigin}>{f.origin}</span>
-                {f.path.split('/').pop() || f.path}
-              </span>
-            </Tooltip>
-            {f.dirty && (
-              <Tooltip title={t('editor.dirtyHint')}>
-                <span className={styles.tabDirty} data-ofs-dirty="1" />
-              </Tooltip>
-            )}
-            {(f.status === 'loading' || f.saving) && <Spin size="small" className={styles.tabSpin} />}
-            <X
-              size={12}
-              strokeWidth={2}
-              className={styles.tabClose}
-              onClick={(e) => {
-                e.stopPropagation()
-                tryClose(f.key)
+      <div className={styles.tabs}>
+        {/*
+          标签单独包一层滚动区、且是 no-drag：滚动条长在滚动盒子的底边上，
+          留在 .tabs 里就落进窗口拖拽区 —— 按下去变成拖窗口，横条永远拖不动。
+          完整理由见 .tabsScroll 的注释。
+        */}
+        <div className={styles.tabsScroll} role="tablist">
+          {files.map((f) => (
+            <div
+              key={f.key}
+              role="tab"
+              aria-selected={f.key === active.key}
+              className={`${styles.tab} ${f.key === active.key ? styles.tabActive : ''}`}
+              onClick={() => setActive(f.key)}
+              // 中键关闭：这是标签条的通用手感，缺了会显得这个标签条是半成品
+              onAuxClick={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault()
+                  tryClose(f.key)
+                }
               }}
-            />
-          </div>
-        ))}
+            >
+              <Tooltip title={`${f.origin}: ${f.path}`}>
+                <span className={styles.tabName}>
+                  {/* 来源会话名做前缀：这条标签条聚合所有机器的文件 */}
+                  <span className={styles.tabOrigin}>{f.origin}</span>
+                  {f.path.split('/').pop() || f.path}
+                </span>
+              </Tooltip>
+              {f.dirty && (
+                <Tooltip title={t('editor.dirtyHint')}>
+                  <span className={styles.tabDirty} data-ofs-dirty="1" />
+                </Tooltip>
+              )}
+              {(f.status === 'loading' || f.saving) && <Spin size="small" className={styles.tabSpin} />}
+              <X
+                size={12}
+                strokeWidth={2}
+                className={styles.tabClose}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  tryClose(f.key)
+                }}
+              />
+            </div>
+          ))}
+        </div>
         <span className={styles.tabsGap} />
-        <Tooltip title={t('editor.saveHint')}>
-          <Button
-            size="small"
-            type="text"
-            className={styles.toolBtn}
-            disabled={!canSave}
-            loading={active.saving}
-            icon={<Save size={13} strokeWidth={1.75} />}
-            data-ofs-save="1"
-            onClick={() => void doSave(active.key, NO_GATES)}
-          />
-        </Tooltip>
-        <Tooltip title={t('editor.reload')}>
-          <Button
-            size="small"
-            type="text"
-            className={styles.toolBtn}
-            disabled={sessionDead}
-            icon={<RefreshCw size={13} strokeWidth={1.75} />}
-            onClick={() => tryReload(active.key)}
-          />
-        </Tooltip>
+        <div className={styles.tabsTools}>
+          <Tooltip title={t('editor.saveHint')}>
+            <Button
+              size="small"
+              type="text"
+              className={styles.toolBtn}
+              disabled={!canSave}
+              loading={active.saving}
+              icon={<Save size={13} strokeWidth={1.75} />}
+              data-ofs-save="1"
+              onClick={() => void doSave(active.key, NO_GATES)}
+            />
+          </Tooltip>
+          <Tooltip title={t('editor.reload')}>
+            <Button
+              size="small"
+              type="text"
+              className={styles.toolBtn}
+              disabled={sessionDead}
+              icon={<RefreshCw size={13} strokeWidth={1.75} />}
+              onClick={() => tryReload(active.key)}
+            />
+          </Tooltip>
+        </div>
       </div>
 
       {sessionDead && (

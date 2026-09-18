@@ -16,6 +16,15 @@ const IPC = 'src/shared/ipc.ts'
 const SFTP_IPC = 'src/main/ipc/sftp.ipc.ts'
 const SESSION_VIEW = 'src/renderer/src/features/sessions/SessionView.tsx'
 const SESSION_STORE = 'src/renderer/src/stores/useSessionStore.ts'
+const SHELL_CSS = 'src/renderer/src/features/editor/EditorWindowShell.module.css'
+
+/** 取一条 CSS 规则的声明体（本文件里的规则都不含嵌套块，`[^}]*` 够用） */
+function cssRule(src: string, selector: string): string {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`(?:^|\\n)\\s*${esc}\\s*\\{([^}]*)\\}`).exec(stripComments(src))
+  if (!m) throw new Error(`样式里找不到规则 ${selector}`)
+  return flat(m[1])
+}
 
 describe('契约与 IPC 边界', () => {
   it('sftp:fileView 在契约里，且落在 sftp: 前缀下', () => {
@@ -301,5 +310,66 @@ describe('外部编辑器整条路已删净', () => {
     const src = stripComments(read('src/renderer/src/features/sftp/SftpPane.tsx'))
     expect(flat(src)).toContain("else if (fileAction === 'edit') void openInEditor(entry)")
     expect(src, 'startEdit 还在 —— 外部编辑器那条路没删净').not.toContain('startEdit')
+  })
+})
+
+/**
+ * 标签条的滚动条拖得动吗。
+ *
+ * 这条**只能读源码**：`-webkit-app-region` 不参与渲染进程的命中测试，jsdom 里
+ * 也量不出滚动条，真机症状（"横条看得见、拖不动"）在任何单测里都不出现 ——
+ * 而它只要有人把 overflow 挪回 `.tabs` 就会静默复发。
+ *
+ * 机制：拖拽区的判据是**盒子的矩形**。滚动条长在滚动盒子的底边上，谁自己带 overflow
+ * 谁就把滚动条圈进自己的矩形里；这块矩形一旦落在 dragging 区，鼠标按下去就被系统
+ * 当成标题栏（Windows 上是 HTCAPTION）直接开始拖窗口 —— 滚动条收不到任何指针事件。
+ * 滚动条不是 DOM 元素，没法单独给它标 no-drag，只能让它长在一个 no-drag 的盒子里。
+ */
+describe('标签条的窗口拖拽区与滚动条', () => {
+  it('带 drag 的 .tabs 自己不滚动，滚动条只长在 no-drag 的 .tabsScroll 里', () => {
+    const css = read(SHELL_CSS)
+    const tabs = cssRule(css, '.tabs')
+    const scroll = cssRule(css, '.tabsScroll')
+
+    expect(tabs, '拖拽区不再是拖拽区了').toContain('-webkit-app-region: drag')
+    expect(
+      tabs,
+      '.tabs 又自己滚了 —— 滚动条会落进拖拽区，鼠标一按变成拖窗口，横条就拖不动了'
+    ).not.toMatch(/overflow(-x)?:\s*(auto|scroll)/)
+
+    expect(scroll, '滚动区必须自己 no-drag，否则它整块（含滚动条）都还在拖拽区里').toContain(
+      '-webkit-app-region: no-drag'
+    )
+    expect(scroll, '滚动区不再横向滚动了').toMatch(/overflow-x:\s*auto/)
+    expect(scroll, 'flex 子项少了 min-width: 0 就按内容宽度收缩，永远滚不起来').toContain(
+      'min-width: 0'
+    )
+  })
+
+  /**
+   * 滚动区下沉之后，这条标题栏上还剩哪儿能拖窗口。
+   * 标签自己是 no-drag，按钮是 no-drag —— 空档要是也丢了，窗口就只剩 6px 的 padding 能抓。
+   */
+  it('标签与按钮之间的空档留着当拖窗把手', () => {
+    const gap = cssRule(read(SHELL_CSS), '.tabsGap')
+    expect(gap, '空档丢了拖拽区，窗口就没地方拖了').toContain('-webkit-app-region: drag')
+    expect(gap).toContain('align-self: stretch')
+  })
+
+  /**
+   * 保存/重读按钮必须在滚动区**外面**：跟着标签一起滚的话，十个文件开着时
+   * 想按保存得先把标签条滚到最右边（而那时候它又拖不动）。DOM 归属由
+   * editorWindowShell.test.tsx 那条组件用例钉着，这里钉的是源码里的相对次序。
+   */
+  it('工具按钮挂在滚动区之外', () => {
+    const src = read('src/renderer/src/features/editor/EditorWindowShell.tsx')
+    const atScroll = src.indexOf('styles.tabsScroll')
+    const atTools = src.indexOf('styles.tabsTools')
+    // 反空转：两个锚点都得在，且次序是"先滚动区、后按钮"
+    expect(atScroll).toBeGreaterThan(0)
+    expect(atTools, '工具按钮排到了滚动区前面').toBeGreaterThan(atScroll)
+    expect(src.slice(atScroll, atTools), '保存按钮又被塞回滚动区里了').not.toContain(
+      'data-ofs-save'
+    )
   })
 })

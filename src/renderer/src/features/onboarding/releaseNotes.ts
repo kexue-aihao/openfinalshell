@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.26',
+    items: [
+      { type: 'fix', zh: '修复内置编辑器打开多个文件时标签栏下方的横向滚动条拖不动的问题（该区域此前落在窗口拖拽区内），保存与重读按钮也不再被标签挤出视口', en: 'Fix the horizontal scrollbar under the built-in editor tab bar being undraggable when many files are open (the bar fell inside the window drag region); the save and reload buttons are no longer pushed out of view by the tabs' }
+    ]
+  },
+  {
     version: '0.30.25',
     items: [
       { type: 'fix', zh: '修复 macOS 临时目录符号链接导致的原生测试失败，恢复 Intel 与 Apple Silicon 安装包构建；保留文件传输的符号链接拒绝检查', en: 'Fix native tests failing on macOS temporary-directory aliases, restoring Intel and Apple Silicon package builds while preserving file-transfer symlink rejection' }
