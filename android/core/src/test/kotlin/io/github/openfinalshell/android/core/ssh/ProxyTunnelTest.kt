@@ -30,9 +30,14 @@ class ProxyTunnelTest {
                         socket.soTimeout = 3000
                         assertEquals("SSH-2.0-test", socket.getInputStream().bufferedReader().readLine())
                         socket.getOutputStream().write(42)
+                        // 等对端读到这个字节再退出 use（= 关隧道）。
+                        // close() 会立刻关掉上游 socket 并打断转发线程：客户端→代理那一个字节要由
+                        // 转发线程 copyTo 搬过去，主线程先关上游时那次 write 撞上 "Socket closed"，
+                        // 字节就没了。原写法把 peer.get() 放在关隧道之后，等于赌转发线程先跑完 ——
+                        // CI 慢机上真输过（v0.30.26 的 android-release 就是这么挂的）。
+                        peer.get(5, TimeUnit.SECONDS)
                     }
                 }
-                peer.get(5, TimeUnit.SECONDS)
             } finally { executor.shutdownNow() }
         }
     }
