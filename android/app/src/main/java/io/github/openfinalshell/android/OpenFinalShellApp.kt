@@ -245,9 +245,16 @@ fun OpenFinalShellApp(
                                 Text(androidx.compose.ui.res.stringResource(destination.titleRes))
                                 if (destination in setOf(AppDestination.TERMINAL, AppDestination.SFTP, AppDestination.MONITOR)) {
                                     val selected = state.selectedSessionId?.let { state.sessions[it] }
-                                    selected?.profile?.let {
+                                    selected?.profile?.let { profile ->
                                         Text(
-                                            text = "${it.username}@${it.host}",
+                                            // A local session has no user@host — "shell@localhost" would
+                                            // name a server the user never entered, so it shows the name
+                                            // they gave it instead.
+                                            text = if (profile.protocol == LOCAL_SHELL_PROTOCOL) {
+                                                profile.name
+                                            } else {
+                                                "${profile.username}@${profile.host}"
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1
