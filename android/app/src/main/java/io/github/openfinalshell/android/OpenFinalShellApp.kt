@@ -113,6 +113,7 @@ import io.github.openfinalshell.android.ui.OpenFinalShellSpacing
 import io.github.openfinalshell.android.ui.OpenFinalShellShapes
 import io.github.openfinalshell.android.ui.OpenFinalShellTerminalTokens
 import io.github.openfinalshell.android.terminal.SshTerminalView
+import kotlinx.coroutines.launch
 
 private enum class AppDestination(
     val key: String,
@@ -462,8 +463,13 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
     var privateKeyMenuExpanded by remember { mutableStateOf(false) }
     val formValid = name.isNotBlank() && host.isNotBlank() && username.isNotBlank() &&
         (port.toIntOrNull()?.let { it in 1..65535 } == true)
+    // Both forms render at the bottom of this list, which on a phone is below the fold: tapping
+    // "add" inserted a form the user could not see, so the tap read as doing nothing at all.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scrollScope = androidx.compose.runtime.rememberCoroutineScope()
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -499,7 +505,10 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = { showAddConnectionForm = !showAddConnectionForm }) {
+                TextButton(onClick = {
+                    showAddConnectionForm = !showAddConnectionForm
+                    if (showAddConnectionForm) scrollScope.launch { listState.revealOpenedForm() }
+                }) {
                     Text(androidx.compose.ui.res.stringResource(R.string.action_add_connection))
                 }
             }
@@ -596,7 +605,10 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(onClick = { showAddLocalForm = !showAddLocalForm }) {
+                TextButton(onClick = {
+                    showAddLocalForm = !showAddLocalForm
+                    if (showAddLocalForm) scrollScope.launch { listState.revealOpenedForm() }
+                }) {
                     Text(androidx.compose.ui.res.stringResource(R.string.action_add_local_session))
                 }
             }
@@ -798,6 +810,21 @@ private fun rememberAllFilesAccess(): Boolean {
     }
     return granted
 }
+
+/**
+ * Scrolls to where a newly opened form renders.
+ *
+ * An out-of-range index clamps to the end of the list, which is where both forms are — so no one has
+ * to track how many items the list currently holds.
+ */
+private suspend fun androidx.compose.foundation.lazy.LazyListState.revealOpenedForm() {
+    // One frame first: the form's items must exist in the layout before there is anything to scroll to.
+    androidx.compose.runtime.withFrameNanos { }
+    animateScrollToItem(REVEAL_END_INDEX)
+}
+
+/** Well past any real item count, so the scroll always lands at the end. */
+private const val REVEAL_END_INDEX = 10_000
 
 @Composable
 private fun ConnectionCard(

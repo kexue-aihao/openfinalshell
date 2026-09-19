@@ -17,6 +17,7 @@ import io.github.openfinalshell.android.core.ssh.SshTransport
 import io.github.openfinalshell.android.core.ssh.TransportEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -113,7 +115,10 @@ class LocalHostTransport(
             rows = rows,
             command = command
         )
-        val session = LocalHostSession(launcher.launch(request), scope)
+        // On Dispatchers.IO regardless of how the launcher is written, because launching connects a
+        // socket and the app calls this from the main dispatcher — a launcher that connected inline
+        // would raise NetworkOnMainThreadException and every privileged session would fail to open.
+        val session = LocalHostSession(withContext(Dispatchers.IO) { launcher.launch(request) }, scope)
         // A host that never answers must not leave a session half-open behind it.
         try {
             session.handshake(token)

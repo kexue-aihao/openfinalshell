@@ -108,7 +108,10 @@ class ShizukuHostLauncher(private val context: Context) : HostLauncher {
         val args = LocalHostArgs.build(request)
         val port = withContext(Dispatchers.IO) { bound.start(args) }
         check(port > 0) { "the privileged host did not report a port" }
-        return SocketLocalHostStream(port)
+        // The connect is blocking network I/O, so it must not run on the caller's dispatcher: the
+        // session opens from the main dispatcher, where connecting inline raises
+        // NetworkOnMainThreadException and the whole tier fails to open a shell.
+        return withContext(Dispatchers.IO) { SocketLocalHostStream(port) }
     }
 
     override suspend fun shutdown() {

@@ -84,7 +84,43 @@ class LocalHostTransportInstrumentedTest {
         }
     }
 
+    /**
+     * Connects inline — no `Dispatchers.IO` — which is exactly what `ShizukuHostLauncher` used to do.
+     *
+     * The transport is the thing under test here: it must absorb a launcher that performs blocking
+     * socket I/O, because the app reaches it from the main dispatcher.
+     */
+    private class InlineConnectingLauncher(private val helper: File, private val errorLog: File) : HostLauncher {
+        private val children = mutableListOf<Process>()
+
+        override suspend fun isAvailable(): Boolean = helper.canExecute()
+
+        override suspend fun launch(request: HostRequest): LocalHostStream {
+            val process = ProcessBuilder(listOf(helper.absolutePath) + LocalHostArgs.build(request))
+                .redirectError(errorLog)
+                .start()
+            synchronized(children) { children += process }
+            val port = LocalHostProcess.awaitPort(process)
+            check(port > 0) { "the helper did not report a port" }
+            return SocketLocalHostStream(port)
+        }
+
+        override suspend fun shutdown() {
+            val running = synchronized(children) {
+                val copy = children.toList()
+                children.clear()
+                copy
+            }
+            running.forEach { runCatching { it.destroy() } }
+        }
+    }
+
     private fun launcher() = AppUidLauncher(
+        LocalHostBinary.file(context),
+        File(context.cacheDir, "ofspty-instrumented.err")
+    )
+
+    private fun inlineLauncher() = InlineConnectingLauncher(
         LocalHostBinary.file(context),
         File(context.cacheDir, "ofspty-instrumented.err")
     )
@@ -128,6 +164,31 @@ class LocalHostTransportInstrumentedTest {
     @Test fun theHelperIsExecutableStraightFromTheNativeLibraryDirectory() {
         val helper = LocalHostBinary.file(context)
         assertTrue("expected an executable ${helper.path}", helper.canExecute())
+    }
+
+    /**
+     * Opens a shell from the main dispatcher, which is what the app does.
+     *
+     * Every other test here runs its body in `runBlocking`, whose coroutine is parked on the test
+     * thread. That is how a blocking `Socket.connect` on the caller's dispatcher passed this whole
+     * suite while failing in the app with `NetworkOnMainThreadException` — `viewModelScope` is the
+     * main dispatcher, and StrictMode rejects network I/O there.
+     */
+    @Test fun openingAShellFromTheMainDispatcherWorks() = runBlocking {
+        val transport = transport(inlineLauncher())
+        try {
+            transport.connect(profile(), Credentials())
+            val shell = withContext(Dispatchers.Main.immediate) { transport.openShell(cols = 80, rows = 24) }
+            val text = StringBuilder()
+            val collector = scope.launch { shell.output.collect { text.append(String(it, Charsets.UTF_8)) } }
+            shell.write("printf 'MAINOK\\n'\n".toByteArray(Charsets.UTF_8))
+            val seen = awaitText(text, "MAINOK")
+            collector.cancel()
+            assertTrue("expected a working shell when opened from Main; saw:\n$seen", seen.contains("MAINOK"))
+            shell.close()
+        } finally {
+            transport.disconnect()
+        }
     }
 
     /** The end-to-end proof: handshake, PTY, and a shell that really is this app's uid. */
