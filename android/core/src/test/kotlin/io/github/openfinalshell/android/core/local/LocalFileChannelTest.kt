@@ -133,16 +133,27 @@ class LocalFileChannelTest {
         assertEquals(LocalDeleteRefusal.DIRECTORY_WITHOUT_RECURSIVE, (other as UnsafeLocalDelete).refusal)
     }
 
+    /**
+     * A target that exists but sits outside the declared writable roots is refused by the guard,
+     * and is left alone.
+     *
+     * The target has to exist: `delete` fails on a missing path *before* the guard is consulted, so
+     * asserting the refusal without creating the file would pass for the wrong reason on any machine
+     * where it actually ran. It did exactly that here — this case is gated to POSIX hosts, so it had
+     * never executed until CI ran it on Linux.
+     */
     @Test fun deleteRefusesPathsOutsideTheWritableRoots() = runTest {
         posixOnly()
         val outside = temp.newFolder("outside")
+        val target = File(outside, "a.txt").apply { writeBytes("keep me".toByteArray()) }
         val narrow = LocalRoots(
             readable = listOf(temp.root.absolutePath),
             writable = listOf(File(temp.root, "outside/allowed").apply { mkdirs() }.path)
         )
-        val error = runCatching { channel(narrow).delete(File(outside, "a.txt").path, false) }.exceptionOrNull()
-        assertTrue(error is UnsafeLocalDelete)
+        val error = runCatching { channel(narrow).delete(target.path, false) }.exceptionOrNull()
+        assertTrue("expected a guard refusal, got $error", error is UnsafeLocalDelete)
         assertEquals(LocalDeleteRefusal.PROTECTED_PATH, (error as UnsafeLocalDelete).refusal)
+        assertTrue("a refused delete must not have deleted anything", target.exists())
     }
 
     /**

@@ -2,7 +2,9 @@ package io.github.openfinalshell.android.local
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.openfinalshell.android.core.local.LocalDeleteRefusal
 import io.github.openfinalshell.android.core.local.LocalFileChannel
+import io.github.openfinalshell.android.core.local.LocalRoots
 import io.github.openfinalshell.android.core.local.UnsafeLocalDelete
 import io.github.openfinalshell.android.core.monitor.LocalCapabilityProbe
 import io.github.openfinalshell.android.core.monitor.LocalMonitorFrameSource
@@ -190,6 +192,30 @@ class LocalShellInstrumentationTest {
         assertEquals(3, channel.exitCode.value)
         assertTrue("both streams must be present; got:\n$text", text.contains("OUT") && text.contains("ERR"))
         assertTrue("stderr must not be reordered after stdout; got:\n$text", text.indexOf("OUT") < text.indexOf("ERR"))
+    }
+
+    /**
+     * The same shape as the unit test that failed on Linux: a target that exists but sits outside
+     * the declared writable roots.
+     *
+     * It lives here as well because Android's kernel is Linux, so this runs the POSIX path on every
+     * device — while the JVM copy is gated to non-Windows hosts and can therefore sit unexecuted.
+     * The target must exist: `delete` fails on a missing path before the guard is consulted, which is
+     * precisely the mistake that hid in the gated test.
+     */
+    @Test fun aRefusedDeleteLeavesTheTargetAlone() = runBlocking {
+        val directory = File(context.filesDir, "instrumented-refusal").apply { mkdirs() }
+        val target = File(directory, "keep.txt").apply { writeBytes("keep".toByteArray()) }
+        // Writable roots that deliberately exclude the directory the target lives in.
+        val narrow = LocalRoots(
+            readable = listOf(context.filesDir.path),
+            writable = listOf(File(context.filesDir, "elsewhere").path)
+        )
+        val channel = LocalFileChannel(narrow)
+        val error = runCatching { channel.delete(target.path, recursive = false) }.exceptionOrNull()
+        assertTrue("expected a guard refusal, got $error", error is UnsafeLocalDelete)
+        assertEquals(LocalDeleteRefusal.PROTECTED_PATH, (error as UnsafeLocalDelete).refusal)
+        assertTrue("a refused delete must not have deleted anything", target.exists())
     }
 
     @Test fun fileChannelRoundTripsAndRefusesProtectedPaths() = runBlocking {
