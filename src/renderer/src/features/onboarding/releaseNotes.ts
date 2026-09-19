@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.30',
+    items: [
+      { type: 'fix', zh: '修复 Android 本地终端 root 档在 Shizuku 未授权本应用时谎报可用、连上后卡住约 15 秒再报失败：在 Shizuku 以 root 运行的设备上该档走的就是 Shizuku user service，同样需要授权，现在会如实降级并在卡片上直接给出授权入口；终端顶部的会话标识对本地会话改为显示它自己的名字（v0.30.29 的更新说明里写过，但改动当时漏了提交，这一版才真正带上）', en: 'Fix the Android local terminal\'s root tier reporting itself available when Shizuku has not granted the app, then hanging for about 15 seconds before failing — on a device where Shizuku runs as root that tier is served by a Shizuku user service and needs the same grant, so it now downgrades honestly and offers the grant action on the card; the session label above the terminal now shows a local session\'s own name (announced in the 0.30.29 notes, but the change had not been committed and so ships here)' }
+    ]
+  },
+  {
     version: '0.30.29',
     items: [
       { type: 'fix', zh: '修复 Android 本地终端：特权档（ADB shell / root）一开终端就失败——socket 连接跑在主线程上被系统拒绝，表现为会话显示已连接却没有可用的 shell；「添加本地终端」的表单渲染在屏幕可视区之外，点了像没反应，现在会自动滚到它（「添加连接」同理）；终端顶部的会话标识也不再对本地会话显示 shell@localhost 这个用户从未输入过的地址', en: 'Fix the Android local terminal: the privileged tiers (ADB shell / root) failed to open a shell because the socket connect ran on the main thread and was rejected — the session showed as connected with no usable shell; the "add local session" form rendered below the visible area so tapping it looked like nothing happened, and it now scrolls into view (same for "add connection"); the session label above the terminal no longer shows shell@localhost for a local session, an address the user never entered' }
