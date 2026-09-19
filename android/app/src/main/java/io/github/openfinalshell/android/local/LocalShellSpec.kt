@@ -32,7 +32,12 @@ data class LocalShellSpec(
             "PATH=/sbin:/system/sbin:/system/bin:/system/xbin:/vendor/bin",
             "SHELL=$shellPath",
             "TERM=$termType",
-            "LANG=en_US.UTF-8"
+            "LANG=en_US.UTF-8",
+            // The PTY host overlays these entries onto the environment it inherited rather than
+            // replacing it, so whatever is set here is the only thing the two tiers agree on. The
+            // shell's built-in prompt is `$HOSTNAME:${PWD:-?} $`, and the app tier inherits an
+            // environment with no HOSTNAME, which left its prompt starting at the colon.
+            "HOSTNAME=$LOCAL_HOSTNAME"
         )
 
     fun prepareDirectories() {
@@ -42,6 +47,9 @@ data class LocalShellSpec(
 
     companion object {
         const val DEFAULT_SHELL = "/system/bin/sh"
+
+        /** What the prompt prints before the colon. The same host a local profile carries. */
+        const val LOCAL_HOSTNAME = "localhost"
 
         /**
          * The session's private home. Shared rather than private to [forProfile] so the file panel
