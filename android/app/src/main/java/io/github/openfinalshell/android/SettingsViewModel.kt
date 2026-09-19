@@ -107,6 +107,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setMonitorIntervalSeconds(value: Int) = update { it.copy(monitorIntervalSeconds = value) }
     fun setDownloadDirectoryUri(uri: String?) = update { it.copy(downloadDirectoryUri = uri) }
 
+    /**
+     * The second gate on the root tier, independent of the build flag and off by default.
+     *
+     * Stored as intent rather than as a resolved capability: the device's actual root state is
+     * probed at each connect, and this only decides whether the tier may be offered at all.
+     */
+    fun setLocalAllowRoot(enabled: Boolean) = update { it.copy(localAllowRoot = enabled) }
+
     fun checkForUpdates() {
         viewModelScope.launch {
             updateManager.checkForUpdates()

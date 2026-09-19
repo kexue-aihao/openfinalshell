@@ -2,6 +2,32 @@ package io.github.openfinalshell.android.core.model
 
 import kotlinx.serialization.Serializable
 
+/**
+ * Protocol value for a shell that runs on this device instead of connecting to another one.
+ *
+ * It is a plain string rather than an enum because the column, the export envelope and the desktop
+ * importer all carry [ConnectionProfile.protocol] as free text; see the local-shell plan for why
+ * the desktop deliberately stays unaware of this value.
+ */
+const val LOCAL_SHELL_PROTOCOL = "local"
+
+/** Privilege tiers a local session may run at, from least to most capable. */
+object LocalShellTier {
+    /** Resolve to the highest tier this device actually offers. */
+    const val AUTO = "auto"
+
+    /** The app's own uid. Always available, needs no setup, cannot see shared storage by default. */
+    const val APP = "app"
+
+    /** The ADB shell uid (2000), reached through Shizuku. */
+    const val ADB = "adb"
+
+    /** uid 0, through Shizuku running as root (Sui) or a direct `su`. */
+    const val ROOT = "root"
+
+    val all = listOf(AUTO, APP, ADB, ROOT)
+}
+
 @Serializable
 data class ConnectionProfile(
     val id: String,
@@ -11,8 +37,10 @@ data class ConnectionProfile(
     val username: String,
     val auth: ConnectionAuth,
     val proxy: ConnectionProxy? = null,
-    /** Android currently supports SSH profiles only. Kept in the model for import compatibility. */
+    /** `"ssh"`, `"rdp"` (import-only today), or [LOCAL_SHELL_PROTOCOL]. */
     val protocol: String = "ssh",
+    /** Present only for [LOCAL_SHELL_PROTOCOL] profiles. Ignored, and dropped, by the desktop. */
+    val local: ConnectionLocal? = null,
     val groupId: String? = null,
     val note: String? = null,
     val terminal: ConnectionTerminal = ConnectionTerminal(),
@@ -23,6 +51,23 @@ data class ConnectionProfile(
     val color: String? = null,
     val flag: String? = null,
     val lastUsedAt: Long? = null
+)
+
+/**
+ * Settings for a shell that runs on this device.
+ *
+ * These profiles are device-specific and are excluded from portable export and LAN sync: a shell
+ * path, a tier and a start directory describe one phone, and importing them elsewhere would
+ * produce a profile that either fails or, at the root tier, points somewhere unexpected.
+ */
+@Serializable
+data class ConnectionLocal(
+    /** The highest tier this profile may use; [LocalShellTier.AUTO] means "whatever is available". */
+    val tier: String = LocalShellTier.AUTO,
+    /** `"system"` uses the platform's own shell and toybox. Reserved for a future proot userland. */
+    val userland: String = "system",
+    /** Directory the shell starts in. Null means the session's own private home. */
+    val startDirectory: String? = null
 )
 
 @Serializable

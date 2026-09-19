@@ -20,6 +20,34 @@
     <string name="private_key_default_name">закрытый-ключ</string>
     <string name="action_connect">Подключить</string>
     <string name="action_add_connection">Добавить подключение</string>
+    <string name="local_section_title">Локальная оболочка</string>
+    <string name="action_add_local_session">Добавить локальную оболочку</string>
+    <string name="local_start_directory">Начальный каталог (необязательно)</string>
+    <string name="local_shell_note">Запускает оболочку на этом устройстве с правами приложения. Общее хранилище видно только при разрешении доступа ко всем файлам.</string>
+    <string name="local_badge">ЛОКАЛЬНО</string>
+    <string name="status_local_root_confirm">Подтвердите доступ root, чтобы продолжить</string>
+    <string name="local_root_confirm_title">Запустить от root?</string>
+    <string name="local_root_confirm_body">Оболочка root может читать приватные данные всех приложений на этом устройстве, включая сохранённые подключения этого приложения и токен ИИ. Продолжайте только на устройстве, которое вы контролируете.</string>
+    <string name="local_root_confirm_action">Запустить от root</string>
+    <string name="local_tier_label">Уровень прав</string>
+    <string name="local_tier_auto">Автоматически</string>
+    <string name="local_tier_app">Права приложения</string>
+    <string name="local_tier_adb">ADB shell</string>
+    <string name="local_tier_root">root</string>
+    <string name="local_tier_downgraded">Запрошен %1$s, работа на %2$s</string>
+    <string name="local_blocker_shizuku_not_installed">Shizuku не установлен</string>
+    <string name="local_blocker_shizuku_not_running">Запустите Shizuku, чтобы использовать этот уровень</string>
+    <string name="local_blocker_shizuku_no_permission">Разрешите это приложение в Shizuku</string>
+    <string name="local_blocker_shizuku_too_old">Shizuku устарел, обновите его</string>
+    <string name="local_blocker_no_root_binary">На этом устройстве нет root</string>
+    <string name="local_blocker_root_disabled">Сначала включите уровень root в настройках</string>
+    <string name="local_blocker_helper_missing">В этой сборке нет привилегированного помощника</string>
+    <string name="settings_local_shell">Локальная оболочка</string>
+    <string name="settings_local_allow_root">Разрешить уровень root</string>
+    <string name="settings_local_allow_root_body">По умолчанию выключено. Даже на устройстве с root уровень root не предлагается, пока вы не включите его здесь.</string>
+
+
+    <string name="action_grant_all_files">Разрешить доступ ко всем файлам</string>
     <string name="status_connection_requested">Подключение запрошено</string>
     <string name="status_monitor_failed">Данные мониторинга недоступны</string>
     <string name="terminal_select_connection">Выберите подключение, чтобы открыть оболочку</string>

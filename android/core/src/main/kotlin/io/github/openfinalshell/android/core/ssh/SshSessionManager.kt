@@ -3,6 +3,7 @@ package io.github.openfinalshell.android.core.ssh
 import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.ForwardRule
 import io.github.openfinalshell.android.core.model.SessionState
+import io.github.openfinalshell.android.core.monitor.MonitorFrameSource
 import java.util.UUID
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
@@ -43,11 +44,15 @@ sealed interface SessionEvent {
 }
 
 /**
- * Owns all runtime SSH sessions. The registry is independent of Compose so a screen change
+ * Owns all runtime sessions. The registry is independent of Compose so a screen change
  * cannot accidentally close another connection. A profile may have several live sessions.
+ *
+ * The factory receives the profile so a single registry can hold SSH sessions and local
+ * on-device shells side by side, and it suspends so a local session can resolve its privilege
+ * tier — which means probing Shizuku — at the moment it connects rather than at construction.
  */
 class SshSessionManager(
-    private val transportFactory: () -> SshTransport,
+    private val transportFactory: suspend (ConnectionProfile) -> SshTransport,
     private val scope: CoroutineScope,
     private val credentialsResolver: CredentialsResolver = PassthroughCredentialsResolver,
     private val shouldReconnect: (ConnectionProfile) -> Boolean = { true }
@@ -82,7 +87,7 @@ class SshSessionManager(
 
     /** Opens a new runtime session and returns its stable id. */
     suspend fun connect(profile: ConnectionProfile, supplied: Credentials): String {
-        val entry = Entry(UUID.randomUUID().toString(), profile, transportFactory())
+        val entry = Entry(UUID.randomUUID().toString(), profile, transportFactory(profile))
         synchronized(lock) {
             entries[entry.sessionId] = entry
             mutableActiveSessionId.value = entry.sessionId
@@ -119,6 +124,14 @@ class SshSessionManager(
     /** Returns the current runtime state without exposing mutable session entries. */
     fun sessionState(sessionId: String): SessionState? =
         synchronized(lock) { entries[sessionId]?.state }
+
+    /**
+     * What the session's shell can answer for the monitoring panel, or null when it speaks the
+     * remote Linux frame. Exposed through the manager so the monitor never has to know which
+     * transport kind a session is.
+     */
+    fun frameSource(sessionId: String): MonitorFrameSource? =
+        synchronized(lock) { entries[sessionId]?.transport?.frameSource }
 
     suspend fun openShell(sessionId: String, cols: Int, rows: Int): ShellChannel {
         val entry = requireEntry(sessionId)
@@ -262,7 +275,7 @@ class SshSessionManager(
         updateState(entry, SessionState.RECONNECTING, null)
         detachTransport(entry)
         runCatching { entry.transport.disconnect() }
-        entry.transport = transportFactory()
+        entry.transport = transportFactory(entry.profile)
         attachTransport(entry)
         val credentials = entry.credentials?.copyForUse() ?: Credentials()
         try {

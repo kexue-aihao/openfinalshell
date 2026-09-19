@@ -33,6 +33,10 @@ env:
   GRADLE_VERSION: "8.10.2"
   ANDROID_PLATFORM: "android-35"
   ANDROID_BUILD_TOOLS: "35.0.0"
+  # Pinned to the version in android/app/build.gradle.kts. The privileged local-shell tiers need the
+  # native PTY host built here, so both the unit and the instrumentation job install it.
+  ANDROID_NDK: "27.0.12077973"
+  ANDROID_CMAKE: "3.22.1"
 
 jobs:
   unit:
@@ -59,7 +63,7 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
+        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
 
       - name: Generate shared schema metadata
         run: node scripts/generateSharedSchema.mjs
@@ -122,7 +126,7 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}"
+        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -150,7 +154,44 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           disable-spellchecker: true
-          script: gradle -p android :app:connectedDebugAndroidTest --stacktrace --no-daemon --console=plain
+          script: |
+            # Proves the load-bearing half of the privileged local-shell tiers without a Shizuku
+            # installation: `adb shell` is uid 2000 on these images, so if the helper executes,
+            # allocates a PTY through forkpty and reports 2000, then the same artifact will work as a
+            # Shizuku user service or under `su`. This is the only part of those tiers CI can reach.
+            helper=android/app/build/intermediates/cmake/debug/obj/x86_64/libofspty.so
+            adb push "$helper" /data/local/tmp/libofspty.so
+            adb shell chmod 700 /data/local/tmp/libofspty.so
+            uid=$(adb shell /data/local/tmp/libofspty.so --self-test | tr -d '\r')
+            if [ "$uid" != "2000" ]; then
+              echo "::error::ofspty self-test reported '$uid', expected 2000"
+              exit 1
+            fi
+            echo "ofspty self-test reported uid $uid"
+
+            # Then prove the assumption the tiers rest on: that an app-uid process can drive a PTY
+            # host at the shell uid over loopback. A SELinux refusal here would sink the whole
+            # design, and nothing else in the suite would notice.
+            token=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+            adb shell "rm -f /data/local/tmp/ofs-l1.txt; nohup /data/local/tmp/libofspty.so \
+              --port 0 --token $token --shell /system/bin/sh --cwd /data/local/tmp \
+              --cols 80 --rows 24 > /data/local/tmp/ofs-l1.txt 2>&1 &"
+            sleep 3
+            port=$(adb shell cat /data/local/tmp/ofs-l1.txt | tr -d '\r' | sed 's/PORT //')
+            if [ -z "$port" ]; then
+              echo "::error::the staged PTY host reported no port"
+              exit 1
+            fi
+            adb shell am instrument -w -e ofsHostPort "$port" -e ofsHostToken "$token" \
+              -e class io.github.openfinalshell.android.local.LocalHostCrossUidInstrumentedTest \
+              io.github.openfinalshell.android.test/androidx.test.runner.AndroidJUnitRunner > cross-uid.txt 2>&1
+            cat cross-uid.txt
+            grep -q "OK (1 test)" cross-uid.txt || {
+              echo "::error::the app-uid process could not drive the shell-uid host"
+              exit 1
+            }
+
+            gradle -p android :app:connectedDebugAndroidTest --stacktrace --no-daemon --console=plain
 
       - name: Collect instrumentation diagnostics
         if: ${{ failure() }}

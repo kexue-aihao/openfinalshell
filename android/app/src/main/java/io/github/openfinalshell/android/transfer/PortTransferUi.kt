@@ -25,7 +25,12 @@ import io.github.openfinalshell.android.core.sftp.RemoteTextEncoding
 import io.github.openfinalshell.android.core.sftp.RemoteTextEditor
 
 @Composable
-fun SftpTransferActions(viewModel: MainViewModel, onDownloadDirectory: (Uri) -> Unit) {
+fun SftpTransferActions(
+    viewModel: MainViewModel,
+    /** False for a local session: packed transfer assumes a remote `/tmp` and a link worth compressing. */
+    packedTransferAvailable: Boolean,
+    onDownloadDirectory: (Uri) -> Unit
+) {
     val context = LocalContext.current
     val state by viewModel.portTransfer.collectAsStateWithLifecycle()
     var showEncodings by remember { mutableStateOf(false) }
@@ -52,7 +57,9 @@ fun SftpTransferActions(viewModel: MainViewModel, onDownloadDirectory: (Uri) -> 
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
             TextButton(onClick = { upload.launch(arrayOf("*/*")) }) { Text(stringResource(R.string.port_upload_files)) }
             TextButton(onClick = { directory.launch(null) }) { Text(stringResource(R.string.port_upload_directory)) }
-            TextButton(onClick = { packed.launch(null) }) { Text(stringResource(R.string.port_pack_upload)) }
+            if (packedTransferAvailable) {
+                TextButton(onClick = { packed.launch(null) }) { Text(stringResource(R.string.port_pack_upload)) }
+            }
             TextButton(onClick = { destination.launch(viewModel.configuredDownloadTree()) }) { Text(stringResource(R.string.action_choose_directory)) }
         }
         Text(stringResource(R.string.port_resume_note), style = MaterialTheme.typography.labelSmall)

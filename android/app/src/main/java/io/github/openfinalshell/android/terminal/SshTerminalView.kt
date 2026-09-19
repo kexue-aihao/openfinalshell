@@ -60,7 +60,7 @@ class SshTerminalView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : View(context, attrs) {
-    private var controller: SshTerminalController? = null
+    private var controller: TerminalHostController? = null
     private var onInput: ((ByteArray) -> Unit)? = null
     private var onResize: ((Int, Int) -> Unit)? = null
     private var renderer = TerminalRenderer(DEFAULT_FONT_SIZE, Typeface.MONOSPACE)
@@ -98,7 +98,7 @@ class SshTerminalView @JvmOverloads constructor(
     }
 
     fun bind(
-        nextController: SshTerminalController,
+        nextController: TerminalHostController,
         fontSizeSp: Int,
         cursorStyle: TerminalCursorStyle,
         input: (ByteArray) -> Unit,

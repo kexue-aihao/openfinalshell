@@ -22,7 +22,17 @@ data class AndroidSettings(
     val sftpConflictPolicy: String = "ask",
     val sftpShowHiddenFiles: Boolean = false,
     val monitorIntervalSeconds: Int = 5,
-    val downloadDirectoryUri: String? = null
+    val downloadDirectoryUri: String? = null,
+    /** Tier a new local session defaults to. See [io.github.openfinalshell.android.core.model.LocalShellTier]. */
+    val localShellTierDefault: String = "auto",
+    /**
+     * A second, product-level gate on the root tier, independent of the build flag. Even on a
+     * rooted device the root tier is not offered until the user turns this on, because a root shell
+     * on the same phone can read the app's own credential store.
+     */
+    val localAllowRoot: Boolean = false,
+    /** Remembers that the user was already sent to the all-files-access settings page. */
+    val localAllFilesAccessRequested: Boolean = false
 ) {
     /** Clamp values read from old or hand-edited documents before they reach the UI/core. */
     fun normalized(): AndroidSettings = copy(
@@ -36,7 +46,8 @@ data class AndroidSettings(
         sftpConcurrency = sftpConcurrency.coerceIn(1, 8),
         sftpConflictPolicy = sftpConflictPolicy.takeIf { it in CONFLICT_POLICIES } ?: "ask",
         monitorIntervalSeconds = monitorIntervalSeconds.coerceIn(2, 60),
-        downloadDirectoryUri = downloadDirectoryUri?.takeIf { it.isNotBlank() }
+        downloadDirectoryUri = downloadDirectoryUri?.takeIf { it.isNotBlank() },
+        localShellTierDefault = localShellTierDefault.takeIf { it in LOCAL_TIERS } ?: "auto"
     )
 
     companion object {
@@ -50,6 +61,7 @@ data class AndroidSettings(
         val THEMES = setOf("system", "light", "dark")
         val CURSOR_STYLES = setOf("block", "line", "underline")
         val CONFLICT_POLICIES = setOf("ask", "overwrite", "skip")
+        val LOCAL_TIERS = io.github.openfinalshell.android.core.model.LocalShellTier.all.toSet()
         private val HEX_COLOR = Regex("^#[0-9A-Fa-f]{6}$")
 
         fun normalizeLanguage(value: String): String = when (value) {

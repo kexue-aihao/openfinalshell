@@ -24,7 +24,9 @@ OpenFinalShell 是一个开源、跨平台的远程运维工作台，集成 SSH 
 | Windows x86 / ARM64 | 支持 | 未打包 Worker，可使用系统 RDP | 由系统 RDP 客户端提供 | 支持 | 支持，设置中开启 |
 | macOS x64 / ARM64 | 支持 | 真实 FreeRDP Worker | 缓存后原生粘贴已接入，待实机验收、默认关闭 | 支持 | 已适配，待验收 |
 | Linux x64 / ARM64 | 支持 | 真实 FreeRDP Worker | 缓存后原生粘贴已接入，待实机验收、默认关闭 | 支持 | 已适配，待验收 |
-| Android 8.0+ | 原生客户端，本轮补齐代理、SAF 和编辑 | 暂不支持 | 暂不支持 | 已接入，APK 与模拟器测试通过，待实机验收 | 不适用 |
+| Android 8.0+ | 原生客户端，本轮补齐代理、SAF、编辑和本地终端 | 暂不支持 | 暂不支持 | 已接入，APK 与模拟器测试通过，待实机验收 | 不适用 |
+
+Android 的**本地终端**在本机上直接运行 shell，分三档权限：应用自身、ADB shell（uid 2000，经 Shizuku）、root（uid 0，经 Shizuku-as-root 或 `su`）。档位每次连接时重新探测而非缓存。终端、文件、监控与 AI 助手都接入了本地会话 —— 它实现的是同一个 `SshTransport` 契约。root 档在构建开关之外还需在设置中显式开启，每次连接前弹确认说明 uid 0 能读到本应用保存的凭据，且确认不落盘。应用档在未授予「所有文件访问权限」时看不到 `/sdcard`；ADB 与 root 档的 PTY 由随包的可执行 `libofspty.so` 在特权进程中分配。特权档与 root 档尚待实机验收。
 
 macOS/Linux 的 RDP 基础连接、画面、键鼠和缩放已有实现。本轮将文本剪贴板替换为 macOS NSPasteboard 与 Linux GTK3 原生接口，不再依赖 `pbcopy`、`xclip` 或 `wl-clipboard`。文件粘贴采用完整下载到私有缓存后再发布文件 URL 的方式；新增音频后端和多实例适配仍受实机验收门槛控制。当前仅有 Windows 验证环境，不能将这些代码接入视为 macOS/Linux 正式验收通过。系统 RDP 入口仍通过 `.rdp` 文件调用已安装的默认处理程序。
 

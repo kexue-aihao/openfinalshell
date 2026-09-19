@@ -19,6 +19,34 @@
     <string name="private_key_default_name">秘密鍵</string>
     <string name="action_connect">接続</string>
     <string name="action_add_connection">接続を追加</string>
+    <string name="local_section_title">ローカルシェル</string>
+    <string name="action_add_local_session">ローカルシェルを追加</string>
+    <string name="local_start_directory">開始ディレクトリ（任意）</string>
+    <string name="local_shell_note">アプリの権限でこの端末上のシェルを実行します。全ファイルアクセスを許可しない限り共有ストレージは表示されません。</string>
+    <string name="local_badge">ローカル</string>
+    <string name="status_local_root_confirm">続けるには root 権限を確認してください</string>
+    <string name="local_root_confirm_title">root で実行しますか？</string>
+    <string name="local_root_confirm_body">root シェルはこの端末上のすべてのアプリのプライベートデータ（本アプリが保存した接続情報と AI トークンを含む）を読み取れます。管理下にある端末でのみ続行してください。</string>
+    <string name="local_root_confirm_action">root で実行</string>
+    <string name="local_tier_label">権限ティア</string>
+    <string name="local_tier_auto">自動</string>
+    <string name="local_tier_app">アプリ自身</string>
+    <string name="local_tier_adb">ADB shell</string>
+    <string name="local_tier_root">root</string>
+    <string name="local_tier_downgraded">%1$s を要求しましたが %2$s で実行しています</string>
+    <string name="local_blocker_shizuku_not_installed">Shizuku がインストールされていません</string>
+    <string name="local_blocker_shizuku_not_running">このティアを使うには Shizuku を起動してください</string>
+    <string name="local_blocker_shizuku_no_permission">Shizuku で本アプリを許可してください</string>
+    <string name="local_blocker_shizuku_too_old">Shizuku が古すぎます。更新してください</string>
+    <string name="local_blocker_no_root_binary">この端末に root がありません</string>
+    <string name="local_blocker_root_disabled">先に設定で root ティアを有効にしてください</string>
+    <string name="local_blocker_helper_missing">このビルドには特権ヘルパーが含まれていません</string>
+    <string name="settings_local_shell">ローカルシェル</string>
+    <string name="settings_local_allow_root">root ティアを許可</string>
+    <string name="settings_local_allow_root_body">既定では無効です。root 化済みの端末でも、ここで有効にするまで root ティアは提供されません。</string>
+
+
+    <string name="action_grant_all_files">全ファイルアクセスを許可</string>
     <string name="status_connection_requested">接続を要求しました</string>
     <string name="status_monitor_failed">監視データを取得できません</string>
     <string name="terminal_select_connection">接続を選択してシェルを開いてください</string>

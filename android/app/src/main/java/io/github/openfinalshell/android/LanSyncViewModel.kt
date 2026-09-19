@@ -121,10 +121,13 @@ class LanSyncViewModel(application: Application) : AndroidViewModel(application)
                 mutableState.value = mutableState.value.copy(phase = "sending", selectedPeer = peer, lastResult = null, message = null)
                 val result = withMulticastLock {
                     coordinator.send(peer, deviceId, deviceName, BuildConfig.VERSION_NAME, code.toCharArray()) { channelPassphrase ->
+                        // Local on-device sessions are excluded from the envelope; the sync message
+                        // stays generic because that exclusion is a permanent property rather than
+                        // something the user chose per transfer.
                         PortableExport.buildV2FromStorage(
                             profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials,
                             passphrase = channelPassphrase, includeSecrets = true, appVersion = BuildConfig.VERSION_NAME, tools = database.tools()
-                        )
+                        ).text
                     }
                 }
                 mutableState.value = mutableState.value.copy(phase = "applied", lastResult = result, message = UiStatus(StatusKey.SYNC_DELIVERED))

@@ -19,6 +19,34 @@
     <string name="private_key_default_name">개인 키</string>
     <string name="action_connect">연결</string>
     <string name="action_add_connection">연결 추가</string>
+    <string name="local_section_title">로컬 셸</string>
+    <string name="action_add_local_session">로컬 셸 추가</string>
+    <string name="local_start_directory">시작 디렉터리(선택)</string>
+    <string name="local_shell_note">앱 권한으로 이 기기에서 셸을 실행합니다. 모든 파일 접근을 허용하지 않으면 공용 저장소가 보이지 않습니다.</string>
+    <string name="local_badge">로컬</string>
+    <string name="status_local_root_confirm">계속하려면 root 권한을 확인하세요</string>
+    <string name="local_root_confirm_title">root로 실행할까요?</string>
+    <string name="local_root_confirm_body">root 셸은 이 기기의 모든 앱 전용 데이터를 읽을 수 있습니다. 이 앱이 저장한 연결 정보와 AI 토큰도 포함됩니다. 직접 관리하는 기기에서만 계속하세요.</string>
+    <string name="local_root_confirm_action">root로 실행</string>
+    <string name="local_tier_label">권한 등급</string>
+    <string name="local_tier_auto">자동</string>
+    <string name="local_tier_app">앱 자체</string>
+    <string name="local_tier_adb">ADB shell</string>
+    <string name="local_tier_root">root</string>
+    <string name="local_tier_downgraded">%1$s을(를) 요청했지만 %2$s(으)로 실행 중입니다</string>
+    <string name="local_blocker_shizuku_not_installed">Shizuku가 설치되어 있지 않습니다</string>
+    <string name="local_blocker_shizuku_not_running">이 등급을 쓰려면 Shizuku를 시작하세요</string>
+    <string name="local_blocker_shizuku_no_permission">Shizuku에서 이 앱을 허용하세요</string>
+    <string name="local_blocker_shizuku_too_old">Shizuku가 너무 오래되었습니다. 업데이트하세요</string>
+    <string name="local_blocker_no_root_binary">이 기기에는 root가 없습니다</string>
+    <string name="local_blocker_root_disabled">먼저 설정에서 root 등급을 켜세요</string>
+    <string name="local_blocker_helper_missing">이 빌드에는 권한 도우미가 없습니다</string>
+    <string name="settings_local_shell">로컬 셸</string>
+    <string name="settings_local_allow_root">root 등급 허용</string>
+    <string name="settings_local_allow_root_body">기본값은 꺼짐입니다. root 권한이 있는 기기라도 여기에서 켜야 root 등급이 제공됩니다.</string>
+
+
+    <string name="action_grant_all_files">모든 파일 접근 허용</string>
     <string name="status_connection_requested">연결을 요청했습니다</string>
     <string name="status_monitor_failed">모니터링 데이터를 사용할 수 없습니다</string>
     <string name="terminal_select_connection">연결을 선택하여 셸을 여세요</string>

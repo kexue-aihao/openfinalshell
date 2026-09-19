@@ -18,6 +18,9 @@ Thumbs.db
 # Android/Gradle build output
 android/.gradle/
 android/**/build/
+# CMake/NDK intermediate output for the privileged PTY host. It sits outside build/, so it needs its
+# own entry — it contains generated makefiles and absolute toolchain paths.
+android/**/.cxx/
 android/local.properties
 
 # Local Android toolchain downloads (never commit SDK/Gradle binaries or caches)

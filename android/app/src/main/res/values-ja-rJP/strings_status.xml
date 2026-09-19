@@ -21,6 +21,8 @@
     <string name="status_private_key_imported">Private key imported</string>
     <string name="status_host_trust_revoked">Host trust revoked</string>
     <string name="status_export_completed">Export completed</string>
+<string name="status_local_sessions_excluded">エクスポート完了。%1$d 件のローカルセッションは端末固有のため含まれていません</string>
+    <string name="status_local_packed_transfer_unavailable">ローカルセッションではパッケージ転送を利用できません</string>
     <string name="status_import_completed">Imported %1$d profiles, %2$d groups, %3$d proxies; %4$d notes</string>
     <string name="status_session_required">Select a connected session first</string>
     <string name="status_server_info_unavailable">Server information unavailable</string>

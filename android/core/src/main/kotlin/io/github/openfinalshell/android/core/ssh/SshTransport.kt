@@ -3,6 +3,7 @@ package io.github.openfinalshell.android.core.ssh
 import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.ForwardRule
 import io.github.openfinalshell.android.core.model.SessionState
+import io.github.openfinalshell.android.core.monitor.MonitorFrameSource
 import java.security.PublicKey
 import java.security.MessageDigest
 import java.util.Base64
@@ -16,6 +17,17 @@ interface SshTransport {
     /** Lifecycle events from the underlying SSH client. */
     val events: Flow<TransportEvent>
         get() = emptyFlow()
+
+    /**
+     * What this transport's shell can answer for the monitoring panel, or null to use the remote
+     * Linux frame.
+     *
+     * It belongs here because "which of these commands works" is a property of the shell on the far
+     * end — a plain Linux box answers all of them, an Android device answers a tier-dependent
+     * subset — and the transport is what knows.
+     */
+    val frameSource: MonitorFrameSource?
+        get() = null
 
     suspend fun connect(profile: ConnectionProfile, credentials: Credentials)
     suspend fun openShell(cols: Int, rows: Int): ShellChannel
@@ -68,6 +80,14 @@ object HostKeyFingerprint {
 }
 
 interface ShellChannel {
+    /**
+     * True when the backend already feeds a terminal emulator, so its output must not be rendered
+     * a second time. A local on-device shell backed by Termux's TerminalSession owns both the PTY
+     * and the emulator; every SSH and socket-backed channel leaves this false. Callers must branch
+     * on this rather than on the profile protocol, because the privileged local tiers are plain
+     * PTYs over a socket and do not own an emulator.
+     */
+    val ownsEmulator: Boolean get() = false
     val output: Flow<ByteArray>
     val events: Flow<ShellEvent>
         get() = emptyFlow()

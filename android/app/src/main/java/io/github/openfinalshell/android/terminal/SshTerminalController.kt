@@ -5,7 +5,6 @@ import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalOutput
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
-import io.github.openfinalshell.android.core.terminal.TerminalController
 import io.github.openfinalshell.android.core.terminal.TerminalCursorStyle
 import io.github.openfinalshell.android.core.terminal.TerminalSnapshot
 import kotlinx.coroutines.CoroutineScope
@@ -27,7 +26,7 @@ class SshTerminalController(
     initialCols: Int = DEFAULT_COLUMNS,
     initialRows: Int = DEFAULT_ROWS,
     scrollbackLines: Int = DEFAULT_SCROLLBACK
-) : TerminalController, TerminalSessionClient {
+) : TerminalHostController, TerminalSessionClient {
     @Volatile private var closed = false
     @Volatile private var title: String? = null
     @Volatile private var fontSizeSp = DEFAULT_FONT_SIZE
@@ -63,7 +62,7 @@ class SshTerminalController(
         override fun onColorsChanged() = publishSnapshot()
     }
 
-    val emulator = TerminalEmulator(
+    override val emulator = TerminalEmulator(
         terminalOutput,
         initialCols.coerceAtLeast(MIN_COLUMNS),
         initialRows.coerceAtLeast(MIN_ROWS),
@@ -126,7 +125,7 @@ class SshTerminalController(
         fontSizeSp = size.coerceIn(MIN_FONT_SIZE, MAX_FONT_SIZE)
     }
 
-    fun requestedFontSizeSp(): Int = fontSizeSp
+    override fun requestedFontSizeSp(): Int = fontSizeSp
 
     override fun setCursorStyle(style: TerminalCursorStyle) {
         val nextStyle = when (style) {

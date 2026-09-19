@@ -19,6 +19,15 @@ check(providers.gradleProperty("requireReleaseSigning").orNull != "true" || hasR
 android {
     namespace = "io.github.openfinalshell.android"
     compileSdk = 35
+    // Builds the privileged PTY host. The local-shell tiers above the app's own uid need a PTY in a
+    // process that is already uid 2000 or 0, and Termux's shipped library cannot be loaded there.
+    ndkVersion = "27.0.12077973"
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/jni/CMakeLists.txt")
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -33,6 +42,10 @@ android {
         versionName = providers.gradleProperty("versionName").orNull ?: "0.20.20"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+        // Distribution switch for the local on-device shell. A terminal emulator that runs a shell on
+        // the phone is not Google Play eligible, so a Play-targeted build sets -PlocalShell=false to
+        // hide the entry point and refuse to construct a local transport.
+        buildConfigField("boolean", "LOCAL_SHELL_ENABLED", providers.gradleProperty("localShell").orNull ?: "true")
     }
 
     splits {
@@ -67,9 +80,18 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // The privileged host is reached through a Shizuku user service, whose interface is AIDL.
+        aidl = true
     }
 
     packaging {
+        // A privileged local-shell host has to execute a PTY helper from the native library
+        // directory, and a future proot userland has to execute a shipped binary from a writable
+        // path. Both need a real file on disk: with the default (extractNativeLibs="false") the
+        // libraries are reachable only through the linker inside the app process. This must land
+        // before any on-device verification of the privileged tiers, because it changes the
+        // installed layout and invalidates verification done under the old packaging.
+        jniLibs { useLegacyPackaging = true }
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
         resources.excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         resources.excludes += "/META-INF/DEPENDENCIES"
@@ -96,6 +118,11 @@ dependencies {
     // Termux's maintained terminal emulator provides the VT/ANSI renderer used by the SSH shell.
     implementation("com.github.termux.termux-app:terminal-emulator:v0.118.0")
     implementation("com.github.termux.termux-app:terminal-view:v0.118.0")
+    // Reaches the ADB-shell tier (uid 2000) without root, and the root tier when Shizuku itself runs
+    // as root through Sui. Version pinned deliberately: the API surface and the user-service
+    // lifecycle contract have changed between releases, so a bump needs the tier tests re-run.
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
@@ -133,7 +160,7 @@ val uiI18nKeys = setOf(
     "status_disconnected", "status_reconnected", "status_terminal_ready", "status_terminal_closed",
     "status_profile_saved", "status_profile_deleted", "status_forwarding_rule_saved", "status_forwarding_rule_deleted",
     "status_forwarding_started", "status_proxy_saved_unavailable", "status_proxy_unavailable", "status_private_key_imported",
-    "status_host_trust_revoked", "status_export_completed", "status_import_completed", "status_session_required",
+    "status_host_trust_revoked", "status_export_completed", "status_local_sessions_excluded", "status_local_packed_transfer_unavailable", "status_local_root_confirm", "status_import_completed", "status_session_required",
     "status_server_info_unavailable", "status_port_traffic_failed", "status_sftp_ready", "status_sftp_directory_created",
     "status_sftp_item_renamed", "status_upload_queued", "status_download_queued", "status_host_key_confirmation_required",
     "status_ssh_components_unavailable", "status_error_detail", "status_local_storage_unavailable",

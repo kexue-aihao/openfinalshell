@@ -2,6 +2,7 @@ package io.github.openfinalshell.android.storage
 
 import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.ForwardRule
+import io.github.openfinalshell.android.core.model.LOCAL_SHELL_PROTOCOL
 import io.github.openfinalshell.android.core.protocol.ProtocolJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -25,8 +26,13 @@ data class StorageExportSnapshot(
     val privateKeys: List<PrivateKeyEntity> = emptyList(),
     val knownHosts: List<KnownHostEntity> = emptyList(),
     val secretValues: Map<String, String> = emptyMap(),
-    val settings: JsonObject? = null
+    val settings: JsonObject? = null,
+    /** Local on-device sessions withheld from this export; surfaced to the user, never silent. */
+    val localSessionsExcluded: Int = 0
 )
+
+/** An export payload plus what was deliberately left out of it. */
+data class PortableExportResult(val text: String, val localSessionsExcluded: Int = 0)
 
 @Serializable
 data class ExportEnvelope(
@@ -120,21 +126,24 @@ object PortableExport {
         settings: JsonObject? = null,
         appVersion: String = "android",
         tools: ToolDao? = null
-    ): String {
+    ): PortableExportResult {
         val snapshot = collectStorage(profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials, settings)
-        return buildV1(
-            snapshot.profiles,
-            snapshot.forwards,
-            snapshot.settings,
-            includeSecrets,
-            snapshot.secretValues,
-            passphrase,
-            appVersion,
-            snapshot.groups,
-            snapshot.proxies,
-            snapshot.privateKeys,
-            snapshot.knownHosts,
-            ToolPortable.export(tools)
+        return PortableExportResult(
+            buildV1(
+                snapshot.profiles,
+                snapshot.forwards,
+                snapshot.settings,
+                includeSecrets,
+                snapshot.secretValues,
+                passphrase,
+                appVersion,
+                snapshot.groups,
+                snapshot.proxies,
+                snapshot.privateKeys,
+                snapshot.knownHosts,
+                ToolPortable.export(tools)
+            ),
+            snapshot.localSessionsExcluded
         )
     }
 
@@ -179,20 +188,23 @@ object PortableExport {
         settings: JsonObject? = null,
         appVersion: String = "android",
         tools: ToolDao? = null
-    ): String {
+    ): PortableExportResult {
         val snapshot = collectStorage(profiles, forwards, groups, proxies, privateKeys, knownHosts, credentials, settings)
-        return buildV2(
-            snapshot.profiles,
-            snapshot.forwards,
-            snapshot.settings,
-            passphrase,
-            if (includeSecrets) snapshot.secretValues else emptyMap(),
-            appVersion,
-            snapshot.groups,
-            snapshot.proxies,
-            snapshot.privateKeys,
-            snapshot.knownHosts,
-            ToolPortable.export(tools)
+        return PortableExportResult(
+            buildV2(
+                snapshot.profiles,
+                snapshot.forwards,
+                snapshot.settings,
+                passphrase,
+                if (includeSecrets) snapshot.secretValues else emptyMap(),
+                appVersion,
+                snapshot.groups,
+                snapshot.proxies,
+                snapshot.privateKeys,
+                snapshot.knownHosts,
+                ToolPortable.export(tools)
+            ),
+            snapshot.localSessionsExcluded
         )
     }
 
@@ -207,13 +219,19 @@ object PortableExport {
         settings: JsonObject?
     ): StorageExportSnapshot {
         val profileRows = profiles.list()
+        // Local on-device sessions stay on the device. A shell path, a privilege tier and a start
+        // directory describe one phone; exporting them would either fail on import or, at the root
+        // tier, describe somewhere the user never intended. The desktop importer also has no
+        // concept of this protocol, so excluding here is what keeps it out of the desktop entirely.
+        val localRows = profileRows.filter { it.protocol == LOCAL_SHELL_PROTOCOL }
+        val portableRows = profileRows.filterNot { it.protocol == LOCAL_SHELL_PROTOCOL }
         val forwardRows = forwards.list().map { ForwardRule(it.id, it.profileId, it.type, it.label, it.bindAddr, it.bindPort, it.dstHost, it.dstPort, it.autoStart) }
         val groupRows = groups.list()
         val proxyRows = proxies.list()
         val keyRows = privateKeys.list()
         val hostRows = knownHosts.list()
         val refs = buildSet {
-            profileRows.forEach { profile ->
+            portableRows.forEach { profile ->
                 profile.auth.passwordRef?.let(::add)
                 profile.auth.passphraseRef?.let(::add)
                 profile.proxy?.passwordRef?.let(::add)
@@ -222,7 +240,17 @@ object PortableExport {
             keyRows.mapNotNullTo(this) { it.passphraseRef }
         }
         val secrets = refs.mapNotNull { ref -> credentials.get(ref)?.let { ref to it } }.toMap()
-        return StorageExportSnapshot(profileRows, forwardRows, groupRows, proxyRows, keyRows, hostRows, secrets, settings)
+        return StorageExportSnapshot(
+            portableRows,
+            forwardRows,
+            groupRows,
+            proxyRows,
+            keyRows,
+            hostRows,
+            secrets,
+            settings,
+            localRows.size
+        )
     }
 
     /** Apply a decrypted envelope to Room. The caller supplies repositories to keep this layer UI independent. */
@@ -363,6 +391,11 @@ object PortableExport {
             val raw = element
             val parsed = runCatching { ProtocolJson.instance.decodeFromJsonElement(ConnectionProfile.serializer(), raw) }.getOrNull()
             if (parsed == null) { invalid++; continue }
+            // A local session describes a shell path, a privilege tier and a start directory on the
+            // device it was created on. Nothing legitimate puts one in an export, so a hand-edited
+            // or hostile file must not be able to inject one and have it later opened at the root
+            // tier. Counted as invalid rather than skipped, matching every other refused record.
+            if (parsed.protocol == LOCAL_SHELL_PROTOCOL) { invalid++; continue }
             if (conflict == ImportConflict.SKIP && profiles.find(parsed.id) != null) { skipped++; continue }
             val sanitized = clearUnavailableSecretRefs(raw, secretMap, notes)
             profiles.upsertImported(sanitized, if (conflict == ImportConflict.DUPLICATE) java.util.UUID.randomUUID().toString() else parsed.id)
@@ -426,7 +459,10 @@ object PortableExport {
         knownHosts: List<KnownHostEntity> = emptyList(),
         toolsData: JsonObject = JsonObject(emptyMap())
     ): JsonObject = buildJsonObject {
-        put("profiles", JsonArray(profiles.map { ProtocolJson.instance.encodeToJsonElement(ConnectionProfile.serializer(), it) }))
+        // Second filter, on the single choke point every export path passes through. collectStorage
+        // already excludes local sessions and reports the count, but buildData is what guarantees
+        // no caller can leak one by passing an explicit profile list.
+        put("profiles", JsonArray(profiles.filterNot { it.protocol == LOCAL_SHELL_PROTOCOL }.map { ProtocolJson.instance.encodeToJsonElement(ConnectionProfile.serializer(), it) }))
         put("forwards", JsonArray(forwards.map { ProtocolJson.instance.encodeToJsonElement(ForwardRule.serializer(), it) }))
         put("groups", JsonArray(groups.map { group -> buildJsonObject {
             put("id", group.id)

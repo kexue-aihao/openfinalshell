@@ -74,6 +74,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -96,7 +97,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.net.Uri
 import io.github.openfinalshell.android.storage.AndroidSettings
 import io.github.openfinalshell.android.core.model.ConnectionProfile
+import io.github.openfinalshell.android.core.model.LOCAL_SHELL_PROTOCOL
+import io.github.openfinalshell.android.core.model.LocalShellTier
 import io.github.openfinalshell.android.core.model.SessionState
+import io.github.openfinalshell.android.local.LocalTier
+import io.github.openfinalshell.android.local.LocalTierBlocker
+import io.github.openfinalshell.android.local.LocalTierResolution
 import io.github.openfinalshell.android.core.ssh.SftpEntry
 import io.github.openfinalshell.android.core.terminal.TerminalCursorStyle
 import io.github.openfinalshell.android.update.UpdateState
@@ -209,6 +215,7 @@ fun OpenFinalShellApp(
         accentColor = primary
     ) {
         io.github.openfinalshell.android.transfer.PortTransferDialogs(viewModel)
+        LocalRootConfirmDialog(state, viewModel)
         val readyUpdate = settingsState.update as? UpdateState.Ready
         if (readyUpdate != null && deferredUpdateTag != readyUpdate.release.tagName) {
             UpdateReadyDialog(
@@ -448,6 +455,10 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
     var password by remember { mutableStateOf("") }
     var privateKeyId by remember { mutableStateOf<String?>(null) }
     var showAddConnectionForm by rememberSaveable { mutableStateOf(state.profiles.isEmpty()) }
+    var showAddLocalForm by rememberSaveable { mutableStateOf(false) }
+    var localName by remember { mutableStateOf("") }
+    var localStartDirectory by remember { mutableStateOf("") }
+    var localTier by remember { mutableStateOf(LocalShellTier.AUTO) }
     var privateKeyMenuExpanded by remember { mutableStateOf(false) }
     val formValid = name.isNotBlank() && host.isNotBlank() && username.isNotBlank() &&
         (port.toIntOrNull()?.let { it in 1..65535 } == true)
@@ -473,6 +484,8 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
                     profile = profile,
                     selected = profile.id == state.selectedProfileId,
                     session = state.sessions.values.firstOrNull { it.profile.id == profile.id && it.state != SessionState.CLOSED },
+                    resolution = state.localTiers[profile.id],
+                    viewModel = viewModel,
                     onSelect = { viewModel.selectProfile(profile) },
                     onConnect = { viewModel.connect(profile, password) }
                 )
@@ -575,7 +588,218 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
             ) { Text(androidx.compose.ui.res.stringResource(R.string.action_add_connection)) }
         }
         }
+        item {
+            HorizontalDivider(modifier = Modifier.padding(vertical = OpenFinalShellSpacing.Small))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    androidx.compose.ui.res.stringResource(R.string.local_section_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { showAddLocalForm = !showAddLocalForm }) {
+                    Text(androidx.compose.ui.res.stringResource(R.string.action_add_local_session))
+                }
+            }
+        }
+        item {
+            Text(
+                androidx.compose.ui.res.stringResource(R.string.local_shell_note),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        item {
+            // An app-uid shell cannot see /sdcard without this grant, and the grant lives in a
+            // system screen, so the affordance is offered right next to the explanation.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && !rememberAllFilesAccess()) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(
+                                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                Uri.fromParts("package", context.packageName, null)
+                            )
+                        )
+                    }
+                }) { Text(androidx.compose.ui.res.stringResource(R.string.action_grant_all_files)) }
+            }
+        }
+        if (showAddLocalForm) {
+            item {
+                OutlinedTextField(
+                    localName, { localName = it }, Modifier.fillMaxWidth(),
+                    label = { Text(androidx.compose.ui.res.stringResource(R.string.label_name)) }, singleLine = true
+                )
+            }
+            item {
+                OutlinedTextField(
+                    localStartDirectory, { localStartDirectory = it }, Modifier.fillMaxWidth(),
+                    label = { Text(androidx.compose.ui.res.stringResource(R.string.local_start_directory)) }, singleLine = true
+                )
+            }
+            item {
+                // Which tier is actually reachable is decided at connect time, so this is the
+                // request. A request that cannot be honoured connects at the best available tier
+                // and says so rather than refusing.
+                ChoiceRow(
+                    label = androidx.compose.ui.res.stringResource(R.string.local_tier_label),
+                    selected = localTier,
+                    options = listOf(
+                        LocalShellTier.AUTO to R.string.local_tier_auto,
+                        LocalShellTier.APP to R.string.local_tier_app,
+                        LocalShellTier.ADB to R.string.local_tier_adb,
+                        LocalShellTier.ROOT to R.string.local_tier_root
+                    ),
+                    onSelected = { localTier = it }
+                )
+            }
+            item {
+                Button(
+                    onClick = {
+                        viewModel.saveLocalProfile(localName, tier = localTier, startDirectory = localStartDirectory)
+                        localName = ""
+                        localStartDirectory = ""
+                        localTier = LocalShellTier.AUTO
+                        showAddLocalForm = false
+                    },
+                    enabled = localName.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(androidx.compose.ui.res.stringResource(R.string.action_add_local_session)) }
+            }
+        }
     }
+}
+
+/** The tier a local session actually resolved to, once it has connected at least once. */
+@Composable
+private fun LocalTierChip(resolution: LocalTierResolution?) {
+    val tier = resolution?.tier ?: return
+    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+        Text(
+            localTierLabel(tier.profileValue),
+            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelMedium
+        )
+    }
+}
+
+/** The display name for a tier value, or the raw value when it is not one the UI knows. */
+@Composable
+private fun localTierLabel(profileValue: String): String {
+    val id = when (profileValue) {
+        LocalShellTier.AUTO -> R.string.local_tier_auto
+        LocalShellTier.APP -> R.string.local_tier_app
+        LocalShellTier.ADB -> R.string.local_tier_adb
+        LocalShellTier.ROOT -> R.string.local_tier_root
+        else -> null
+    }
+    return id?.let { androidx.compose.ui.res.stringResource(it) } ?: profileValue
+}
+
+/**
+ * What happened to the requested tier, and why.
+ *
+ * Both halves matter: the first line says the session is running somewhere other than asked, the
+ * second says what to do about it. The Shizuku states need different actions from the user — and on
+ * Android 8-10 starting Shizuku requires a computer, which no amount of "unavailable" conveys.
+ *
+ * The permission case gets a button rather than a sentence, because that one the app can fix itself:
+ * checking for Shizuku's grant is not enough to obtain it, since the grant arrives only through
+ * Shizuku's own dialog.
+ */
+@Composable
+private fun LocalBlockerNote(resolution: LocalTierResolution?, viewModel: MainViewModel) {
+    val blocker = resolution?.blocker ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (resolution.downgraded) {
+            Text(
+                androidx.compose.ui.res.stringResource(
+                    R.string.local_tier_downgraded,
+                    localTierLabel(resolution.requested),
+                    localTierLabel(resolution.tier.profileValue)
+                ),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        if (blocker == LocalTierBlocker.SHIZUKU_NO_PERMISSION) {
+            TextButton(onClick = viewModel::requestShizukuPermission) {
+                Text(androidx.compose.ui.res.stringResource(R.string.local_blocker_shizuku_no_permission))
+            }
+        } else {
+            Text(
+                androidx.compose.ui.res.stringResource(
+                    when (blocker) {
+                        LocalTierBlocker.SHIZUKU_NOT_INSTALLED -> R.string.local_blocker_shizuku_not_installed
+                        LocalTierBlocker.SHIZUKU_NOT_RUNNING -> R.string.local_blocker_shizuku_not_running
+                        LocalTierBlocker.SHIZUKU_TOO_OLD -> R.string.local_blocker_shizuku_too_old
+                        LocalTierBlocker.NO_ROOT_BINARY -> R.string.local_blocker_no_root_binary
+                        LocalTierBlocker.ROOT_DISABLED_BY_SETTINGS -> R.string.local_blocker_root_disabled
+                        LocalTierBlocker.HELPER_MISSING -> R.string.local_blocker_helper_missing
+                        // Handled by the branch above; listed so a new blocker cannot be forgotten.
+                        LocalTierBlocker.SHIZUKU_NO_PERMISSION -> R.string.local_blocker_shizuku_no_permission
+                    }
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+/**
+ * The root-tier confirmation.
+ *
+ * Shown before any host process exists, so declining costs nothing. It states the consequence in
+ * plain terms rather than as a generic "are you sure": at uid 0 the shell can read this app's own
+ * database and attach to this process, so every saved connection and the AI token have to be treated
+ * as readable by anything else running as root on the device.
+ */
+@Composable
+private fun LocalRootConfirmDialog(state: AndroidUiState, viewModel: MainViewModel) {
+    val pending = state.rootConfirmation ?: return
+    AlertDialog(
+        onDismissRequest = viewModel::cancelRootTier,
+        title = { Text(androidx.compose.ui.res.stringResource(R.string.local_root_confirm_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
+                Text(androidx.compose.ui.res.stringResource(R.string.local_root_confirm_body))
+                Text(pending.profileName, style = MaterialTheme.typography.labelLarge)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = viewModel::confirmRootTier) {
+                Text(androidx.compose.ui.res.stringResource(R.string.local_root_confirm_action))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = viewModel::cancelRootTier) {
+                Text(androidx.compose.ui.res.stringResource(R.string.action_cancel))
+            }
+        }
+    )
+}
+
+/**
+ * Re-reads the all-files grant whenever the screen resumes.
+ *
+ * The grant is given in a system settings screen, so the value read before leaving is stale the
+ * moment the user comes back. Without the resume hook the button would linger after being used,
+ * which reads as the grant having failed.
+ */
+@Composable
+private fun rememberAllFilesAccess(): Boolean {
+    var granted by remember { mutableStateOf(io.github.openfinalshell.android.local.hasAllFilesAccess()) }
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                granted = io.github.openfinalshell.android.local.hasAllFilesAccess()
+            }
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    return granted
 }
 
 @Composable
@@ -583,6 +807,9 @@ private fun ConnectionCard(
     profile: ConnectionProfile,
     selected: Boolean,
     session: io.github.openfinalshell.android.core.ssh.SessionSnapshot?,
+    /** The tier this profile last resolved to, or null before it has ever connected. */
+    resolution: LocalTierResolution?,
+    viewModel: MainViewModel,
     onSelect: () -> Unit,
     onConnect: () -> Unit
 ) {
@@ -600,7 +827,26 @@ private fun ConnectionCard(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(profile.name, style = MaterialTheme.typography.titleSmall)
-                    Text("${profile.username}@${profile.host}:${profile.port}", style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                    if (profile.protocol == LOCAL_SHELL_PROTOCOL) {
+                        // "shell@localhost:22" would describe a server the user never entered, so a
+                        // local session shows what it actually is instead.
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = MaterialTheme.shapes.small) {
+                                Text(
+                                    androidx.compose.ui.res.stringResource(R.string.local_badge),
+                                    Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                            LocalTierChip(resolution)
+                        }
+                        LocalBlockerNote(resolution, viewModel)
+                    } else {
+                        Text("${profile.username}@${profile.host}:${profile.port}", style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                    }
                 }
                 Button(onClick = onConnect) { Text(androidx.compose.ui.res.stringResource(R.string.action_connect)) }
             }
@@ -684,7 +930,10 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel, settings
                 Text(androidx.compose.ui.res.stringResource(R.string.action_rename))
             }
         }
-        io.github.openfinalshell.android.transfer.SftpTransferActions(viewModel) { settingsViewModel.setDownloadDirectoryUri(it.toString()) }
+        io.github.openfinalshell.android.transfer.SftpTransferActions(
+            viewModel,
+            packedTransferAvailable = viewModel.packedTransferAvailable()
+        ) { settingsViewModel.setDownloadDirectoryUri(it.toString()) }
         if (showDirectoryForm) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(OpenFinalShellSpacing.Small)) {
                 OutlinedTextField(
@@ -788,7 +1037,9 @@ private fun SftpEntryRow(
             }
             if (directory) {
                 TextButton(onClick = { viewModel.browseSftp(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_open)) }
-                TextButton(onClick = { viewModel.downloadPackedDirectory(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.port_pack_download)) }
+                if (viewModel.packedTransferAvailable()) {
+                    TextButton(onClick = { viewModel.downloadPackedDirectory(entry.path) }) { Text(androidx.compose.ui.res.stringResource(R.string.port_pack_download)) }
+                }
             } else {
                 TextButton(
                     onClick = { onDelete(entry.path) },
@@ -1384,6 +1635,22 @@ private fun SettingsScreen(
                     value = settings.terminalScrollbackLines,
                     range = 200..20_000,
                     onChange = viewModel::setTerminalScrollbackLines
+                )
+            }
+        }
+        item {
+            SettingsSection(androidx.compose.ui.res.stringResource(R.string.settings_local_shell)) {
+                // A second gate on the root tier, independent of the build flag. Off by default and
+                // never inferred: even on a rooted device the tier stays unavailable until the user
+                // asks for it here, because the app cannot defend itself against uid 0.
+                SettingsSwitchRow(
+                    androidx.compose.ui.res.stringResource(R.string.settings_local_allow_root),
+                    settings.localAllowRoot,
+                    viewModel::setLocalAllowRoot
+                )
+                Text(
+                    androidx.compose.ui.res.stringResource(R.string.settings_local_allow_root_body),
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }

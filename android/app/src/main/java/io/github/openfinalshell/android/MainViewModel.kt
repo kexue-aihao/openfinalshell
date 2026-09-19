@@ -8,11 +8,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.openfinalshell.android.core.model.ConnectionAuth
+import io.github.openfinalshell.android.core.model.ConnectionLocal
 import io.github.openfinalshell.android.core.model.ConnectionProfile
 import io.github.openfinalshell.android.core.model.ConnectionOptions
 import io.github.openfinalshell.android.core.model.ConnectionProxy
 import io.github.openfinalshell.android.core.model.ConnectionTerminal
 import io.github.openfinalshell.android.core.model.ForwardRule
+import io.github.openfinalshell.android.core.model.LOCAL_SHELL_PROTOCOL
+import io.github.openfinalshell.android.core.model.LocalShellTier
 import io.github.openfinalshell.android.core.model.SessionState
 import io.github.openfinalshell.android.core.forward.ForwardRuntimeState
 import io.github.openfinalshell.android.core.monitor.LatencyProbe
@@ -35,7 +38,22 @@ import io.github.openfinalshell.android.core.sftp.TransferTask
 import java.io.File
 import java.io.RandomAccessFile
 import io.github.openfinalshell.android.service.ConnectionForegroundService
+import io.github.openfinalshell.android.core.local.LocalHostConfig
+import io.github.openfinalshell.android.core.local.LocalHostTransport
+import io.github.openfinalshell.android.core.ssh.SshTransport
+import io.github.openfinalshell.android.local.LocalMounts
+import io.github.openfinalshell.android.local.LocalPrivilege
+import io.github.openfinalshell.android.local.LocalShellChannel
+import io.github.openfinalshell.android.local.LocalShellSpec
+import io.github.openfinalshell.android.local.LocalShellTransport
+import io.github.openfinalshell.android.local.LocalTier
+import io.github.openfinalshell.android.local.LocalTierAvailability
+import io.github.openfinalshell.android.local.LocalTierResolution
+import io.github.openfinalshell.android.local.RootConfirmation
+import io.github.openfinalshell.android.local.appTierRoots
+import io.github.openfinalshell.android.local.privilegedTierRoots
 import io.github.openfinalshell.android.terminal.SshTerminalController
+import io.github.openfinalshell.android.terminal.TerminalHostController
 import io.github.openfinalshell.android.storage.AndroidCredentialStore
 import io.github.openfinalshell.android.storage.AppDatabase
 import io.github.openfinalshell.android.storage.ProfileRepository
@@ -100,6 +118,10 @@ data class AndroidUiState(
     val forwards: List<ForwardRule> = emptyList(),
     val forwardStates: Map<String, ForwardRuntimeState> = emptyMap(),
     val hostKeyPrompt: HostKeyPrompt? = null,
+    /** The tier each local profile last resolved to, keyed by profile id, for the badge. */
+    val localTiers: Map<String, LocalTierResolution> = emptyMap(),
+    /** Set while a root-tier session is waiting for the user to confirm it. */
+    val rootConfirmation: RootConfirmation? = null,
     val status: UiStatus = UiStatus()
 )
 
@@ -118,7 +140,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Prevent a recomposition or reconnect event from opening a second PTY for one session. */
     private val openingShells = mutableSetOf<String>()
     /** Terminal controllers keep VT parsing and rendering state out of Compose text nodes. */
-    private val terminalControllers = mutableMapOf<String, SshTerminalController>()
+    private val terminalControllers = mutableMapOf<String, TerminalHostController>()
     private var monitorJob: Job? = null
     private val transferQueue = TransferQueue(viewModelScope)
     private var transferSettings = AndroidSettings()
@@ -137,8 +159,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var pendingHostKey: CompletableDeferred<Boolean>? = null
 
     private val sessions = SshSessionManager(
-        transportFactory = { MinaSshTransport(hostKeyVerifier = io.github.openfinalshell.android.core.ssh.HostKeyVerifier { host, port, key -> verifyHostKey(host, port, key) },
-            proxyPasswordResolver = { credentialStore.getText(it) }) },
+        // The factory takes the profile so one registry can hold SSH sessions and local on-device
+        // shells side by side; that is what keeps every open* call site transport-agnostic.
+        transportFactory = { profile ->
+            if (profile.protocol == LOCAL_SHELL_PROTOCOL) {
+                // Failing loudly matters here: quietly falling through would build an SSH transport
+                // and try to reach localhost:22, which reads as a network fault rather than as a
+                // disabled feature.
+                check(BuildConfig.LOCAL_SHELL_ENABLED) { "local sessions are disabled in this build" }
+                createLocalTransport(profile)
+            } else {
+                MinaSshTransport(hostKeyVerifier = io.github.openfinalshell.android.core.ssh.HostKeyVerifier { host, port, key -> verifyHostKey(host, port, key) },
+                    proxyPasswordResolver = { credentialStore.getText(it) })
+            }
+        },
         scope = viewModelScope,
         credentialsResolver = CredentialsResolver { profile, supplied ->
             if (supplied.password != null && profile.auth.privateKeyId == null && profile.auth.passphraseRef == null) {
@@ -154,7 +188,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         },
         shouldReconnect = { profile -> profile.options.autoReconnect }
     )
-    private val monitor = MonitorSession(sessions)
+    private val monitor = MonitorSession(sessions) { sessionId -> sessions.frameSource(sessionId) }
+
+    private val localPrivilege by lazy { LocalPrivilege(getApplication()) }
+
+    /**
+     * Root sessions the user has confirmed, per profile.
+     *
+     * In memory only, and deliberately so: a reboot or a process death is exactly when the device's
+     * root state may have changed, so the confirmation must not survive either.
+     */
+    private val confirmedRootProfiles = mutableSetOf<String>()
+
+    /**
+     * The tier resolution `connect()` already computed, handed to the session factory.
+     *
+     * The confirmation gate and the transport must be decided by the same probe — resolving twice
+     * could ask the user to confirm root and then connect at the ADB tier, or the reverse.
+     */
+    @Volatile private var pendingLocalTier: PendingLocalTier? = null
+
+    private data class PendingLocalTier(
+        val profileId: String,
+        val availability: LocalTierAvailability,
+        val resolution: LocalTierResolution
+    )
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
@@ -269,6 +327,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 knownHosts = loadedKnownHosts,
                 forwards = loadedForwards
             )
+        }
+        // Fill in tiers for local profiles that have none yet, so a card can show what connecting
+        // would actually do rather than only revealing it afterwards. Guarded so the probe runs once
+        // per storage change rather than on every reload.
+        if (loadedProfiles.any { it.protocol == LOCAL_SHELL_PROTOCOL && it.id !in state.value.localTiers }) {
+            refreshLocalTiers()
         }
     }
 
@@ -462,6 +526,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Creates a local on-device session.
+     *
+     * Unlike [saveProfile] this validates nothing about a host, because there is no host: the shell
+     * runs on the phone. `host` and `username` are NOT NULL columns and carry placeholders so the
+     * row satisfies the schema without pretending the values mean anything.
+     *
+     * `autoReconnect` is off deliberately. A local session ends when its shell exits, and
+     * reconnecting would respawn the shell in a loop the moment a user typed `exit`.
+     */
+    fun saveLocalProfile(name: String, tier: String = LocalShellTier.AUTO, startDirectory: String? = null) {
+        viewModelScope.launch {
+            try {
+                require(name.isNotBlank()) { "local session name is required" }
+                require(tier in LocalShellTier.all) { "unknown local tier: $tier" }
+                val profile = ConnectionProfile(
+                    id = UUID.randomUUID().toString(),
+                    name = name.trim(),
+                    host = LOCAL_HOST_PLACEHOLDER,
+                    port = 22,
+                    username = LOCAL_USERNAME_PLACEHOLDER,
+                    auth = ConnectionAuth(method = "none"),
+                    protocol = LOCAL_SHELL_PROTOCOL,
+                    local = ConnectionLocal(tier = tier, startDirectory = startDirectory?.trim()?.ifEmpty { null }),
+                    options = ConnectionOptions(autoReconnect = false)
+                )
+                profiles.upsert(profile)
+                refreshStorage()
+                updateState { it.copy(selectedProfileId = profile.id, status = UiStatus(StatusKey.PROFILE_SAVED)) }
+            } catch (error: Throwable) {
+                setStatus(readableError(error, StatusKey.PROFILE_SAVE_FAILED))
+            }
+        }
+    }
+
     fun deleteProfile(profile: ConnectionProfile) {
         viewModelScope.launch {
             try {
@@ -560,14 +659,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 require(!encryptAll || passphrase.length >= 8) { "export passphrase must be at least 8 characters" }
-                val text = if (encryptAll) {
+                val result = if (encryptAll) {
                     PortableExport.buildV2FromStorage(profiles, io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies, privateKeys, knownHosts, credentialStore, passphrase.toCharArray(), includeSecrets, tools = database.tools())
                 } else {
                     PortableExport.buildV1FromStorage(profiles, io.github.openfinalshell.android.storage.ForwardRepository(database.forwards()), groups, savedProxies, privateKeys, knownHosts, credentialStore, includeSecrets, passphrase.takeIf { it.isNotEmpty() }?.toCharArray(), tools = database.tools())
                 }
-                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(result.text.toByteArray(Charsets.UTF_8)) }
                     ?: error("unable to create export file")
-                setStatus(StatusKey.EXPORT_COMPLETED)
+                // Status is a single slot, so the withheld-session message states that the export
+                // succeeded rather than replacing that confirmation with a caveat.
+                if (result.localSessionsExcluded > 0) {
+                    setStatus(StatusKey.LOCAL_SESSIONS_EXCLUDED, result.localSessionsExcluded)
+                } else {
+                    setStatus(StatusKey.EXPORT_COMPLETED)
+                }
             } catch (error: Throwable) { setStatus(readableError(error, StatusKey.EXPORT_FAILED)) }
         }
     }
@@ -617,6 +722,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (profile.proxyMode == "custom") require(effectiveProfile.proxy?.type in setOf("http", "socks5"))
                 monitor.stop()
                 monitor.reset()
+                // The file panel keeps a single path slot. A local session has no remote root worth
+                // showing — `/` lists, but every descent into `/data` is denied — so it opens at the
+                // session's own home, while an SSH session keeps the remote root it always had.
+                val initialSftpPath = if (profile.protocol == LOCAL_SHELL_PROTOCOL) {
+                    LocalShellSpec.homeDirectory(getApplication()).path
+                } else {
+                    "/"
+                }
+                updateState { it.copy(sftpPath = initialSftpPath, sftpEntries = emptyList()) }
+                if (profile.protocol == LOCAL_SHELL_PROTOCOL) {
+                    val pending = probeLocalTier(profile)
+                    // Confirmed before any host process exists, so declining leaves nothing running to
+                    // clean up. Re-asked after every process restart, because that is when the
+                    // device's root state may have changed.
+                    if (pending.resolution.tier == LocalTier.ROOT && profile.id !in confirmedRootProfiles) {
+                        updateState {
+                            it.copy(
+                                localTiers = it.localTiers + (profile.id to pending.resolution),
+                                rootConfirmation = RootConfirmation(profile.id, profile.name),
+                                status = UiStatus(StatusKey.LOCAL_ROOT_CONFIRM)
+                            )
+                        }
+                        return@launch
+                    }
+                }
                 val existing = state.value.sessions.values
                     .filter { it.profile.id == profile.id && it.state != SessionState.CLOSED }
                     .maxByOrNull { it.sessionId }
@@ -720,9 +850,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun applyTransferSettings(settings: AndroidSettings) {
         val refresh = transferSettings.sftpShowHiddenFiles != settings.sftpShowHiddenFiles
+        val rootGateChanged = transferSettings.localAllowRoot != settings.localAllowRoot
         transferSettings = settings
         transferQueue.setConcurrency(settings.sftpConcurrency)
         if (refresh && state.value.selectedSessionId != null) browseSftp()
+        // The root gate changes what a card may offer, so the tiers have to be re-resolved.
+        if (rootGateChanged) viewModelScope.launch { refreshLocalTiers() }
     }
 
     fun clearTransferMessage() { mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = null) }
@@ -852,8 +985,134 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Pack a SAF directory without following links; existing remote roots use normal conflict-aware SFTP. */
+    /**
+     * Probes what this device offers and picks the tier for a profile's request.
+     *
+     * Not cached across connects: root disappears when the device reboots, Shizuku stops with it, and
+     * a permission can be revoked — so a cached answer would mean the tier badge lying about what
+     * the shell actually is.
+     */
+    private suspend fun probeLocalTier(profile: ConnectionProfile): PendingLocalTier {
+        val availability = localPrivilege.probe(transferSettings.localAllowRoot)
+        val resolution = localPrivilege.resolve(profile.local?.tier ?: LocalShellTier.AUTO, availability)
+        return PendingLocalTier(profile.id, availability, resolution).also { pendingLocalTier = it }
+    }
+
+    private suspend fun createLocalTransport(profile: ConnectionProfile): SshTransport {
+        val pending = pendingLocalTier?.takeIf { it.profileId == profile.id }?.also { pendingLocalTier = null }
+            ?: probeLocalTier(profile)
+        updateState { it.copy(localTiers = it.localTiers + (profile.id to pending.resolution)) }
+        val settings = transferSettings
+        val spec = LocalShellSpec.forProfile(
+            context = getApplication(),
+            startDirectory = profile.local?.startDirectory,
+            transcriptRows = settings.terminalScrollbackLines,
+            termType = profile.terminal.termType
+        )
+        return when (pending.resolution.tier) {
+            // The app tier runs in this process: no host, no socket, and Termux's session owns both
+            // the PTY and the emulator.
+            LocalTier.APP -> LocalShellTransport(spec, appTierRoots(getApplication()), viewModelScope)
+            LocalTier.ADB, LocalTier.ROOT -> LocalHostTransport(
+                launcher = localPrivilege.launcherFor(pending.resolution.tier, pending.availability),
+                config = LocalHostConfig(
+                    shellPath = spec.shellPath,
+                    workingDirectory = spec.workingDirectory,
+                    environment = spec.environment,
+                    roots = privilegedTierRoots(pending.resolution.tier),
+                    mounts = withContext(Dispatchers.IO) { LocalMounts.read() }
+                ),
+                scope = viewModelScope
+            )
+        }
+    }
+
+    /**
+     * Asks Shizuku to grant its API permission.
+     *
+     * Checking for the grant is not enough to use it: Shizuku shows its own dialog, so without a
+     * request the tier can never become available.
+     */
+    fun requestShizukuPermission() {
+        runCatching {
+            localPrivilege.requestShizukuPermission { granted ->
+                viewModelScope.launch {
+                    refreshLocalTiers()
+                    // On a grant the card's blocked note simply disappears, which is the feedback.
+                    if (!granted) setStatus(StatusKey.SHIZUKU_NO_PERMISSION)
+                }
+            }
+        }.onFailure { setStatus(readableError(it, StatusKey.CONNECTION_FAILED)) }
+    }
+
+    /**
+     * Re-resolves the tier for every local profile.
+     *
+     * Not cached across calls on purpose: root disappears when the device reboots, Shizuku stops
+     * with it, and a permission can be revoked — a stale answer would mean the card lying about
+     * what connecting would actually do.
+     */
+    private suspend fun refreshLocalTiers() {
+        val locals = state.value.profiles.filter { it.protocol == LOCAL_SHELL_PROTOCOL }
+        if (locals.isEmpty()) return
+        val availability = localPrivilege.probe(transferSettings.localAllowRoot)
+        val updated = state.value.localTiers.toMutableMap()
+        locals.forEach { profile ->
+            updated[profile.id] = localPrivilege.resolve(profile.local?.tier ?: LocalShellTier.AUTO, availability)
+        }
+        updateState { it.copy(localTiers = updated) }
+    }
+
+    /** Declines a pending root confirmation. Nothing was launched, so there is nothing to tear down. */
+    fun cancelRootTier() {
+        updateState { it.copy(rootConfirmation = null) }
+    }
+
+    /** Records the confirmation and retries the connection that was held back for it. */
+    fun confirmRootTier() {
+        val pending = state.value.rootConfirmation ?: return
+        confirmedRootProfiles += pending.profileId
+        updateState { it.copy(rootConfirmation = null) }
+        state.value.profiles.firstOrNull { it.id == pending.profileId }?.let { connect(it) }
+    }
+
+    /**
+     * True when a session would write into a root shell whose confirmation has gone away.
+     *
+     * Checked inside the coroutine that performs the write, so a confirmation withdrawn between the
+     * tap and the write cannot be bypassed — the same shape as the existing re-check for a replaced
+     * terminal controller.
+     */
+    private fun isRootTierUnconfirmed(sessionId: String): Boolean {
+        val profile = state.value.sessions[sessionId]?.profile ?: return false
+        if (profile.protocol != LOCAL_SHELL_PROTOCOL) return false
+        if (state.value.localTiers[profile.id]?.tier != LocalTier.ROOT) return false
+        return profile.id !in confirmedRootProfiles
+    }
+
+    /**
+     * True when the selected session runs on this device rather than on a server.
+     *
+     * Used for the capabilities that only make sense across a link — packed transfer, latency
+     * probing — rather than for anything the transport itself already answers.
+     */
+    private fun selectedSessionIsLocal(): Boolean =
+        state.value.selectedSessionId
+            ?.let { state.value.sessions[it]?.profile?.protocol }
+            ?.let { it == LOCAL_SHELL_PROTOCOL } == true
+
+    /**
+     * Whether the packed-transfer actions should be offered for the selected session.
+     *
+     * Packed transfer collapses round-trips on a high-latency link and needs a remote `/tmp` plus
+     * `mktemp -d`; a local session is not a link, and Android has no `/tmp`. The UI hides the
+     * actions and this class refuses them, so neither is the only line of defence.
+     */
+    fun packedTransferAvailable(): Boolean = !selectedSessionIsLocal()
+
     fun uploadPackedDirectory(tree: Uri) {
         val sessionId = state.value.selectedSessionId ?: return
+        if (selectedSessionIsLocal()) return setStatus(StatusKey.PACKED_TRANSFER_UNAVAILABLE)
         val remoteDirectory = state.value.sftpPath
         transferPreparation(sessionId) {
             var remoteTemp: String? = null
@@ -942,6 +1201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Transfer the archive through the same retryable queue, validate it fully, then materialize SAF files. */
     fun downloadPackedDirectory(remotePath: String) {
         val sessionId = state.value.selectedSessionId ?: return
+        if (selectedSessionIsLocal()) return setStatus(StatusKey.PACKED_TRANSFER_UNAVAILABLE)
         val tree = configuredDownloadTree() ?: run {
             mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_choose_download); return
         }
@@ -1208,19 +1468,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val shell = sessions.openShell(sessionId, cols, rows)
                 shells[sessionId] = shell
-                val controller = SshTerminalController(
-                    inputScope = viewModelScope,
-                    inputSink = { bytes -> shell.write(bytes) },
-                    initialCols = cols.coerceAtLeast(1),
-                    initialRows = rows.coerceAtLeast(1)
-                )
+                val controller: TerminalHostController = if (shell.ownsEmulator) {
+                    // A channel that owns its emulator already renders its own bytes; it exposes the
+                    // controller it was built with instead of having a second one built around it.
+                    val local = shell as? LocalShellChannel
+                        ?: error("a channel that owns its emulator must expose its controller")
+                    local.controller
+                } else {
+                    SshTerminalController(
+                        inputScope = viewModelScope,
+                        inputSink = { bytes -> shell.write(bytes) },
+                        initialCols = cols.coerceAtLeast(1),
+                        initialRows = rows.coerceAtLeast(1),
+                        scrollbackLines = transferSettings.terminalScrollbackLines
+                    )
+                }
                 terminalControllers[sessionId] = controller
                 updateState { current ->
                     current.copy(terminalSessionIds = current.terminalSessionIds + sessionId)
                 }
-                shellOutputJobs[sessionId] = launch {
-                    shell.output.collect { bytes ->
-                        controller.write(bytes)
+                if (!shell.ownsEmulator) {
+                    // This job is the entire double-render defence: it exists only for channels that
+                    // do not feed an emulator themselves.
+                    shellOutputJobs[sessionId] = launch {
+                        shell.output.collect { bytes ->
+                            controller.write(bytes)
+                        }
                     }
                 }
             } catch (error: Throwable) {
@@ -1260,6 +1533,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Only the separate, explicit Execute action can submit Enter. */
     fun executeAssistantCommand(sessionId: String, text: String, onSubmitted: () -> Unit) {
         if (state.value.sessions[sessionId]?.state != SessionState.READY) return setStatus(StatusKey.SESSION_REQUIRED)
+        if (isRootTierUnconfirmed(sessionId)) return setStatus(StatusKey.LOCAL_ROOT_CONFIRM)
         val command = text.trimEnd('\r', '\n')
         if (command.isBlank() || command.length > 32_768 || command.any { it.code < 32 || it.code in 127..159 }) {
             mutablePortTransfer.value = mutablePortTransfer.value.copy(messageRes = R.string.port_command_single_line)
@@ -1269,6 +1543,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 if (terminalControllers[sessionId] !== controller || state.value.sessions[sessionId]?.state != SessionState.READY) return@launch
+                // Re-checked inside the coroutine as well: a confirmation withdrawn between the tap
+                // and the write must not be bypassable by a stale UI.
+                if (isRootTierUnconfirmed(sessionId)) {
+                    setStatus(StatusKey.LOCAL_ROOT_CONFIRM)
+                    return@launch
+                }
                 controller.sendInput((command + "\r").toByteArray(Charsets.UTF_8))
                 onSubmitted()
             } catch (error: Exception) { setStatus(readableError(error, StatusKey.TERMINAL_WRITE_FAILED)) }
@@ -1279,7 +1559,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun terminalSnapshot(sessionId: String): StateFlow<TerminalSnapshot>? =
         terminalControllers[sessionId]?.snapshot
 
-    fun terminalController(sessionId: String): SshTerminalController? = terminalControllers[sessionId]
+    fun terminalController(sessionId: String): TerminalHostController? = terminalControllers[sessionId]
 
     fun resizeTerminal(sessionId: String, cols: Int, rows: Int) {
         val shell = shells[sessionId] ?: return
@@ -1299,6 +1579,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect(sessionId: String) {
         cancelSessionTransfers(sessionId)
         openingShells.remove(sessionId)
+        // Disconnecting drops the root confirmation, so reconnecting has to ask again. The teardown
+        // is where the session stops being something the user is actively watching.
+        state.value.sessions[sessionId]?.profile?.id?.let { confirmedRootProfiles -= it }
         forwardingSessions.filterValues { it == sessionId }.keys.toList().forEach(::stopForward)
         shellOutputJobs.remove(sessionId)?.cancel()
         terminalControllers.remove(sessionId)?.let { controller ->
@@ -1380,6 +1663,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun probeDirectLatency(profile: ConnectionProfile) {
+        // A local session has no link to measure. Probing anyway would TCP-connect to
+        // localhost:22 and present the result as though it described a network path.
+        if (profile.protocol == LOCAL_SHELL_PROTOCOL) return
         if (profile.proxy?.type?.let { it != "none" } == true || profile.proxyId != null) return
         viewModelScope.launch {
             monitor.applyDirectLatency(LatencyProbe.measure(profile.host, profile.port))
@@ -1416,6 +1702,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "OpenFinalShell"
+
+        /** `profiles.host` and `profiles.username` are NOT NULL; a local session has neither. */
+        private const val LOCAL_HOST_PLACEHOLDER = "localhost"
+        private const val LOCAL_USERNAME_PLACEHOLDER = "shell"
     }
 }
 

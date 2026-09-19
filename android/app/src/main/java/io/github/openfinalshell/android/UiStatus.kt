@@ -25,6 +25,12 @@ enum class StatusKey(@StringRes val resourceId: Int) {
     PRIVATE_KEY_IMPORTED(R.string.status_private_key_imported),
     HOST_TRUST_REVOKED(R.string.status_host_trust_revoked),
     EXPORT_COMPLETED(R.string.status_export_completed),
+    LOCAL_SESSIONS_EXCLUDED(R.string.status_local_sessions_excluded),
+    PACKED_TRANSFER_UNAVAILABLE(R.string.status_local_packed_transfer_unavailable),
+    LOCAL_ROOT_CONFIRM(R.string.status_local_root_confirm),
+    // Reuses the blocker text rather than adding a near-duplicate string: the instruction and the
+    // answer to "why can't I use this tier" are the same sentence.
+    SHIZUKU_NO_PERMISSION(R.string.local_blocker_shizuku_no_permission),
     IMPORT_COMPLETED(R.string.status_import_completed),
     SESSION_REQUIRED(R.string.status_session_required),
     SERVER_INFO_UNAVAILABLE(R.string.status_server_info_unavailable),

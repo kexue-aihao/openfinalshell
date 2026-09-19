@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.27',
+    items: [
+      { type: 'feat', zh: 'Android 新增本地终端：在本机上直接运行 shell，分应用自身、ADB shell（经 Shizuku）和 root 三档权限，终端、文件管理、监控与 AI 助手均已接入；档位每次连接重新探测，root 档还需在设置中显式开启并逐次确认', en: 'Add an on-device local shell to Android with three privilege tiers — the app\'s own uid, the ADB shell uid through Shizuku, and root — wired into the terminal, file, monitoring, and AI panels; the tier is re-probed on every connect, and the root tier needs a settings opt-in plus a per-session confirmation' },
+      { type: 'fix', zh: '修复监控在多个会话间切换时，用一台主机的 CPU、网络和磁盘计数器去比对另一台的耗时，从而报出与两台机器都不符的速率', en: 'Fix monitoring diffing one host\'s CPU, network, and disk counters against another host\'s elapsed time when switching sessions, which reported a rate describing neither machine' }
+    ]
+  },
+  {
     version: '0.30.26',
     items: [
       { type: 'fix', zh: '修复内置编辑器打开多个文件时标签栏下方的横向滚动条拖不动的问题（该区域此前落在窗口拖拽区内），保存与重读按钮也不再被标签挤出视口', en: 'Fix the horizontal scrollbar under the built-in editor tab bar being undraggable when many files are open (the bar fell inside the window drag region); the save and reload buttons are no longer pushed out of view by the tabs' }
