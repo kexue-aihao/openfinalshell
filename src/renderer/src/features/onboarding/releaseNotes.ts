@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.29',
+    items: [
+      { type: 'fix', zh: '修复 Android 本地终端：特权档（ADB shell / root）一开终端就失败——socket 连接跑在主线程上被系统拒绝，表现为会话显示已连接却没有可用的 shell；「添加本地终端」的表单渲染在屏幕可视区之外，点了像没反应，现在会自动滚到它（「添加连接」同理）；终端顶部的会话标识也不再对本地会话显示 shell@localhost 这个用户从未输入过的地址', en: 'Fix the Android local terminal: the privileged tiers (ADB shell / root) failed to open a shell because the socket connect ran on the main thread and was rejected — the session showed as connected with no usable shell; the "add local session" form rendered below the visible area so tapping it looked like nothing happened, and it now scrolls into view (same for "add connection"); the session label above the terminal no longer shows shell@localhost for a local session, an address the user never entered' }
+    ]
+  },
+  {
     version: '0.30.28',
     items: [
       { type: 'fix', zh: '修复 Android 本地终端「授予所有文件访问权限」开关无法开启的问题：MANAGE_EXTERNAL_STORAGE 从未在 manifest 中声明，系统设置页因此不会给应用提供可开启的开关，应用档的终端始终看不到共享存储；该按钮也不再静默吞掉打开设置页失败，改为回退到全局列表并在都不可用时给出提示', en: 'Fix the Android local terminal\'s "grant all-files access" switch being impossible to enable: MANAGE_EXTERNAL_STORAGE was never declared in the manifest, so the system settings screen offered the app nothing to turn on and the app-tier shell could never see shared storage; the button also no longer swallows a failure to open that screen, falling back to the global list and reporting when neither is available' }
