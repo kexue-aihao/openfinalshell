@@ -99,7 +99,20 @@ jobs:
           gradle-version: ${{ env.GRADLE_VERSION }}
 
       - name: Check Settings translations and run Kotlin unit tests
-        run: gradle -p android :app:checkI18n testDebugUnitTest --stacktrace
+        shell: bash
+        run: |
+          log=$(mktemp)
+          if gradle -p android :app:checkI18n testDebugUnitTest --stacktrace > "$log" 2>&1; then
+            tail -3 "$log"
+            exit 0
+          fi
+          tail -40 "$log"
+          # Publish the failure as check annotations. Annotations are readable without repository
+          # write access, while job logs and artifacts are not — so this is the one channel that
+          # makes a CI-only failure legible from outside the repo.
+          grep -E "> Task .* FAILED|Lint found|error:|What went wrong|Execution failed for task" "$log" \
+            | tail -8 | sed 's/%/%25/g' | while IFS= read -r line; do echo "::error::$line"; done
+          exit 1
 
       - name: Validate signing secrets
         env:
