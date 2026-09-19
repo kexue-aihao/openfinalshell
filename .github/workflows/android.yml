@@ -63,7 +63,16 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
+          # :app cannot even configure without these, so a silent no-op install has to fail here
+          # rather than surface later as an unrelated-looking Gradle error.
+          test -f "$ANDROID_HOME/ndk/${{ env.ANDROID_NDK }}/source.properties" || {
+            echo "::error::NDK ${{ env.ANDROID_NDK }} was not installed"; exit 1; }
+          test -d "$ANDROID_HOME/cmake/${{ env.ANDROID_CMAKE }}" || {
+            echo "::error::CMake ${{ env.ANDROID_CMAKE }} was not installed"; exit 1; }
 
       - name: Generate shared schema metadata
         run: node scripts/generateSharedSchema.mjs
@@ -126,7 +135,16 @@ jobs:
           packages: platform-tools
 
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
+          # :app cannot even configure without these, so a silent no-op install has to fail here
+          # rather than surface later as an unrelated-looking Gradle error.
+          test -f "$ANDROID_HOME/ndk/${{ env.ANDROID_NDK }}/source.properties" || {
+            echo "::error::NDK ${{ env.ANDROID_NDK }} was not installed"; exit 1; }
+          test -d "$ANDROID_HOME/cmake/${{ env.ANDROID_CMAKE }}" || {
+            echo "::error::CMake ${{ env.ANDROID_CMAKE }} was not installed"; exit 1; }
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
