@@ -66,6 +66,19 @@ class LocalHostSessionTest {
         /** Emits host-side data, e.g. to check that pre-collection output is not lost. */
         suspend fun emit(bytes: ByteArray) = toClient.send(LocalHostCodec.encode(LocalHostCodec.TYPE_DATA, bytes))
 
+        /** Emits an exit frame on its own, without the client asking — the shell-exited case. */
+        suspend fun emitExit(status: Int) = toClient.send(LocalHostCodec.encodeExit(status))
+
+        /** Waits for the host side to have processed something, instead of sleeping a fixed time. */
+        suspend fun awaitCondition(timeoutMs: Long = 5_000, condition: () -> Boolean): Boolean {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            while (System.currentTimeMillis() < deadline) {
+                if (condition()) return true
+                kotlinx.coroutines.delay(10)
+            }
+            return condition()
+        }
+
         override fun incoming(): Flow<ByteArray> = toClient.receiveAsFlow()
         override suspend fun send(bytes: ByteArray) { fromClient.send(bytes) }
         override suspend fun close() { toClient.close(); fromClient.close() }
@@ -140,9 +153,9 @@ class LocalHostSessionTest {
         val pipe = Pipe(scope, ackHandshake = true)
         val session = LocalHostSession(pipe, scope)
         session.handshake(LocalHostCodec.newToken(), timeoutMs = 2_000)
+        // Awaited, so the frame is definitively emitted while nothing is collecting it. No sleep is
+        // needed to establish that ordering, and a shared flow would drop exactly this frame.
         pipe.emit("early prompt".toByteArray())
-        // Give the reader a chance to decode it before anything collects.
-        kotlinx.coroutines.delay(50)
         val collected = scope.collectOutput(session)
         val seen = awaitText(collected, "early prompt")
         assertTrue("the pre-collection prompt was lost; saw: $seen", seen.contains("early prompt"))
@@ -150,24 +163,46 @@ class LocalHostSessionTest {
         scope.cancel()
     }
 
-    @Test fun resizeIsForwardedWithRowsThenColumns() = runBlocking {
+    @Test fun resizeIsForwardedWithRowsThenColumns() = runBlocking<Unit> {
         val scope = scope()
         val pipe = Pipe(scope, ackHandshake = true)
         val session = LocalHostSession(pipe, scope)
         session.handshake(LocalHostCodec.newToken(), timeoutMs = 2_000)
         session.resize(rows = 12, cols = 40)
-        kotlinx.coroutines.delay(100)
+        // Waits for the host to have processed the frame. A fixed sleep here is what makes a test
+        // pass on a developer machine and fail on a loaded CI runner.
+        assertTrue("the resize frame was never processed", pipe.awaitCondition { pipe.resizes.isNotEmpty() })
         assertEquals(listOf(12 to 40), pipe.resizes)
+        session.close()
+        scope.cancel()
     }
 
-    @Test fun theExitFrameCarriesTheShellStatus() = runBlocking {
+    /**
+     * The exit frame carries the shell's status.
+     *
+     * The host sends it unprompted, so the assertion reads it while the client's reader is still
+     * alive. Driving this through `close()` would race that reader against its own cancellation and
+     * could only ever assert "something completed".
+     */
+    @Test fun theExitFrameCarriesTheShellStatus() = runBlocking<Unit> {
+        val scope = scope()
+        val pipe = Pipe(scope, ackHandshake = true)
+        val session = LocalHostSession(pipe, scope)
+        session.handshake(LocalHostCodec.newToken(), timeoutMs = 2_000)
+        pipe.emitExit(3)
+        assertEquals(3, session.exited.await())
+        session.close()
+        scope.cancel()
+    }
+
+    /** Closing must tell the host to hang up, which is what stops a shell outliving its session. */
+    @Test fun closeTellsTheHostToHangUp() = runBlocking<Unit> {
         val scope = scope()
         val pipe = Pipe(scope, ackHandshake = true)
         val session = LocalHostSession(pipe, scope)
         session.handshake(LocalHostCodec.newToken(), timeoutMs = 2_000)
         session.close()
-        assertTrue("close must tell the host to hang up", pipe.closed.get())
-        assertEquals(0, session.exited.await())
+        assertTrue("the host was never told to close", pipe.awaitCondition { pipe.closed.get() })
     }
 
     /**
