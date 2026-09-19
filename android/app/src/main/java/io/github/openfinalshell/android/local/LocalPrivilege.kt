@@ -50,9 +50,15 @@ data class LocalTierAvailability(
     /**
      * The root tier is reachable either through Shizuku running as root or through `su` — but only
      * when the user has switched it on, which is the second gate after the build flag.
+     *
+     * Shizuku-as-root is listed with the same condition the ADB tier needs, not just
+     * [shizukuRunsAsRoot]: that path still binds a Shizuku user service, so an ungranted app would
+     * otherwise be told the tier is ready and then fail inside the bind. Only a device with its own
+     * `su` stands on its own.
      */
     val rootAvailable: Boolean
-        get() = helperPresent && rootAllowedBySettings && (shizukuRunsAsRoot || hasRootBinary)
+        get() = helperPresent && rootAllowedBySettings &&
+            ((shizukuRunsAsRoot && shizuku == null) || hasRootBinary)
 
     fun isAvailable(tier: LocalTier): Boolean = when (tier) {
         LocalTier.APP -> true
@@ -70,16 +76,28 @@ data class LocalTierAvailability(
     fun blockerFor(tier: LocalTier): LocalTierBlocker? = when {
         isAvailable(tier) -> null
         !helperPresent -> LocalTierBlocker.HELPER_MISSING
-        tier == LocalTier.ADB -> when (shizuku) {
-            ShizukuUnavailable.NOT_INSTALLED -> LocalTierBlocker.SHIZUKU_NOT_INSTALLED
-            ShizukuUnavailable.NOT_RUNNING -> LocalTierBlocker.SHIZUKU_NOT_RUNNING
-            ShizukuUnavailable.NO_PERMISSION -> LocalTierBlocker.SHIZUKU_NO_PERMISSION
-            ShizukuUnavailable.TOO_OLD -> LocalTierBlocker.SHIZUKU_TOO_OLD
-            ShizukuUnavailable.HELPER_MISSING -> LocalTierBlocker.HELPER_MISSING
-            null -> LocalTierBlocker.HELPER_MISSING
+        tier == LocalTier.ADB -> shizukuBlocker(shizuku)
+        tier == LocalTier.ROOT -> if (!rootAllowedBySettings) {
+            LocalTierBlocker.ROOT_DISABLED_BY_SETTINGS
+        } else if (shizukuRunsAsRoot) {
+            // This device would serve the tier through Shizuku, so what is missing is Shizuku's —
+            // reporting a missing `su` here would send the user looking for the wrong fix.
+            shizukuBlocker(shizuku)
+        } else {
+            LocalTierBlocker.NO_ROOT_BINARY
         }
-        tier == LocalTier.ROOT -> if (!rootAllowedBySettings) LocalTierBlocker.ROOT_DISABLED_BY_SETTINGS else LocalTierBlocker.NO_ROOT_BINARY
         else -> null
+    }
+
+    /** Why Shizuku cannot be used, in the terms the UI turns into advice. */
+    private fun shizukuBlocker(reason: ShizukuUnavailable?): LocalTierBlocker = when (reason) {
+        ShizukuUnavailable.NOT_INSTALLED -> LocalTierBlocker.SHIZUKU_NOT_INSTALLED
+        ShizukuUnavailable.NOT_RUNNING -> LocalTierBlocker.SHIZUKU_NOT_RUNNING
+        ShizukuUnavailable.NO_PERMISSION -> LocalTierBlocker.SHIZUKU_NO_PERMISSION
+        ShizukuUnavailable.TOO_OLD -> LocalTierBlocker.SHIZUKU_TOO_OLD
+        ShizukuUnavailable.HELPER_MISSING -> LocalTierBlocker.HELPER_MISSING
+        // Unreachable from either tier: `isAvailable` has already answered when Shizuku is usable.
+        null -> LocalTierBlocker.HELPER_MISSING
     }
 }
 
