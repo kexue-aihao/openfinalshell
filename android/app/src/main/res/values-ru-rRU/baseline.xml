@@ -26,6 +26,7 @@
     <string name="local_shell_note">Запускает оболочку на этом устройстве с правами приложения. Общее хранилище видно только при разрешении доступа ко всем файлам.</string>
     <string name="local_badge">ЛОКАЛЬНО</string>
     <string name="status_local_root_confirm">Подтвердите доступ root, чтобы продолжить</string>
+    <string name="status_local_all_files_unavailable">На этом устройстве нет экрана доступа ко всем файлам</string>
     <string name="local_root_confirm_title">Запустить от root?</string>
     <string name="local_root_confirm_body">Оболочка root может читать приватные данные всех приложений на этом устройстве, включая сохранённые подключения этого приложения и токен ИИ. Продолжайте только на устройстве, которое вы контролируете.</string>
     <string name="local_root_confirm_action">Запустить от root</string>

@@ -1,8 +1,11 @@
 package io.github.openfinalshell.android.local
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import io.github.openfinalshell.android.core.local.LocalRoots
 import java.io.File
 
@@ -127,6 +130,26 @@ private const val ADB_SCRATCH = "/data/local/tmp"
 /** True when the user granted "all files access", which is what lifts the app tier to `/sdcard`. */
 fun hasAllFilesAccess(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+
+/**
+ * Opens the system's "all files access" screen, preferring the per-app page.
+ *
+ * Returns false when no screen could be shown, so the caller can say so instead of leaving the tap
+ * with no visible effect. The fallback matters on OEM ROMs that ship only the global list: without
+ * it the per-app intent throws `ActivityNotFoundException` and the button appears dead.
+ */
+fun openAllFilesAccessSettings(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+    val perApp = Intent(
+        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+        Uri.fromParts("package", context.packageName, null)
+    )
+    if (context.startSettingsSafely(perApp)) return true
+    return context.startSettingsSafely(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+}
+
+private fun Context.startSettingsSafely(intent: Intent): Boolean =
+    runCatching { startActivity(intent) }.isSuccess
 
 /**
  * Mount points the delete guard refuses at.

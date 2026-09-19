@@ -26,6 +26,7 @@
     <string name="local_shell_note">Führt eine Shell auf diesem Gerät mit App-Rechten aus. Gemeinsamer Speicher ist nur mit der Berechtigung für alle Dateien sichtbar.</string>
     <string name="local_badge">LOKAL</string>
     <string name="status_local_root_confirm">Root-Zugriff bestätigen, um fortzufahren</string>
+    <string name="status_local_all_files_unavailable">Dieses Gerät hat keinen Bildschirm für Zugriff auf alle Dateien</string>
     <string name="local_root_confirm_title">Als root ausführen?</string>
     <string name="local_root_confirm_body">Eine root-Shell kann die privaten Daten jeder App auf diesem Gerät lesen, einschließlich der gespeicherten Verbindungen dieser App und ihres KI-Tokens. Fahren Sie nur auf einem Gerät fort, das Sie kontrollieren.</string>
     <string name="local_root_confirm_action">Als root ausführen</string>

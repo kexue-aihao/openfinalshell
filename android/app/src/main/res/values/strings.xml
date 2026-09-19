@@ -25,6 +25,7 @@
     <string name="local_shell_note">Runs a shell on this device as the app user. Shared storage is only visible with the all-files access grant.</string>
     <string name="local_badge">LOCAL</string>
     <string name="status_local_root_confirm">Confirm root access to continue</string>
+    <string name="status_local_all_files_unavailable">This device has no all-files access screen</string>
     <string name="local_root_confirm_title">Run as root?</string>
     <string name="local_root_confirm_body">A root shell can read every app\'s private data on this device, including this app\'s saved connections and AI token. Only continue on a device you control.</string>
     <string name="local_root_confirm_action">Run as root</string>

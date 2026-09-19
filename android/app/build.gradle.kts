@@ -160,7 +160,7 @@ val uiI18nKeys = setOf(
     "status_disconnected", "status_reconnected", "status_terminal_ready", "status_terminal_closed",
     "status_profile_saved", "status_profile_deleted", "status_forwarding_rule_saved", "status_forwarding_rule_deleted",
     "status_forwarding_started", "status_proxy_saved_unavailable", "status_proxy_unavailable", "status_private_key_imported",
-    "status_host_trust_revoked", "status_export_completed", "status_local_sessions_excluded", "status_local_packed_transfer_unavailable", "status_local_root_confirm", "status_import_completed", "status_session_required",
+    "status_host_trust_revoked", "status_export_completed", "status_local_sessions_excluded", "status_local_packed_transfer_unavailable", "status_local_root_confirm", "status_local_all_files_unavailable", "status_import_completed", "status_session_required",
     "status_server_info_unavailable", "status_port_traffic_failed", "status_sftp_ready", "status_sftp_directory_created",
     "status_sftp_item_renamed", "status_upload_queued", "status_download_queued", "status_host_key_confirmation_required",
     "status_ssh_components_unavailable", "status_error_detail", "status_local_storage_unavailable",

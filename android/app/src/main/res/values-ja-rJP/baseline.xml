@@ -25,6 +25,7 @@
     <string name="local_shell_note">アプリの権限でこの端末上のシェルを実行します。全ファイルアクセスを許可しない限り共有ストレージは表示されません。</string>
     <string name="local_badge">ローカル</string>
     <string name="status_local_root_confirm">続けるには root 権限を確認してください</string>
+    <string name="status_local_all_files_unavailable">この端末に「全ファイルアクセス」の設定画面がありません</string>
     <string name="local_root_confirm_title">root で実行しますか？</string>
     <string name="local_root_confirm_body">root シェルはこの端末上のすべてのアプリのプライベートデータ（本アプリが保存した接続情報と AI トークンを含む）を読み取れます。管理下にある端末でのみ続行してください。</string>
     <string name="local_root_confirm_action">root で実行</string>

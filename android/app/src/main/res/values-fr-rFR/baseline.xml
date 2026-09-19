@@ -26,6 +26,7 @@
     <string name="local_shell_note">Exécute un shell sur cet appareil avec les droits de l\'application. Le stockage partagé n\'est visible qu\'avec l\'accès à tous les fichiers.</string>
     <string name="local_badge">LOCAL</string>
     <string name="status_local_root_confirm">Confirmez l\'accès root pour continuer</string>
+    <string name="status_local_all_files_unavailable">Cet appareil n\'a pas d\'écran d\'accès à tous les fichiers</string>
     <string name="local_root_confirm_title">Exécuter en root ?</string>
     <string name="local_root_confirm_body">Un shell root peut lire les données privées de toutes les applications de cet appareil, y compris les connexions enregistrées de cette application et son jeton IA. Ne continuez que sur un appareil que vous contrôlez.</string>
     <string name="local_root_confirm_action">Exécuter en root</string>

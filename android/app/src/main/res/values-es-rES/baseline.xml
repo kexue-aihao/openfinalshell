@@ -26,6 +26,7 @@
     <string name="local_shell_note">Ejecuta un shell en este dispositivo con los permisos de la aplicación. El almacenamiento compartido solo es visible con el acceso a todos los archivos.</string>
     <string name="local_badge">LOCAL</string>
     <string name="status_local_root_confirm">Confirma el acceso root para continuar</string>
+    <string name="status_local_all_files_unavailable">Este dispositivo no tiene la pantalla de acceso a todos los archivos</string>
     <string name="local_root_confirm_title">¿Ejecutar como root?</string>
     <string name="local_root_confirm_body">Un shell root puede leer los datos privados de todas las aplicaciones del dispositivo, incluidas las conexiones guardadas de esta aplicación y su token de IA. Continúa solo en un dispositivo que controles.</string>
     <string name="local_root_confirm_action">Ejecutar como root</string>

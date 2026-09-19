@@ -28,6 +28,7 @@ enum class StatusKey(@StringRes val resourceId: Int) {
     LOCAL_SESSIONS_EXCLUDED(R.string.status_local_sessions_excluded),
     PACKED_TRANSFER_UNAVAILABLE(R.string.status_local_packed_transfer_unavailable),
     LOCAL_ROOT_CONFIRM(R.string.status_local_root_confirm),
+    LOCAL_ALL_FILES_UNAVAILABLE(R.string.status_local_all_files_unavailable),
     // Reuses the blocker text rather than adding a near-duplicate string: the instruction and the
     // answer to "why can't I use this tier" are the same sentence.
     SHIZUKU_NO_PERMISSION(R.string.local_blocker_shizuku_no_permission),

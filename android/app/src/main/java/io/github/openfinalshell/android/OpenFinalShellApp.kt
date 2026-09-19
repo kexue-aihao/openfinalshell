@@ -613,13 +613,10 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && !rememberAllFilesAccess()) {
                 val context = androidx.compose.ui.platform.LocalContext.current
                 TextButton(onClick = {
-                    runCatching {
-                        context.startActivity(
-                            Intent(
-                                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                Uri.fromParts("package", context.packageName, null)
-                            )
-                        )
+                    // Reporting the failure beats a tap that visibly does nothing, which is what a
+                    // swallowed ActivityNotFoundException looked like on an OEM ROM.
+                    if (!io.github.openfinalshell.android.local.openAllFilesAccessSettings(context)) {
+                        viewModel.setStatus(UiStatus(StatusKey.LOCAL_ALL_FILES_UNAVAILABLE))
                     }
                 }) { Text(androidx.compose.ui.res.stringResource(R.string.action_grant_all_files)) }
             }

@@ -23,6 +23,7 @@
     <string name="local_shell_note">以应用自身权限在本机运行 shell。未授予“所有文件访问权限”时看不到共享存储。</string>
     <string name="local_badge">本机</string>
     <string name="status_local_root_confirm">请确认 root 权限后继续</string>
+    <string name="status_local_all_files_unavailable">本机没有「所有文件访问权限」设置页</string>
     <string name="local_root_confirm_title">以 root 运行？</string>
     <string name="local_root_confirm_body">root shell 可以读取本机任何应用的私有数据，包括本应用已保存的连接和 AI Token。请只在你自己的设备上继续。</string>
     <string name="local_root_confirm_action">以 root 运行</string>

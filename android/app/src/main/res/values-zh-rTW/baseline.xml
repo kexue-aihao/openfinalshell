@@ -26,6 +26,7 @@
     <string name="local_shell_note">以應用自身權限在本機執行 shell。未授予「所有檔案存取權」時看不到共享儲存空間。</string>
     <string name="local_badge">本機</string>
     <string name="status_local_root_confirm">請確認 root 權限後繼續</string>
+    <string name="status_local_all_files_unavailable">本機沒有「所有檔案存取權」設定頁</string>
     <string name="local_root_confirm_title">以 root 執行？</string>
     <string name="local_root_confirm_body">root shell 可以讀取本機任何應用程式的私有資料，包括本應用程式已儲存的連線和 AI Token。請只在你自己控制的裝置上繼續。</string>
     <string name="local_root_confirm_action">以 root 執行</string>

@@ -25,6 +25,7 @@
     <string name="local_shell_note">앱 권한으로 이 기기에서 셸을 실행합니다. 모든 파일 접근을 허용하지 않으면 공용 저장소가 보이지 않습니다.</string>
     <string name="local_badge">로컬</string>
     <string name="status_local_root_confirm">계속하려면 root 권한을 확인하세요</string>
+    <string name="status_local_all_files_unavailable">이 기기에는 모든 파일 접근 설정 화면이 없습니다</string>
     <string name="local_root_confirm_title">root로 실행할까요?</string>
     <string name="local_root_confirm_body">root 셸은 이 기기의 모든 앱 전용 데이터를 읽을 수 있습니다. 이 앱이 저장한 연결 정보와 AI 토큰도 포함됩니다. 직접 관리하는 기기에서만 계속하세요.</string>
     <string name="local_root_confirm_action">root로 실행</string>
