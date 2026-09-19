@@ -65,7 +65,10 @@ jobs:
       - name: Install Android SDK packages
         shell: bash
         run: |
-          yes | sdkmanager --licenses > /dev/null
+          # `yes` is killed by SIGPIPE when sdkmanager stops reading, and GitHub Actions bash runs
+          # with `set -o pipefail`, so an unguarded pipeline would fail the step. The package
+          # install below is what actually proves the licenses were accepted.
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
           # :app cannot even configure without these, so a silent no-op install has to fail here
           # rather than surface later as an unrelated-looking Gradle error.
@@ -108,6 +111,32 @@ jobs:
             exit 1
           }
 
+      # The unit job had no way to answer "why did it fail" from the Actions UI, unlike the
+      # instrumentation job below. Publishing the reports as an artifact makes a CI-only failure
+      # (a Linux-only test, or a lint rule only a cold build triggers) diagnosable without needing
+      # a maintainer to reproduce it locally.
+      - name: Collect unit test and lint diagnostics
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          mkdir -p android-diagnostics
+          for module in app core storage; do
+            for dir in reports test-results; do
+              src="android/$module/build/$dir"
+              if [ -d "$src" ]; then cp -R "$src" "android-diagnostics/$module-$dir"; fi
+            done
+          done
+          find android-diagnostics -maxdepth 3 | head -60
+
+      - name: Upload unit test and lint diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-diagnostics-${{ github.sha }}
+          path: android-diagnostics
+          if-no-files-found: warn
+          retention-days: 14
+
   instrumentation:
     name: Android instrumentation (API ${{ matrix.api_level }})
     needs: unit
@@ -137,7 +166,10 @@ jobs:
       - name: Install Android SDK packages
         shell: bash
         run: |
-          yes | sdkmanager --licenses > /dev/null
+          # `yes` is killed by SIGPIPE when sdkmanager stops reading, and GitHub Actions bash runs
+          # with `set -o pipefail`, so an unguarded pipeline would fail the step. The package
+          # install below is what actually proves the licenses were accepted.
+          yes | sdkmanager --licenses > /dev/null || true
           sdkmanager "platform-tools" "platforms;${{ env.ANDROID_PLATFORM }}" "build-tools;${{ env.ANDROID_BUILD_TOOLS }}" "ndk;${{ env.ANDROID_NDK }}" "cmake;${{ env.ANDROID_CMAKE }}"
           # :app cannot even configure without these, so a silent no-op install has to fail here
           # rather than surface later as an unrelated-looking Gradle error.
