@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.28',
+    items: [
+      { type: 'fix', zh: '修复 Android 本地终端「授予所有文件访问权限」开关无法开启的问题：MANAGE_EXTERNAL_STORAGE 从未在 manifest 中声明，系统设置页因此不会给应用提供可开启的开关，应用档的终端始终看不到共享存储；该按钮也不再静默吞掉打开设置页失败，改为回退到全局列表并在都不可用时给出提示', en: 'Fix the Android local terminal\'s "grant all-files access" switch being impossible to enable: MANAGE_EXTERNAL_STORAGE was never declared in the manifest, so the system settings screen offered the app nothing to turn on and the app-tier shell could never see shared storage; the button also no longer swallows a failure to open that screen, falling back to the global list and reporting when neither is available' }
+    ]
+  },
+  {
     version: '0.30.27',
     items: [
       { type: 'feat', zh: 'Android 新增本地终端：在本机上直接运行 shell，分应用自身、ADB shell（经 Shizuku）和 root 三档权限，终端、文件管理、监控与 AI 助手均已接入；档位每次连接重新探测，root 档还需在设置中显式开启并逐次确认', en: 'Add an on-device local shell to Android with three privilege tiers — the app\'s own uid, the ADB shell uid through Shizuku, and root — wired into the terminal, file, monitoring, and AI panels; the tier is re-probed on every connect, and the root tier needs a settings opt-in plus a per-session confirmation' },
