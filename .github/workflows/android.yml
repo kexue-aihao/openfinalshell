@@ -100,7 +100,7 @@ jobs:
           # Publish the failure as check annotations. Annotations are readable without repository
           # write access, while job logs and artifacts are not — so this is the one channel that
           # makes a CI-only failure legible from outside the repo.
-          grep -E "> Task .* FAILED|Lint found|error:|What went wrong|Execution failed for task" "$log" \
+          grep -E "> Task .* FAILED|FAILED$|Lint found|error:|What went wrong|Execution failed for task|AssertionError|TimeoutCancellation|expected:|saw:" "$log" \
             | tail -8 | sed 's/%/%25/g' | while IFS= read -r line; do echo "::error::$line"; done
           exit 1
 
