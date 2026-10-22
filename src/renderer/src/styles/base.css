@@ -70,18 +70,21 @@
 }
 
 /* Ant Design 的浮层都经由 Portal 挂在 body 上，不能只在某个 CSS Module 内处理。
-   这里统一它们的表面，业务表格和页面内容仍使用实体背景。 */
+   浮层和抽屉始终保持实体表面：它们经常覆盖在实时内容（终端、RDP 画布）之上，
+   半透明背景会迫使合成器每帧重新采样下层。 */
 .ant-modal .ant-modal-content,
 .ant-drawer .ant-drawer-content,
 .ant-dropdown,
 .ant-select-dropdown,
 .ant-popover .ant-popover-inner {
-  background: var(--ofs-shell-surface-strong);
+  background: var(--ofs-bg-elevated);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border: 1px solid var(--ofs-shell-border);
   box-shadow: var(--ofs-shadow-modal);
 }
 
-/* Dropdown 的菜单本体默认会再绘制一层 colorBgElevated，需继承外层玻璃表面。 */
+/* Dropdown 的菜单本体默认会再绘制一层 colorBgElevated，需继承外层实体表面。 */
 .ant-dropdown .ant-dropdown-menu {
   background: transparent;
   box-shadow: none;
@@ -93,22 +96,13 @@
   border-bottom-color: var(--ofs-shell-border);
 }
 
-/* 仅在 Chromium 支持 backdrop-filter 时启用模糊；不支持时由下方规则显式回退实体色。 */
+/* 仅静态外壳表面保留玻璃模糊。弹层和抽屉已在上面固定为实体表面：
+   远程桌面或低性能 GPU 下，模糊覆盖在实时画面上会显著增加合成开销。 */
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
     .ofs-glass-surface,
   :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
-    .ofs-glass-surface--strong,
-  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
-    .ant-modal .ant-modal-content,
-  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
-    .ant-drawer .ant-drawer-content,
-  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
-    .ant-dropdown,
-  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
-    .ant-select-dropdown,
-  :root:not([data-reduce-transparency='true']):not([data-platform-ui='linux-neutral'])
-    .ant-popover .ant-popover-inner {
+    .ofs-glass-surface--strong {
     -webkit-backdrop-filter: blur(18px) saturate(1.08);
     backdrop-filter: blur(18px) saturate(1.08);
   }
