@@ -201,19 +201,49 @@ const TAR = findLocalTar()
 const root = TAR ? mkdtempSync(join(tmpdir(), 'ofs-localtar-')) : null
 
 /**
- * Windows 自带的 bsdtar 3.8.9（libarchive）对 emoji 文件名有回归：
- *  - 用 bsdtar 创建含 emoji 的归档会以访问冲突退出，留下 0 字节文件；
- *  - 带 --options hdrcharset=UTF-8 列成员或解包时，emoji 成员被报
- *    "Archive entry has empty or unreadable filename" 并跳过，进程非 0。
- * 这一版上只省略 emoji 夹具；中文、二进制、空文件、安全校验仍全部运行。
- * 等 Windows tar 修复后删除这个开关，emoji 用例会自动恢复。
+ * MSYS 的 GNU tar。Windows 上专门用来**造夹具**：bsdtar 建包时按系统 ANSI 代码页
+ * 往归档头里写文件名，英文版 Windows（CI runner 是 CP1252）连中文名都转不过去，
+ * 夹具自己就先建失败了。GNU tar 写的是文件系统的原始 UTF-8 字节，与真实远端
+ * （Linux 上的 tar）一致，也更贴生产场景。
+ */
+const GNU_TAR = ['/usr/bin/tar', 'C:\\Program Files\\Git\\usr\\bin\\tar.exe'].find((p) =>
+  existsSync(p)
+)
+
+/** MSYS 的 GNU tar 只认 /c/... 形式的路径（`C:\x` 会被它当成远端主机名） */
+const tarPath = (p: string): string =>
+  process.platform === 'win32' ? `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}` : p
+
+/**
+ * Windows 自带的 bsdtar 对 emoji 文件名有回归，且**不能拿版本号当判据**：
+ * 3.8.9 实测建包时访问冲突，CI runner 上的另一个版本同样失败。这里直接做一次
+ * 行为探测——用小归档走一遍「建包 → 带 hdrcharset=UTF-8 列成员」，任何一步失败
+ * 就省略 emoji 夹具。中文、二进制、空文件、安全校验仍全部运行。
+ * 等 Windows tar 修复后，探测通过，emoji 用例自动恢复。
  */
 const BSDTAR_EMOJI_REGRESSION = (() => {
-  if (!TAR) return false
+  if (!TAR || process.platform !== 'win32') return false
+  const dir = mkdtempSync(join(tmpdir(), 'ofs-tarprobe-'))
   try {
-    return /\bbsdtar 3\.8\.9\b/.test(execFileSync(TAR, ['--version'], { encoding: 'utf8' }))
-  } catch {
+    writeFileSync(join(dir, '日志-🔥.log'), 'emoji\n', 'utf8')
+    const archive = join(dir, 'probe.tar')
+    const creator = GNU_TAR ?? TAR
+    const msys = creator !== TAR
+    execFileSync(creator, [
+      '-c',
+      '-f',
+      msys ? tarPath(archive) : archive,
+      '-C',
+      msys ? tarPath(dir) : dir,
+      '--',
+      '日志-🔥.log'
+    ])
+    execFileSync(TAR, ['-tf', '--options', 'hdrcharset=UTF-8', archive], { stdio: 'ignore' })
     return false
+  } catch {
+    return true
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
   }
 })()
 
@@ -224,7 +254,7 @@ afterAll(() => {
 describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', () => {
   const tar = TAR as string
 
-  /** 造一棵包含各种合法但麻烦的名字的树，用同一个 tar 打成归档 */
+  /** 造一棵包含各种合法但麻烦的名字的树，打成归档（Windows 上用 GNU tar，见上） */
   const buildArchive = (name: string, top: string): string => {
     const base = join(root as string, name)
     mkdirSync(join(base, top, 'sub'), { recursive: true })
@@ -237,7 +267,13 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     }
     writeFileSync(join(base, top, 'empty'), '')
     const archive = join(root as string, `${name}.tar`)
-    execFileSync(tar, ['-c', '-f', archive, '-C', base, '--', top])
+    // Windows 上优先用 GNU tar 造包（理由见 GNU_TAR 的注释）；没有它才退回 bsdtar。
+    const creator = process.platform === 'win32' && GNU_TAR ? GNU_TAR : tar
+    if (creator === tar) {
+      execFileSync(tar, ['-c', '-f', archive, '-C', base, '--', top])
+    } else {
+      execFileSync(creator, ['-c', '-f', tarPath(archive), '-C', tarPath(base), '--', top])
+    }
     return archive
   }
 
@@ -279,9 +315,7 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
    * 所以这里刻意用 MSYS 的 **GNU tar** 造包 —— 它写出来的字节与 Linux 侧一致。
    */
   it('GNU tar 打的包里含中文/emoji 名字，解出来逐字节正确', async () => {
-    const gnuTar = ['/usr/bin/tar', 'C:\\Program Files\\Git\\usr\\bin\\tar.exe'].find((p) =>
-      existsSync(p)
-    )
+    const gnuTar = GNU_TAR
     if (!gnuTar) return // 本机没有 GNU tar，跳过（真机验收里还有一条同款）
 
     const base = join(root as string, 'gnu-src')
@@ -295,8 +329,6 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
 
     // MSYS 的 GNU tar 只认 /c/... 形式的路径（`C:\x` 会被它当成远端主机名，
     // 报 "Cannot connect to C: resolve failed" —— 这正是不许走 PATH 找 tar 的理由）
-    const tarPath = (p: string): string =>
-      process.platform === 'win32' ? `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}` : p
     execFileSync(gnuTar, ['-c', '-f', tarPath(archive), '-C', tarPath(base), '--', 'app'])
 
     const listed = await listTarEntries(tar, archive, 30_000)
