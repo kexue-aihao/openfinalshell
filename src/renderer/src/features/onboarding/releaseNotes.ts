@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.32',
+    items: [
+      { type: 'fix', zh: '修复连接管理右键菜单在慢渲染或远程控制环境下多次叠加、点击“编辑”被旧弹层吞掉的问题：整棵树改为单一受控菜单，始终只显示一个弹层，并作用于最后一次右键的服务器或分组', en: 'Fix the connection manager context menu stacking under slow rendering or remote-control sessions and Edit clicks being swallowed by a stale popup: the tree now uses one controlled menu that always shows a single popup and acts on the last right-clicked server or group' },
+      { type: 'fix', zh: '移除右键菜单、下拉框、Popover、连接编辑抽屉和设置弹窗的背景模糊，改用实体表面，降低 ToDesk 等远程控制或低性能 GPU 环境下的合成开销；标题栏、侧栏和状态栏的静态玻璃效果仍可在设置中关闭', en: 'Remove background blur from context menus, selects, popovers, the connection editor and settings dialogs in favor of opaque surfaces, reducing compositing cost under remote-control tools such as ToDesk and on low-power GPUs; static title bar, sidebar and status bar glass can still be disabled in Settings' }
+    ]
+  },
+  {
     version: '0.30.31',
     items: [
       { type: 'feat', zh: '统一桌面深浅主题、欢迎页、侧栏、设置和独立编辑器的视觉样式，改善八种强调色的文字对比度，并适配减少动效、减少透明度和高对比度偏好', en: 'Unify the desktop light and dark themes, welcome page, sidebars, settings and independent editor; improve text contrast for all eight accent colors and respect reduced motion, reduced transparency and high contrast preferences' },
