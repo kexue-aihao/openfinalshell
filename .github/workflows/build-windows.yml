@@ -329,7 +329,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .local/native-deps
-          key: native-deps-${{ runner.os }}-20261020-v1
+          key: native-deps-${{ runner.os }}-20261020-v2
           restore-keys: |
             native-deps-${{ runner.os }}-
 
