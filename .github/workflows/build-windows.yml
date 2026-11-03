@@ -658,7 +658,13 @@ jobs:
           cd dist
           ls -l
           count() { find . -maxdepth 1 -type f -name "$1" | wc -l; }
-          [ "$(count '*.exe')" -eq 6 ] || { echo "::error::期望 6 个 exe"; exit 1; }
+          electron_exes=$(find . -maxdepth 1 -type f -name '*.exe' ! -name 'OpenFinalShell-NativePreview-*-Setup.exe' | wc -l)
+          [ "$electron_exes" -eq 6 ] || { echo "::error::期望 6 个 Electron exe，实际 $electron_exes"; exit 1; }
+          [ "$(count 'OpenFinalShell-NativePreview-*-Setup.exe')" -eq 3 ] || { echo "::error::期望 3 个原生安装器"; exit 1; }
+          for arch in x64 x86 arm64; do
+            test -f "native-update-$arch.json" || { echo "::error::缺少原生 $arch 更新清单"; exit 1; }
+          done
+          [ "$(count 'native-update-*.json')" -eq 3 ] || { echo "::error::期望 3 个原生更新清单"; exit 1; }
           [ "$(count '*.exe.blockmap')" -eq 3 ] || { echo "::error::期望 3 个 blockmap"; exit 1; }
           [ "$(count '*.deb')" -eq 2 ] || { echo "::error::期望 2 个 Debian 包"; exit 1; }
           [ "$(count '*.rpm')" -eq 2 ] || { echo "::error::期望 2 个 RPM 包"; exit 1; }
