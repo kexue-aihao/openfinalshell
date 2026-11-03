@@ -253,7 +253,7 @@ export async function listTarEntries(
   timeoutMs: number
 ): Promise<ListResult> {
   // latin1 = 字节对字符的无损解码。**不要改成 utf8** —— 见 run() 上面那段实测说明
-  const r = await runTar(tarPath, ['-t', '-f', archive], timeoutMs, 'latin1')
+  const r = await runTar(tarPath, ['-tf', archive], timeoutMs, 'latin1')
   if (r.overflow) {
     return { names: [], ok: false, stderr: '归档成员过多，无法完整校验（已放弃解包）' }
   }

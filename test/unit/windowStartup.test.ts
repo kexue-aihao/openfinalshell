@@ -10,6 +10,7 @@ const calls = vi.hoisted(() => ({
 
 vi.mock('node:os', async (original) => ({ ...await original<typeof import('node:os')>(), release: () => '10.0.26100' }))
 vi.mock('../../src/main/services/settings', () => ({ getSettings: () => calls.settings }))
+vi.mock('../../src/main/services/uiEnvironment', () => ({ getUiEnvironment: () => ({ profile: 'windows-11', micaEligible: true }) }))
 vi.mock('../../src/main/instances/windowState', () => ({ instanceWindowState: (value: unknown) => value, saveInstanceWindowState: vi.fn() }))
 vi.mock('../../src/main/ipc/registry', () => ({
   bindMainWindowForInstance: (instance: { mainWindow: unknown }, win: unknown) => { instance.mainWindow = win },
