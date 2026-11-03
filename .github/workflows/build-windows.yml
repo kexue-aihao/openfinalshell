@@ -756,7 +756,9 @@ jobs:
             gh release edit "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --title "OpenFinalShell $GITHUB_REF_NAME" \
-              --notes-file notes.md
+              --notes-file notes.md \
+              --draft=false \
+              "${prerelease[@]}"
           else
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
