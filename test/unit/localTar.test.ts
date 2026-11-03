@@ -216,9 +216,9 @@ const tarPath = (p: string): string =>
 
 /**
  * Windows 自带的 bsdtar 对 emoji 文件名有回归，且**不能拿版本号当判据**：
- * 3.8.9 实测建包时访问冲突，CI runner 上的另一个版本同样失败。这里直接做一次
- * 行为探测——用小归档走一遍「建包 → 带 hdrcharset=UTF-8 列成员」，任何一步失败
- * 就省略 emoji 夹具。中文、二进制、空文件、安全校验仍全部运行。
+ * 3.8.9 实测建包时访问冲突，CI runner 上还可能能列出成员、却在解包时跳过不可读名称。
+ * 这里用小归档走一遍与生产一致的「建包 → 带 hdrcharset=UTF-8 列成员 → 解包并确认文件落地」，
+ * 任何一步失败都省略 emoji 夹具。中文、二进制、空文件、安全校验仍全部运行。
  * 等 Windows tar 修复后，探测通过，emoji 用例自动恢复。
  */
 const BSDTAR_EMOJI_REGRESSION = (() => {
@@ -239,7 +239,12 @@ const BSDTAR_EMOJI_REGRESSION = (() => {
       '日志-🔥.log'
     ])
     execFileSync(TAR, ['-tf', '--options', 'hdrcharset=UTF-8', archive], { stdio: 'ignore' })
-    return false
+    const output = join(dir, 'out')
+    mkdirSync(output, { recursive: true })
+    execFileSync(TAR, ['-x', '--options', 'hdrcharset=UTF-8', '-f', archive, '-C', output], {
+      stdio: 'ignore'
+    })
+    return !existsSync(join(output, '日志-🔥.log'))
   } catch {
     return true
   } finally {
