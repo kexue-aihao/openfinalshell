@@ -43,7 +43,7 @@ describe('AI connection test latency', () => {
     fireEvent.click(button)
     expect(screen.queryByText('连接测试成功 · 耗时 328 ms')).toBeNull()
     await screen.findByText('test failure')
-    expect(button.classList.contains('ant-btn-loading')).toBe(false)
+    await waitFor(() => expect(button.classList.contains('ant-btn-loading')).toBe(false))
   })
 
   it('discards a late latency result after switching profiles', async () => {

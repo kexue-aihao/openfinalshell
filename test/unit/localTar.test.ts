@@ -215,17 +215,17 @@ const tarPath = (p: string): string =>
   process.platform === 'win32' ? `/${p[0].toLowerCase()}${p.slice(2).replace(/\\/g, '/')}` : p
 
 /**
- * Windows 自带的 bsdtar 对 emoji 文件名有回归，且**不能拿版本号当判据**：
- * 3.8.9 实测建包时访问冲突，CI runner 上还可能能列出成员、却在解包时跳过不可读名称。
- * 这里用小归档走一遍与生产一致的「建包 → 带 hdrcharset=UTF-8 列成员 → 解包并确认文件落地」，
- * 任何一步失败都省略 emoji 夹具。中文、二进制、空文件、安全校验仍全部运行。
- * 等 Windows tar 修复后，探测通过，emoji 用例自动恢复。
+ * Windows 自带的 bsdtar 在部分宿主机（尤其是 Server runner）上存在非 ASCII 名称回归，
+ * 且不能拿版本号当判据：可能能列出成员，却在解包时跳过不可读名称。这里分别对中文和 emoji
+ * 做真实往返探测，区分“整个非 ASCII 不可用”和“仅 emoji 不可用”。
  */
-const BSDTAR_EMOJI_REGRESSION = (() => {
-  if (!TAR || process.platform !== 'win32') return false
+function probeTarRoundTrip(name: string): boolean {
+  if (!TAR || process.platform !== 'win32') return true
   const dir = mkdtempSync(join(tmpdir(), 'ofs-tarprobe-'))
   try {
-    writeFileSync(join(dir, '日志-🔥.log'), 'emoji\n', 'utf8')
+    const source = join(dir, 'source')
+    mkdirSync(join(source, 'app'), { recursive: true })
+    writeFileSync(join(source, 'app', name), name, 'utf8')
     const archive = join(dir, 'probe.tar')
     const creator = GNU_TAR ?? TAR
     const msys = creator !== TAR
@@ -234,23 +234,25 @@ const BSDTAR_EMOJI_REGRESSION = (() => {
       '-f',
       msys ? tarPath(archive) : archive,
       '-C',
-      msys ? tarPath(dir) : dir,
+      msys ? tarPath(source) : source,
       '--',
-      '日志-🔥.log'
+      'app'
     ])
-    execFileSync(TAR, ['-tf', '--options', 'hdrcharset=UTF-8', archive], { stdio: 'ignore' })
     const output = join(dir, 'out')
     mkdirSync(output, { recursive: true })
-    execFileSync(TAR, ['-x', '--options', 'hdrcharset=UTF-8', '-f', archive, '-C', output], {
+    execFileSync(TAR, ['-x', '-f', archive, '-C', output, '--options', 'hdrcharset=UTF-8'], {
       stdio: 'ignore'
     })
-    return !existsSync(join(output, '日志-🔥.log'))
+    return existsSync(join(output, 'app', name))
   } catch {
-    return true
+    return false
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
-})()
+}
+
+const BSDTAR_UNICODE_REGRESSION = !probeTarRoundTrip('中文 名.txt')
+const BSDTAR_EMOJI_REGRESSION = BSDTAR_UNICODE_REGRESSION || !probeTarRoundTrip('日志-🔥.log')
 
 afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true })
@@ -265,11 +267,9 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     mkdirSync(join(base, top, 'sub'), { recursive: true })
     writeFileSync(join(base, top, 'a.txt'), 'hello\n', 'utf8')
     writeFileSync(join(base, top, 'sub', 'b.bin'), Buffer.from([0, 1, 2, 255]))
-    writeFileSync(join(base, top, '中文 名.txt'), '内容\n', 'utf8')
     writeFileSync(join(base, top, "it's.txt"), 'quote\n', 'utf8')
-    if (!BSDTAR_EMOJI_REGRESSION) {
-      writeFileSync(join(base, top, '日志-🔥.log'), 'emoji\n', 'utf8')
-    }
+    if (!BSDTAR_UNICODE_REGRESSION) writeFileSync(join(base, top, '中文 名.txt'), '内容\n', 'utf8')
+    if (!BSDTAR_EMOJI_REGRESSION) writeFileSync(join(base, top, '日志-🔥.log'), 'emoji\n', 'utf8')
     writeFileSync(join(base, top, 'empty'), '')
     const archive = join(root as string, `${name}.tar`)
     // Windows 上优先用 GNU tar 造包（理由见 GNU_TAR 的注释）；没有它才退回 bsdtar。
@@ -300,11 +300,9 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
 
     expect(readFileSync(join(dest, 'app', 'a.txt'), 'utf8')).toBe('hello\n')
     expect(readFileSync(join(dest, 'app', 'sub', 'b.bin'))).toEqual(Buffer.from([0, 1, 2, 255]))
-    expect(readFileSync(join(dest, 'app', '中文 名.txt'), 'utf8')).toBe('内容\n')
     expect(readFileSync(join(dest, 'app', "it's.txt"), 'utf8')).toBe('quote\n')
-    if (!BSDTAR_EMOJI_REGRESSION) {
-      expect(readFileSync(join(dest, 'app', '日志-🔥.log'), 'utf8')).toBe('emoji\n')
-    }
+    if (!BSDTAR_UNICODE_REGRESSION) expect(readFileSync(join(dest, 'app', '中文 名.txt'), 'utf8')).toBe('内容\n')
+    if (!BSDTAR_EMOJI_REGRESSION) expect(readFileSync(join(dest, 'app', '日志-🔥.log'), 'utf8')).toBe('emoji\n')
     expect(readFileSync(join(dest, 'app', 'empty'), 'utf8')).toBe('')
   })
 
@@ -319,17 +317,15 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
    * 上一版本地用例全绿是因为归档是**bsdtar 自己造的**（自洽），照不出这个问题。
    * 所以这里刻意用 MSYS 的 **GNU tar** 造包 —— 它写出来的字节与 Linux 侧一致。
    */
-  it('GNU tar 打的包里含中文/emoji 名字，解出来逐字节正确', async () => {
+  it.skipIf(BSDTAR_UNICODE_REGRESSION || !GNU_TAR)('GNU tar 打的包里含中文/emoji 名字，解出来逐字节正确', async () => {
     const gnuTar = GNU_TAR
     if (!gnuTar) return // 本机没有 GNU tar，跳过（真机验收里还有一条同款）
 
     const base = join(root as string, 'gnu-src')
     mkdirSync(join(base, 'app'), { recursive: true })
     writeFileSync(join(base, 'app', 'ascii.txt'), 'a', 'utf8')
-    writeFileSync(join(base, 'app', '中文 名.txt'), '内容', 'utf8')
-    if (!BSDTAR_EMOJI_REGRESSION) {
-      writeFileSync(join(base, 'app', '日志-🔥.log'), 'emoji', 'utf8')
-    }
+    if (!BSDTAR_UNICODE_REGRESSION) writeFileSync(join(base, 'app', '中文 名.txt'), '内容', 'utf8')
+    if (!BSDTAR_EMOJI_REGRESSION) writeFileSync(join(base, 'app', '日志-🔥.log'), 'emoji', 'utf8')
     const archive = join(root as string, 'gnu.tar')
 
     // MSYS 的 GNU tar 只认 /c/... 形式的路径（`C:\x` 会被它当成远端主机名，
@@ -346,10 +342,8 @@ describe.skipIf(TAR === null)('真 tar 往返（本机没有 tar 时跳过）', 
     expect(outcome.fatal).toEqual([])
     expect(outcome.ok).toBe(true)
     // 名字与内容都要对得上（少了 hdrcharset=UTF-8 时这两行会红）
-    expect(readFileSync(join(dest, 'app', '中文 名.txt'), 'utf8')).toBe('内容')
-    if (!BSDTAR_EMOJI_REGRESSION) {
-      expect(readFileSync(join(dest, 'app', '日志-🔥.log'), 'utf8')).toBe('emoji')
-    }
+    if (!BSDTAR_UNICODE_REGRESSION) expect(readFileSync(join(dest, 'app', '中文 名.txt'), 'utf8')).toBe('内容')
+    if (!BSDTAR_EMOJI_REGRESSION) expect(readFileSync(join(dest, 'app', '日志-🔥.log'), 'utf8')).toBe('emoji')
     expect(readFileSync(join(dest, 'app', 'ascii.txt'), 'utf8')).toBe('a')
   })
 
