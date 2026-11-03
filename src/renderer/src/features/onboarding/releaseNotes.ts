@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.33',
+    items: [
+      { type: 'feat', zh: '加入 WinUI 3 原生预览版及签名自动更新器：原生客户端会验证架构专属 RSA 更新清单、安装包大小与 SHA-256，在应用内确认后等待旧进程退出并静默覆盖升级，安装与卸载均保留连接、凭据和 known hosts 数据', en: 'Add the WinUI 3 native preview and signed automatic updater: the native client verifies an architecture-specific RSA update manifest, package size and SHA-256, waits for the old process after in-app confirmation, performs a silent in-place upgrade, and preserves connections, credentials and known hosts through install and uninstall' }
+    ]
+  },
+  {
     version: '0.30.32',
     items: [
       { type: 'fix', zh: '修复连接管理右键菜单在慢渲染或远程控制环境下多次叠加、点击“编辑”被旧弹层吞掉的问题：整棵树改为单一受控菜单，始终只显示一个弹层，并作用于最后一次右键的服务器或分组', en: 'Fix the connection manager context menu stacking under slow rendering or remote-control sessions and Edit clicks being swallowed by a stale popup: the tree now uses one controlled menu that always shows a single popup and acts on the last right-clicked server or group' },

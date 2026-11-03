@@ -5,7 +5,7 @@
  * depend on Electron or Node APIs so that it remains safe to evaluate in a
  * browser, a test DOM, or a future renderer host.
  */
-export type PlatformUiProfile = 'windows-fluent' | 'macos-hig' | 'linux-neutral'
+export type { DesktopUiProfile as PlatformUiProfile } from '@shared/uiEnvironment'
 
 export interface PlatformUiTokens {
   radius: {

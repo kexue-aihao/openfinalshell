@@ -79,11 +79,13 @@ import type {
 } from './types'
 import type { RemoteCharset } from './constants'
 import type { PlatformCapabilities, RdpCapabilityEvent } from './platformCapabilities'
+import type { UiEnvironment } from './uiEnvironment'
 
 // ---------------------------------------------------------------------------
 // ① renderer → main，请求/响应
 // ---------------------------------------------------------------------------
 export interface InvokeMap {
+  'app:uiEnvironment': { args: []; result: UiEnvironment }
   'app:capabilities': { args: []; result: PlatformCapabilities }
   'rdp:capabilities': { args: [SessionId]; result: RdpCapabilityEvent }
   'rdp:clipboardCancel': { args: [SessionId]; result: void }
@@ -548,6 +550,7 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'ai:cancel': true,
   'i18n:bundle': true,
   'app:getVersions': true,
+  'app:uiEnvironment': true,
   'app:getStartupNotice': true,
   'app:pickPath': true,
   'app:pickPaths': true,

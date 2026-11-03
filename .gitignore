@@ -30,3 +30,14 @@ android/local.properties
 .local/jdk17/
 .npm-cache/
 .local/ui-refresh/
+windows/**/bin/
+windows/**/obj/
+windows/.vs/
+windows/artifacts/
+.local/native-deps/
+build/native-terminal/
+build/native-preview/
+build/native-installer/
+.local/native-contract/
+.local/lldb.txt
+.local/native-update-signing/

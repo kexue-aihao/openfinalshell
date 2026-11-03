@@ -7,6 +7,7 @@ import { currentInstance, type InstanceContext } from './instance'
 import { bindMainWindowForInstance } from './ipc/registry'
 import { getSettings } from './services/settings'
 import { instanceWindowState, saveInstanceWindowState } from './instances/windowState'
+import { getUiEnvironment } from './services/uiEnvironment'
 import {
   applyWindowBackgroundMaterial,
   resolveWindowBackgroundMaterial,
@@ -31,6 +32,12 @@ function resolveMode(settings: AppSettings): 'dark' | 'light' {
 
 /** 按当前设置解析窗口 chrome 配色（编辑器窗口与主窗口共用同一张表） */
 export function resolveChrome(settings: AppSettings): { bg: string; overlayBg: string; symbol: string } {
+  if (process.platform === 'win32') {
+    const is11 = getUiEnvironment().profile === 'windows-11'
+    return resolveMode(settings) === 'dark'
+      ? { bg: is11 ? '#202020' : '#1f1f1f', overlayBg: is11 ? '#202020' : '#1f1f1f', symbol: '#ffffff' }
+      : { bg: is11 ? '#f3f3f3' : '#f0f0f0', overlayBg: is11 ? '#f3f3f3' : '#f0f0f0', symbol: '#1a1a1a' }
+  }
   return CHROME[resolveMode(settings)]
 }
 
@@ -41,7 +48,8 @@ export function applyNativeWindowMaterial(
 ): WindowBackgroundMaterial {
   if (process.platform !== 'win32') return 'none'
 
-  const material = resolveWindowBackgroundMaterial({
+  const environment = getUiEnvironment()
+  const material = !environment.micaEligible || nativeTheme.shouldUseHighContrastColors ? 'none' : resolveWindowBackgroundMaterial({
     platform: process.platform,
     systemVersion: release(),
     reduceTransparency: settings.reduceTransparency
@@ -49,7 +57,7 @@ export function applyNativeWindowMaterial(
   return applyWindowBackgroundMaterial(win, material)
 }
 
-function applyTitleBarOverlay(
+export function applyTitleBarOverlay(
   win: BrowserWindow,
   chrome: ReturnType<typeof resolveChrome>,
   material: WindowBackgroundMaterial
@@ -86,7 +94,7 @@ export function getMainWindow(): BrowserWindow | null {
 export function applyWindowChrome(settings: AppSettings): void {
   const mainWindow = currentInstance.mainWindow
   if (!mainWindow || mainWindow.isDestroyed()) return
-  const chrome = CHROME[resolveMode(settings)]
+  const chrome = resolveChrome(settings)
   mainWindow.setBackgroundColor(chrome.bg)
   if (process.platform === 'darwin') {
     // Vibrancy is a native effect, so CSS's reduce-transparency flag alone
@@ -104,7 +112,7 @@ export function applyWindowChrome(settings: AppSettings): void {
 export function createMainWindow(instance: InstanceContext = currentInstance): BrowserWindow {
   const settings = getSettings()
   const bounds = instanceWindowState(settings.window)
-  const chrome = CHROME[resolveMode(settings)]
+  const chrome = resolveChrome(settings)
   const isMac = process.platform === 'darwin'
 
   const win = new BrowserWindow({

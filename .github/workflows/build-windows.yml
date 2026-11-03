@@ -296,6 +296,100 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-native:
+    name: 原生 WinUI3 ${{ matrix.arch }}
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+          - arch: x86
+            platform: x86
+          - arch: arm64
+            platform: ARM64
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 判断构建版本
+        id: native-version
+        shell: pwsh
+        run: |
+          $version = (Get-Content .\package.json -Raw | ConvertFrom-Json).version
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 缓存固定版本原生依赖
+        uses: actions/cache@v4
+        with:
+          path: .local/native-deps
+          key: native-deps-${{ runner.os }}-20261020-v1
+          restore-keys: |
+            native-deps-${{ runner.os }}-
+
+      - name: 下载并校验固定版本原生依赖
+        shell: pwsh
+        run: .\scripts\prepareNativeDependencies.ps1
+
+      - name: 构建原生终端
+        shell: pwsh
+        run: |
+          if ('${{ matrix.arch }}' -eq 'x64') {
+            .\scripts\buildNativeTerminal.ps1 -Architecture ${{ matrix.platform }}
+          } else {
+            .\scripts\buildNativeTerminal.ps1 -Architecture ${{ matrix.platform }} -SkipProbe
+          }
+
+      - name: 构建 Scintilla / Lexilla（x64）
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: .\scripts\buildNativeEditor.ps1 -Architecture x64
+
+      - name: 发布 WinUI3 自包含产物
+        shell: pwsh
+        run: .\windows\publish-native.ps1 -Architecture ${{ matrix.platform }} -Version '${{ steps.native-version.outputs.version }}' -Publish
+
+      - name: 安装 NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: 构建版本化原生安装包
+        shell: pwsh
+        run: .\windows\installer\build-native-installer.ps1 -Architecture ${{ matrix.platform }} -Version '${{ steps.native-version.outputs.version }}'
+
+      - name: 生成签名更新清单
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          OFS_NATIVE_UPDATE_PRIVATE_KEY_B64: ${{ secrets.NATIVE_UPDATE_PRIVATE_KEY_B64 }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OFS_NATIVE_UPDATE_PRIVATE_KEY_B64)) {
+            Write-Error 'BLOCKED_EXTERNAL_ENV: GitHub secret NATIVE_UPDATE_PRIVATE_KEY_B64 is required for tagged native releases.'
+            exit 1
+          }
+          .\windows\installer\New-NativeUpdateManifests.ps1 `
+            -InstallerDirectory .\build\native-installer `
+            -OutputDirectory .\build\native-installer `
+            -Version '${{ steps.native-version.outputs.version }}' `
+            -Repository '${{ github.repository }}' `
+            -Architectures '${{ matrix.arch }}'
+
+      - name: 上传原生构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows-${{ matrix.arch }}
+          path: |
+            build/native-installer/OpenFinalShell-NativePreview-*-Setup.exe
+            build/native-installer/native-update-*.json
+          if-no-files-found: error
+          retention-days: 14
+
   build-mac:
     name: 打包 macOS ${{ matrix.arch }}
     needs: verify
@@ -546,7 +640,7 @@ jobs:
 
   release:
     name: 发布 Release
-    needs: [build, build-mac, build-linux, build-flatpak]
+    needs: [verify, build, build-native, build-mac, build-linux, build-flatpak]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -607,6 +701,7 @@ jobs:
           | `*-portable-x64.exe` | 64 位免安装 |
           | `*-portable-ia32.exe` | 32 位（x86）免安装 |
           | `*-portable-arm64.exe` | Windows ARM64 免安装 |
+          | `OpenFinalShell-NativePreview-<version>-<arch>-Setup.exe` | WinUI3 原生预览版（x64/x86/ARM64） |
           | `*-debian13-amd64.deb` / `*-debian13-arm64.deb` | Debian 13 安装包 |
           | `*-linux-x86_64.rpm` / `*-linux-aarch64.rpm` | Fedora / RHEL / openSUSE 安装包 |
           | `*-linux-x86_64.AppImage` / `*-linux-arm64.AppImage` | 通用免安装 Linux 包 |
@@ -618,6 +713,8 @@ jobs:
           | `SHA256SUMS-android.txt` | Android APK/AAB 校验和 |
 
           Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
+
+          原生预览版使用 `native-update-<arch>.json` 签名清单自动检查并下载升级；覆盖安装和卸载保留 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 中的连接与凭据数据。
 
           Debian 13 使用 `sudo apt install ./OpenFinalShell-<版本>-debian13-amd64.deb`（或 `arm64.deb`）安装或覆盖升级。
           Linux 版只提示新版本，不在应用内提权安装。
@@ -667,6 +764,8 @@ jobs:
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
             while IFS= read -r asset; do
               case "$asset" in
+                # 原生 WinUI 安装包和签名清单由 build-native 原子产出，清理桌面资产时保留。
+                OpenFinalShell-NativePreview-*|native-update-*.json) ;;
                 *.exe|*.exe.blockmap|*.deb|*.rpm|*.AppImage|*.flatpak|*.dmg|*.zip|latest-*.yml|SHA256SUMS.txt)
                   gh release delete-asset "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
                   ;;
@@ -674,6 +773,6 @@ jobs:
             done
 
           gh release upload "$GITHUB_REF_NAME" \
-            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak dist/*.dmg dist/*.zip dist/latest-*.yml dist/SHA256SUMS.txt \
+            dist/*.exe dist/*.exe.blockmap dist/*.deb dist/*.rpm dist/*.AppImage dist/*.flatpak dist/*.dmg dist/*.zip dist/latest-*.yml dist/native-update-*.json dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

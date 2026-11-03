@@ -17,6 +17,7 @@ import {
   Typography
 } from 'antd'
 import { useTranslation } from 'react-i18next'
+import { CircleHelp, FolderOpen, Keyboard, Monitor, Network, Palette, Settings2, ShieldCheck, Sparkles, Terminal } from 'lucide-react'
 import logoUrl from '@/assets/openfinalshell-logo.svg'
 import { PRESET_COLORS, TERM_FONT_SIZE_MAX, TERM_FONT_SIZE_MIN } from '@shared/constants'
 import { LOCALES } from '@shared/locales/registry'
@@ -24,6 +25,7 @@ import type { AppSettings } from '@shared/types'
 import { ofs } from '@/ipc/api'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import { useUiStore } from '@/stores/useUiStore'
+import { resolvePlatformUiProfile } from '@/ui/platform'
 import { terminalThemes } from '@/themes/terminal'
 import { FinalShellImportPanel } from './FinalShellImportPanel'
 import { ImportDataPanel } from './ImportDataPanel'
@@ -50,8 +52,15 @@ type Section =
   | 'about'
   | 'ai'
 
+const SECTION_ICONS = {
+  general: Settings2, appearance: Palette, terminal: Terminal, sftp: FolderOpen,
+  savedRef: Network, security: ShieldCheck, lanSync: Monitor, shortcuts: Keyboard,
+  about: CircleHelp, ai: Sparkles
+} satisfies Record<Section, typeof Settings2>
+
 export function SettingsModal(): React.JSX.Element {
   const { t } = useTranslation()
+  const windowsUi = resolvePlatformUiProfile() === 'windows-11'
   const { message } = AntdApp.useApp()
   const open = useUiStore((s) => s.settingsOpen)
   useEffect(() => {
@@ -137,6 +146,9 @@ export function SettingsModal(): React.JSX.Element {
     if (dir) setSftp({ downloadDir: dir })
   }
 
+  const sectionLabel = (key: Section): string => key === 'savedRef'
+    ? t('savedRef.section') : key === 'ai' ? t('aiAssistant.title') : t(`settings.section_${key}`)
+
   return (
     <Modal
       open={open}
@@ -166,15 +178,19 @@ export function SettingsModal(): React.JSX.Element {
               'shortcuts',
               'about'
             ] as Section[]
-          ).map((key) => ({
-            key,
-            // 代理与私钥那一段的标题住在 savedRef.* 里（整段文案都在那儿），
-            // 不为了凑 settings.section_* 的命名再复制一份
-            label: key === 'savedRef' ? t('savedRef.section') : key === 'ai' ? t('aiAssistant.title') : t(`settings.section_${key}`)
-          }))}
+          ).map((key) => {
+            const Icon = SECTION_ICONS[key]
+            return {
+              key,
+              icon: windowsUi ? <Icon className={styles.navIcon} size={16} strokeWidth={1.5} aria-hidden="true" /> : undefined,
+              // 复用各功能自己的翻译，避免复制导航文案。
+              label: sectionLabel(key)
+            }
+          })}
         />
 
         <div className={styles.content}>
+          <h2 className={styles.sectionTitle}>{sectionLabel(section)}</h2>
           {section === 'general' && (
             <>
               <Row label={t('settings.language')}>

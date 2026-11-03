@@ -4,6 +4,8 @@ import App from './App'
 import EditorWindowApp from './EditorWindowApp'
 import './i18n'
 import './styles/global.css'
+import { ofs } from './ipc/api'
+import { setPlatformEnvironment } from './ui/platform/environment'
 
 /**
  * 两个 BrowserWindow 共用同一份 renderer bundle，按 URL hash 分流：
@@ -12,8 +14,16 @@ import './styles/global.css'
  */
 const isEditorWindow = window.location.hash.startsWith('#/editor')
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+async function bootstrap(): Promise<void> {
+  try {
+    setPlatformEnvironment(await ofs.invoke('app:uiEnvironment'))
+  } catch (error) {
+    console.warn('[ofs] Host UI environment unavailable; using conservative profile', error)
+  }
+  ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {isEditorWindow ? <EditorWindowApp /> : <App />}
   </React.StrictMode>
 )
+}
+void bootstrap()

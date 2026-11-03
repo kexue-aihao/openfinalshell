@@ -1,0 +1,62 @@
+/* Fluent shell refinements. Platform scoping keeps the macOS/Linux layouts
+   independent; editor and terminal content retain their own fonts and colors. */
+:root[data-platform-ui='windows-10'] {
+  --ofs-card-radius: 2px;
+  color-scheme: light;
+}
+:root[data-platform-ui='windows-10'][data-theme='dark'] { color-scheme: dark; }
+:root[data-platform-ui='windows-10'] * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+:root[data-platform-ui='windows-11'] {
+  --ofs-card-radius: 8px;
+  color-scheme: light;
+}
+:root[data-platform-ui='windows-11'][data-theme='dark'] { color-scheme: dark; }
+:root[data-platform-ui='windows-11'] body { font-size: 14px; }
+
+:root[data-platform-ui='windows-11'] .ofs-button {
+  box-shadow: inset 0 -1px 0 rgba(0,0,0,.08);
+}
+:root[data-platform-ui='windows-11'] .ofs-button[data-variant='quiet'] { box-shadow: none; }
+:root[data-platform-ui='windows-11'] .ofs-button:active:not(:disabled) { opacity: .8; }
+:root[data-platform-ui='windows-11'] .ofs-panel-heading { border-bottom-color: transparent; }
+
+/* Text fields carry the Fluent bottom stroke without replacing the keyboard
+   focus outline. Status colors still belong to Ant Design's error/warning states. */
+:root[data-platform-ui='windows-11'] :is(.ant-input, .ant-input-affix-wrapper, .ant-input-number) {
+  border-bottom-color: var(--ofs-border-strong);
+}
+:root[data-platform-ui='windows-11'] :is(.ant-input, .ant-input-affix-wrapper, .ant-input-number):focus-within {
+  border-bottom-color: var(--ofs-accent);
+  box-shadow: inset 0 -1px 0 var(--ofs-accent);
+}
+:root[data-platform-ui='windows-11'] .ant-input-affix-wrapper > .ant-input { box-shadow: none; }
+:root[data-platform-ui='windows-11'] :is(.ant-input-status-error, .ant-input-affix-wrapper-status-error, .ant-input-number-status-error) {
+  border-bottom-color: var(--ofs-error);
+}
+:root[data-platform-ui='windows-11'] :is(.ant-input-status-warning, .ant-input-affix-wrapper-status-warning, .ant-input-number-status-warning) {
+  border-bottom-color: var(--ofs-warning);
+}
+:root[data-platform-ui='windows-11'] .ant-dropdown-menu { padding: 4px; }
+:root[data-platform-ui='windows-11'] .ant-dropdown-menu :is(.ant-dropdown-menu-item, .ant-dropdown-menu-submenu-title) {
+  min-height: 32px;
+  border-radius: 4px;
+}
+:root[data-platform-ui='windows-11'] .ant-modal .ant-modal-content { border-radius: 8px; }
+
+/* Native Mica supplies shell depth on Windows. Repeated browser blur layers
+   add little there and cost composition time over active SSH/RDP sessions. */
+:root[data-platform-ui='windows-11'][data-platform-glass] :is(header, nav, aside, footer) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (forced-colors: active) {
+  :root[data-platform-ui='windows-11'] .ofs-button,
+  :root[data-platform-ui='windows-11'] :is(.ant-input, .ant-input-affix-wrapper, .ant-input-number) {
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-platform-ui='windows-11'] { --ofs-control-border: var(--ofs-border-strong) !important; }
+}

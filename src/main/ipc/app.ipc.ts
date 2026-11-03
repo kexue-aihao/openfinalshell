@@ -13,6 +13,7 @@ import { applyEditorWindowChrome } from '../editorWindow'
 import { scopedLogger } from '../utils/logger'
 import { capability, platformAcceptance } from '../services/platformCapabilities'
 import { unavailableRdp } from '@shared/platformCapabilities'
+import { getUiEnvironment } from '../services/uiEnvironment'
 import { resolveUpdateCapability } from '../services/updateGate'
 
 const log = scopedLogger('app')
@@ -34,6 +35,7 @@ export function finishImportSideEffects(result: ImportResult): void {
 }
 
 export function registerAppIpc(): void {
+  handle('app:uiEnvironment', () => getUiEnvironment())
   handle('app:capabilities', () => {
     const update = resolveUpdateCapability({ packaged: app.isPackaged, portable: Boolean(process.env.PORTABLE_EXECUTABLE_DIR), platform: process.platform,
       signedMacFeed: typeof __OFS_SIGNED_MAC_FEED__ !== 'undefined' && __OFS_SIGNED_MAC_FEED__ })

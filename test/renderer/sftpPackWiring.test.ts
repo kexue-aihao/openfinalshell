@@ -149,6 +149,7 @@ describe('child_process 的用处清单', () => {
   const DL = 'src/main/monitor/directLatency.ts'
   const RDP = 'src/main/rdp/RdpSessionManager.ts'
   const INDEX = 'src/main/index.ts'
+  const UI_ENV = 'src/main/services/uiEnvironment.ts'
 
   it('src/main 下引用 child_process 的文件必须全部在清单中', () => {
     const offenders: string[] = []
@@ -163,7 +164,7 @@ describe('child_process 的用处清单', () => {
       }
     }
     walk('src/main')
-    expect(offenders).toEqual([INDEX, DL, RDP, LT])
+    expect(offenders).toEqual([INDEX, DL, RDP, UI_ENV, LT])
   })
 
   it('直连 Ping 使用系统绝对路径与 argv，且不经过 shell', () => {

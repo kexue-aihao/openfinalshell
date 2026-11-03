@@ -68,6 +68,18 @@
   border-radius: 50%;
 }
 
+:global(:root[data-platform-ui='windows-11']) .toolbar {
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+}
+:global(:root[data-platform-ui='windows-11']) .tree :global(.ant-tree) {
+  background: transparent;
+}
+:global(:root[data-platform-ui='windows-11']) .tree :global(.ant-tree-node-content-wrapper) {
+  border-radius: 4px;
+}
+
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   :global(:root:not([data-reduce-transparency='true'])) .toolbar {
     -webkit-backdrop-filter: blur(14px) saturate(1.06);

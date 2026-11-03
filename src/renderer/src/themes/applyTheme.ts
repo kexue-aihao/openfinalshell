@@ -1,12 +1,11 @@
 import { theme as antdTheme, type ThemeConfig } from 'antd'
-import { themes } from './palettes'
+import { resolveUiTheme } from './windows'
 import type { OfsTheme } from './types'
 import { resolvePlatformUiProfile, resolvePlatformUiTokens } from '@/ui/platform'
 import type { PlatformUiProfile } from '@/ui/platform'
 import { mixColor, resolveAccent } from './color'
 
-function accentFor(mode: 'dark' | 'light', accent: string) {
-  const ui = themes[mode].ui
+function accentFor(mode: 'dark' | 'light', accent: string, ui: OfsTheme['ui']) {
   return resolveAccent(accent, mode, [ui.bgBase, ui.bgPanel, ui.bgElevated, ui.bgRaised, ui.bgInset])
 }
 
@@ -21,10 +20,10 @@ export function applyCssVars(
   reduceTransparency = false,
   platformProfile?: PlatformUiProfile
 ): OfsTheme {
-  const t = themes[mode]
-  const brand = accentFor(mode, accent)
   const root = document.documentElement
   const profile = platformProfile ?? resolvePlatformUiProfile()
+  const t = resolveUiTheme(mode, profile)
+  const brand = accentFor(mode, accent, t.ui)
   const platformTokens = resolvePlatformUiTokens(profile)
   const glassEnabled = platformTokens.supportsGlass && !reduceTransparency
   root.dataset.theme = mode
@@ -76,6 +75,9 @@ export function applyCssVars(
     '--ofs-platform-font-family': platformTokens.fontFamily,
     '--ofs-platform-density': platformTokens.density
   }
+  // Native Fluent controls use a subtle stroke; the stronger stroke remains
+  // available for focus, text fields and high contrast accessibility modes.
+  vars['--ofs-control-border'] = profile === 'windows-11' ? t.ui.border : t.ui.borderStrong
   // 语法色与编辑器容器色：走同一条 CSS 变量出口，于是 CodeMirror 的主题里
   // 写的全是 var(--ofs-syn-*) / var(--ofs-ed-*)，切主题时不用重建任何 EditorView。
   // 键名由 TS 的字段名机械派生（camelCase → kebab-case），加一个色位不用同步改两处
@@ -92,9 +94,11 @@ export function buildAntdTheme(
   accent: string,
   platformProfile?: PlatformUiProfile
 ): ThemeConfig {
-  const t = themes[mode]
-  const brand = accentFor(mode, accent)
-  const platformTokens = resolvePlatformUiTokens(platformProfile ?? resolvePlatformUiProfile())
+  const profile = platformProfile ?? resolvePlatformUiProfile()
+  const t = resolveUiTheme(mode, profile)
+  const brand = accentFor(mode, accent, t.ui)
+  const platformTokens = resolvePlatformUiTokens(profile)
+  const isWindows = profile.startsWith('windows-')
   return {
     cssVar: true,
     hashed: false,
@@ -112,7 +116,7 @@ export function buildAntdTheme(
       colorBgLayout: t.ui.bgBase,
       colorBgContainer: t.ui.bgPanel,
       colorBgElevated: t.ui.bgElevated,
-      colorBorder: t.ui.borderStrong,
+      colorBorder: isWindows ? t.ui.border : t.ui.borderStrong,
       colorBorderSecondary: t.ui.border,
       colorText: t.ui.textPrimary,
       colorTextSecondary: t.ui.textSecondary,
@@ -125,7 +129,7 @@ export function buildAntdTheme(
       controlHeight: 32,
       controlHeightSM: 24,
       controlHeightLG: 40,
-      fontSize: 13,
+      fontSize: isWindows ? 14 : 13,
       fontFamily: platformTokens.fontFamily
     },
     components: {

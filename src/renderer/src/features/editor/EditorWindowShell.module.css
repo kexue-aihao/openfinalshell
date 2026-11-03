@@ -7,6 +7,10 @@
   background: transparent;
 }
 
+:global(:root[data-platform-ui='windows-11']) .host {
+  background: var(--ofs-bg-base);
+}
+
 /* ---- 文件标签条（兼作窗口标题栏：titleBarStyle hidden，拖拽区就是它） ---- */
 
 .tabs {
@@ -101,6 +105,11 @@
     -webkit-backdrop-filter: blur(18px) saturate(1.08);
     backdrop-filter: blur(18px) saturate(1.08);
   }
+}
+
+:global(:root[data-platform-ui='windows-11']) .tabs {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .tabName {

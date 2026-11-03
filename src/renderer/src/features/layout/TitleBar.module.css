@@ -90,6 +90,17 @@
   border-bottom: none;
 }
 
+:global(:root[data-platform-ui='windows-11']) .titleBar {
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+:global(:root[data-platform-ui='windows-11']) .tab {
+  border-radius: 8px 8px 0 0;
+}
+:global(:root[data-platform-ui='windows-11']) .tabActive {
+  border-color: var(--ofs-shell-border);
+}
+
 .stateDot {
   flex: none;
   width: 8px;

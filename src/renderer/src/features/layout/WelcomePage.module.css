@@ -146,6 +146,30 @@
   white-space: nowrap;
 }
 
+:global(:root[data-platform-ui='windows-11']) .welcome {
+  background: var(--ofs-solid-surface);
+}
+:global(:root[data-platform-ui='windows-11']) .logo {
+  border-color: var(--ofs-border);
+  border-radius: 16px;
+  box-shadow: var(--ofs-shadow-panel);
+}
+:global(:root[data-platform-ui='windows-11']) .title { font-weight: 600; }
+:global(:root[data-platform-ui='windows-11']) .card {
+  background: var(--ofs-bg-elevated);
+  border-color: var(--ofs-border);
+}
+:global(:root[data-platform-ui='windows-11']) .cardPrimary {
+  border-color: color-mix(in srgb, var(--ofs-accent) 38%, var(--ofs-border));
+}
+:global(:root[data-platform-ui='windows-11']) .cardPrimary .cardTitle > svg {
+  color: var(--ofs-accent);
+}
+:global(:root[data-platform-ui='windows-11']) button.card:hover {
+  background: var(--ofs-bg-panel);
+  border-color: var(--ofs-accent);
+}
+
 @media (max-width: 1000px) {
   .cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));

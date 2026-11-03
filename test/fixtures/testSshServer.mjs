@@ -365,6 +365,33 @@ const FAKE_OS_RELEASE = [
 /** 支持监控脚本用到的少量命令；未知命令输出空（模拟 2>/dev/null） */
 function runFakeCommand(cmd) {
   const c = cmd.trim()
+  if (c.includes("printf 'uname=")) {
+    return [
+      'uname=Linux',
+      'hostname=fixture-host',
+      'arch=x86_64',
+      'kernel=5.15.0-91-generic',
+      'addresses=10.0.0.5 127.0.0.1'
+    ].join('\n') + '\n'
+  }
+  if (c.includes('@@UPTIME@@')) {
+    const memAwk = fakeMeminfo().split('\n').map((line) => line.trim().split(/\s+/).slice(0, 2).join(' ')).join('\n')
+    const netAwk = fakeNetDev().split('\n').slice(2).map((line) => {
+      const fields = line.trim().split(/\s+/)
+      return `${fields[0].replace(/:$/, '')} ${fields[1]} ${fields[9]}`
+    }).join('\n')
+    const diskAwk = fakeDiskstats().split('\n').map((line) => {
+      const fields = line.trim().split(/\s+/)
+      return `${fields[2]} ${fields[5]} ${fields[9]}`
+    }).join('\n')
+    const procAwk = FAKE_PS.split('\n').slice(1).join('\n')
+    return [
+      '@@UPTIME@@', '123457.78 987654.32', '@@LOAD@@', '0.52 0.31 0.24 2/345 6789',
+      '@@CPU@@', fakeProcStat(), '@@MEM@@', memAwk, '@@NET@@', netAwk,
+      '@@DISKIO@@', diskAwk, '@@DF@@', FAKE_DF, '@@PROCS@@', procAwk,
+      '@@SOCK@@', FAKE_SOCKSTAT, '@@TCP@@', FAKE_TCP_STATES, ''
+    ].join('\n')
+  }
   if (/^echo\s+/.test(c)) {
     return `${c.replace(/^echo\s+/, '').replace(/^"(.*)"$/, '$1')}\n`
   }
@@ -537,12 +564,18 @@ function attachSftp(sftp) {
   sftp.on('WRITE', (reqid, handleBuf, offset, data) => {
     const h = readHandle(handleBuf)
     if (h?.fd === undefined) return sftp.status(reqid, SFTP_STATUS_CODE.FAILURE)
-    try {
-      fs.writeSync(h.fd, data, 0, data.length, offset)
-      sftp.status(reqid, SFTP_STATUS_CODE.OK)
-    } catch (err) {
-      sftp.status(reqid, statusFromError(err))
+    const commit = () => {
+      if (sftp.destroyed) return
+      try {
+        fs.writeSync(h.fd, data, 0, data.length, offset)
+        sftp.status(reqid, SFTP_STATUS_CODE.OK)
+      } catch (err) {
+        sftp.status(reqid, statusFromError(err))
+      }
     }
+    const delayMs = Math.min(2000, Math.max(0, Number(process.env.OFS_TEST_SFTP_WRITE_DELAY_MS) || 0))
+    if (delayMs) setTimeout(commit, delayMs)
+    else commit()
   })
 
   sftp.on('CLOSE', (reqid, handleBuf) => {
@@ -562,7 +595,10 @@ function attachSftp(sftp) {
   sftp.on('MKDIR', (reqid, p) => simple(reqid, () => fs.mkdirSync(local(p))))
   sftp.on('RMDIR', (reqid, p) => simple(reqid, () => fs.rmdirSync(local(p))))
   sftp.on('REMOVE', (reqid, p) => simple(reqid, () => fs.unlinkSync(local(p))))
-  sftp.on('RENAME', (reqid, from, to) => simple(reqid, () => fs.renameSync(local(from), local(to))))
+  sftp.on('RENAME', (reqid, from, to) => {
+    if (process.env.OFS_FIXTURE_DEBUG === "1") console.log(`[sftp] RENAME ${from} -> ${to}`)
+    simple(reqid, () => fs.renameSync(local(from), local(to)))
+  })
   sftp.on('SETSTAT', (reqid, p, attrs) =>
     simple(reqid, () => {
       if (attrs.mode !== undefined) fs.chmodSync(local(p), attrs.mode & 0o7777)
@@ -583,6 +619,7 @@ function attachSftp(sftp) {
       fn()
       sftp.status(reqid, SFTP_STATUS_CODE.OK)
     } catch (err) {
+      if (process.env.OFS_FIXTURE_DEBUG === "1") console.log(`[sftp] ${err.code || "error"} ${err.path || ""}: ${err.message}`)
       sftp.status(reqid, statusFromError(err))
     }
   }

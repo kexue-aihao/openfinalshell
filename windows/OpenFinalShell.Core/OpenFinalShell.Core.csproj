@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Native acceptance builds may place generated obj trees under build/. -->
+    <Compile Remove="build/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="UpdatePublicKey.pem" />
+    <EmbeddedResource Include="../../src/shared/locales/*.json" Link="Locales/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../shared-schema/schemas/*.json" Link="Schemas/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

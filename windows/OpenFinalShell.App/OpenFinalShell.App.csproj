@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19045.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <Platforms>x64;x86;ARM64</Platforms>
+    <Platform Condition="'$(Platform)' == 'AnyCPU'">x64</Platform>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'x86'">win-x86</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.33</OpenFinalShellVersion>
+    <Version>$(OpenFinalShellVersion)</Version>
+    <AssemblyVersion>$(OpenFinalShellVersion)</AssemblyVersion>
+    <FileVersion>$(OpenFinalShellVersion)</FileVersion>
+    <ApplicationTitle>OpenFinalShell Native Preview</ApplicationTitle>
+    <NativeEditorRuntimeDirectory Condition="'$(NativeEditorRuntimeDirectory)' == ''">$(MSBuildProjectDirectory)/../../build/native-editor/$(Platform)</NativeEditorRuntimeDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="build/**/*.cs" />
+    <ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9457" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="$(MSBuildProjectDirectory)/../../build/native-terminal/$(Platform)/ofs-terminal.dll" Condition="Exists('$(MSBuildProjectDirectory)/../../build/native-terminal/$(Platform)/ofs-terminal.dll')" Link="ofs-terminal.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NativeEditorRuntimeDirectory)/Scintilla.dll" Condition="Exists('$(NativeEditorRuntimeDirectory)/Scintilla.dll')" Link="Scintilla.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NativeEditorRuntimeDirectory)/lexilla.dll" Condition="Exists('$(NativeEditorRuntimeDirectory)/lexilla.dll')" Link="Lexilla.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NativeEditorRuntimeDirectory)/THIRD-PARTY-LICENSES.txt" Condition="Exists('$(NativeEditorRuntimeDirectory)/THIRD-PARTY-LICENSES.txt')" Link="NativeEditor-THIRD-PARTY-LICENSES.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildProjectDirectory)/../../build/rdp-worker/ofs-rdp-worker.exe" Condition="'$(Platform)' == 'x64' and Exists('$(MSBuildProjectDirectory)/../../build/rdp-worker/ofs-rdp-worker.exe')" Link="RdpWorker/ofs-rdp-worker.exe" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildProjectDirectory)/../../build/rdp-worker/THIRD-PARTY-NOTICES.rdp-worker.txt" Condition="'$(Platform)' == 'x64' and Exists('$(MSBuildProjectDirectory)/../../build/rdp-worker/THIRD-PARTY-NOTICES.rdp-worker.txt')" Link="RdpWorker/THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildProjectDirectory)/../../build/rdp-worker/licenses/*.txt" Condition="'$(Platform)' == 'x64' and Exists('$(MSBuildProjectDirectory)/../../build/rdp-worker/licenses')" Link="RdpWorker/licenses/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CopyWinUIXbfToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_WinUIRootXbf Include="$(TargetDir)*.xbf" />
+      <_WinUIThemeXbf Include="$(TargetDir)Themes\*.xbf" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WinUIRootXbf)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(TargetDir)OpenFinalShell.App.pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)OpenFinalShell.App.pri')" />
+    <Copy SourceFiles="@(_WinUIThemeXbf)" DestinationFolder="$(PublishDir)Themes" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

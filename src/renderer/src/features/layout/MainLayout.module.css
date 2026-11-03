@@ -27,3 +27,18 @@
   flex-direction: column;
   overflow: hidden;
 }
+
+:global(:root[data-platform-ui='windows-11']) .root {
+  /* Paint the full client area: transparent gaps can turn black when Mica
+     is unavailable in a remote session or software compositor. */
+  background: var(--ofs-bg-base);
+}
+:global(:root[data-platform-ui='windows-11']) .panels {
+  background: transparent;
+  padding: 0 8px 8px 0;
+}
+:global(:root[data-platform-ui='windows-11']) .mainArea {
+  background: var(--ofs-solid-surface);
+  border: 1px solid var(--ofs-shell-border);
+  border-radius: var(--ofs-platform-radius-l);
+}

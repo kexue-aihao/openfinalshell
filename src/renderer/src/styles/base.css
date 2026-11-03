@@ -1,7 +1,7 @@
 /* Windows Fluent uses a slightly denser shell while keeping workspaces
    opaque. The profile is set by applyCssVars; the fallback values above keep
    first paint deterministic before the renderer has applied runtime tokens. */
-:root[data-platform-ui='windows-fluent'] {
+:root[data-platform-ui='windows-11'] {
   --ofs-titlebar-height: 40px;
   --ofs-activitybar-width: 48px;
 }

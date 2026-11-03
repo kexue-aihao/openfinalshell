@@ -18,6 +18,11 @@
   padding: 6px 8px 10px;
 }
 
+:global(:root[data-platform-ui='windows-11']) .sidePanel {
+  background: transparent;
+  border-right: none;
+}
+
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
   :global(:root:not([data-reduce-transparency='true'])) .sidePanel {
     -webkit-backdrop-filter: blur(18px) saturate(1.08);

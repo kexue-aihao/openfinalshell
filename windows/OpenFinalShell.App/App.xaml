@@ -1,0 +1,8 @@
+<Application x:Class="OpenFinalShell.App.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources><ResourceDictionary>
+    <Style x:Key="TitleTextBlockStyle" TargetType="TextBlock"><Setter Property="FontSize" Value="24"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
+    <ResourceDictionary.MergedDictionaries>
+      <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+    </ResourceDictionary.MergedDictionaries>
+  </ResourceDictionary></Application.Resources>
+</Application>

@@ -122,6 +122,14 @@ try {
   await clickButton('Settings')
   await waitFor('document.querySelector(".ant-modal-body")')
   await shot('settings-light')
+  if (!stage.startsWith('baseline')) {
+    await evaluate(`const item=[...document.querySelectorAll('.ant-menu-item')].find(e=>e.textContent.trim()==='Appearance');if(!item)throw new Error('Appearance section missing');item.click()`)
+    await shot('settings-appearance-light')
+    await patchSettings({ themeMode: 'dark' })
+    await shot('settings-appearance-dark')
+    await patchSettings({ themeMode: 'light' })
+    await evaluate(`document.querySelectorAll('.ant-menu-item')[0].click()`)
+  }
   await closeModal()
   assert(await evaluate(`return document.activeElement?.getAttribute('aria-label')==='Settings'`), 'Settings restores trigger focus')
   await evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('New connection'))?.click()`)

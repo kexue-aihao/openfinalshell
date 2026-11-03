@@ -4,8 +4,7 @@ import type { AppSettings, EditorOpenRequest } from '@shared/types'
 import { scopedLogger } from './utils/logger'
 import { getSettings } from './services/settings'
 import { instanceWindowState, saveInstanceWindowState } from './instances/windowState'
-import { applyNativeWindowMaterial, resolveChrome, TITLEBAR_HEIGHT } from './window'
-import { resolveWindowControlsOverlayColor } from './windowMaterial'
+import { applyNativeWindowMaterial, applyTitleBarOverlay, resolveChrome, TITLEBAR_HEIGHT } from './window'
 import { bindEditorWindow, emitEditor } from './ipc/registry'
 import { currentInstance } from './instance'
 
@@ -43,13 +42,7 @@ export function applyEditorWindowChrome(settings: AppSettings): void {
     }
   }
   const material = applyNativeWindowMaterial(win, settings)
-  if (process.platform === 'win32') {
-    win.setTitleBarOverlay({
-      color: resolveWindowControlsOverlayColor(material, chrome.overlayBg),
-      symbolColor: chrome.symbol,
-      height: TITLEBAR_HEIGHT
-    })
-  }
+  applyTitleBarOverlay(win, chrome, material)
 }
 
 // 跟随系统主题：模块级挂一次，win 为空时是 no-op（主窗口那份在 window.ts，互不 import）
@@ -87,13 +80,7 @@ function createWindow(): BrowserWindow {
     }
   })
   const material = applyNativeWindowMaterial(w, settings)
-  if (process.platform === 'win32') {
-    w.setTitleBarOverlay({
-      color: resolveWindowControlsOverlayColor(material, chrome.overlayBg),
-      symbolColor: chrome.symbol,
-      height: TITLEBAR_HEIGHT
-    })
-  }
+  applyTitleBarOverlay(w, chrome, material)
 
   // ---- 安全基线与主窗口逐条对齐（见 window.ts）----
   w.webContents.setWindowOpenHandler(({ url }) => {
