@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.34',
+    items: [
+      { type: 'feat', zh: '新增 Electron 到 WinUI 3 原生预览版的迁移入口：支持加密导出、架构匹配的安装包下载、SHA-256 校验和安装后启动，并保留 Electron 数据与独立原生数据目录', en: 'Add an Electron to WinUI 3 native preview migration entry with encrypted export, architecture-matched installer downloads, SHA-256 verification and post-install launch while preserving Electron data and the native app’s separate data directory' },
+      { type: 'fix', zh: '修复连接树右键菜单在滚动、高 DPI 和 Windows 玻璃环境下定位不准、生命周期残留及键盘操作不完整的问题', en: 'Fix connection-tree context menus being mispositioned or left behind under scrolling, high-DPI and Windows glass environments, and complete their keyboard interactions' }
+    ]
+  },
+  {
     version: '0.30.33',
     items: [
       { type: 'feat', zh: '加入 WinUI 3 原生预览版及签名自动更新器：原生客户端会验证架构专属 RSA 更新清单、安装包大小与 SHA-256，在应用内确认后等待旧进程退出并静默覆盖升级，安装与卸载均保留连接、凭据和 known hosts 数据', en: 'Add the WinUI 3 native preview and signed automatic updater: the native client verifies an architecture-specific RSA update manifest, package size and SHA-256, waits for the old process after in-app confirmation, performs a silent in-place upgrade, and preserves connections, credentials and known hosts through install and uninstall' }
