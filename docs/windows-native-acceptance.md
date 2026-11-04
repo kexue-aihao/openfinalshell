@@ -2,6 +2,25 @@
 
 此文件记录 Windows 11 x64 本机可复现证据。代码或 CI 构建通过不能替代其他架构、真实远端服务或普通用户权限下的验收。
 
+## 2026-11-04 Electron 右键菜单与 WinUI 迁移入口复验
+
+| 字段 | 结果 |
+| --- | --- |
+| 日期 | 2026-11-04 |
+| 系统 | Microsoft Windows 11 Pro，Build 26300，x64 |
+| 权限 | 当前会话为管理员；不代表普通用户结果 |
+| Electron 代码检查 | `npm run typecheck`、`npm run check:i18n` 通过；生产 Renderer 构建写入 `build/windows-native-acceptance/upgrade-plan-final-20261104T1050/electron-build-final` |
+| Electron 测试 | 131 个测试文件通过，1773 项通过；5 个文件、37 项按项目配置跳过 |
+| 右键菜单 | 组件测试覆盖连接/分组目标、四角边界夹取、滚动/失焦/resize/Escape 关闭、方向键、Enter/Space 激活和目标不串线；菜单挂载 `document.body` |
+| 迁移卡片 | 设置 → 关于区域显示 Electron 当前版本、原生版本、架构和安装状态；取消确认不会下载；导出需要二次口令；安装器启动后提供打开原生版按钮；更新源离线时仍保留已安装原生版入口 |
+| 原生首启入口 | 隔离数据目录下 Windows UI Automation 识别 `Import from Electron`；证据为 `build/windows-native-acceptance/upgrade-plan-final-20261104T1050/native-first-run-uia.json` |
+| 原生 x64 构建 | Self-contained Release 发布成功；产物为 `build/windows-native-acceptance/upgrade-plan-final-20261104T1050/app-x64` |
+| 原生协议 smoke | SSH 密码/KBI、终端输入、SFTP 上传下载、暂停恢复、冲突重试和字节一致性通过；证据位于 `build/windows-native-acceptance/upgrade-plan-final-20261104T1050/` 下最新 `smoke-run-*` 目录 |
+| 在线清单与安装包 | x64 `native-update-<arch>.json` 真实 GitHub 清单解析、RSA 签名和 SHA-256 下载校验通过；安装包 67,972,777 bytes，哈希 `ab851627123b3c8a8d33419da60c3f3e0c008d9a748aa0593cbab24dbd06661e` |
+| 仍未完成 | 当前未启动用户已有 Electron 进程做 Windows UIA 右键实机截图；100/125/150% DPI、玻璃开关、IME、Narrator 和多显示器仍需后续真机矩阵。下载资产当前 Authenticode 状态为 `NotSigned`，不能当作签名发布验收通过 |
+
+结构化结果：`build/windows-native-acceptance/upgrade-plan-final-20261104T1050/upgrade-acceptance-results.json`。本节只认本机 Windows 11 x64 管理员会话证据，Electron 仍是正式默认客户端，WinUI 3 仍是独立预览客户端。
+
 ## 2026-11-03 最终本机验收
 
 | 字段 | 结果 |

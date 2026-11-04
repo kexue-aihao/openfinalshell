@@ -150,6 +150,7 @@ describe('child_process 的用处清单', () => {
   const RDP = 'src/main/rdp/RdpSessionManager.ts'
   const INDEX = 'src/main/index.ts'
   const UI_ENV = 'src/main/services/uiEnvironment.ts'
+  const NATIVE_PREVIEW = 'src/main/services/nativePreviewUpgrade.ts'
 
   it('src/main 下引用 child_process 的文件必须全部在清单中', () => {
     const offenders: string[] = []
@@ -164,7 +165,14 @@ describe('child_process 的用处清单', () => {
       }
     }
     walk('src/main')
-    expect(offenders).toEqual([INDEX, DL, RDP, UI_ENV, LT])
+    expect(offenders).toEqual([INDEX, DL, RDP, NATIVE_PREVIEW, UI_ENV, LT])
+  })
+
+  it('native install discovery calls reg.exe with fixed argv and no shell', () => {
+    const src = stripComments(read(NATIVE_PREVIEW))
+    expect(src).toContain("execFileAsync('reg.exe', ['query', 'HKCU\\\\Software\\\\OpenFinalShell.NativePreview']")
+    expect(src).toContain('{ windowsHide: true, timeout: 3000 }')
+    expect(src).not.toMatch(/\bexecSync\b|\bexec\(/)
   })
 
   it('直连 Ping 使用系统绝对路径与 argv，且不经过 shell', () => {

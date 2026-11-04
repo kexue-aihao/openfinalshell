@@ -68,6 +68,53 @@
   border-radius: 50%;
 }
 
+.contextMenu {
+  position: fixed;
+  z-index: 10000;
+  min-width: min(176px, calc(100vw - 16px));
+  max-width: min(280px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  max-height: calc(100dvh - 16px);
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--ofs-shell-border);
+  border-radius: 6px;
+  background: var(--ofs-bg-elevated);
+  box-shadow: var(--ofs-shadow-modal);
+  color: var(--ofs-text-1);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.contextMenuItem {
+  display: flex;
+  width: 100%;
+  min-height: 30px;
+  align-items: center;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.contextMenuItem:hover,
+.contextMenuItem:focus-visible {
+  outline: none;
+  background: var(--ofs-bg-hover);
+}
+
+.contextMenuDanger { color: var(--ofs-danger, #d13438); }
+
+.contextMenuDivider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--ofs-border);
+}
+
 :global(:root[data-platform-ui='windows-11']) .toolbar {
   border-color: transparent;
   background: transparent;

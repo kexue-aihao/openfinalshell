@@ -30,6 +30,8 @@
 | FinalShell 迁移 | `app:finalshell*` | `ExportEnvelope`, `NativeStore` | 部分通过 | 通用导出预览/事务导入通过；FinalShell 专用扫描未完成 |
 | 多窗口 | 独立编辑器窗口 | `NativeInstanceCoordinator` | 部分通过 | 单实例写者选举和窗口聚焦通过；独立编辑器协调未完成 |
 | 更新/安装 | `update:*` | `NativeUpdateService`, `NativeUpdateCoordinator` | 部分通过 | x64 已完成签名 feed 0.30.32→0.30.33 自动下载、静默覆盖安装、重启和数据保留；哈希/RSA/流式下载/重定向/损坏包合同通过。x86/ARM64 真机、真实 GitHub Release、Authenticode 和回滚未验收 |
+| Electron 连接树右键菜单 | React/Ant Design Dropdown | `ConnectionTreePanel` body portal | 通过（组件） | 连接/分组目标、视口边界、滚动/失焦/resize/Escape、方向键和 Enter/Space 已覆盖；Windows 100/125/150% DPI 与玻璃开关仍需实机 UIA |
+| Electron → WinUI 3 迁移入口 | Electron 设置/关于 | `NativePreviewPanel`, `NativePreviewUpgradeService` | 通过（本机 x64） | 加密导出、一次确认、GitHub 架构清单、重定向白名单、流式哈希、安装器启动、已安装启动和离线状态；原生首次导入入口已由 UIA 识别。x86/ARM64 真机及 Authenticode 未验收 |
 | 辅助功能/适配 | 键盘、DPI、Narrator | WinUI + UIA | 部分通过 | 主要控件暴露 AutomationName/焦点的代码已接入；完整 Narrator、高对比度、DPI、多屏矩阵未测 |
 | 未迁移页面 | 引导、捐赠等 | 无 | 未开始 | 本轮不在运维闭环范围 |
 

@@ -1,7 +1,7 @@
 import { app, dialog, shell } from 'electron'
 import { z } from 'zod'
 import type { ImportResult } from '@shared/types'
-import { broadcast, handle } from './registry'
+import { broadcast, emit, handle } from './registry'
 import { exportData } from '../services/exportData'
 import { applyImport, inspectImport } from '../services/importData'
 import { applyFinalShellImport, scanFinalShell } from '../services/finalshellImport'
@@ -15,8 +15,20 @@ import { capability, platformAcceptance } from '../services/platformCapabilities
 import { unavailableRdp } from '@shared/platformCapabilities'
 import { getUiEnvironment } from '../services/uiEnvironment'
 import { resolveUpdateCapability } from '../services/updateGate'
+import { NativePreviewUpgradeService } from '../services/nativePreviewUpgrade'
 
 const log = scopedLogger('app')
+let nativePreviewUpgrade: NativePreviewUpgradeService | null = null
+
+function nativePreviewUpgradeService(): NativePreviewUpgradeService {
+  if (process.platform !== 'win32') throw new Error('WinUI 3 native preview is available only on Windows.')
+  nativePreviewUpgrade ??= new NativePreviewUpgradeService({
+    userDataDirectory: app.getPath('userData'),
+    openPath: (path) => shell.openPath(path),
+    progress: (progress) => emit('nativePreview:progress', progress)
+  })
+  return nativePreviewUpgrade
+}
 
 /** 终端/renderer 提供的 URL 属不可信内容，只放行 http/https */
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
@@ -56,6 +68,11 @@ export function registerAppIpc(): void {
   }))
 
   handle('app:getStartupNotice', () => getStartupNotice())
+
+  handle('nativePreview:getInfo', () => nativePreviewUpgradeService().getInfo())
+  handle('nativePreview:download', () => nativePreviewUpgradeService().download())
+  handle('nativePreview:launchInstaller', () => nativePreviewUpgradeService().launchInstaller())
+  handle('nativePreview:openInstalled', () => nativePreviewUpgradeService().openInstalled())
 
   // 懒加载语言包：渲染层活动语言若未内联（非 en/zh），启动时取回
   handle('i18n:bundle', (tag) => getBundle(tag), z.tuple([z.string().max(20)]))

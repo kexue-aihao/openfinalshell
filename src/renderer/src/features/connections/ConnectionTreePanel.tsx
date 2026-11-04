@@ -1,12 +1,11 @@
 import { IconButton, EmptyState } from '@/components/ui'
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   App as AntdApp,
-  Dropdown,
   Input,
   Tooltip,
   Tree,
-  type MenuProps,
   type TreeDataNode
 } from 'antd'
 import { FolderOpen, FolderPlus, Plus, Server } from 'lucide-react'
@@ -28,7 +27,6 @@ type ContextMenuTarget =
   | { kind: 'group'; group: ConnectionGroup }
 
 interface ContextMenuState {
-  open: boolean
   x: number
   y: number
   /** 每次打开递增，作为 Dropdown 的 key，强制新弹层按新坐标重新对齐。 */
@@ -36,7 +34,9 @@ interface ContextMenuState {
   target: ContextMenuTarget | null
 }
 
-const CLOSED_CONTEXT_MENU: ContextMenuState = { open: false, x: 0, y: 0, token: 0, target: null }
+type ContextMenuItem = { key: string; label: string; danger?: boolean } | { divider: true }
+
+const MENU_MARGIN = 8
 
 export function ConnectionTreePanel(): React.JSX.Element {
   const { t } = useTranslation()
@@ -51,41 +51,63 @@ export function ConnectionTreePanel(): React.JSX.Element {
   // 整棵树只有一个右键弹层。此前每个节点各挂一个非受控 Dropdown：慢渲染时
   // 第二次右键可能赶在第一个弹层挂载、注册关闭监听之前，于是多个菜单叠在一起，
   // 点击会命中错误的/正在关闭的弹层。单一受控状态从结构上消除这个竞态。
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(CLOSED_CONTEXT_MENU)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const closeContextMenu = useCallback((): void => {
-    setContextMenu((current) => (current.open ? { ...current, open: false } : current))
+    setContextMenu(null)
   }, [])
 
   const openContextMenu = useCallback((event: ReactMouseEvent, target: ContextMenuTarget): void => {
     event.preventDefault()
     event.stopPropagation()
     setContextMenu((current) => ({
-      open: true,
       x: event.clientX,
       y: event.clientY,
-      token: current.token + 1,
+      token: (current?.token ?? 0) + 1,
       target
     }))
   }, [])
 
   useEffect(() => {
-    if (!contextMenu.open) return
+    if (!contextMenu) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') closeContextMenu()
+    }
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) closeContextMenu()
     }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('blur', closeContextMenu)
     window.addEventListener('resize', closeContextMenu)
+    document.addEventListener('pointerdown', onPointerDown, true)
     // 捕获滚动，覆盖连接树自身和任何可滚动祖先，避免菜单跟着列表滚走。
     window.addEventListener('scroll', closeContextMenu, true)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', closeContextMenu)
       window.removeEventListener('resize', closeContextMenu)
+      document.removeEventListener('pointerdown', onPointerDown, true)
       window.removeEventListener('scroll', closeContextMenu, true)
     }
-  }, [contextMenu.open, closeContextMenu])
+  }, [Boolean(contextMenu), closeContextMenu])
+
+  // The fixed menu is portaled directly to body. This keeps client coordinates
+  // in the viewport coordinate space even when the sidebar creates a containing
+  // block with backdrop-filter, transforms, or its own scroll container.
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuRef.current) return
+    const menu = menuRef.current
+    const bounds = menu.getBoundingClientRect()
+    const maxX = Math.max(MENU_MARGIN, window.innerWidth - bounds.width - MENU_MARGIN)
+    const maxY = Math.max(MENU_MARGIN, window.innerHeight - bounds.height - MENU_MARGIN)
+    const x = Math.min(Math.max(MENU_MARGIN, contextMenu.x), maxX)
+    const y = Math.min(Math.max(MENU_MARGIN, contextMenu.y), maxY)
+    if (x !== contextMenu.x || y !== contextMenu.y) {
+      setContextMenu((current) => current?.token === contextMenu.token ? { ...current, x, y } : current)
+    }
+    menu.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }, [contextMenu?.token])
 
   useEffect(() => {
     if (!loaded) void load()
@@ -248,8 +270,8 @@ export function ConnectionTreePanel(): React.JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profiles, groups, searchText, t, maskInList, openContextMenu])
 
-  const contextMenuItems = useMemo<MenuProps['items']>(() => {
-    const target = contextMenu.target
+  const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
+    const target = contextMenu?.target
     if (!target) return []
     if (target.kind === 'profile') {
       return [
@@ -257,7 +279,7 @@ export function ConnectionTreePanel(): React.JSX.Element {
         { key: 'edit', label: t('common.edit') },
         { key: 'duplicate', label: t('conn.duplicate') },
         { key: 'copyCmd', label: t('conn.copySshCommand') },
-        { type: 'divider' },
+        { divider: true },
         { key: 'delete', label: t('common.delete'), danger: true }
       ]
     }
@@ -265,14 +287,14 @@ export function ConnectionTreePanel(): React.JSX.Element {
       { key: 'newConn', label: t('sidebar.newConnection') },
       { key: 'newGroup', label: t('sidebar.newGroup') },
       { key: 'rename', label: t('common.rename') },
-      { type: 'divider' },
+      { divider: true },
       { key: 'delete', label: t('common.delete'), danger: true }
     ]
-  }, [contextMenu.target, t])
+  }, [contextMenu?.target, t])
 
-  const handleContextMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
-    domEvent.stopPropagation()
-    const target = contextMenu.target
+  const handleContextMenuClick = (key: string, event: React.MouseEvent<HTMLButtonElement>): void => {
+    event.stopPropagation()
+    const target = contextMenu?.target
     closeContextMenu()
     if (!target) return
     if (target.kind === 'profile') {
@@ -292,6 +314,28 @@ export function ConnectionTreePanel(): React.JSX.Element {
     else if (key === 'newGroup') promptNewGroup(group.id)
     else if (key === 'rename') promptRenameGroup(group)
     else if (key === 'delete') void removeGroup(group.id)
+  }
+
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]
+    const index = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (event.key === 'Escape') { event.preventDefault(); closeContextMenu(); return }
+    // Browsers normally synthesize click for Enter/Space on a focused button.
+    // Also handle the menu container itself (including automation and assistive
+    // technologies that dispatch the activation key at the active menu) so the
+    // currently focused action remains activatable even when focus is on role=menu.
+    if ((event.key === 'Enter' || event.key === ' ') && event.target === menuRef.current) {
+      event.preventDefault()
+      ;(index >= 0 ? items[index] : items[0])?.click()
+      return
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
+    event.preventDefault()
+    const next = event.key === 'Home' ? 0
+      : event.key === 'End' ? items.length - 1
+        : index < 0 && event.key === 'ArrowUp' ? items.length - 1
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+    items[next]?.focus()
   }
 
   return (
@@ -333,29 +377,30 @@ export function ConnectionTreePanel(): React.JSX.Element {
           />
         )}
       </div>
-      <Dropdown
-        key={contextMenu.token}
-        open={contextMenu.open}
-        onOpenChange={(open) => {
-          if (!open) closeContextMenu()
-        }}
-        trigger={['contextMenu']}
-        placement="bottomLeft"
-        menu={{ items: contextMenuItems, onClick: handleContextMenuClick }}
-      >
-        <span
-          aria-hidden="true"
-          data-context-menu-anchor="true"
-          style={{
-            position: 'fixed',
-            left: contextMenu.x,
-            top: contextMenu.y,
-            width: 0,
-            height: 0,
-            pointerEvents: 'none'
-          }}
-        />
-      </Dropdown>
+      {contextMenu && createPortal(
+        <div
+          key={contextMenu.token}
+          ref={menuRef}
+          className={styles.contextMenu}
+          role="menu"
+          aria-label={contextMenu.target?.kind === 'profile' ? contextMenu.target.profile.name : contextMenu.target?.kind === 'group' ? contextMenu.target.group.name : undefined}
+          data-connection-context-menu="true"
+          onContextMenu={(event) => { event.preventDefault(); event.stopPropagation() }}
+          onKeyDown={handleMenuKeyDown}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {contextMenuItems.map((item, index) => 'divider' in item
+            ? <div key={`divider-${index}`} className={styles.contextMenuDivider} role="separator" />
+            : <button
+                key={item.key}
+                type="button"
+                role="menuitem"
+                className={`${styles.contextMenuItem}${item.danger ? ` ${styles.contextMenuDanger}` : ''}`}
+                onClick={(event) => handleContextMenuClick(item.key, event)}
+              >{item.label}</button>)}
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

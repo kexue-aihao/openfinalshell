@@ -37,9 +37,7 @@ function profile(id: string, name: string, groupId: string | null = null): Conne
 }
 
 function visibleMenus(): Element[] {
-  return [...document.querySelectorAll('.ant-dropdown')].filter(
-    (element) => !element.classList.contains('ant-dropdown-hidden')
-  )
+  return [...document.querySelectorAll('[role="menu"][data-connection-context-menu="true"]')]
 }
 
 function nodeFor(label: HTMLElement): HTMLElement {
@@ -89,9 +87,9 @@ it('keeps a single menu after rapid right-clicks and edits the last target', asy
   })
 
   await waitFor(() => expect(visibleMenus()).toHaveLength(1))
-  const anchor = document.querySelector('[data-context-menu-anchor="true"]') as HTMLElement | null
-  expect(anchor?.style.left).toBe('48px')
-  expect(anchor?.style.top).toBe('120px')
+  const menu = visibleMenus()[0] as HTMLElement
+  expect(menu.style.left).toBe('48px')
+  expect(menu.style.top).toBe('120px')
   fireEvent.click(screen.getByRole('menuitem', { name: '编辑' }))
   await waitFor(() => expect(useUiStore.getState().editingProfileId).toBe('p3'))
 })
@@ -107,4 +105,81 @@ it('opens the group actions from the same single menu', async () => {
   await waitFor(() => expect(visibleMenus()).toHaveLength(1))
   fireEvent.click(screen.getByRole('menuitem', { name: '新建连接' }))
   await waitFor(() => expect(useUiStore.getState().editingProfileId).toBe('new'))
+})
+
+it('keeps the menu inside the viewport and supports keyboard navigation', async () => {
+  const originalRect = HTMLElement.prototype.getBoundingClientRect
+  const originalWidth = window.innerWidth
+  const originalHeight = window.innerHeight
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 400 })
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 400 })
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.getAttribute('role') === 'menu') return { x: 0, y: 0, left: 0, top: 0, right: 180, bottom: 160, width: 180, height: 160, toJSON: () => ({}) }
+    return originalRect.call(this)
+  }
+  try {
+    renderPanel([profile('p1', 'Server One')])
+    fireEvent.contextMenu(nodeFor(await screen.findByText('Server One')), { clientX: 390, clientY: 390 })
+    const menu = await screen.findByRole('menu')
+    await waitFor(() => {
+      expect((menu as HTMLElement).style.left).toBe('212px')
+      expect((menu as HTMLElement).style.top).toBe('232px')
+    })
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: '连接' }))
+    fireEvent.keyDown(menu, { key: 'ArrowDown' })
+    fireEvent.keyDown(menu, { key: 'Enter' })
+    await waitFor(() => expect(useUiStore.getState().editingProfileId).toBe('p1'))
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = originalRect
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
+  }
+})
+
+it.each([
+  ['top-left', 10, 10, '10px', '10px'],
+  ['top-right', 390, 10, '212px', '10px'],
+  ['bottom-left', 10, 390, '10px', '232px']
+] as const)('clamps a menu opened from the %s corner', async (_corner, clientX, clientY, expectedLeft, expectedTop) => {
+  const originalRect = HTMLElement.prototype.getBoundingClientRect
+  const originalWidth = window.innerWidth
+  const originalHeight = window.innerHeight
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 400 })
+  Object.defineProperty(window, 'innerHeight', { configurable: true, value: 400 })
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.getAttribute('role') === 'menu') return { x: 0, y: 0, left: 0, top: 0, right: 180, bottom: 160, width: 180, height: 160, toJSON: () => ({}) }
+    return originalRect.call(this)
+  }
+  try {
+    renderPanel([profile('p1', 'Server One')])
+    fireEvent.contextMenu(nodeFor(await screen.findByText('Server One')), { clientX, clientY })
+    const menu = await screen.findByRole('menu')
+    await waitFor(() => {
+      expect((menu as HTMLElement).style.left).toBe(expectedLeft)
+      expect((menu as HTMLElement).style.top).toBe(expectedTop)
+    })
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = originalRect
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
+  }
+})
+
+it('closes when the user clicks outside the body-mounted menu', async () => {
+  renderPanel([profile('p1', 'Server One')])
+  fireEvent.contextMenu(nodeFor(await screen.findByText('Server One')), { clientX: 80, clientY: 80 })
+  await screen.findByRole('menu')
+  fireEvent.pointerDown(document.body)
+  await waitFor(() => expect(visibleMenus()).toHaveLength(0))
+})
+
+it.each(['Escape', 'blur', 'resize', 'tree-scroll'] as const)('closes the menu on %s', async (reason) => {
+  renderPanel([profile('p1', 'Server One')])
+  fireEvent.contextMenu(nodeFor(await screen.findByText('Server One')), { clientX: 80, clientY: 80 })
+  await screen.findByRole('menu')
+  if (reason === 'Escape') fireEvent.keyDown(window, { key: 'Escape' })
+  else if (reason === 'blur') fireEvent.blur(window)
+  else if (reason === 'resize') fireEvent.resize(window)
+  else fireEvent.scroll(document.querySelector('[class*="tree"]')!)
+  await waitFor(() => expect(visibleMenus()).toHaveLength(0))
 })

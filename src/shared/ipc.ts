@@ -128,6 +128,10 @@ export interface InvokeMap {
   }
   'app:openExternal': { args: [string]; result: void }
   'app:openPath': { args: [string]; result: void }
+  'nativePreview:getInfo': { args: []; result: { architecture: 'x64' | 'x86' | 'arm64'; availableVersion?: string; installed: boolean; installedVersion?: string; manifestError?: string } }
+  'nativePreview:download': { args: []; result: { path: string; version: string; architecture: 'x64' | 'x86' | 'arm64'; bytes: number; sha256: string } }
+  'nativePreview:launchInstaller': { args: []; result: void }
+  'nativePreview:openInstalled': { args: []; result: void }
   /** 导出应用数据；取消保存对话框返回 null。口令只单向进 main，不回传。
    *  encryptAll=true 走整文件加密导出（连配置一起加密，formatVersion 2）。 */
   'app:exportData': {
@@ -464,6 +468,8 @@ export interface EventMap {
   'settings:changed': AppSettings
   /** 更新器状态（checking / available / downloading 进度 / downloaded / error） */
   'update:state': UpdateState
+  /** WinUI 原生预览版下载进度。 */
+  'nativePreview:progress': { percent: number; received: number; total: number }
   /** 主进程 → 编辑器窗口：打开一个文件（见 editor:openFile / editor:ready 的排队约定） */
   'editor:open': EditorOpenRequest
   /**
@@ -483,6 +489,7 @@ export interface EventMap {
 export const CHANNEL_PREFIXES = [
   'ai:',
   'app:',
+  'nativePreview:',
   'i18n:',
   'settings:',
   'vault:',
@@ -556,6 +563,10 @@ export const INVOKE_CHANNELS = channelSet<InvokeChannel>({
   'app:pickPaths': true,
   'app:openExternal': true,
   'app:openPath': true,
+  'nativePreview:getInfo': true,
+  'nativePreview:download': true,
+  'nativePreview:launchInstaller': true,
+  'nativePreview:openInstalled': true,
   'app:exportData': true,
   'app:importPreview': true,
   'app:importData': true,
@@ -681,6 +692,7 @@ export const EVENT_CHANNELS = channelSet<EventChannel>({
   'forward:state': true,
   'settings:changed': true,
   'update:state': true,
+  'nativePreview:progress': true,
   'editor:open': true,
   'editor:closeRequest': true,
   'sync:receiveState': true,

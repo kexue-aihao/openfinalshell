@@ -184,6 +184,12 @@ public sealed partial class MainWindow : Window
         LanSyncItem.Content = localization["native.lansync.title"];
         NewButton.Content = localization["welcome.newConnection"];
         ImportButton.Content = localization["native.common.import"];
+        MigrationImportButton.Content = localization["native.migrationImportButton"];
+        // Keep the first-run shortcut available until any portable entity has
+        // been imported or created, including keys/proxies/trust and snippets.
+        var hasNativeData = new[] { "profiles", "groups", "forwards", "proxies", "privateKeys", "knownHosts", "snippetGroups", "snippets", "aiProfiles" }
+            .Any(kind => store.List(kind).Count > 0);
+        MigrationImportButton.Visibility = hasNativeData ? Visibility.Collapsed : Visibility.Visible;
         ExportButton.Content = localization["native.common.export"];
         SettingsHeading.Text = localization["activity.settings"];
         ResetTrustButton.Content = localization["native.settings.resetTrust"];
@@ -1220,13 +1226,19 @@ public sealed partial class MainWindow : Window
         try {
             var preview = ExportEnvelope.Inspect(System.Text.Encoding.UTF8.GetBytes(await Windows.Storage.FileIO.ReadTextAsync(file)), passphrase);
             var choice = await ConfirmImportAsync(preview); if (choice == null) return;
-            store.Import(preview, choice.Value); LoadProfiles(); Status.Text = localization["native.common.imported"];
+            store.Import(preview, choice.Value); LoadProfiles();
+            MigrationImportButton.Visibility = Visibility.Collapsed;
+            Status.Text = localization["native.common.imported"];
         } catch (Exception error) { ShowError(error); }
     }
 
     private async Task<ImportConflict?> ConfirmImportAsync(ImportPreview preview)
     {
-        var dialog = new ContentDialog { Title = localization["native.common.import"], Content = localization.Format("native.importSummary", ("profiles", preview.Profiles.ToString()), ("secrets", preview.SecretCount.ToString())),
+        static int Count(JsonObject data, string key) => (data[key] as System.Text.Json.Nodes.JsonArray)?.Count ?? 0;
+        var summary = localization.Format("native.importSummary", ("profiles", preview.Profiles.ToString()), ("secrets", preview.SecretCount.ToString())) + "\n" +
+            localization.Format("native.migrationCategories", ("groups", Count(preview.Data, "groups").ToString()), ("keys", Count(preview.Data, "privateKeys").ToString()),
+                ("proxies", Count(preview.Data, "proxies").ToString()), ("knownHosts", Count(preview.Data, "knownHosts").ToString()), ("forwards", Count(preview.Data, "forwards").ToString()));
+        var dialog = new ContentDialog { Title = localization["native.common.import"], Content = summary,
             PrimaryButtonText = localization["native.common.overwrite"], SecondaryButtonText = localization["native.common.duplicate"], CloseButtonText = localization["native.common.skip"], XamlRoot = Root.XamlRoot };
         var result = await dialog.ShowAsync(); return result switch { ContentDialogResult.Primary => ImportConflict.Overwrite,
             ContentDialogResult.Secondary => ImportConflict.Duplicate, ContentDialogResult.None => ImportConflict.Skip, _ => null };

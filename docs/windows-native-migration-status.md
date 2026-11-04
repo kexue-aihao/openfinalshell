@@ -1,6 +1,6 @@
 # Windows native migration status
 
-更新日期：2026-11-03。范围：Windows 11 Pro Build 26300 x64，管理员会话，本机 fixture。
+更新日期：2026-11-04。范围：Windows 11 Pro Build 26300 x64，管理员会话，本机 fixture。
 
 | 领域 | 状态 | 当前实现与验收 |
 | --- | --- | --- |
@@ -20,6 +20,8 @@
 | FinalShell import | 部分实现 | 通用导出/事务导入通过；FinalShell 专用扫描未完成 |
 | Multi-window | 部分实现 | 单实例写者、聚焦和 CAS 通过；独立编辑器窗口未完成 |
 | Update/install | 部分实现 | 校验门控和中断记录合同通过；签名、UI、覆盖升级和回滚未测 |
+| Electron 右键菜单 | 代码完成，组件通过 | body portal、viewport 夹取、统一关闭监听、键盘导航和目标保持已实现；DPI/玻璃实机矩阵待测 |
+| Electron → WinUI 迁移入口 | 代码完成，本机 x64 通过 | 设置卡片、加密导出二次口令、架构清单下载/哈希校验、安装器启动、离线已安装启动及原生首次导入入口已验证；Authenticode、x86/ARM64 真机待测 |
 | Accessibility/platform | 部分实现 | UIA 名称/实时区域已接入；完整键盘、Narrator、高对比度、DPI 和 Windows 10 未测 |
 | Auxiliary pages | 未开始 | Android LAN Sync、引导、捐赠等未纳入本轮核心闭环 |
 

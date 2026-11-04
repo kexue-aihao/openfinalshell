@@ -35,6 +35,7 @@ import { SavedRefsPanel } from './SavedRefsPanel'
 import { DonateSection } from '@/features/donate/DonateSection'
 import { ChangelogModal } from '@/features/onboarding/ChangelogModal'
 import { UpdatePanel } from './UpdatePanel'
+import { NativePreviewPanel } from './NativePreviewPanel'
 import { TerminalPreview } from './TerminalPreview'
 import { AiSettingsPanel } from '@/features/ai/AiSettingsPanel'
 import { SHORTCUTS } from './shortcuts'
@@ -600,6 +601,7 @@ export function SettingsModal(): React.JSX.Element {
                 {t('welcome.subtitle')}
               </Typography.Paragraph>
               <UpdatePanel />
+              {windowsUi && <NativePreviewPanel />}
               <div>
                 <Button type="link" onClick={() => setChangelogOpen(true)}>
                   {t('settings.changelog')}
