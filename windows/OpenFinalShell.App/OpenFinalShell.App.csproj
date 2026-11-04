@@ -16,7 +16,7 @@
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.33</OpenFinalShellVersion>
+    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.34</OpenFinalShellVersion>
     <Version>$(OpenFinalShellVersion)</Version>
     <AssemblyVersion>$(OpenFinalShellVersion)</AssemblyVersion>
     <FileVersion>$(OpenFinalShellVersion)</FileVersion>
