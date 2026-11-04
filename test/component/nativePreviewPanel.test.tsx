@@ -5,8 +5,11 @@ import { App as AntdApp } from 'antd'
 import { NativePreviewPanel } from '@/features/settings/NativePreviewPanel'
 import { fakeOfs } from './fakeOfs'
 import i18n from '@/i18n'
+import type { InvokeMap } from '@shared/ipc'
 
-const upgradeInfo = {
+type UpgradeInfo = InvokeMap['nativePreview:getInfo']['result']
+
+const upgradeInfo: UpgradeInfo = {
   architecture: 'x64' as const,
   availableVersion: '0.30.33',
   installed: false
