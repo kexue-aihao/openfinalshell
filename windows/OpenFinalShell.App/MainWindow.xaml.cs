@@ -135,6 +135,8 @@ public sealed partial class MainWindow : Window
         updateService.StateChanged += OnUpdateStateChanged;
         sessionsManager.StateChanged += OnSessionStateChanged;
         InitializeComponent();
+        var appIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "OpenFinalShell.ico");
+        if (File.Exists(appIconPath)) AppWindow.SetIcon(appIconPath);
         Closed += MainWindowClosed;
         ApplyPlatformResources();
         Title = $"OpenFinalShell Native Preview · {environment.Profile}";

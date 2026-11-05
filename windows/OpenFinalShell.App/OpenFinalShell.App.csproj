@@ -13,10 +13,11 @@
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\OpenFinalShell.ico</ApplicationIcon>
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.34</OpenFinalShellVersion>
+    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.35</OpenFinalShellVersion>
     <Version>$(OpenFinalShellVersion)</Version>
     <AssemblyVersion>$(OpenFinalShellVersion)</AssemblyVersion>
     <FileVersion>$(OpenFinalShellVersion)</FileVersion>
@@ -24,6 +25,7 @@
     <NativeEditorRuntimeDirectory Condition="'$(NativeEditorRuntimeDirectory)' == ''">$(MSBuildProjectDirectory)/../../build/native-editor/$(Platform)</NativeEditorRuntimeDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <Content Update="Assets/OpenFinalShell.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Remove="build/**/*.cs" />
     <ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />

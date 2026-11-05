@@ -18,6 +18,8 @@ Var OFS_WAIT_PID
 Name "OpenFinalShell Native Preview"
 Caption "OpenFinalShell Native Preview ${ARCH}"
 OutFile "${OUT_DIR}\OpenFinalShell-NativePreview-${VERSION}-${ARCH}-Setup.exe"
+Icon "${INPUT_DIR}\Assets\OpenFinalShell.ico"
+UninstallIcon "${INPUT_DIR}\Assets\OpenFinalShell.ico"
 InstallDir "$LOCALAPPDATA\OpenFinalShell Native Preview"
 RequestExecutionLevel user
 InstallDirRegKey HKCU "Software\OpenFinalShell.NativePreview" "InstallDir"
