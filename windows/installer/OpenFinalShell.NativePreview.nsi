@@ -40,8 +40,11 @@ VIAddVersionKey /LANG=1033 "FileDescription" "OpenFinalShell Native Preview inst
 VIAddVersionKey /LANG=1033 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=1033 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright © 2026 openfinalshell contributors"
-InstallDir "$LOCALAPPDATA\OpenFinalShell Native Preview"
-RequestExecutionLevel user
+; Keep the native preview install alongside other machine-wide Windows apps.
+; PROGRAMFILES64 resolves to C:\Program Files on 64-bit Windows for every
+; native preview architecture (x64, x86 and ARM64).
+InstallDir "$PROGRAMFILES64\OpenFinalShell Native Preview"
+RequestExecutionLevel admin
 InstallDirRegKey HKCU "Software\OpenFinalShell.NativePreview" "InstallDir"
 SetCompressor /SOLID lzma
 

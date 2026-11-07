@@ -458,7 +458,7 @@ jobs:
           | `*-android.aab` | Android App Bundle（用于应用商店发布） |
           | `SHA256SUMS-android.txt` | Android APK/AAB 校验和 |
 
-          Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`，可改安装目录。
+          Electron Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`；WinUI3 原生预览版需要管理员权限，默认装到 `C:\Program Files\OpenFinalShell Native Preview`，两者均可改安装目录。
 
           原生预览版使用 `native-update-<arch>.json` 签名清单自动检查并下载升级；覆盖安装和卸载保留 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 中的连接与凭据数据。
 

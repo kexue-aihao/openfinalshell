@@ -11,7 +11,7 @@
 5. 下载大小、SHA-256 和签名全部匹配后才进入 `Ready` 状态；启动安装器前会再次验证文件。
 6. 存在 SSH 会话、传输、活动转发、未保存编辑器或 RDP 会话时阻止安装。用户确认后才启动安装器。
 7. 用户确认后，安装器以 `/S /WAITPID=<旧进程ID>` 静默启动，持有旧进程句柄并在文件覆盖前等待其退出；安装成功后重新启动新版。
-8. 安装目录与 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 数据目录分离。覆盖安装和卸载不删除连接、凭据、known hosts、分组或转发规则。
+8. 安装目录默认为 `C:\Program Files\OpenFinalShell Native Preview`，与 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 数据目录分离。覆盖安装和卸载不删除连接、凭据、known hosts、分组或转发规则。
 
 ## Feed 格式
 

@@ -242,10 +242,22 @@ export class NativePreviewUpgradeService {
     try { raw = await this.registryQuery() } catch { /* try the documented default location */ }
     const match = raw.match(/^\s*InstallDir\s+REG_\w+\s+(.+)$/im)
     const version = raw.match(/^\s*Version\s+REG_\w+\s+(.+)$/im)?.[1]?.trim()
-    const candidate = match?.[1]?.trim() || join(process.env.LOCALAPPDATA ?? '', 'OpenFinalShell Native Preview')
-    if (!candidate || !process.env.LOCALAPPDATA && !match) return null
-    const executable = join(candidate, 'OpenFinalShell.App.exe')
-    try { await stat(executable); return { path: executable, version } } catch { return null }
+    const registeredPath = match?.[1]?.trim()
+    const programFiles = process.env.ProgramW6432 || process.env.ProgramFiles
+    const candidates = registeredPath
+      ? [registeredPath]
+      : [
+          programFiles ? join(programFiles, 'OpenFinalShell Native Preview') : '',
+          process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'OpenFinalShell Native Preview') : ''
+        ]
+    for (const candidate of candidates) {
+      if (!candidate) continue
+      try {
+        await stat(join(candidate, 'OpenFinalShell.App.exe'))
+        return { path: join(candidate, 'OpenFinalShell.App.exe'), version }
+      } catch { /* try the next compatible install location */ }
+    }
+    return null
   }
 
   private async queryNativeInstallRegistry(): Promise<string> {

@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.38',
+    items: [
+      { type: 'fix', zh: '调整 WinUI 3 原生预览版安装器：默认安装到 C:\\Program Files\\OpenFinalShell Native Preview，并在安装时正确请求管理员权限；升级器同时兼容新的系统安装目录和旧版用户目录', en: 'Update the WinUI 3 native preview installer to default to C:\\Program Files\\OpenFinalShell Native Preview with the required administrator permission, while keeping the updater compatible with the new machine-wide location and legacy per-user installs' }
+    ]
+  },
+  {
     version: '0.30.37',
     items: [
       { type: 'fix', zh: '修复 Windows 原生 SSH 终端输入被隐藏输入框截留的问题，现在普通按键、回车、快捷键和中文输入都会正确转发到远程 shell', en: 'Fix Windows native SSH terminal input being trapped in the hidden input client so regular keys, Enter, shortcuts and IME input are forwarded to the remote shell' },
