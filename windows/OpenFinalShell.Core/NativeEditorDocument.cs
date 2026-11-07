@@ -2,7 +2,7 @@ using System.Text;
 
 namespace OpenFinalShell.Core;
 
-public enum NativeTextEncoding { Utf8, Utf8Bom, Utf16Le, Utf16Be, Windows1252, ShiftJis, Gb18030 }
+public enum NativeTextEncoding { Utf8, Utf8Bom, Utf16Le, Utf16Be, Windows1252, ShiftJis, Gb18030, Gbk, Big5, Latin1 }
 
 public sealed record NativeEditorDocument(
     string Path,
@@ -59,21 +59,14 @@ public sealed record NativeEditorDocument(
         NativeTextEncoding.Utf16Be => System.Text.Encoding.BigEndianUnicode.GetString(bytes),
         NativeTextEncoding.Windows1252 => System.Text.Encoding.GetEncoding(1252).GetString(bytes),
         NativeTextEncoding.ShiftJis => System.Text.Encoding.GetEncoding(932).GetString(bytes),
-        NativeTextEncoding.Gb18030 => System.Text.Encoding.GetEncoding(936).GetString(bytes),
+        NativeTextEncoding.Gb18030 => System.Text.Encoding.GetEncoding(54936).GetString(bytes),
+        NativeTextEncoding.Gbk => System.Text.Encoding.GetEncoding(936).GetString(bytes),
+        NativeTextEncoding.Big5 => System.Text.Encoding.GetEncoding(950).GetString(bytes),
+        NativeTextEncoding.Latin1 => System.Text.Encoding.Latin1.GetString(bytes),
         _ => System.Text.Encoding.UTF8.GetString(bytes)
     };
 
-    private static byte[] Encode(string text, NativeTextEncoding encoding, bool bom) => encoding switch
-    {
-        NativeTextEncoding.Utf16Le => AddBom(System.Text.Encoding.Unicode.GetBytes(text), bom, [0xFF, 0xFE]),
-        NativeTextEncoding.Utf16Be => AddBom(System.Text.Encoding.BigEndianUnicode.GetBytes(text), bom, [0xFE, 0xFF]),
-        NativeTextEncoding.Windows1252 => System.Text.Encoding.GetEncoding(1252).GetBytes(text),
-        NativeTextEncoding.ShiftJis => System.Text.Encoding.GetEncoding(932).GetBytes(text),
-        NativeTextEncoding.Gb18030 => System.Text.Encoding.GetEncoding(936).GetBytes(text),
-        _ => AddBom(System.Text.Encoding.UTF8.GetBytes(text), encoding == NativeTextEncoding.Utf8Bom || bom, [0xEF, 0xBB, 0xBF])
-    };
-
-    private static byte[] AddBom(byte[] bytes, bool include, byte[] bom) => include ? bom.Concat(bytes).ToArray() : bytes;
+    private static byte[] Encode(string text, NativeTextEncoding encoding, bool bom) => NativeTextCodec.Encode(text, encoding, encoding == NativeTextEncoding.Utf8Bom || bom);
     private static bool LooksUtf8(ReadOnlySpan<byte> bytes) { try { _ = new UTF8Encoding(false, true).GetString(bytes); return true; } catch (DecoderFallbackException) { return false; } }
 }
 

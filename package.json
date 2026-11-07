@@ -16,6 +16,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "check:i18n": "node scripts/checkI18n.mjs",
+    "sync:native-release-notes": "node scripts/generateNativeReleaseNotes.mjs",
     "test": "vitest run",
     "icon": "node scripts/generateIcon.mjs",
     "icon:windows": "npm run icon && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateNativeWindowsIcon.ps1",

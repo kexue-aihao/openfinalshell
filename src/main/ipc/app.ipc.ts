@@ -16,6 +16,7 @@ import { unavailableRdp } from '@shared/platformCapabilities'
 import { getUiEnvironment } from '../services/uiEnvironment'
 import { resolveUpdateCapability } from '../services/updateGate'
 import { NativePreviewUpgradeService } from '../services/nativePreviewUpgrade'
+import { currentInstance } from '../instance'
 
 const log = scopedLogger('app')
 let nativePreviewUpgrade: NativePreviewUpgradeService | null = null
@@ -39,11 +40,19 @@ const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
  * 各写一遍的话，两条导入路迟早在"导入后主题没跟着变"这种地方分叉。
  */
 export function finishImportSideEffects(result: ImportResult): void {
-  if (!result.settingsApplied) return
-  const next = getSettings()
-  applyWindowChrome(next)
-  applyEditorWindowChrome(next)
-  broadcast('settings:changed', next)
+  if (result.aiProfiles > 0) {
+    broadcast('app:configChanged', {
+      entity: 'ai',
+      revision: Date.now(),
+      sourceInstanceId: currentInstance.instanceId
+    })
+  }
+  if (result.settingsApplied) {
+    const next = getSettings()
+    applyWindowChrome(next)
+    applyEditorWindowChrome(next)
+    broadcast('settings:changed', next)
+  }
 }
 
 export function registerAppIpc(): void {
@@ -182,6 +191,7 @@ export function registerAppIpc(): void {
         conflict: z.enum(['skip', 'overwrite', 'duplicate']),
         include: z.object({
           profiles: z.boolean(),
+          aiProfiles: z.boolean().optional().default(false),
           snippets: z.boolean(),
           forwards: z.boolean(),
           knownHosts: z.boolean(),

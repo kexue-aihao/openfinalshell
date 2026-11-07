@@ -33,6 +33,7 @@ export function ImportDataPanel(): React.JSX.Element {
   // 设置默认不勾：它是唯一会立刻改变界面外观的部分，别人的配色不该悄悄套到本机上
   const [include, setInclude] = useState<ImportSelection>({
     profiles: true,
+    aiProfiles: true,
     snippets: true,
     forwards: true,
     knownHosts: true,
@@ -65,7 +66,7 @@ export function ImportDataPanel(): React.JSX.Element {
         conflict,
         // 整文件加密的文件解密前拿不到条目数，无法按类勾选：整体导入（设置除外，避免悄悄套配色）
         include: preview.encrypted
-          ? { profiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
+          ? { profiles: true, aiProfiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
           : include
       })
       setPass('')
@@ -164,6 +165,14 @@ export function ImportDataPanel(): React.JSX.Element {
                     message={t('settings.importConflictWarn', { count: preview.conflicts })}
                   />
                 )}
+                {preview.aiConflicts > 0 && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message={t('settings.importAiConflictWarn', { count: preview.aiConflicts })}
+                  />
+                )}
 
                 <div className={styles.importSection}>{t('settings.importSelectLabel')}</div>
                 <div className={styles.importChecks}>
@@ -185,6 +194,13 @@ export function ImportDataPanel(): React.JSX.Element {
                         })}
                       </span>
                     )}
+                  </Checkbox>
+                  <Checkbox
+                    checked={include.aiProfiles}
+                    disabled={preview.counts.aiProfiles === 0}
+                    onChange={(e) => toggle('aiProfiles')(e.target.checked)}
+                  >
+                    {t('settings.importIncludeAiProfiles', { count: preview.counts.aiProfiles })}
                   </Checkbox>
                   <Checkbox
                     checked={include.snippets}
@@ -253,6 +269,7 @@ export function ImportDataPanel(): React.JSX.Element {
               showIcon
               message={t('settings.importResultSummary', {
                 profiles: result.profiles,
+                aiProfiles: result.aiProfiles,
                 snippets: result.snippets,
                 forwards: result.forwards,
                 knownHosts: result.knownHosts,

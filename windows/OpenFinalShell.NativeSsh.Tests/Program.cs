@@ -231,6 +231,7 @@ async Task TestJumpHostEndToEndAsync()
     };
     var jumpJson = ProfileJson("jump-fixture", "Jump fixture", jumpPort);
     var targetJson = ProfileJson("target-fixture", "Target fixture", targetPort, "jump-fixture");
+    targetJson["options"] = new JsonObject { ["autoReconnect"] = true };
     store.Save("profiles", "jump-fixture", jumpJson);
     store.Save("profiles", "target-fixture", targetJson);
     using var sessions = new NativeSessionManager(store);
@@ -257,7 +258,24 @@ async Task TestJumpHostEndToEndAsync()
     await outputReady.Task.WaitAsync(TimeSpan.FromSeconds(8));
     var entries = await session.ListAsync("/", CancellationToken.None);
     if (!entries.Any(entry => entry.Name == "target-marker.txt")) throw new InvalidOperationException("SFTP did not reach target through jump tunnel.");
+    var reconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var rememberedSize = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    session.StateChanged += state => { if (state.State == NativeSessionState.Ready) reconnected.TrySetResult(); };
+    session.Output += bytes => { if (Encoding.UTF8.GetString(bytes).Contains("97x23", StringComparison.Ordinal)) rememberedSize.TrySetResult(); };
+    session.Resize(97, 23);
+    session.Write(Encoding.UTF8.GetBytes("exit\r"));
+    await reconnected.Task.WaitAsync(TimeSpan.FromSeconds(12));
+    session.Write(Encoding.UTF8.GetBytes("size\r"));
+    await rememberedSize.Task.WaitAsync(TimeSpan.FromSeconds(8));
+    Check((await session.ListAsync("/", CancellationToken.None)).Any(e => e.Name == "target-marker.txt"), "Automatic single-hop reconnect restores SFTP and remembers terminal dimensions");
+    var retryScheduled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var resurrected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    session.StateChanged += state => { if (state.State == NativeSessionState.Reconnecting) retryScheduled.TrySetResult(); };
+    session.Write(Encoding.UTF8.GetBytes("exit\r"));
+    await retryScheduled.Task.WaitAsync(TimeSpan.FromSeconds(8));
     sessions.Close(snapshot.SessionId);
+    session.StateChanged += state => { if (state.State == NativeSessionState.Ready) resurrected.TrySetResult(); };
+    Check(await Task.WhenAny(resurrected.Task, Task.Delay(1600)) != resurrected.Task && session.Snapshot.State == NativeSessionState.Closed, "Closing a session cancels a scheduled reconnect without resurrecting it");
     total++;
     Console.WriteLine("PASS: two local SSH fixtures connect through one jump; host keys, terminal, and SFTP reach target independently");
 
@@ -282,7 +300,8 @@ async Task TestForwardBridgeEndToEndAsync()
     var fixture = Path.Combine(repositoryRoot, "test", "fixtures", "testSshServer.mjs");
     var temp = Path.Combine(Path.GetTempPath(), "ofs-native-forward-test-" + Guid.NewGuid().ToString("N"));
     var fixtureRoot = Path.Combine(temp, "fixture-root"); Directory.CreateDirectory(fixtureRoot);
-    var sshPort = FindFreePort(); using var server = StartFixture(fixture, sshPort, fixtureRoot);
+    var auditPath = Path.Combine(temp, "sftp-protocol.jsonl");
+    var sshPort = FindFreePort(); using var server = StartFixture(fixture, sshPort, fixtureRoot, writeDelayMs: 100, auditPath: auditPath, directoryDelayMs: 100);
     await WaitForPortAsync(sshPort);
     var dataRoot = Path.Combine(temp, "native-data"); using var store = new NativeStore(dataRoot, new TestProtector());
     var secret = store.SaveSecret("test123");
@@ -297,17 +316,158 @@ async Task TestForwardBridgeEndToEndAsync()
     using var sessions = new NativeSessionManager(store);
     var opened = await sessions.OpenAsync(ConnectionProfile.FromJson(profileJson), _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None);
     var session = sessions.Get(opened.SessionId);
+    var navigation = new OpenFinalShell.App.ViewModels.SftpBrowserViewModel(session);
+    Directory.CreateDirectory(Path.Combine(fixtureRoot, "alpha")); Directory.CreateDirectory(Path.Combine(fixtureRoot, "beta"));
+    await File.WriteAllTextAsync(Path.Combine(fixtureRoot, "alpha", "alpha.txt"), "alpha");
+    await File.WriteAllTextAsync(Path.Combine(fixtureRoot, "beta", "beta.txt"), "beta");
+    var pathsPublished = new List<string>();
+    navigation.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(navigation.CurrentPath)) pathsPublished.Add(navigation.CurrentPath); };
+    var oldNavigation = navigation.NavigateAsync("/alpha");
+    var newNavigation = navigation.NavigateAsync("/beta");
+    await Task.WhenAll(oldNavigation, newNavigation);
+    Check(navigation.CurrentPath == "/beta" && navigation.Entries.Single().Name == "beta.txt" && pathsPublished.SequenceEqual(new[] { "/beta" }),
+        "SFTP navigation keeps the latest requested directory and never publishes a stale in-flight listing");
+    var navigationStatus = navigation.Status;
+    using (var navigationCancellation = new CancellationTokenSource())
+    {
+        var canceledNavigation = navigation.NavigateAsync("/alpha", navigationCancellation.Token);
+        navigationCancellation.Cancel();
+        try { await canceledNavigation; Check(false, "Canceled SFTP navigation is interrupted"); }
+        catch (OperationCanceledException)
+        { Check(navigation.CurrentPath == "/beta" && !navigation.IsBusy && navigation.Status == navigationStatus, "Canceled SFTP navigation preserves the last directory and clears its busy state without a stale error"); }
+    }
+    await navigation.NavigateAsync("/alpha");
+    Check(navigation.CurrentPath == "/alpha" && navigation.Entries.Single().Name == "alpha.txt", "SFTP navigation recovers after cancellation without dropping the next request");
+    var directoryReports = new NativeTerminalDirectoryTracker();
+    var directoryReceived = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+    void ReceiveDirectory(byte[] bytes) { if (directoryReports.Feed(bytes) is { } directory) directoryReceived.TrySetResult(directory); }
+    session.Output += ReceiveDirectory;
+    session.Write(Encoding.UTF8.GetBytes("fixture-osc7-beta\r"));
+    var reportedDirectory = await directoryReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    session.Output -= ReceiveDirectory;
+    await navigation.NavigateAsync(await session.RealPathAsync(reportedDirectory, CancellationToken.None, requireExisting: true));
+    Check(reportedDirectory == "/beta" && navigation.CurrentPath == "/beta" && navigation.Entries.Single().Name == "beta.txt",
+        "Explicit directory notification survives SSH output chunks and navigates the same session's SFTP without injecting a cd command");
     var missingPath = "/missing-" + Guid.NewGuid().ToString("N") + ".txt";
     Check(await session.TryGetAsync(missingPath, CancellationToken.None) == null, "Missing SFTP paths are distinguished from existing entries");
     var atomicPath = "/editor-atomic-" + Guid.NewGuid().ToString("N") + ".txt";
     var atomicBefore = Encoding.UTF8.GetBytes("before\n");
     var atomicAfter = Encoding.UTF8.GetBytes("after atomic save\n");
+    await session.WriteFileAtomicAsync(atomicPath, atomicBefore, false, CancellationToken.None);
+    Check((await session.ReadFileAsync(atomicPath, CancellationToken.None)).SequenceEqual(atomicBefore), "Atomic save creates an absent target without overwriting another path");
+    var audit = (await File.ReadAllLinesAsync(auditPath)).Select(line => JsonNode.Parse(line)!.AsObject()).ToArray();
+    var initialWrite = Array.FindIndex(audit, entry => entry["operation"]?.GetValue<string>() == "write");
+    Check(initialWrite > 0 && audit.Take(initialWrite).Any(entry => entry["operation"]?.GetValue<string>() == "setstat" && (entry["mode"]?.GetValue<int>() & 4095) == 384),
+        "New editor temporary file receives mode 0600 over SFTP before any content is written");
+    await session.ChmodAsync(atomicPath, Convert.ToInt16("640", 8), CancellationToken.None);
+    var chmodFrame = JsonNode.Parse((await File.ReadAllLinesAsync(auditPath)).Last())!.AsObject();
+    Check(chmodFrame["operation"]?.GetValue<string>() == "setstat" && (chmodFrame["mode"]?.GetValue<int>() & 4095) == 416,
+        "SFTP chmod sends the intended 0640 permission bits instead of interpreting 416 as octal digits");
+    try
+    {
+        await session.WriteFileAtomicAsync(atomicPath, atomicAfter, false, CancellationToken.None);
+        Check(false, "Atomic save requires overwrite consent for an existing target");
+    }
+    catch (IOException) { Check(true, "Atomic save requires overwrite consent for an existing target"); }
+    Check((await session.ReadFileAsync(atomicPath, CancellationToken.None)).SequenceEqual(atomicBefore), "Rejected atomic overwrite leaves original bytes intact");
+    await session.DeleteAsync(atomicPath, false, CancellationToken.None);
     await using (var upload = new MemoryStream(atomicBefore))
         await session.UploadAsync(upload, atomicPath, false, CancellationToken.None);
-    await session.WriteFileAtomicAsync(atomicPath, atomicAfter, true, CancellationToken.None);
+    await session.WriteFileAtomicAsync(atomicPath, atomicAfter, true, CancellationToken.None, allowNonAtomic: true);
     var atomicReadback = await session.ReadFileAsync(atomicPath, CancellationToken.None);
     Check(atomicReadback.SequenceEqual(atomicAfter), "Remote editor atomic save writes exact bytes through SFTP rename");
+    var remoteEditor = new NativeRemoteEditorService();
+    await remoteEditor.ViewAsync(session, atomicPath);
+    var needsConsent = await remoteEditor.SaveAsync(session, atomicPath, "a\r\nb\n", NativeTextEncoding.Utf8, "\n", false, false, false);
+    Check(needsConsent.Kind == NativeRemoteSaveKind.NonAtomic && (await session.ReadFileAsync(atomicPath, CancellationToken.None)).SequenceEqual(atomicAfter), "Editor rejects silent backup/rename fallback and leaves the original remote bytes intact");
+    var consentedSave = await remoteEditor.SaveAsync(session, atomicPath, "a\nb\n", NativeTextEncoding.Utf8, "\n", false, false, false, allowNonAtomic: true);
+    Check(consentedSave.Kind == NativeRemoteSaveKind.Saved && (await session.ReadFileAsync(atomicPath, CancellationToken.None)).SequenceEqual(Encoding.UTF8.GetBytes("a\nb\n")), "Explicit non-atomic consent saves exact bytes after rechecking the conflict baseline");
+    var modeBefore = (await session.TryGetAsync(atomicPath, CancellationToken.None))!.Mode;
+    var linkPath = Path.Combine(fixtureRoot, "editor-link.txt");
+    File.CreateSymbolicLink(linkPath, Path.Combine(fixtureRoot, Path.GetFileName(atomicPath)));
+    var linkedView = await remoteEditor.ViewAsync(session, "/editor-link.txt");
+    Check(linkedView.RequestedPath == "/editor-link.txt" && linkedView.ResolvedPath == atomicPath, "Editor resolves a real filesystem symlink and records the requested alias independently");
+    var linkedSave = await remoteEditor.SaveAsync(session, "/editor-link.txt", "saved through link\n", linkedView.Encoding, linkedView.NewLine, linkedView.HasBom, false, false, allowNonAtomic: true);
+    Check(linkedSave.Kind == NativeRemoteSaveKind.Saved && new FileInfo(linkPath).LinkTarget != null
+        && Encoding.UTF8.GetString(await session.ReadFileAsync(atomicPath, CancellationToken.None)) == "saved through link\n"
+        && (await session.TryGetAsync(atomicPath, CancellationToken.None))!.Mode == modeBefore,
+        "Saving a symlink edits its resolved target, preserves the link and retains fixture-reported permissions");
+    var alternatePath = Path.Combine(fixtureRoot, "alternate-target.txt");
+    await File.WriteAllTextAsync(alternatePath, "untouched\n");
+    File.Delete(linkPath); File.CreateSymbolicLink(linkPath, alternatePath);
+    try
+    {
+        await remoteEditor.SaveAsync(session, "/editor-link.txt", "wrong target\n", linkedView.Encoding, linkedView.NewLine, linkedView.HasBom, true, true, allowNonAtomic: true);
+        Check(false, "Retargeting a symlink cannot be overridden by overwrite consent");
+    }
+    catch (IOException error) when (error.Message == "native.editor.targetChanged")
+    { Check(await File.ReadAllTextAsync(alternatePath) == "untouched\n", "Retargeting a symlink rejects saving and leaves its new target unchanged"); }
+    File.Delete(linkPath);
+    await remoteEditor.ViewAsync(session, atomicPath);
+    File.Delete(Path.Combine(fixtureRoot, Path.GetFileName(atomicPath)));
+    Directory.CreateDirectory(Path.Combine(fixtureRoot, Path.GetFileName(atomicPath)));
+    try
+    {
+        await remoteEditor.SaveAsync(session, atomicPath, "not a directory\n", NativeTextEncoding.Utf8, "\n", false, true, true, allowNonAtomic: true);
+        Check(false, "A file replaced by a directory cannot be saved");
+    }
+    catch (IOException error) when (error.Message == "native.editor.targetChanged")
+    { Check(Directory.Exists(Path.Combine(fixtureRoot, Path.GetFileName(atomicPath))), "A file replaced by a directory is rejected without modifying the directory"); }
+    Directory.Delete(Path.Combine(fixtureRoot, Path.GetFileName(atomicPath)));
+    await File.WriteAllBytesAsync(Path.Combine(fixtureRoot, Path.GetFileName(atomicPath)), atomicAfter);
     await session.DeleteAsync(atomicPath, false, CancellationToken.None);
+    var racePath = "/editor-race-" + Guid.NewGuid().ToString("N") + ".txt";
+    var pendingSave = session.WriteFileAtomicAsync(racePath, new byte[128 * 1024], false, CancellationToken.None);
+    var raceDeadline = DateTime.UtcNow.AddSeconds(5);
+    while (!Directory.EnumerateFiles(fixtureRoot, Path.GetFileName(racePath) + ".ofs-edit-*").Any() && !pendingSave.IsCompleted && DateTime.UtcNow < raceDeadline)
+        await Task.Delay(5);
+    Check(!pendingSave.IsCompleted && Directory.EnumerateFiles(fixtureRoot, Path.GetFileName(racePath) + ".ofs-edit-*").Any(), "Atomic overwrite race is injected while a temporary upload is in progress");
+    var raceOriginal = Encoding.UTF8.GetBytes("created by another client\n");
+    await File.WriteAllBytesAsync(Path.Combine(fixtureRoot, Path.GetFileName(racePath)), raceOriginal);
+    try { await pendingSave; Check(false, "Target appearing during atomic upload still requires overwrite consent"); }
+    catch (IOException) { Check(true, "Target appearing during atomic upload still requires overwrite consent"); }
+    Check((await session.ReadFileAsync(racePath, CancellationToken.None)).SequenceEqual(raceOriginal)
+        && !Directory.EnumerateFiles(fixtureRoot, Path.GetFileName(racePath) + ".ofs-edit-*").Any(), "Atomic conflict preserves the other client's bytes and removes its own temporary upload");
+    await session.DeleteAsync(racePath, false, CancellationToken.None);
+    var concurrentPath = "/editor-concurrent-" + Guid.NewGuid().ToString("N") + ".txt";
+    var concurrentLocal = Path.Combine(fixtureRoot, Path.GetFileName(concurrentPath));
+    await File.WriteAllTextAsync(concurrentLocal, "original baseline\n");
+    await remoteEditor.ViewAsync(session, concurrentPath);
+    var concurrentSave = remoteEditor.SaveAsync(session, concurrentPath, new string('x', 128 * 1024), NativeTextEncoding.Utf8, "\n", false, true, true, allowNonAtomic: true);
+    var concurrentDeadline = DateTime.UtcNow.AddSeconds(5);
+    while (!Directory.EnumerateFiles(fixtureRoot, Path.GetFileName(concurrentPath) + ".ofs-edit-*").Any() && !concurrentSave.IsCompleted && DateTime.UtcNow < concurrentDeadline)
+        await Task.Delay(5);
+    Check(!concurrentSave.IsCompleted && Directory.EnumerateFiles(fixtureRoot, Path.GetFileName(concurrentPath) + ".ofs-edit-*").Any(),
+        "A second writer is injected while the editor temporary upload is in progress");
+    await File.WriteAllTextAsync(concurrentLocal, "changed by another client\n");
+    var concurrentResult = await concurrentSave;
+    Check(concurrentResult.Kind == NativeRemoteSaveKind.Conflict && await File.ReadAllTextAsync(concurrentLocal) == "changed by another client\n"
+        && !Directory.EnumerateFiles(fixtureRoot, Path.GetFileName(concurrentPath) + ".ofs-edit-*").Any(),
+        "Editor rechecks bytes after upload, preserves concurrent changes even after overwrite consent, and removes only its own temporary file");
+    await session.DeleteAsync(concurrentPath, false, CancellationToken.None);
+    await using (var monitor = new NativeMonitorService(session))
+    {
+        var snapshots = 0;
+        monitor.Snapshot += _ => Interlocked.Increment(ref snapshots);
+        async Task WaitForSnapshotsAsync(int minimum)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(6);
+            while (Volatile.Read(ref snapshots) < minimum && DateTime.UtcNow < deadline) await Task.Delay(25);
+            Check(Volatile.Read(ref snapshots) >= minimum, "Monitor publishes fixture snapshots after start or restart");
+        }
+        await monitor.StartAsync(500);
+        await WaitForSnapshotsAsync(2);
+        await Task.WhenAll(monitor.StopAsync(), monitor.StopAsync());
+        var stoppedCount = Volatile.Read(ref snapshots);
+        await Task.Delay(1100);
+        Check(monitor.State == NativeCollectorState.Stopped && monitor.StaticInfo == null && snapshots == stoppedCount, "Monitor stop is idempotent and publishes no stale snapshots after teardown");
+        await monitor.StartAsync(500);
+        await WaitForSnapshotsAsync(stoppedCount + 2);
+        await monitor.StopAsync();
+        using var canceledMonitor = new CancellationTokenSource(); canceledMonitor.Cancel();
+        try { await monitor.StartAsync(500, canceledMonitor.Token); Check(false, "Canceled monitor startup is rejected"); }
+        catch (OperationCanceledException) { Check(monitor.State == NativeCollectorState.Stopped, "Canceled monitor startup leaves the collector stopped"); }
+    }
     using var echo = new LocalEchoServer();
     var payload = Encoding.UTF8.GetBytes("forward telemetry round-trip · 测试");
     var cases = new[]
@@ -391,10 +551,13 @@ static int FindFreePort()
     listener.Start(); var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port;
 }
 
-static FixtureProcess StartFixture(string fixture, int port, string root)
+static FixtureProcess StartFixture(string fixture, int port, string root, int writeDelayMs = 0, string? auditPath = null, int directoryDelayMs = 0)
 {
     var start = new ProcessStartInfo("node") { WorkingDirectory = FindRepositoryRoot(), UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
     start.ArgumentList.Add(fixture); start.ArgumentList.Add(port.ToString()); start.ArgumentList.Add(root);
+    start.Environment["OFS_TEST_SFTP_WRITE_DELAY_MS"] = writeDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    if (auditPath != null) start.Environment["OFS_TEST_SFTP_AUDIT_FILE"] = auditPath;
+    start.Environment["OFS_TEST_SFTP_DIRECTORY_DELAY_MS"] = directoryDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture);
     var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start node SSH fixture.");
     process.OutputDataReceived += (_, _) => { }; process.ErrorDataReceived += (_, _) => { };
     process.BeginOutputReadLine(); process.BeginErrorReadLine();

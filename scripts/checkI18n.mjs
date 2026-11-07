@@ -80,6 +80,22 @@ function walk(dir) {
   }
 }
 for (const d of CODE_DIRS) walk(d)
+// WinUI uses the same locale files. Check its literal keys separately so the
+// native.* dynamic-prefix exemption cannot conceal a misspelled native label.
+const nativeKeys = new Set()
+function walkNative(dir) {
+  for (const name of readdirSync(dir)) {
+    if (['bin', 'obj', 'build'].includes(name)) continue
+    const p = join(dir, name)
+    if (statSync(p).isDirectory()) walkNative(p)
+    else if (name.endsWith('.cs')) {
+      const src = readFileSync(p, 'utf8')
+      for (const m of src.matchAll(/(?:localization\[|(?:text|localize|Format)\(\s*)"([a-zA-Z0-9_.]+)"/g)) nativeKeys.add(m[1])
+    }
+  }
+}
+walkNative('windows/OpenFinalShell.App')
+for (const key of nativeKeys) usedKeys.add(key)
 
 const isDynamic = (key) => DYNAMIC_PREFIXES.some((p) => key.startsWith(p))
 
@@ -90,6 +106,7 @@ const report = (label, items) => {
   console.log(`\n${label} (${items.length}):`)
   for (const k of items.sort()) console.log(`  - ${k}`)
 }
+report(`WinUI 字面量引用但 ${REFERENCE} 未定义`, [...nativeKeys].filter((key) => !reference.has(key)))
 
 // 1) 代码用到但基准语言没有
 report(

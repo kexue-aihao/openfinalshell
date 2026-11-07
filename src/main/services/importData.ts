@@ -22,6 +22,7 @@ import {
 } from '../store/connections'
 import { upsertPrivateKey, upsertProxy } from '../store/savedRefs'
 import { saveForward } from '../store/forwards'
+import { importAiProfile } from './aiProfiles'
 import { saveSnippet, saveSnippetGroup } from '../store/snippets'
 import { getSettings, patchSettings, stripMainOnlyPaths } from './settings'
 import { EXPORT_FORMAT_VERSION } from './exportData'
@@ -201,6 +202,19 @@ const savedKeySchema = z.object({
   updatedAt: z.number().default(() => Date.now())
 })
 
+const aiProfileSchema = z.object({
+  id: idSchema,
+  name: z.string().min(1).max(100),
+  baseUrl: z.string().min(1).max(2048),
+  model: z.string().min(1).max(200),
+  enabled: z.boolean().default(true),
+  apiKeyRef: idSchema.nullish().transform((value) => value ?? undefined),
+  /** Compatibility with older native preview exports. */
+  tokenRef: idSchema.nullish().transform((value) => value ?? undefined),
+  createdAt: z.number().default(() => Date.now()),
+  updatedAt: z.number().default(() => Date.now())
+})
+
 /** scrypt + AES-256-GCM 密文块（v1 的 secrets、v2 的 enc 同形） */
 const sealedBlockSchema = z.object({
   kdf: z.literal('scrypt'),
@@ -221,7 +235,8 @@ const dataSchema = z.object({
   forwards: z.array(z.unknown()).default([]),
   knownHosts: z.array(z.unknown()).default([]),
   proxies: z.array(z.unknown()).default([]),
-  privateKeys: z.array(z.unknown()).default([])
+  privateKeys: z.array(z.unknown()).default([]),
+  aiProfiles: z.array(z.unknown()).default([])
 })
 
 /** v1：明文 data + 可选密码块 */
@@ -257,6 +272,7 @@ interface Partitioned {
   knownHosts: z.output<typeof knownHostSchema>[]
   proxies: z.output<typeof savedProxySchema>[]
   privateKeys: z.output<typeof savedKeySchema>[]
+  aiProfiles: z.output<typeof aiProfileSchema>[]
   settings?: Record<string, unknown>
   invalid: number
 }
@@ -297,6 +313,7 @@ function partitionData(d: z.output<typeof dataSchema>): Partitioned {
   const knownHosts = partition(knownHostSchema, d.knownHosts)
   const proxies = partition(savedProxySchema, d.proxies)
   const privateKeys = partition(savedKeySchema, d.privateKeys)
+  const aiProfiles = partition(aiProfileSchema, d.aiProfiles)
   return {
     profiles: profiles.ok,
     groups: groups.ok,
@@ -306,6 +323,7 @@ function partitionData(d: z.output<typeof dataSchema>): Partitioned {
     knownHosts: knownHosts.ok,
     proxies: proxies.ok,
     privateKeys: privateKeys.ok,
+    aiProfiles: aiProfiles.ok,
     settings: d.settings,
     invalid:
       profiles.bad +
@@ -315,7 +333,8 @@ function partitionData(d: z.output<typeof dataSchema>): Partitioned {
       forwards.bad +
       knownHosts.bad +
       proxies.bad +
-      privateKeys.bad
+      privateKeys.bad +
+      aiProfiles.bad
   }
 }
 
@@ -328,6 +347,7 @@ const EMPTY_PARTITION: Partitioned = {
   knownHosts: [],
   proxies: [],
   privateKeys: [],
+  aiProfiles: [],
   settings: undefined,
   invalid: 0
 }
@@ -418,6 +438,7 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
   const parsed = parseEnvelope(await readFile(source, 'utf8'))
 
   const conflicts = parsed.profiles.filter((p) => getProfile(p.id) !== undefined).length
+  const aiConflicts = parsed.aiProfiles.filter((p) => rowExists('ai_profiles', 'id', p.id)).length
   pending = { token: randomUUID(), path: source, parsed }
   log.info(
     `import preview ${source}: ${parsed.profiles.length} profiles, secrets=${parsed.includesSecrets}, invalid=${parsed.invalid}`
@@ -436,13 +457,15 @@ export async function inspectImport(opts: { sourcePath?: string } = {}): Promise
       groups: parsed.groups.length,
       proxies: parsed.proxies.length,
       privateKeys: parsed.privateKeys.length,
+      aiProfiles: parsed.aiProfiles.length,
       snippets: parsed.snippets.length,
       forwards: parsed.forwards.length,
       knownHosts: parsed.knownHosts.length,
       settings: parsed.settings !== undefined
     },
     invalid: parsed.invalid,
-    conflicts
+    conflicts,
+    aiConflicts
   }
 }
 
@@ -547,6 +570,7 @@ export function inspectImportFromText(
     }
   }
   const conflicts = parsed.profiles.filter((p) => getProfile(p.id) !== undefined).length
+  const aiConflicts = parsed.aiProfiles.filter((p) => rowExists('ai_profiles', 'id', p.id)).length
   pending = { token: randomUUID(), path: opts.source, parsed, secretMap }
   log.info(
     `lan import preview from ${opts.source}: ${parsed.profiles.length} profiles, invalid=${parsed.invalid}`
@@ -564,13 +588,15 @@ export function inspectImportFromText(
       groups: parsed.groups.length,
       proxies: parsed.proxies.length,
       privateKeys: parsed.privateKeys.length,
+      aiProfiles: parsed.aiProfiles.length,
       snippets: parsed.snippets.length,
       forwards: parsed.forwards.length,
       knownHosts: parsed.knownHosts.length,
       settings: parsed.settings !== undefined
     },
     invalid: parsed.invalid,
-    conflicts
+    conflicts,
+    aiConflicts
   }
 }
 
@@ -667,7 +693,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
     secretMap = opened.secretMap
   } else if (parsed.secrets && opts.passphrase) {
     secretMap = openSecrets(parsed.secrets, opts.passphrase)
-  } else if (parsed.secrets && opts.include.profiles) {
+  } else if (parsed.secrets && (opts.include.profiles || opts.include.aiProfiles)) {
     notes.push(t('err.data.noPassphraseSecrets'))
   }
 
@@ -681,6 +707,7 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
     groups: 0,
     proxies: 0,
     privateKeys: 0,
+    aiProfiles: 0,
     snippets: 0,
     forwards: 0,
     knownHosts: 0,
@@ -860,6 +887,26 @@ export async function applyImport(opts: ImportApplyOptions): Promise<ImportResul
               keys: extracted.keys
             })
           )
+        }
+      }
+
+      if (opts.include.aiProfiles) {
+        for (const provider of resolved.aiProfiles) {
+          const id = dup ? randomUUID() : provider.id
+          if (opts.conflict === 'skip' && rowExists('ai_profiles', 'id', id)) {
+            result.skipped++
+            continue
+          }
+          const sourceRef = provider.apiKeyRef ?? provider.tokenRef
+          const token = sourceRef ? secretMap[sourceRef] : undefined
+          const storableToken = vaultOk && token !== '' ? token : undefined
+          importAiProfile({
+            ...provider,
+            id,
+            name: dup ? t('err.data.importedNameSuffix', { name: provider.name }) : provider.name
+          }, storableToken, !dup && sourceRef !== undefined)
+          if (storableToken !== undefined) result.secrets++
+          result.aiProfiles++
         }
       }
 

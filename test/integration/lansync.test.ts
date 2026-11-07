@@ -107,7 +107,7 @@ describe('局域网同步：正常链路', () => {
     const result = await lanSyncManager.applyIncoming({
       token: preview.token,
       conflict: 'overwrite',
-      include: { profiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
+      include: { profiles: true, aiProfiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
     })
     expect(result.profiles).toBe(1)
     expect(conns.getProfile(sendId)?.host).toBe('10.9.8.7')

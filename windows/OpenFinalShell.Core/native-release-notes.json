@@ -1,0 +1,1187 @@
+[
+  {
+    "version": "0.30.34",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增 Electron 到 WinUI 3 原生预览版的迁移入口：支持加密导出、架构匹配的安装包下载、SHA-256 校验和安装后启动，并保留 Electron 数据与独立原生数据目录",
+        "en": "Add an Electron to WinUI 3 native preview migration entry with encrypted export, architecture-matched installer downloads, SHA-256 verification and post-install launch while preserving Electron data and the native app’s separate data directory"
+      },
+      {
+        "type": "fix",
+        "zh": "修复连接树右键菜单在滚动、高 DPI 和 Windows 玻璃环境下定位不准、生命周期残留及键盘操作不完整的问题",
+        "en": "Fix connection-tree context menus being mispositioned or left behind under scrolling, high-DPI and Windows glass environments, and complete their keyboard interactions"
+      }
+    ]
+  },
+  {
+    "version": "0.30.33",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "加入 WinUI 3 原生预览版及签名自动更新器：原生客户端会验证架构专属 RSA 更新清单、安装包大小与 SHA-256，在应用内确认后等待旧进程退出并静默覆盖升级，安装与卸载均保留连接、凭据和 known hosts 数据",
+        "en": "Add the WinUI 3 native preview and signed automatic updater: the native client verifies an architecture-specific RSA update manifest, package size and SHA-256, waits for the old process after in-app confirmation, performs a silent in-place upgrade, and preserves connections, credentials and known hosts through install and uninstall"
+      }
+    ]
+  },
+  {
+    "version": "0.30.32",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复连接管理右键菜单在慢渲染或远程控制环境下多次叠加、点击“编辑”被旧弹层吞掉的问题：整棵树改为单一受控菜单，始终只显示一个弹层，并作用于最后一次右键的服务器或分组",
+        "en": "Fix the connection manager context menu stacking under slow rendering or remote-control sessions and Edit clicks being swallowed by a stale popup: the tree now uses one controlled menu that always shows a single popup and acts on the last right-clicked server or group"
+      },
+      {
+        "type": "fix",
+        "zh": "移除右键菜单、下拉框、Popover、连接编辑抽屉和设置弹窗的背景模糊，改用实体表面，降低 ToDesk 等远程控制或低性能 GPU 环境下的合成开销；标题栏、侧栏和状态栏的静态玻璃效果仍可在设置中关闭",
+        "en": "Remove background blur from context menus, selects, popovers, the connection editor and settings dialogs in favor of opaque surfaces, reducing compositing cost under remote-control tools such as ToDesk and on low-power GPUs; static title bar, sidebar and status bar glass can still be disabled in Settings"
+      }
+    ]
+  },
+  {
+    "version": "0.30.31",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "统一桌面深浅主题、欢迎页、侧栏、设置和独立编辑器的视觉样式，改善八种强调色的文字对比度，并适配减少动效、减少透明度和高对比度偏好",
+        "en": "Unify the desktop light and dark themes, welcome page, sidebars, settings and independent editor; improve text contrast for all eight accent colors and respect reduced motion, reduced transparency and high contrast preferences"
+      },
+      {
+        "type": "feat",
+        "zh": "统一终端、文件管理、传输和监控工具栏的基础控件，补齐图标按钮的可访问名称、键盘操作及加载反馈",
+        "en": "Unify basic controls across terminal, file, transfer and monitoring toolbars, with accessible icon button names, keyboard operation and loading feedback"
+      },
+      {
+        "type": "fix",
+        "zh": "修复小窗口和 150% 界面缩放下设置弹窗、连接编辑抽屉超出可视区域的问题，使内容可滚动且主要操作保持可达",
+        "en": "Fix settings dialogs and connection drawers extending beyond small windows at 150% UI zoom, keeping content scrollable and primary actions reachable"
+      }
+    ]
+  },
+  {
+    "version": "0.30.30",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android 本地终端 root 档在 Shizuku 未授权本应用时谎报可用、连上后卡住约 15 秒再报失败：在 Shizuku 以 root 运行的设备上该档走的就是 Shizuku user service，同样需要授权，现在会如实降级并在卡片上直接给出授权入口；终端顶部的会话标识对本地会话改为显示它自己的名字（v0.30.29 的更新说明里写过，但改动当时漏了提交，这一版才真正带上）",
+        "en": "Fix the Android local terminal's root tier reporting itself available when Shizuku has not granted the app, then hanging for about 15 seconds before failing — on a device where Shizuku runs as root that tier is served by a Shizuku user service and needs the same grant, so it now downgrades honestly and offers the grant action on the card; the session label above the terminal now shows a local session's own name (announced in the 0.30.29 notes, but the change had not been committed and so ships here)"
+      }
+    ]
+  },
+  {
+    "version": "0.30.29",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android 本地终端：特权档（ADB shell / root）一开终端就失败——socket 连接跑在主线程上被系统拒绝，表现为会话显示已连接却没有可用的 shell；「添加本地终端」的表单渲染在屏幕可视区之外，点了像没反应，现在会自动滚到它（「添加连接」同理）；终端顶部的会话标识也不再对本地会话显示 shell@localhost 这个用户从未输入过的地址",
+        "en": "Fix the Android local terminal: the privileged tiers (ADB shell / root) failed to open a shell because the socket connect ran on the main thread and was rejected — the session showed as connected with no usable shell; the \"add local session\" form rendered below the visible area so tapping it looked like nothing happened, and it now scrolls into view (same for \"add connection\"); the session label above the terminal no longer shows shell@localhost for a local session, an address the user never entered"
+      }
+    ]
+  },
+  {
+    "version": "0.30.28",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android 本地终端「授予所有文件访问权限」开关无法开启的问题：MANAGE_EXTERNAL_STORAGE 从未在 manifest 中声明，系统设置页因此不会给应用提供可开启的开关，应用档的终端始终看不到共享存储；该按钮也不再静默吞掉打开设置页失败，改为回退到全局列表并在都不可用时给出提示",
+        "en": "Fix the Android local terminal's \"grant all-files access\" switch being impossible to enable: MANAGE_EXTERNAL_STORAGE was never declared in the manifest, so the system settings screen offered the app nothing to turn on and the app-tier shell could never see shared storage; the button also no longer swallows a failure to open that screen, falling back to the global list and reporting when neither is available"
+      }
+    ]
+  },
+  {
+    "version": "0.30.27",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "Android 新增本地终端：在本机上直接运行 shell，分应用自身、ADB shell（经 Shizuku）和 root 三档权限，终端、文件管理、监控与 AI 助手均已接入；档位每次连接重新探测，root 档还需在设置中显式开启并逐次确认",
+        "en": "Add an on-device local shell to Android with three privilege tiers — the app's own uid, the ADB shell uid through Shizuku, and root — wired into the terminal, file, monitoring, and AI panels; the tier is re-probed on every connect, and the root tier needs a settings opt-in plus a per-session confirmation"
+      },
+      {
+        "type": "fix",
+        "zh": "修复监控在多个会话间切换时，用一台主机的 CPU、网络和磁盘计数器去比对另一台的耗时，从而报出与两台机器都不符的速率",
+        "en": "Fix monitoring diffing one host's CPU, network, and disk counters against another host's elapsed time when switching sessions, which reported a rate describing neither machine"
+      }
+    ]
+  },
+  {
+    "version": "0.30.26",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复内置编辑器打开多个文件时标签栏下方的横向滚动条拖不动的问题（该区域此前落在窗口拖拽区内），保存与重读按钮也不再被标签挤出视口",
+        "en": "Fix the horizontal scrollbar under the built-in editor tab bar being undraggable when many files are open (the bar fell inside the window drag region); the save and reload buttons are no longer pushed out of view by the tabs"
+      }
+    ]
+  },
+  {
+    "version": "0.30.25",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 macOS 临时目录符号链接导致的原生测试失败，恢复 Intel 与 Apple Silicon 安装包构建；保留文件传输的符号链接拒绝检查",
+        "en": "Fix native tests failing on macOS temporary-directory aliases, restoring Intel and Apple Silicon package builds while preserving file-transfer symlink rejection"
+      }
+    ]
+  },
+  {
+    "version": "0.30.24",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "Android 新增代理拨号、系统文件选择与目录传输、命令库、AI 助手和远程文本编辑；AI 支持模型选择、流式和非流式回答及手动填入 SSH",
+        "en": "Add Android proxy connections, system file selection and directory transfers, a command library, an AI assistant, and remote text editing; AI supports model selection, streaming and JSON replies, and manual SSH insertion"
+      },
+      {
+        "type": "fix",
+        "zh": "完善 RDP 能力诊断、文件传输取消和旧会话事件隔离；macOS/Linux 文件粘贴、多实例与音频在实机验收完成前保持关闭",
+        "en": "Improve RDP capability diagnostics, transfer cancellation, and stale-session event isolation; macOS/Linux file paste, multiple instances, and audio remain gated pending device acceptance"
+      },
+      {
+        "type": "fix",
+        "zh": "修复 Android 发布构建与文件权限失效处理，补齐多语言文案，并增加系统文件接口、迁移和凭据隔离测试",
+        "en": "Fix Android release builds and revoked document permissions, complete UI translations, and add system file, migration, and credential-isolation tests"
+      }
+    ]
+  },
+  {
+    "version": "0.30.23",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "Windows 多实例窗口作为正式功能提供，设置项移除“预览”标记，并同步全部界面语言",
+        "en": "Make Windows multi-instance windows a standard feature and remove the preview label in all interface languages"
+      },
+      {
+        "type": "fix",
+        "zh": "修复标题栏左上角只显示纯色方块的问题，改为显示与欢迎页一致的软件 Logo",
+        "en": "Replace the solid placeholder in the title bar with the application logo used on the welcome page"
+      }
+    ]
+  },
+  {
+    "version": "0.30.22",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "在设置 → 常规中新增多实例窗口开关，Windows 可直接启用或关闭多实例；关闭时不影响已打开窗口、会话和传输",
+        "en": "Add a Settings → General switch for Windows multi-instance windows; turning it off blocks new instances without affecting existing windows, sessions, or transfers"
+      },
+      {
+        "type": "fix",
+        "zh": "多实例开关状态会同步到其他窗口并在重启后保留，任务栏和新窗口入口随开关状态更新",
+        "en": "Synchronize and persist the multi-instance preference across windows, updating taskbar and new-window entry points with the switch"
+      }
+    ]
+  },
+  {
+    "version": "0.30.21",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增 Windows 多实例窗口预览：独立会话与传输、共享配置和凭据、配置自动刷新及更新协调；安装包默认保持单实例，预览需显式开启",
+        "en": "Add a Windows multi-instance preview with isolated sessions and transfers, shared configuration and credentials, automatic configuration refresh, and coordinated updates; packaged apps remain single-instance unless preview is explicitly enabled"
+      },
+      {
+        "type": "fix",
+        "zh": "修复多进程 Windows 安全存储密钥不一致与旧配置覆盖问题，关闭窗口仅清理所属资源，并等待其他进程退出后才安装更新",
+        "en": "Fix inconsistent Windows secure-storage keys and stale configuration writes across processes; close only owned resources and wait for peer processes to exit before installing updates"
+      },
+      {
+        "type": "fix",
+        "zh": "修复 macOS 本地控制 socket 路径过长的启动隐患，并修复 Android SDK 与 Windows Electron 测试环境初始化",
+        "en": "Fix overly long macOS control socket paths and Android SDK / Windows Electron test environment initialization"
+      }
+    ]
+  },
+  {
+    "version": "0.30.18",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "AI 助手支持流式和非流式聊天响应模式",
+        "en": "Add streaming and non-streaming response modes to the AI assistant"
+      }
+    ]
+  },
+  {
+    "version": "0.30.17",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 AI 回答中的命令操作：新增复制按钮、SSH 目标选择和安全填入，避免命令重复显示",
+        "en": "Fix AI answer command actions with copy buttons, SSH target selection, safe filling, and no duplicate command display"
+      }
+    ]
+  },
+  {
+    "version": "0.30.16",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "AI 助手支持图片能力检测，并可将回答中的命令手动填入当前 SSH 终端",
+        "en": "Add AI image capability testing and let users manually fill commands from answers into the current SSH terminal"
+      }
+    ]
+  },
+  {
+    "version": "0.30.15",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复已获取模型后仍显示为普通输入框的问题，改为可展开、可搜索的模型下拉选择器",
+        "en": "Fix the model field remaining a plain input after discovery by providing an expandable, searchable model selector"
+      }
+    ]
+  },
+  {
+    "version": "0.30.14",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "支持从 API 网关自动获取模型列表并显示文本/图片输入能力，同时支持 AI 图片消息",
+        "en": "Discover models from API gateways with text/image capability indicators and support image messages in the AI assistant"
+      }
+    ]
+  },
+  {
+    "version": "0.30.13",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "将 AI 服务配置移至设置栏目，并允许从 SSH 终端直接打开 AI 助手窗口",
+        "en": "Move AI service configuration to Settings and allow opening the AI assistant directly from the SSH terminal"
+      }
+    ]
+  },
+  {
+    "version": "0.30.12",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增桌面端 AI 助手，支持 OpenAI、DeepSeek 和兼容接口，Token 使用系统安全存储，并支持发送选中的终端文本",
+        "en": "Add a desktop AI assistant with OpenAI, DeepSeek, and compatible APIs, secure token storage, and explicit sharing of selected terminal text"
+      }
+    ]
+  },
+  {
+    "version": "0.30.11",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复发布汇总仍要求已暂停的 macOS universal 安装包，导致全部构建成功后发布失败的问题",
+        "en": "Fix release validation requiring suspended macOS universal packages after all builds succeed"
+      }
+    ]
+  },
+  {
+    "version": "0.30.10",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 macOS 原生架构构建和 Homebrew 依赖许可证打包，分别提供 Intel x64 与 Apple Silicon arm64 安装包，暂不提供 universal 包",
+        "en": "Fix native macOS architecture builds and Homebrew dependency license packaging; provide separate Intel x64 and Apple Silicon arm64 installers, with universal packages temporarily unavailable"
+      }
+    ]
+  },
+  {
+    "version": "0.30.9",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 macOS 与 Linux RDP Worker 发布门禁",
+        "en": "Fix macOS and Linux RDP worker release gates"
+      }
+    ]
+  },
+  {
+    "version": "0.30.8",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复多端 RDP 依赖许可证收集和发布构建矩阵问题",
+        "en": "Fix RDP dependency license discovery and release build matrix issues"
+      }
+    ]
+  },
+  {
+    "version": "0.30.7",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Linux 依赖许可证收集和 macOS FreeRDP GDI 链接问题",
+        "en": "Fix Linux dependency license collection and macOS FreeRDP GDI linking"
+      }
+    ]
+  },
+  {
+    "version": "0.30.6",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复发布标签与应用版本不一致导致流水线提前失败的问题",
+        "en": "Fix release pipelines failing early when the release tag and application version do not match"
+      }
+    ]
+  },
+  {
+    "version": "0.30.4",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复跨平台 RDP Worker 编译失败、远程文件首次下载被误判为不安全路径，以及 Linux 发布门禁过期的问题",
+        "en": "Fix cross-platform RDP worker compilation, first-time remote file downloads being rejected as unsafe paths, and stale Linux release gates"
+      }
+    ]
+  },
+  {
+    "version": "0.30.3",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复发布标签与应用版本不一致导致流水线在编译前终止的问题",
+        "en": "Fix the release pipeline stopping before compilation when the release tag and application version do not match"
+      }
+    ]
+  },
+  {
+    "version": "0.30.1",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复多端 FreeRDP Worker 发布门禁和跨平台剪贴板基础构建问题，补充路径安全校验与分块文件读取核心",
+        "en": "Fix cross-platform FreeRDP worker release gates and clipboard foundation builds, and add secure path validation and chunked file reading primitives"
+      }
+    ]
+  },
+  {
+    "version": "0.30.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "里程碑更新：支持嵌入式 RDP 远程桌面、自适应匹配窗口尺寸，以及通过拖拽或手动复制在本地与远程桌面之间传输文件",
+        "en": "Milestone release: support embedded RDP desktops, automatic viewport matching, and file transfer between local and remote desktops by drag-and-drop or manual copy and paste"
+      }
+    ]
+  },
+  {
+    "version": "0.20.48",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复拖拽普通文件到 RDP 时因目录字段校验不一致导致 Worker 退出的问题；修复窗口尺寸变化后远程画面裁切，并在显示通道就绪和标签切换时重新适配尺寸",
+        "en": "Fix the RDP worker exiting on file drops due to inconsistent validation of the optional directory field; fix desktop clipping after viewport changes and apply pending sizes when display control becomes ready or a tab is activated"
+      }
+    ]
+  },
+  {
+    "version": "0.20.47",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 RDP 返回 0x20018 后重试反复要求输入密码的问题；保留原始错误码，提示核对服务器账户状态，不再直接断言账户已锁定",
+        "en": "Stop forcing another password prompt when retrying RDP after error 0x20018; retain the error code and ask users to verify the server account status without asserting that the account is locked"
+      }
+    ]
+  },
+  {
+    "version": "0.20.46",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 文件拖拽前剪贴板通道未就绪导致 Worker 停止的问题，确保文件剪贴板请求在通道准备完成后发送",
+        "en": "Fix the embedded RDP worker stopping when a file was dragged before the clipboard channel was ready, and send file clipboard requests only after the channel is prepared"
+      }
+    ]
+  },
+  {
+    "version": "0.20.45",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "支持将本地文件直接拖拽到嵌入式 RDP 远程桌面，自动上传并粘贴到远程环境",
+        "en": "Support dragging local files directly onto the embedded RDP desktop to upload and paste them into the remote environment"
+      }
+    ]
+  },
+  {
+    "version": "0.20.44",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 未处理虚拟通道发送队列导致文件剪贴板请求无法传输的问题；统一远程文件分块读取，保留目录结构和文件索引，并修复虚拟文件剪贴板下 Ctrl+V 被忽略的问题",
+        "en": "Drain the embedded RDP virtual-channel queue so file clipboard requests are transmitted; unify remote file reads, preserve directory structure and file indices, and forward Ctrl+V when the clipboard contains virtual files"
+      }
+    ]
+  },
+  {
+    "version": "0.20.43",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "补充嵌入式 RDP 文件传输与会话隔离修复的版本说明，确保更新提示与当前版本一致",
+        "en": "Add release notes for the embedded RDP file transfer and session isolation fixes so the update prompt matches the current version"
+      }
+    ]
+  },
+  {
+    "version": "0.20.42",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "改进嵌入式 RDP 会话关闭与重连隔离，避免旧 Worker 的迟到事件影响新连接；完善 RDP 文件剪贴板传输和认证错误诊断",
+        "en": "Improve embedded RDP close and reconnect isolation so late events from an old worker cannot affect a new connection; improve RDP file clipboard transfers and authentication diagnostics"
+      }
+    ]
+  },
+  {
+    "version": "0.20.41",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "修复嵌入式 RDP 双向文件复制粘贴在真实服务器上失效的问题（剪贴板能力声明补齐文件方向），文本拉取改为按服务器通告的格式协商；RDP 标签聚焦时本地与远程剪贴板文本自动双向同步；从远程复制文件后可在画面内直接选择文件夹下载到本机，并显示完成/失败提示",
+        "en": "Fix embedded RDP file copy/paste failing against real servers (advertise the remote-to-local file direction), negotiate the remote text clipboard format instead of assuming format 13; auto-mirror text between the local and remote clipboards while an RDP tab is focused; add an in-pane \"download to folder\" action with completion and failure feedback for files copied on the remote desktop"
+      }
+    ]
+  },
+  {
+    "version": "0.20.40",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 断开后重连持续提示身份验证失败的问题：重连前会刷新保存的连接配置，且远程账户锁定不再被误报为密码错误；锁定会明确提示等待解锁或由管理员解锁，避免反复输入密码的死循环",
+        "en": "Fix embedded RDP reconnects after a disconnect looping on \"authentication failed\": reconnect now refreshes the saved profile, and remote account lockout is reported explicitly instead of being treated as a wrong password, avoiding repeated credential prompts until the account is unlocked"
+      }
+    ]
+  },
+  {
+    "version": "0.20.39",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增 Windows RDP 双向文件和文件夹复制粘贴；远程文件在本地粘贴时按需传输，并修复上传确认时序和超时重试",
+        "en": "Add bidirectional Windows RDP file and folder copy/paste with on-demand remote file streams; fix upload acknowledgement timing and timeout recovery"
+      }
+    ]
+  },
+  {
+    "version": "0.20.38",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 RDP 登录被错误提示为远程账户已锁定的问题",
+        "en": "Fixed RDP logins being incorrectly reported as a locked remote account"
+      }
+    ]
+  },
+  {
+    "version": "0.20.37",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复远程 Windows 账户锁定被误报为身份验证失败的问题，明确提示解锁后重试，并避免因锁定强制要求更换密码；服务器账户仍需由管理员解锁或等待锁定期结束",
+        "en": "Report locked remote Windows accounts explicitly instead of generic authentication failures, without forcing a password change on retry. Server accounts still require administrator unlock or lockout expiry."
+      }
+    ]
+  },
+  {
+    "version": "0.20.36",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "嵌入式 RDP 支持从本地复制文件后粘贴到远程 Windows，并显示多文件上传进度、速度和失败状态",
+        "en": "Added local file copy and paste to remote Windows in embedded RDP, with multi-file upload progress, speed, and failure status"
+      }
+    ]
+  },
+  {
+    "version": "0.20.35",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 RDP 身份验证失败后重复使用旧密码的问题；认证失败重连会重新提示密码，并正确保存新凭据",
+        "en": "Fixed embedded RDP authentication retries reusing a rejected password; failed-auth reconnects now prompt again and correctly persist new credentials"
+      }
+    ]
+  },
+  {
+    "version": "0.20.34",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "嵌入式 RDP 新增远程音频播放：通过 FreeRDP rdpsnd 和 Windows 本机音频设备输出，并在没有音频设备时自动降级而不影响桌面连接",
+        "en": "Added remote audio playback to embedded RDP through FreeRDP rdpsnd and the local Windows audio device, with graceful fallback when no playback device is available"
+      }
+    ]
+  },
+  {
+    "version": "0.20.33",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 鼠标无法正常点击远程应用的问题，恢复与 Windows RDP 服务端兼容的移动与按钮事件顺序",
+        "en": "Fixed embedded RDP mouse clicks not reaching remote applications by restoring the interoperable move-then-button event order for Windows RDP servers"
+      }
+    ]
+  },
+  {
+    "version": "0.20.32",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "优化嵌入式 RDP 键鼠输入响应，减少 IPC 与网络事件开销，并增强高负载下的操作稳定性",
+        "en": "Improved embedded RDP keyboard and mouse responsiveness by reducing IPC and network-event overhead, with better stability under load"
+      }
+    ]
+  },
+  {
+    "version": "0.20.31",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 连接超时、调整分辨率后黑屏、剪贴板时序和高频输入卡顿问题，并增强大帧传输稳定性",
+        "en": "Fixed embedded RDP connection timeouts, black screens after resize, clipboard ordering, and high-frequency input lag, while improving large-frame transport stability"
+      }
+    ]
+  },
+  {
+    "version": "0.20.30",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "优化嵌入式 RDP 画面流畅度，修复增量帧丢失导致的局部黑块，并降低高分辨率渲染开销",
+        "en": "Improved embedded RDP smoothness, fixed partial black regions caused by dropped dirty frames, and reduced high-resolution rendering overhead"
+      }
+    ]
+  },
+  {
+    "version": "0.20.29",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 连接成功后因 framebuffer 跨进程传输错误导致的黑屏问题",
+        "en": "Fixed embedded RDP sessions staying black because framebuffer delivery failed across the Electron MessagePort boundary"
+      }
+    ]
+  },
+  {
+    "version": "0.20.28",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 RDP 连接成功后未显示首帧导致的黑屏问题；连接后主动发布完整桌面画面，并默认使用稳定的 2D Canvas 渲染路径",
+        "en": "Fixed embedded RDP sessions staying black after a successful connection by publishing an initial full framebuffer and using the stable Canvas2D rendering path by default"
+      }
+    ]
+  },
+  {
+    "version": "0.20.27",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "重新发布嵌入式 RDP 黑屏修复版本，补齐桌面端正式安装包构建与发布流程",
+        "en": "Reissued the embedded RDP black-screen fix with the desktop release build and publishing flow completed"
+      }
+    ]
+  },
+  {
+    "version": "0.20.26",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 在 WebGL 初始化失败或上下文丢失时连接成功但画面黑屏的问题，并修正画面行序与尺寸变化处理",
+        "en": "Fixed embedded RDP sessions showing a black screen after a successful connection when WebGL initialization failed or the context was lost, and corrected row ordering and resize handling"
+      }
+    ]
+  },
+  {
+    "version": "0.20.25",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP Worker 的诊断日志污染二进制协议、目标服务器不支持动态分辨率或剪贴板时错误断开的问题，并增加连接失败诊断",
+        "en": "Fixed embedded RDP sessions failing when Worker diagnostics corrupted the binary protocol or when the server lacked dynamic display or clipboard support, and added connection failure diagnostics"
+      }
+    ]
+  },
+  {
+    "version": "0.20.24",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Windows 嵌入式 RDP Worker 未初始化 Winsock 导致主机地址无法解析的问题，并将认证失败正确区分为登录错误",
+        "en": "Fixed Windows embedded RDP connections failing to resolve the host because the Worker did not initialize Winsock, and mapped authentication failures separately from network errors"
+      }
+    ]
+  },
+  {
+    "version": "0.20.23",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复安全后端暂不可用时降级写入的数据无法在恢复后重新加密、导入畸形密码块泄露底层错误，以及私钥路径变更后误用旧托管副本的问题",
+        "en": "Fixed deferred encryption after a temporary secure-storage outage, normalized errors for malformed import password blocks, and prevented stale managed private-key material from being reused after a path change"
+      }
+    ]
+  },
+  {
+    "version": "0.20.22",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Windows x64 正式版构建未找到 vcpkg OpenSSL legacy provider，导致嵌入式 RDP worker 无法打包的问题",
+        "en": "Fixed Windows x64 release builds failing to package the embedded RDP worker when the vcpkg OpenSSL legacy provider is installed directly in the runtime bin directory"
+      }
+    ]
+  },
+  {
+    "version": "0.20.21",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复嵌入式 RDP 因 FreeRDP 静态通道未注册而无法连接的问题，并补齐 Windows NLA/NTLM 所需的 OpenSSL 运行组件",
+        "en": "Fixed embedded RDP connections failing because FreeRDP static channels were not registered, and bundled the OpenSSL runtime component required by Windows NLA/NTLM"
+      }
+    ]
+  },
+  {
+    "version": "0.20.20",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "Windows x64 桌面端新增基于 FreeRDP Worker 的嵌入式 RDP 会话、画面渲染、键盘鼠标输入、剪贴板和证书确认；Worker 缺失时可使用系统远程桌面降级",
+        "en": "Added embedded RDP sessions on Windows x64 desktop using a FreeRDP worker, with framebuffer rendering, keyboard and mouse input, clipboard, and certificate confirmation; the app falls back to the system remote desktop when the worker is unavailable"
+      }
+    ]
+  },
+  {
+    "version": "0.20.19",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "完善跨平台桌面与 Android 界面适配，统一主题、导航、设置和终端交互体验，并修复相关构建与发布流程问题",
+        "en": "Improved cross-platform desktop and Android UI adaptation with consistent themes, navigation, Settings and terminal interactions, and fixed related build and release workflow issues"
+      }
+    ]
+  },
+  {
+    "version": "0.20.18",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复欢迎页和设置关于区域未显示软件 Logo 的问题，统一使用 OpenFinalShell 应用图标",
+        "en": "Fixed the welcome page and Settings About section not displaying the application logo; both now use the OpenFinalShell app icon"
+      }
+    ]
+  },
+  {
+    "version": "0.20.17",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "优化 Android 设置页与终端界面：修复底部内容遮挡、选项横向溢出、终端 ANSI/中文换行和窗口尺寸适配问题，并增加断开确认",
+        "en": "Refined the Android Settings and terminal screens: fixed bottom-content occlusion, horizontal option overflow, terminal ANSI/CJK wrapping and viewport sizing, and added disconnect confirmation"
+      }
+    ]
+  },
+  {
+    "version": "0.20.16",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "优化桌面欢迎页与连接管理外壳：响应式快捷入口、明确的快速连接操作、两行最近会话、连接树信息层级，以及更清晰的键盘焦点和标签导航",
+        "en": "Refined the desktop welcome page and connection-management shell with responsive quick actions, an explicit quick-connect command, two-line recent sessions, clearer connection-tree hierarchy, and improved keyboard focus and tab navigation"
+      }
+    ]
+  },
+  {
+    "version": "0.20.15",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "桌面端升级为统一 Fluent 风格：新增圆角、阴影、轻玻璃外壳与 Windows 11 Mica 材质；设置中可关闭透明效果，终端、编辑器和高频列表保持实体高性能渲染",
+        "en": "Upgraded the desktop UI to a unified Fluent style with rounded surfaces, shadows, restrained glass shell styling, and Windows 11 Mica; added a setting to reduce transparency while keeping the terminal, editor, and high-frequency lists solid for performance"
+      }
+    ]
+  },
+  {
+    "version": "0.20.14",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android 应用内升级在 Android 12 及更高版本中因安装状态回调被错误标记为不可变，导致下载完成后无法打开系统安装确认页的问题",
+        "en": "Fixed Android in-app updates failing to open the system installation confirmation after download on Android 12 and later because the installation-status callback was incorrectly immutable"
+      }
+    ]
+  },
+  {
+    "version": "0.20.13",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android API 26 和 API 35 自动化界面测试仍检查旧版品牌标题而失败的问题；主导航现提供本地化无障碍标签，测试失败时的诊断收集也已限时，避免工作流卡住",
+        "en": "Fixed Android API 26 and API 35 UI tests failing because they still checked a removed legacy brand title; primary navigation now provides localized accessibility labels, and failure diagnostics are time-bounded so workflows cannot get stuck"
+      }
+    ]
+  },
+  {
+    "version": "0.20.12",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "重构 Android 手机界面为 Material 3 导航与分组布局；终端现使用原生 ANSI/VT 渲染，支持颜色、清屏、光标、滚动、复制、中文输入和按屏幕尺寸自动调整行列数",
+        "en": "Rebuilt the Android mobile interface with Material 3 navigation and grouped layouts; the terminal now uses native ANSI/VT rendering with color, clearing, cursor control, scrolling, copy, Chinese input, and screen-aware row and column sizing"
+      },
+      {
+        "type": "fix",
+        "zh": "统一 Android 连接、传输、同步、通知和设置状态的本地化展示，避免直接显示内部状态或英文调试文本",
+        "en": "Unified localized Android status presentation for connections, transfers, sync, notifications, and settings so internal states and English diagnostic text are not shown directly"
+      }
+    ]
+  },
+  {
+    "version": "0.20.10",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android 应用内升级下载完成后未提示安装和重启的问题；设置现已支持与桌面端一致的十种语言、跟随系统语言及 Android 系统级应用语言设置，并补齐设置页翻译校验",
+        "en": "Fixed Android in-app updates not prompting for installation and restart after a download; Settings now supports the same ten languages as desktop, follow-system language and Android app-language settings, with translation coverage checks"
+      }
+    ]
+  },
+  {
+    "version": "0.20.9",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复部分 Android 设备因系统 BC 加密提供者不兼容 SHA-256 导致 SSH 握手失败的问题；LAN Sync 改用应用内加密提供者，避免误用系统同名提供者",
+        "en": "Fixed SSH handshakes failing on some Android devices because the system BC provider did not expose SHA-256; LAN Sync now uses the app provider instance instead of an incompatible system provider with the same name"
+      }
+    ]
+  },
+  {
+    "version": "0.20.8",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "补齐 Android 端设置、私钥管理、配置备份恢复、端口转发和局域网同步能力；增加应用内更新校验与安装流程，并改善 SSH/SFTP、监控和后台服务的稳定性",
+        "en": "Completed Android settings, private-key management, configuration backup and restore, port forwarding and LAN Sync; added in-app update validation and installation, and improved SSH/SFTP, monitoring and background-service stability"
+      }
+    ]
+  },
+  {
+    "version": "0.20.7",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android SSH 客户端在部分设备上因密钥交换工厂为空而无法启动连接的问题；初始化加密提供者并为 Android 配置可用的密钥交换算法",
+        "en": "Fixed Android SSH connections failing to start on some devices because the key exchange factory list was empty; initialized the security provider and configured Android-compatible key exchange algorithms"
+      }
+    ]
+  },
+  {
+    "version": "0.20.6",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android SSHD 在 Android 没有系统用户目录时初始化失败的问题；使用应用私有目录作为 SSH 用户目录，恢复 SSH、终端和 SFTP 连接",
+        "en": "Fixed Android SSHD initialization on devices without a conventional system user home; the app private directory is now used as the SSH user home so SSH, terminal and SFTP connections work again"
+      }
+    ]
+  },
+  {
+    "version": "0.20.5",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android SSH 客户端缺少 MINA 传输组件导致连接初始化失败并在底部提示内部类名的问题；增加初始化失败清理和可读错误提示",
+        "en": "Fixed Android SSH connection initialization failures caused by a missing MINA transport component; added cleanup for initialization errors and readable status messages instead of internal class names"
+      }
+    ]
+  },
+  {
+    "version": "0.20.4",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "补齐 Android SFTP 传输操作入口，支持上传、下载、建目录、重命名及传输队列暂停、继续、重试和取消；修复暂停或重试复用已关闭通道、文件读写阻塞界面和首次主机密钥自动信任问题，并改善后台任务通知状态",
+        "en": "Completed Android SFTP transfer controls for upload, download, directory creation, rename, and queue pause, resume, retry and cancel; fixed reuse of closed channels after pause or retry, moved file I/O off the UI thread, prevented silent first-use host-key trust, and improved background task notifications"
+      }
+    ]
+  },
+  {
+    "version": "0.20.3",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复发布校验遗漏当前版本更新说明导致桌面和 Android 工作流失败；优化 Android API 35 模拟器测试的启动稳定性，并在失败时保留诊断日志",
+        "en": "Fixed release validation failures caused by a missing current-version changelog entry; improved Android API 35 emulator test startup stability and preserved diagnostics when instrumentation fails"
+      }
+    ]
+  },
+  {
+    "version": "0.20.2",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 Android 客户端首次启动或升级时 Room 数据库迁移失败导致应用闪退的问题；保留已有连接、私钥和配置数据，并同步 Android 发布版本号",
+        "en": "Fixed Android crashes caused by Room database migration failures on first launch or upgrade; existing connections, private keys and settings are preserved, and the Android release version is kept in sync"
+      }
+    ]
+  },
+  {
+    "version": "0.20.1",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "Android 原生客户端完成首期功能对齐：支持 SSH 多会话与自动重连、密码和私钥认证、主机指纹校验、终端、SFTP 浏览与断点传输、Room/Keystore 安全存储、服务器监控双延迟与端口流量、端口转发和 LAN Sync；新增 Android 应用图标，桌面端功能与协议保持兼容",
+        "en": "The native Android client now provides first-phase feature parity with SSH multi-session and automatic reconnect, password and private-key authentication, host fingerprint verification, terminal, SFTP browsing and resumable transfers, Room/Keystore secure storage, dual-latency and port-traffic monitoring, port forwarding and LAN Sync; added Android app icons while preserving desktop behavior and protocol compatibility"
+      }
+    ]
+  },
+  {
+    "version": "0.20.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增独立的 Kotlin Android 原生客户端基础工程：支持 API 26 及以上、arm64-v8a/armeabi-v7a/x86_64，提供 SSH/SFTP、终端、监控、双延迟、端口流量、端口转发、局域网同步和安全凭据存储的跨端协议基础；桌面 Electron 客户端功能与协议保持不变",
+        "en": "Added the foundation for a standalone Kotlin Android client targeting API 26+ and arm64-v8a/armeabi-v7a/x86_64, with shared cross-platform protocol support for SSH/SFTP, terminal sessions, monitoring, dual latency, port traffic, forwarding, LAN Sync and secure credential storage; the desktop Electron client behavior and protocols remain unchanged"
+      }
+    ]
+  },
+  {
+    "version": "0.19.2",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "发布链新增 Windows ARM64 安装版与免安装版；Linux 同时构建 x64 和 ARM64 的 Debian 13、RPM、AppImage 包，并提供 x64 Flatpak 包。不同 Linux 包按发行版惯例使用 amd64、x86_64、arm64、aarch64 等架构名，下载时请按设备架构选择对应文件",
+        "en": "The release pipeline now includes Windows ARM64 installer and portable builds, plus Debian 13, RPM, and AppImage packages for Linux x64 and ARM64, with Flatpak available for Linux x64. Linux artifacts use distribution-standard architecture names such as amd64, x86_64, arm64, and aarch64; choose the file matching your device"
+      }
+    ]
+  },
+  {
+    "version": "0.19.1",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "服务器监控的延迟卡现在同时显示「直连 IP」与「实际连接」两条实时 RTT 趋势：前者由本机直接 Ping 连接目标、不经过软件代理；后者沿用当前 SSH 通道测量，会包含代理或隧道链路。服务器禁用 ICMP 或本机 Ping 不可用时会明确显示“不可用”，不再伪装为 0ms",
+        "en": "The Server Monitor latency card now shows two live RTT trends: Direct IP pings the connection target locally without the app proxy, while Active connection measures the current SSH channel and includes proxy or tunnel overhead. If ICMP is blocked or local ping is unavailable, it is clearly marked unavailable instead of being shown as 0ms"
+      }
+    ]
+  },
+  {
+    "version": "0.18.5",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复实时端口流量页在部分服务器上无法识别端口记录的问题；若服务器未提供完整的收发字节计数，仍会显示端口和连接数，并明确提示速率不可用",
+        "en": "Fixed live port traffic records not being recognized on some servers. When a server does not provide complete sent and received byte counters, ports and connection counts remain visible and rates are clearly marked unavailable"
+      }
+    ]
+  },
+  {
+    "version": "0.18.4",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复实时端口流量页因服务器将端口显示为 ssh/http 等服务名而识别不到端口的问题，现在强制使用数字端口显示",
+        "en": "Fixed the live port traffic page showing no ports when servers rendered port numbers as service names such as ssh or http; numeric port output is now forced"
+      }
+    ]
+  },
+  {
+    "version": "0.18.3",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "服务器监控的网络卡片现在可直接打开「端口流量」标签页，按秒显示远端各活动 TCP 本机端口的连接数、下行和上行速率。数据在服务器端先聚合后经当前 SSH 会话采集，关闭标签即停止；需要服务器提供 ss 命令，暂不统计 UDP",
+        "en": "The Network card in Server Monitoring can now open a Port Traffic tab, showing each active remote TCP local port's connection count and receive/send rate every second. Data is aggregated on the server and collected through the current SSH session, stopping when the tab closes; it requires the server's ss command and does not yet include UDP"
+      }
+    ]
+  },
+  {
+    "version": "0.18.2",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "私钥现在可选择保存一份由系统密钥库保护的本机加密副本：外部文件临时不可用时仍可连接，副本不会进入导出文件或局域网同步。Windows 上私钥位于可移动磁盘时，盘符变更后会按原相对路径在其他盘符查找，并以 SHA-256 指纹确认相同文件后自动更新路径",
+        "en": "Private keys can now optionally keep a locally encrypted copy protected by the system key store, so connections can still work when the external file is temporarily unavailable. Copies never enter exports or LAN Sync. On Windows, when a key is on removable storage and its drive letter changes, the app searches the same relative path on other drives and updates the path only after confirming the SHA-256 fingerprint"
+      }
+    ]
+  },
+  {
+    "version": "0.18.1",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增 Debian 13 amd64 正式安装包：可用 APT 安装和覆盖升级，SSH、终端、SFTP、监控与独立编辑器均通过安装后冒烟验证。Debian 版会提示新版本并打开 Releases，但不会自行提权安装；凭据使用 Secret Service/KWallet，缺少安全密钥库时不会把密码保存成明文",
+        "en": "Added an official Debian 13 amd64 package: install or upgrade it with APT. SSH, terminal, SFTP, monitoring and the separate editor all pass an installed-package smoke test. The Debian build notifies you about releases but never elevates privileges to install them; credentials use Secret Service/KWallet and are not persisted in plaintext when no secure keyring is available"
+      }
+    ]
+  },
+  {
+    "version": "0.18.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增「局域网同步」（设置 → 局域网同步）：把连接、快捷命令等数据直接发到同一局域网内的另一台电脑，免去导出文件再传。一台点「开始接收」显示 6 位配对码，另一台扫描或手输地址、输码即发，对方确认后按跳过/覆盖/复制合并。全程加密（配对码经椭圆曲线密钥交换派生会话密钥，线上除设备名外无明文），是发一份副本、不是双向同步。组播搜不到设备时手输 IP:端口 即可",
+        "en": "New \"LAN Sync\" (Settings → LAN Sync): send connections, snippets and more straight to another computer on the same LAN — no export file to shuttle around. One side taps \"Start receiving\" to show a 6-digit pairing code; the other scans or types the address, enters the code, and sends; the receiver confirms and merges with skip/overwrite/duplicate. Fully encrypted (the pairing code derives a session key via elliptic-curve key exchange; nothing but the device name is in the clear), and it sends a one-time copy — not two-way sync. If discovery finds nothing, just type IP:port"
+      }
+    ]
+  },
+  {
+    "version": "0.17.1",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "快捷命令（以及命令编辑器）执行的 cd 现在也会让 SFTP 面板跟着切目录了 —— 之前跟随只认手敲回车的命令，点快捷命令执行时命令照跑、历史照记，唯独目录跟随一声不吭地不动",
+        "en": "A cd run from a saved snippet (or the command editor) now makes the SFTP panel follow along — following used to work only for commands typed by hand, so snippet-launched commands ran fine and were recorded in history, but the directory silently never followed"
+      }
+    ]
+  },
+  {
+    "version": "0.17.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "内置编辑器改为独立窗口：所有 SSH 会话的「内置编辑器查看」都汇到同一个窗口里做多标签，标签带来源主机名 —— 两台机器上的同名 nginx.conf 一眼分得开；窗口尺寸有记忆",
+        "en": "The built-in editor is now a separate window: every session's \"View in built-in editor\" goes into one shared multi-tab window, with the source host on each tab — same-named nginx.conf from two machines stay distinguishable; window size is remembered"
+      },
+      {
+        "type": "feat",
+        "zh": "编辑中的内容更难丢了：会话断开只是挂一条「无法保存」的横幅，内容仍可编辑复制、重连后自动恢复保存；关编辑器窗口（或主窗口）时有未保存的文件会先确认。注意：会话面板里嵌入的编辑器格子已移除，编辑一律在独立窗口",
+        "en": "Your edits are harder to lose: a disconnected session only banners the tab as \"cannot save\" — content stays editable and copyable, and saving resumes after reconnect; closing the editor window (or the main window) asks first if files are unsaved. Note: the editor pane embedded in the session view is gone — editing now always happens in the separate window"
+      }
+    ]
+  },
+  {
+    "version": "0.16.1",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "目录读取提速回归：0.15.3 出于谨慎撤回的分页读取，已查明与当时的问题无关（真凶是 0.15.4 修掉的命令采集截断），现原样取回 —— 一次切目录少两个网络往返，/etc、/usr/bin 这类软链接多的目录最明显",
+        "en": "The directory-listing speedup is back: the paged reader cautiously reverted in 0.15.3 was proven unrelated to that bug (the real cause was the command truncation fixed in 0.15.4) — switching directories is two round-trips faster again, most noticeable in symlink-heavy directories like /etc and /usr/bin"
+      },
+      {
+        "type": "feat",
+        "zh": "给 cd 跟随这一整片补上了组件级回归测试（8 条，覆盖这轮修过的全部四个问题），并逐条验证过它们在旧版缺陷代码上会失败 —— 同类问题今后在发版前就会被拦住",
+        "en": "The cd-following area now has component-level regression tests (8 cases covering all four recently fixed issues), each verified to fail on the old buggy code — regressions of this kind will now be caught before release"
+      }
+    ]
+  },
+  {
+    "version": "0.16.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "里程碑版本：终端 cd 与 SFTP 面板的目录跟随已确认稳定（0.15.1～0.15.4 连续修掉了采集截断、提示符列冻结、快速连续切目录跳错、失败无声这几个问题）。代码与 0.15.4 相同",
+        "en": "Milestone release: terminal cd → SFTP directory following is confirmed stable (0.15.1–0.15.4 fixed command truncation, a frozen prompt column, landing in the wrong directory when switching quickly, and silent failures). Code is identical to 0.15.4"
+      }
+    ]
+  },
+  {
+    "version": "0.15.4",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修好了 cd 跟随的真正原因：命令在采集时会被截断。终端里的字是服务器回显回来的，而我们在回车那一刻就去读屏，你最后几个字符（尤其是按 Tab 让服务器补全的部分）还没回来 —— 于是 cd /etc/v2node 被读成 cd /etc/v2n，跟随去读一个不存在的目录。现在改为等命令行回显完整后再采集",
+        "en": "Fixed the real cause of cd-following failures: the command was captured truncated. Terminal text arrives as server echo, but capture happened the instant Enter was pressed — the last characters (especially a Tab completion) had not arrived yet, so \"cd /etc/v2node\" was read as \"cd /etc/v2n\". Capture now waits until the echoed command line is complete"
+      },
+      {
+        "type": "fix",
+        "zh": "同一原因也让命令历史记进被截断的命令（Ctrl+Shift+H 里那些看着不对的条目）。新记录已正常，旧的可在 设置 → 安全与数据 里清空历史",
+        "en": "The same cause recorded truncated commands into history (the odd-looking entries under Ctrl+Shift+H). New entries are correct; old ones can be cleared via Settings → Security & Data"
+      }
+    ]
+  },
+  {
+    "version": "0.15.3",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "目录跟随失败时会明确告诉你原因（例如没有权限、目录不存在），不再只是路径闪一下就弹回去 —— 之前这个失败是完全无声的，既看不到也查不到",
+        "en": "When following a directory fails you now get the actual reason (no permission, directory missing, …) instead of the path flashing and snapping back — previously the failure was completely silent"
+      },
+      {
+        "type": "fix",
+        "zh": "撤回 0.15.2 的目录读取提速：它可能导致某些目录读不出来。切目录会慢回原来的样子，等原因查清后再重做提速",
+        "en": "Reverted the 0.15.2 directory-listing speedup: it may have made some directories unreadable. Switching directories is back to the previous speed until the cause is confirmed"
+      }
+    ]
+  },
+  {
+    "version": "0.15.2",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "终端 cd 之后 SFTP 面板「按下即翻页」：路径与面包屑立刻切到目标目录，列表位置先显示骨架，不再等一个网络往返才有反应",
+        "en": "The SFTP pane now switches the moment you press Enter: the path and breadcrumb jump to the target directory immediately and the list shows a skeleton, instead of sitting still for a whole round-trip"
+      },
+      {
+        "type": "feat",
+        "zh": "目录读取快了：分页读取时顺带解析软链接，一次切目录少两个网络往返（软链接多的目录如 /etc、/usr/bin 最明显）",
+        "en": "Directory listing is faster: symlinks are resolved while paging through entries, cutting two round-trips per directory switch (most noticeable in symlink-heavy directories such as /etc and /usr/bin)"
+      },
+      {
+        "type": "fix",
+        "zh": "修复快速连续切目录时可能跳错目录：先后发出的两次读取回来的顺序不定，旧的那次会把面板压回上一个目录",
+        "en": "Fixed landing in the wrong directory when switching quickly: two listings could return out of order and the older one would snap the pane back"
+      },
+      {
+        "type": "fix",
+        "zh": "修复一次读取失败后表格被错误提示永久占住，之后即使 cd 跟随成功也要手动刷新才恢复",
+        "en": "Fixed the file table staying stuck on an error message after one failed listing, needing a manual refresh even once following succeeded again"
+      }
+    ]
+  },
+  {
+    "version": "0.15.1",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复终端 cd 之后 SFTP 面板不跟随跳转：终端输出把回滚缓冲用满（或清屏两次）之后，提示符位置会被记错，cd 到更深的目录就跟不动了",
+        "en": "Fixed the SFTP pane not following a terminal cd: once terminal output filled the scrollback (or the screen was cleared twice), the prompt position was mis-measured and cd into a deeper directory stopped working"
+      },
+      {
+        "type": "fix",
+        "zh": "同一原因也会让命令历史记进提示符残片（如 \"p# ls\"）—— 新记录已恢复正常，已混入的残片可在 设置 → 安全与数据 里清空历史",
+        "en": "The same cause also recorded prompt fragments into command history (e.g. \"p# ls\"). New entries are correct now; existing fragments can be removed via Settings → Security & Data → clear history"
+      }
+    ]
+  },
+  {
+    "version": "0.15.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "配置数据本地加密存储：除密码外，主机/端口/用户名/分组/代理/转发/已信任主机/命令历史也在数据库里加密（绑定当前系统账户），直接打开 .db 看不到明文",
+        "en": "Config data is now encrypted at rest: besides passwords, hosts/ports/usernames/groups/proxies/forwards/known-hosts/command history are encrypted in the database (bound to the current OS account) — opening the .db shows no plaintext"
+      },
+      {
+        "type": "feat",
+        "zh": "新增「整文件加密导出」：给一个口令，连主机、用户名等配置一起加密，导出文件里没有任何明文（换机迁移请走加密导出→新机导入，不能直接拷数据库）",
+        "en": "New \"encrypt the entire file\" export: with a passphrase, hosts/usernames and all config are encrypted so the file has no plaintext (migrate via encrypted export → import; copying the .db no longer works)"
+      },
+      {
+        "type": "feat",
+        "zh": "关于页新增「历史更新日志」按钮，可查看所有版本的更新说明",
+        "en": "Added a \"Changelog\" button on the About page to view release notes for every version"
+      }
+    ]
+  },
+  {
+    "version": "0.14.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "全球多语种支持：新增 繁体中文/日语/韩语/俄语/西班牙语/法语/德语/葡萄牙语，共 10 种语言，设置里可切换（非中英为机器翻译，欢迎在 GitHub 反馈校对）",
+        "en": "Global localization: added Traditional Chinese, Japanese, Korean, Russian, Spanish, French, German, and Portuguese — 10 languages total, switch in Settings (non-CN/EN are machine-translated; corrections welcome on GitHub)"
+      },
+      {
+        "type": "feat",
+        "zh": "主进程的报错提示也随语言翻译（认证、连接、代理、传输等）",
+        "en": "Main-process error messages are localized too (auth, connection, proxy, transfer, and more)"
+      }
+    ]
+  },
+  {
+    "version": "0.13.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增开机引导：全新安装介绍功能与快捷键，更新后展示本次更新说明",
+        "en": "Startup guide: fresh installs get a feature & shortcut intro; updates show what changed"
+      },
+      {
+        "type": "feat",
+        "zh": "关于页新增赞赏码（USDT / BNB / ETH / POL / 微信 / 支付宝），支持这个项目 ❤",
+        "en": "Donation codes on the About page (USDT / BNB / ETH / POL / WeChat / Alipay) — support the project ❤"
+      }
+    ]
+  },
+  {
+    "version": "0.12.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "连接列表的 IP / 主机名支持打码脱敏（只显示首尾片段，便于截图分享），可在设置→外观关闭",
+        "en": "Connection list can mask IP / hostname (shows only head+tail, safe for screenshots); toggle in Settings → Appearance"
+      },
+      {
+        "type": "feat",
+        "zh": "连接列表副标题字体更清晰（对比度、字号提升，长地址不再被裁）",
+        "en": "Clearer connection-list subtitle (higher contrast, larger size, long addresses no longer clipped)"
+      }
+    ]
+  },
+  {
+    "version": "0.11.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "连接位置标记改用 Twemoji 国旗，小尺寸下更清晰准确",
+        "en": "Location markers now use Twemoji flags — crisper and more accurate at small sizes"
+      }
+    ]
+  },
+  {
+    "version": "0.10.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "连接位置标记：手选国旗 + 局域网自动识别",
+        "en": "Location markers: pick a country flag, LAN hosts auto-detected"
+      },
+      {
+        "type": "fix",
+        "zh": "重连时\"握手前断开\"给出更友好的排错提示",
+        "en": "Friendlier diagnostics for \"connection lost before handshake\" on reconnect"
+      }
+    ]
+  },
+  {
+    "version": "0.9.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "服务器监控面板重绘为 btop 风格的渐变曲线",
+        "en": "Server monitor redrawn as btop-style gradient graphs"
+      },
+      {
+        "type": "feat",
+        "zh": "命令编辑器：发送后自动关窗，每次打开都是空白",
+        "en": "Command editor: auto-closes after sending, opens blank every time"
+      }
+    ]
+  },
+  {
+    "version": "0.8.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "RDP 远程桌面（走系统 mstsc）",
+        "en": "RDP remote desktop (via the system mstsc)"
+      },
+      {
+        "type": "feat",
+        "zh": "全局默认代理 + 单连接代理微调；机器备注；启动最大化",
+        "en": "Global default proxy + per-connection override; machine notes; start maximized"
+      },
+      {
+        "type": "fix",
+        "zh": "SFTP 双击打开的延迟与卡顿",
+        "en": "SFTP double-click latency and jank"
+      }
+    ]
+  },
+  {
+    "version": "0.7.0",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "监控延迟(RTT)图、已信任主机指纹管理、终端字号即时调节等六项增强",
+        "en": "Monitor latency (RTT) graph, trusted host-key management, live terminal font sizing, and more"
+      }
+    ]
+  }
+]

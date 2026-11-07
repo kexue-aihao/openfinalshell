@@ -36,7 +36,7 @@ public sealed class RdpWorkerClient : IAsyncDisposable
         executable = executablePath ?? Path.Combine(AppContext.BaseDirectory, "RdpWorker", OperatingSystem.IsWindows() ? "ofs-rdp-worker.exe" : "ofs-rdp-worker");
     }
 
-    public async Task StartAsync(string host, int port, string username, string? domain, NativeRdpDisplay display, CancellationToken externalCancellation = default)
+    public async Task StartAsync(string host, int port, string username, string? domain, NativeRdpDisplay display, CancellationToken externalCancellation = default, NativeRdpProfileOptions? options = null)
     {
         if (process != null) throw new InvalidOperationException("RDP worker is already running.");
         if (!File.Exists(executable)) throw new FileNotFoundException("Native RDP worker is unavailable.", executable);
@@ -50,7 +50,7 @@ public sealed class RdpWorkerClient : IAsyncDisposable
         try
         {
             await SendJsonAsync(0x02, 0, new JsonObject { ["op"] = "helloAck", ["protocol"] = 1, ["maxPayload"] = MaxPayload }, cancellation.Token);
-            await SendJsonAsync(0x10, NextRequest(), new JsonObject { ["op"] = "start", ["host"] = host, ["port"] = port, ["username"] = username, ["domain"] = domain ?? "", ["gateway"] = null, ["display"] = new JsonObject { ["width"] = display.Width, ["height"] = display.Height, ["dpi"] = display.Dpi }, ["features"] = new JsonObject { ["clipboard"] = true, ["clipboardFilesUpload"] = true, ["clipboardFilesPaste"] = true, ["certificatePolicy"] = "prompt", ["audioPlayback"] = true } }, cancellation.Token);
+            await SendJsonAsync(0x10, NextRequest(), new JsonObject { ["op"] = "start", ["host"] = host, ["port"] = port, ["username"] = username, ["domain"] = domain ?? "", ["gateway"] = null, ["display"] = new JsonObject { ["width"] = display.Width, ["height"] = display.Height, ["dpi"] = display.Dpi }, ["features"] = (options ?? new NativeRdpProfileOptions(domain, null)).Features() }, cancellation.Token);
         }
         catch
         {

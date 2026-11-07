@@ -90,6 +90,33 @@ export function saveAiProfile(draft: AiProviderProfileDraft): AiProviderProfile 
   })
 }
 
+/** Import provider metadata and an optional decrypted token inside the caller's import transaction. */
+export function importAiProfile(
+  profile: { id: string; name: string; baseUrl: string; model: string; enabled: boolean; createdAt: number; updatedAt: number },
+  token?: string,
+  preserveExistingToken = true
+): void {
+  const baseUrl = normalizeAiBaseUrl(profile.baseUrl)
+  const name = profile.name.trim().slice(0, 100)
+  const model = profile.model.trim().slice(0, 200)
+  if (!name || !model) throw new Error('AI 服务名称和模型不能为空')
+  tx(() => {
+    const existing = getAiProfile(profile.id)
+    const previousSecretRef = existing?.secretRef
+    const secretRef = token !== undefined
+      ? vault.putSecret(token)
+      : preserveExistingToken ? previousSecretRef : undefined
+    prepare(`INSERT INTO ai_profiles(id,name,base_url,model,enabled,secret_ref,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,base_url=excluded.base_url,
+      model=excluded.model,enabled=excluded.enabled,secret_ref=excluded.secret_ref,updated_at=excluded.updated_at`)
+      .run(profile.id, name, baseUrl, model, profile.enabled ? 1 : 0, secretRef ?? null, existing?.createdAt ?? profile.createdAt, Date.now())
+    if (previousSecretRef && previousSecretRef !== secretRef) {
+      const references = Number((prepare('SELECT COUNT(*) AS count FROM ai_profiles WHERE secret_ref = ?').get(previousSecretRef) as { count: number }).count)
+      if (references === 0) vault.deleteSecret(previousSecretRef)
+    }
+  })
+}
+
 export function deleteAiProfile(id: string): void {
   tx(() => {
     const profile = getAiProfile(id)

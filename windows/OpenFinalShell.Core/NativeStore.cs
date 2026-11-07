@@ -14,6 +14,8 @@ public sealed class NativeReferenceInUseException(IReadOnlyList<NativeStore.Enti
 public sealed class NativeStore : IDisposable
 {
     public sealed record EntityReference(string Kind, string Id, string Name);
+    public sealed record EntityRevision(string Kind, string Id, long Revision);
+    public sealed record SecretEntitySaveResult(long Revision, string? SecretReference);
     public const string PreviewProduct = "OpenFinalShell.NativePreview";
     public static string DefaultDirectory
     {
@@ -66,6 +68,38 @@ public sealed class NativeStore : IDisposable
         var cmd = connection.CreateCommand(); cmd.CommandText = sql; cmd.Transaction = tx; return cmd;
     }
     private void Execute(string sql) { using var cmd = Command(sql); cmd.ExecuteNonQuery(); }
+
+    /// <summary>
+    /// Atomically replace a small, non-secret metadata value and return its prior
+    /// value. Used for per-install lifecycle markers such as the last version
+    /// launched, without mixing them into user-visible entities or exports.
+    /// </summary>
+    public string? ReplaceMetaTextAndReadPrevious(string name, string value)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 128 || name.Any(char.IsControl))
+            throw new ArgumentException("Invalid metadata key.", nameof(name));
+        ArgumentNullException.ThrowIfNull(value);
+
+        lock (gate)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            string? previous = null;
+            using (var read = Command("SELECT v FROM meta WHERE k=$k", tx))
+            {
+                read.Parameters.AddWithValue("$k", name);
+                if (read.ExecuteScalar() is byte[] bytes) previous = Encoding.UTF8.GetString(bytes);
+            }
+            using (var write = Command("INSERT INTO meta(k,v) VALUES($k,$v) ON CONFLICT(k) DO UPDATE SET v=$v", tx))
+            {
+                write.Parameters.AddWithValue("$k", name);
+                write.Parameters.AddWithValue("$v", Encoding.UTF8.GetBytes(value));
+                write.ExecuteNonQuery();
+            }
+            tx.Commit();
+            return previous;
+        }
+    }
+
     // Host names and key algorithms are sensitive metadata. Keep their lookup token
     // deterministic for conflict checks, while the display value remains inside the
     // authenticated encrypted payload.
@@ -124,6 +158,120 @@ public sealed class NativeStore : IDisposable
             var revision = Upsert(kind, id, value, tx, expectedRevision); tx.Commit(); return revision;
         }
     }
+
+    /// <summary>
+    /// Save an entity and its encrypted secret reference as one transaction. Any
+    /// duplicate legacy entities are removed in the same commit, and obsolete
+    /// secret rows are deleted only after checking every remaining entity reference.
+    /// </summary>
+    public SecretEntitySaveResult SaveWithSecret(
+        string kind,
+        string id,
+        JsonObject value,
+        string secretReferenceField,
+        string? secretValue,
+        bool clearSecret,
+        long? expectedRevision,
+        IReadOnlyList<EntityRevision>? deleteEntities = null,
+        IEnumerable<string?>? obsoleteSecretReferences = null)
+    {
+        lock (gate)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            var clean = (JsonObject)value.DeepClone();
+            string? secretReference = clean[secretReferenceField]?.GetValue<string>();
+            if (clearSecret) secretReference = null;
+            if (!string.IsNullOrWhiteSpace(secretValue))
+            {
+                secretReference = Guid.NewGuid().ToString();
+                using var addSecret = Command("INSERT INTO secrets(id,payload) VALUES($id,$p)", tx);
+                addSecret.Parameters.AddWithValue("$id", secretReference);
+                addSecret.Parameters.AddWithValue("$p", Seal(new() { ["value"] = secretValue }));
+                addSecret.ExecuteNonQuery();
+            }
+            clean[secretReferenceField] = secretReference;
+            var revision = Upsert(kind, id, clean, tx, expectedRevision);
+            DeleteEntities(deleteEntities ?? [], tx);
+            foreach (var obsolete in (obsoleteSecretReferences ?? []).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.Ordinal))
+                DeleteSecretIfUnreferenced(obsolete!, tx);
+            tx.Commit();
+            return new(revision, secretReference);
+        }
+    }
+
+    /// <summary>Delete entities and now-unused encrypted secrets atomically.</summary>
+    public void DeleteWithSecrets(IReadOnlyList<EntityRevision> entities, IEnumerable<string?> secretReferences)
+    {
+        lock (gate)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            DeleteEntities(entities, tx);
+            foreach (var reference in secretReferences.Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.Ordinal))
+                DeleteSecretIfUnreferenced(reference!, tx);
+            tx.Commit();
+        }
+    }
+
+    private void DeleteEntities(IReadOnlyList<EntityRevision> entities, SqliteTransaction tx)
+    {
+        foreach (var entity in entities)
+        {
+            using var delete = Command("DELETE FROM entities WHERE kind=$kind AND id=$id AND revision=$revision", tx);
+            delete.Parameters.AddWithValue("$kind", entity.Kind);
+            delete.Parameters.AddWithValue("$id", StorageId(entity.Kind, entity.Id));
+            delete.Parameters.AddWithValue("$revision", entity.Revision);
+            if (delete.ExecuteNonQuery() != 1) throw new InvalidOperationException("Configuration revision conflict");
+        }
+    }
+
+    private void DeleteSecretIfUnreferenced(string id, SqliteTransaction tx)
+    {
+        var referenced = false;
+        using (var rows = Command("SELECT payload FROM entities", tx).ExecuteReader())
+            while (rows.Read() && !referenced)
+                referenced = ContainsReference(Open((byte[])rows[0]), id);
+        if (referenced) return;
+        using var delete = Command("DELETE FROM secrets WHERE id=$id", tx);
+        delete.Parameters.AddWithValue("$id", id);
+        delete.ExecuteNonQuery();
+    }
+    /// <summary>Merge only the supplied fields in a single write transaction.</summary>
+    public long Patch(string kind, string id, JsonObject patch)
+    {
+        lock (gate)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            JsonObject current = new() { ["id"] = id };
+            using (var read = Command("SELECT payload FROM entities WHERE kind=$k AND id=$id", tx))
+            {
+                read.Parameters.AddWithValue("$k", kind); read.Parameters.AddWithValue("$id", StorageId(kind, id));
+                if (read.ExecuteScalar() is byte[] payload) current = Open(payload);
+            }
+            Merge(current, patch);
+            var revision = Upsert(kind, id, current, tx, null);
+            tx.Commit(); return revision;
+        }
+    }
+    private static void Merge(JsonObject target, JsonObject patch)
+    {
+        foreach (var (key, value) in patch)
+        {
+            if (key is "id" or "_revision") continue;
+            if (value is JsonObject nested && target[key] is JsonObject existing) Merge(existing, nested);
+            else target[key] = value?.DeepClone();
+        }
+    }
+
+    public string Backup(string reason)
+    {
+        lock (gate)
+        {
+            if (reason.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-')) throw new ArgumentException("Invalid backup reason.");
+            var path = Path.Combine(Path.GetDirectoryName(DatabasePath)!, $"before-{reason}-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}.db");
+            using var backup = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
+            backup.Open(); connection.BackupDatabase(backup); return path;
+        }
+    }
     private long Upsert(string kind, string id, JsonObject value, SqliteTransaction tx, long? expectedRevision)
     {
         using var check = Command("SELECT revision FROM entities WHERE kind=$k AND id=$id", tx);
@@ -152,7 +300,31 @@ public sealed class NativeStore : IDisposable
         }
     }
 
-    /// <summary>Atomically removes a connection group and detaches its profiles.</summary>
+    public long SaveConnectionGroup(string id, JsonObject patch, long? expectedRevision = null)
+    {
+        lock (gate)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            var groups = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
+            using (var read = Command("SELECT payload FROM entities WHERE kind='groups'", tx))
+            using (var rows = read.ExecuteReader())
+                while (rows.Read()) { var group = Open((byte[])rows[0]); groups[group["id"]!.GetValue<string>()] = group; }
+            var current = groups.TryGetValue(id, out var old) ? (JsonObject)old.DeepClone() : new JsonObject { ["id"] = id };
+            Merge(current, patch);
+            var parent = current["parentId"]?.GetValue<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal) { id };
+            while (parent != null)
+            {
+                if (!seen.Add(parent)) throw new InvalidDataException("native.workbench.groupCycle");
+                if (!groups.TryGetValue(parent, out var ancestor)) throw new InvalidDataException("native.workbench.groupMissing");
+                parent = ancestor["parentId"]?.GetValue<string>();
+            }
+            var revision = Upsert("groups", id, current, tx, expectedRevision);
+            tx.Commit(); return revision;
+        }
+    }
+
+    /// <summary>Promotes profiles and child groups to the deleted group's parent, like Electron.</summary>
     public void DeleteConnectionGroup(string groupId, long expectedGroupRevision)
     {
         lock (gate)
@@ -165,24 +337,41 @@ public sealed class NativeStore : IDisposable
                     throw new InvalidOperationException("Configuration revision conflict");
             }
 
-            var profiles = new List<(string Id, JsonObject Data, long Revision)>();
-            using (var read = Command("SELECT payload,revision FROM entities WHERE kind='profiles'", tx))
+            string? parent = null;
+            using (var read = Command("SELECT payload FROM entities WHERE kind='groups' AND id=$id", tx))
+            {
+                read.Parameters.AddWithValue("$id", groupId);
+                parent = Open((byte[])read.ExecuteScalar()!)["parentId"]?.GetValue<string>();
+            }
+            var ancestors = new HashSet<string>(StringComparer.Ordinal) { groupId };
+            var cursor = parent;
+            while (cursor != null)
+            {
+                if (!ancestors.Add(cursor)) { parent = null; break; }
+                using var ancestor = Command("SELECT payload FROM entities WHERE kind='groups' AND id=$id", tx);
+                ancestor.Parameters.AddWithValue("$id", cursor);
+                if (ancestor.ExecuteScalar() is not byte[] payload) { parent = null; break; }
+                cursor = Open(payload)["parentId"]?.GetValue<string>();
+            }
+            var profiles = new List<(string Kind, string Id, JsonObject Data, long Revision)>();
+            using (var read = Command("SELECT kind,payload,revision FROM entities WHERE kind IN ('profiles','groups')", tx))
             using (var rows = read.ExecuteReader())
             {
                 while (rows.Read())
                 {
-                    var data = Open((byte[])rows[0]);
-                    if (data["groupId"]?.GetValue<string>() != groupId) continue;
+                    var kind = rows.GetString(0);
+                    var data = Open((byte[])rows[1]);
+                    if (data[kind == "groups" ? "parentId" : "groupId"]?.GetValue<string>() != groupId) continue;
                     var id = data["id"]?.GetValue<string>();
                     if (string.IsNullOrWhiteSpace(id)) continue;
-                    profiles.Add((id, data, rows.GetInt64(1)));
+                    if (id != groupId) profiles.Add((kind, id, data, rows.GetInt64(2)));
                 }
             }
 
             foreach (var profile in profiles)
             {
-                profile.Data.Remove("groupId");
-                Upsert("profiles", profile.Id, profile.Data, tx, profile.Revision);
+                profile.Data[profile.Kind == "groups" ? "parentId" : "groupId"] = parent;
+                Upsert(profile.Kind, profile.Id, profile.Data, tx, profile.Revision);
             }
             using (var delete = Command("DELETE FROM entities WHERE kind='groups' AND id=$id AND revision=$revision", tx))
             {
@@ -234,8 +423,9 @@ public sealed class NativeStore : IDisposable
             return cmd.ExecuteScalar() is byte[] bytes ? Open(bytes)["value"]?.GetValue<string>() : null;
         }
     }
-    public void Import(ImportPreview preview, ImportConflict conflict)
+    public NativeImportResult Import(ImportPreview preview, ImportConflict conflict)
     {
+        var result = new NativeImportResult();
         lock (gate)
         {
             // Snapshot encrypted data before committing any migration. Never touch legacy data.
@@ -244,14 +434,14 @@ public sealed class NativeStore : IDisposable
             { backup.Open(); connection.BackupDatabase(backup); }
             using var tx = connection.BeginTransaction(deferred: false);
             var secretIds = preview.Secrets.ToDictionary(v => v.Key, _ => Guid.NewGuid().ToString());
-            var entityIds = new Dictionary<string, string>();
+            var entityIds = new Dictionary<(string Kind, string Id), string>();
             if (conflict == ImportConflict.Duplicate)
-                foreach (var (_, node) in preview.Data)
-                    if (node is JsonArray array)
+                foreach (var (kind, node) in preview.Data)
+                    if (kind != "knownHosts" && node is JsonArray array)
                         foreach (var item in array.OfType<JsonObject>())
                         {
                         var sourceId = item["id"]?.GetValue<string>() ?? item["key"]?.GetValue<string>();
-                        if (sourceId is { Length: > 0 }) entityIds[sourceId] = Guid.NewGuid().ToString();
+                        if (sourceId is { Length: > 0 }) entityIds[(kind, sourceId)] = Guid.NewGuid().ToString();
                         }
             foreach (var (id, node) in preview.Secrets)
             {
@@ -262,20 +452,57 @@ public sealed class NativeStore : IDisposable
             {
                 if (kind == "settings" && node is JsonObject settings)
                 {
-                    if (conflict != ImportConflict.Skip || !Exists(kind, "settings", tx))
+                    // The conflict policy applies to ID-bearing entities. Electron
+                    // always merges explicitly selected portable settings.
+                    var clean = Rewrite(settings, kind, entityIds, secretIds);
+                    JsonObject current = new() { ["id"] = "settings" };
+                    using (var read = Command("SELECT payload FROM entities WHERE kind=$k AND id=$id", tx))
                     {
-                        var clean = Rewrite(settings, entityIds, secretIds); clean["id"] = "settings";
-                        Upsert(kind, "settings", clean, tx, null);
+                        read.Parameters.AddWithValue("$k", kind); read.Parameters.AddWithValue("$id", StorageId(kind, "settings"));
+                        if (read.ExecuteScalar() is byte[] payload) current = Open(payload);
                     }
+                    Merge(current, clean);
+                    Upsert(kind, "settings", current, tx, null);
+                    result.SettingsApplied = true;
                     continue;
                 }
                 if (node is not JsonArray array) continue;
                 foreach (var original in array.OfType<JsonObject>())
                 {
-                    var value = Rewrite(original, entityIds, secretIds);
+                    var value = Rewrite(original, kind, entityIds, secretIds);
                     var id = (value["id"] ?? value["key"])?.GetValue<string>() ?? throw new InvalidDataException("Missing entity id");
-                    if (conflict == ImportConflict.Skip && Exists(kind, id, tx)) continue;
+                    // Host trust is keyed by host:port:algorithm, not by an
+                    // arbitrary UUID. Duplicate must never invent a host name
+                    // or replace an existing trust decision.
+                    var exists = Exists(kind, id, tx);
+                    // A known-host row is a local trust decision and must not be
+                    // overwritten by imported data under any conflict policy.
+                    if (exists && (kind == "knownHosts" || conflict == ImportConflict.Skip))
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
+                    if (kind == "forwards")
+                    {
+                        var profileId = value["profileId"]?.GetValue<string>();
+                        if (string.IsNullOrWhiteSpace(profileId) || !Exists("profiles", profileId, tx))
+                        {
+                            result.Skipped++;
+                            continue;
+                        }
+                    }
                     Upsert(kind, id, value, tx, null);
+                    switch (kind)
+                    {
+                        case "groups": result.Groups++; break;
+                        case "profiles": result.Profiles++; break;
+                        case "proxies": result.Proxies++; break;
+                        case "privateKeys": result.PrivateKeys++; break;
+                        case "aiProfiles": result.AiProfiles++; break;
+                        case "snippets": result.Snippets++; break;
+                        case "forwards": result.Forwards++; break;
+                        case "knownHosts": result.KnownHosts++; break;
+                    }
                 }
             }
             // Skip imports may leave a newly generated secret unreferenced. Remove
@@ -297,11 +524,13 @@ public sealed class NativeStore : IDisposable
                     using var remove = Command("DELETE FROM secrets WHERE id=$id", tx);
                     remove.Parameters.AddWithValue("$id", generated); remove.ExecuteNonQuery();
                 }
+                else result.Secrets++;
             }
             tx.Commit();
         }
+        return result;
     }
-    private static JsonObject Rewrite(JsonObject obj, Dictionary<string, string> entityIds, Dictionary<string, string> secretIds)
+    private static JsonObject Rewrite(JsonObject obj, string kind, Dictionary<(string Kind, string Id), string> entityIds, Dictionary<string, string> secretIds)
     {
         var result = (JsonObject)obj.DeepClone();
         void Visit(JsonNode? node)
@@ -312,7 +541,19 @@ public sealed class NativeStore : IDisposable
                     if (value is JsonValue v && v.TryGetValue<string>(out var text))
                     {
                         if (key.EndsWith("Ref", StringComparison.Ordinal)) o[key] = secretIds.TryGetValue(text, out var secret) ? JsonValue.Create(secret) : null;
-                        else if ((key == "id" || key == "key" || key.EndsWith("Id", StringComparison.Ordinal)) && entityIds.TryGetValue(text, out var id)) o[key] = id;
+                        else
+                        {
+                            var targetKind = key switch {
+                                "id" or "key" when ReferenceEquals(o, result) => kind,
+                                "parentId" when kind is "groups" or "snippetGroups" => kind,
+                                "groupId" => kind == "snippets" ? "snippetGroups" : "groups",
+                                "profileId" or "jumpHostId" => "profiles",
+                                "privateKeyId" => "privateKeys",
+                                "proxyId" or "defaultProxyId" => "proxies",
+                                _ => null
+                            };
+                            if (targetKind != null && entityIds.TryGetValue((targetKind, text), out var id)) o[key] = id;
+                        }
                     }
                     else Visit(value);
                 }
@@ -323,7 +564,7 @@ public sealed class NativeStore : IDisposable
     private static bool ContainsReference(JsonNode? node, string id)
     {
         if (node is JsonObject obj)
-            return obj.Any(pair => ((pair.Key.EndsWith("Ref", StringComparison.Ordinal) || pair.Key is "privateKeyId" or "proxyId") && pair.Value is JsonValue value && value.TryGetValue<string>(out var text) && text == id) || ContainsReference(pair.Value, id));
+            return obj.Any(pair => ((pair.Key.EndsWith("Ref", StringComparison.Ordinal) || pair.Key is "privateKeyId" or "proxyId" or "defaultProxyId") && pair.Value is JsonValue value && value.TryGetValue<string>(out var text) && text == id) || ContainsReference(pair.Value, id));
         return node is JsonArray array && array.Any(item => ContainsReference(item, id));
     }
     public void Dispose() { lock (gate) { connection.Dispose(); CryptographicOperations.ZeroMemory(key); } }

@@ -14,6 +14,7 @@ public sealed class NativeMonitorService : IAsyncDisposable
 {
     private readonly NativeSession session;
     private readonly object gate = new();
+    private readonly SemaphoreSlim lifecycle = new(1, 1);
     private CancellationTokenSource? cancellation;
     private Task? worker;
     private NativeMonitorCounters? previousCounters;
@@ -31,20 +32,29 @@ public sealed class NativeMonitorService : IAsyncDisposable
 
     public async Task StartAsync(int intervalMs = 2000, CancellationToken cancellation = default)
     {
-        await StopAsync();
-        this.intervalMs = Math.Clamp(intervalMs, 500, 60000);
-        cancellation.ThrowIfCancellationRequested();
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        await lifecycle.WaitAsync(cancellation);
         try
         {
-            var staticInfo = await ReadStaticAsync(linked.Token);
-            if (staticInfo == null) { SetState(NativeCollectorState.Unsupported, "Remote host does not expose Linux /proc metrics."); return; }
-            StaticInfo = staticInfo; SetState(NativeCollectorState.Running, null);
-            this.cancellation = new CancellationTokenSource();
-            worker = PollAsync(this.cancellation.Token);
+            await StopCoreAsync();
+            previousCounters = null; previousSnapshotMs = 0; failures = 0; StaticInfo = null;
+            Volatile.Write(ref directLatencyMs, double.NaN);
+            this.intervalMs = Math.Clamp(intervalMs, 500, 60000);
+            cancellation.ThrowIfCancellationRequested();
+            var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            lock (gate) this.cancellation = linked;
+            SetState(NativeCollectorState.Starting, null);
+            try
+            {
+                var staticInfo = await ReadStaticAsync(linked.Token);
+                linked.Token.ThrowIfCancellationRequested();
+                if (staticInfo == null) { SetState(NativeCollectorState.Unsupported, "Remote host does not expose Linux /proc metrics."); return; }
+                StaticInfo = staticInfo; SetState(NativeCollectorState.Running, null);
+                worker = PollAsync(linked.Token);
+            }
+            catch (OperationCanceledException) when (linked.IsCancellationRequested) { SetState(NativeCollectorState.Stopped, null); throw; }
+            catch (Exception error) { SetState(NativeCollectorState.Failed, error.Message); throw; }
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { throw; }
-        catch (Exception error) { SetState(NativeCollectorState.Failed, error.Message); throw; }
+        finally { lifecycle.Release(); }
     }
 
     private async Task PollAsync(CancellationToken token)
@@ -119,9 +129,19 @@ public sealed class NativeMonitorService : IAsyncDisposable
     private void SetState(NativeCollectorState state, string? error) { State = state; StateChanged?.Invoke(state, error); }
     public async Task StopAsync()
     {
-        cancellation?.Cancel();
+        // Cancel a pending static read immediately, then serialize teardown with
+        // StartAsync so it cannot publish a worker after StopAsync has returned.
+        lock (gate) cancellation?.Cancel();
+        await lifecycle.WaitAsync();
+        try { await StopCoreAsync(); }
+        finally { lifecycle.Release(); }
+    }
+    private async Task StopCoreAsync()
+    {
+        lock (gate) cancellation?.Cancel();
         if (worker != null) try { await worker; } catch (OperationCanceledException) { }
-        cancellation?.Dispose(); cancellation = null; worker = null; SetState(NativeCollectorState.Stopped, null);
+        lock (gate) { cancellation?.Dispose(); cancellation = null; }
+        worker = null; StaticInfo = null; SetState(NativeCollectorState.Stopped, null);
     }
     public async ValueTask DisposeAsync() => await StopAsync();
 }

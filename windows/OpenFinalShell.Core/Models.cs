@@ -8,19 +8,19 @@ public sealed record ConnectionProfile(string Id, string Name, string Host, int 
     {
         string Required(string key, int max) => data[key]?.GetValue<string>() is { Length: > 0 } value && value.Length <= max
             ? value : throw new InvalidDataException($"Invalid profile {key}");
-        var port = data["port"]?.GetValue<int>() ?? 22;
+        var port = data["port"]?.GetValue<int>() ?? (data["protocol"]?.GetValue<string>() == "rdp" ? 3389 : 22);
         if (port is < 1 or > 65535) throw new InvalidDataException("Invalid port");
         var username = data["username"]?.GetValue<string>() ?? "";
         if (username.Length > 120 || (username.Length == 0 && data["protocol"]?.GetValue<string>() != "rdp"))
             throw new InvalidDataException("Invalid profile username");
-        if (data["auth"]?["method"]?.GetValue<string>() is not ("password" or "privateKey" or "agent"))
+        if (data["protocol"]?.GetValue<string>() != "rdp" && data["auth"]?["method"]?.GetValue<string>() is not ("password" or "privateKey" or "agent"))
             throw new InvalidDataException("Invalid authentication method");
         return new(Required("id", 200), Required("name", 120), Required("host", 255), port, username, (JsonObject)data.DeepClone());
     }
     public override string ToString() => Name;
 }
 
-public sealed record ConnectionGroup(string Id, string Name, double Order, long Revision)
+public sealed record ConnectionGroup(string Id, string Name, double Order, long Revision, string? ParentId = null)
 {
     public static ConnectionGroup FromJson(JsonObject data)
     {
@@ -38,13 +38,14 @@ public sealed record ConnectionGroup(string Id, string Name, double Order, long 
                 ? longRevision
                 : revisionValue.TryGetValue<int>(out var intRevision) ? intRevision : 0
             : 0;
-        return new(id, name, order, revision);
+        return new(id, name, order, revision, data["parentId"]?.GetValue<string>());
     }
 
     public JsonObject ToJson() => new()
     {
         ["id"] = Id,
         ["name"] = Name,
+        ["parentId"] = ParentId,
         ["order"] = Order
     };
 }
@@ -71,6 +72,12 @@ public sealed record NativeDeletePreview(
     bool ContainsSymlink,
     bool Truncated);
 
+public sealed record NativeCommandResult(string StandardOutput, string StandardError, int? ExitCode);
+
+public sealed record NativeFastDeletePreview(string Command, int Count, int Batches);
+
+public sealed record NativeFastDeleteResult(int? ExitCode, IReadOnlyList<string> Leftover, string StandardError);
+
 public sealed record NativeRemoteFileView(
     string RequestedPath,
     string ResolvedPath,
@@ -81,7 +88,8 @@ public sealed record NativeRemoteFileView(
     bool Lossless,
     long Bytes,
     int Mode,
-    DateTime Modified);
+    DateTime Modified,
+    bool MixedNewLines = false);
 
 public enum NativeRemoteSaveKind { Saved, Conflict, NonAtomic, Shrink }
 
@@ -93,4 +101,18 @@ public sealed record NativeRemoteSaveResult(
 
 public sealed record HostKeyChallenge(string Host, int Port, string Algorithm, string Fingerprint, bool Changed);
 public sealed record ImportPreview(JsonObject Data, JsonObject Secrets, int Profiles, int SecretCount, IReadOnlyList<string> MissingPrivateKeys);
+public sealed class NativeImportResult
+{
+    public int Profiles { get; internal set; }
+    public int Groups { get; internal set; }
+    public int Proxies { get; internal set; }
+    public int PrivateKeys { get; internal set; }
+    public int AiProfiles { get; internal set; }
+    public int Snippets { get; internal set; }
+    public int Forwards { get; internal set; }
+    public int KnownHosts { get; internal set; }
+    public int Secrets { get; internal set; }
+    public int Skipped { get; internal set; }
+    public bool SettingsApplied { get; internal set; }
+}
 public enum ImportConflict { Skip, Overwrite, Duplicate }

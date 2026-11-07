@@ -6,19 +6,83 @@ using System.Text.Json.Nodes;
 
 namespace OpenFinalShell.Core;
 
-/** Compatible with Electron/Android v2: scrypt(N=32768,r=8,p=1) + AES-256-GCM. */
+/** Compatible with Electron/Android v1 and v2 exports. */
 public static class ExportEnvelope
 {
-    public const int MaxBytes = 32 * 1024 * 1024;
+    public const int MaxBytes = 64 * 1024 * 1024;
     private static readonly HashSet<string> Collections = ["groups", "profiles", "snippetGroups", "snippets", "proxies", "privateKeys", "forwards", "knownHosts", "aiProfiles"];
-    public static ImportPreview Inspect(ReadOnlySpan<byte> file, string passphrase)
+    public static bool RequiresPassphrase(ReadOnlySpan<byte> file)
     {
-        if (file.Length > MaxBytes || passphrase.Length is < 1 or > 4096) throw new InvalidDataException("Invalid import size or passphrase");
+        if (file.Length > MaxBytes) throw new InvalidDataException("Invalid import size");
         var root = JsonNode.Parse(file, documentOptions: new JsonDocumentOptions { MaxDepth = 32 })?.AsObject() ?? throw new InvalidDataException("Invalid envelope");
-        if (root["app"]?.GetValue<string>() != "openfinalshell" || root["formatVersion"]?.GetValue<int>() != 2)
-            throw new InvalidDataException("Only encrypted v2 exports are accepted");
-        var block = root["enc"]?.AsObject() ?? throw new InvalidDataException("Missing encryption block");
-        if (block["kdf"]?.GetValue<string>() != "scrypt" || block["n"]?.GetValue<int>() != 32768) throw new InvalidDataException("Invalid KDF parameters");
+        if (root["app"]?.GetValue<string>() != "openfinalshell") throw new InvalidDataException("Invalid envelope");
+        var version = root["formatVersion"]?.GetValue<int>() ?? throw new InvalidDataException("Missing format version");
+        if (version == 2) return true;
+        if (version == 1)
+        {
+            if (root.ContainsKey("secrets") && root["secrets"] is not JsonObject) throw new InvalidDataException("Invalid secret block");
+            return root["includesSecrets"]?.GetValue<bool>() == true && root["secrets"] is JsonObject;
+        }
+        throw new InvalidDataException(version > 2 ? "Unsupported newer export version" : "Unsupported export version");
+    }
+
+    public static ImportPreview Inspect(ReadOnlySpan<byte> file, string? passphrase = null)
+    {
+        if (file.Length > MaxBytes || passphrase?.Length > 4096) throw new InvalidDataException("Invalid import size or passphrase");
+        var root = JsonNode.Parse(file, documentOptions: new JsonDocumentOptions { MaxDepth = 32 })?.AsObject() ?? throw new InvalidDataException("Invalid envelope");
+        if (root["app"]?.GetValue<string>() != "openfinalshell") throw new InvalidDataException("Invalid envelope");
+        var version = root["formatVersion"]?.GetValue<int>() ?? throw new InvalidDataException("Missing format version");
+        if (version is not (1 or 2)) throw new InvalidDataException("Unsupported export version");
+        if (root["includesSecrets"] is JsonValue includesSecrets && !includesSecrets.TryGetValue<bool>(out _))
+            throw new InvalidDataException("Invalid includesSecrets flag");
+
+        var secrets = new JsonObject();
+        JsonObject data;
+        if (version == 2)
+        {
+            if (string.IsNullOrEmpty(passphrase)) throw new InvalidDataException("Passphrase required for encrypted export");
+            var block = root["enc"]?.AsObject() ?? throw new InvalidDataException("Missing encryption block");
+            var payloadBytes = DecryptBlock(block, passphrase);
+            try
+            {
+                var payload = JsonNode.Parse(payloadBytes, documentOptions: new JsonDocumentOptions { MaxDepth = 32 })?.AsObject()
+                    ?? throw new InvalidDataException("Invalid encrypted payload");
+                data = payload["data"]?.AsObject() ?? throw new InvalidDataException("Missing export data");
+                if (payload["secrets"] is not null and not JsonObject) throw new InvalidDataException("Invalid secret map");
+                secrets = ReadSecrets(payload["secrets"] as JsonObject ?? new JsonObject());
+            }
+            finally { CryptographicOperations.ZeroMemory(payloadBytes); }
+        }
+        else
+        {
+            data = root["data"]?.AsObject() ?? throw new InvalidDataException("Missing export data");
+            if (root["includesSecrets"]?.GetValue<bool>() == true && root["secrets"] is JsonObject block)
+            {
+                if (string.IsNullOrEmpty(passphrase)) throw new InvalidDataException("Passphrase required for encrypted credentials");
+                var secretBytes = DecryptBlock(block, passphrase);
+                try
+                {
+                    var secretObject = JsonNode.Parse(secretBytes, documentOptions: new JsonDocumentOptions { MaxDepth = 8 })?.AsObject()
+                        ?? throw new InvalidDataException("Invalid secret map");
+                    secrets = ReadSecrets(secretObject);
+                }
+                finally { CryptographicOperations.ZeroMemory(secretBytes); }
+            }
+        }
+
+        var clean = ValidateData(data);
+        var missing = (clean["privateKeys"] as JsonArray ?? []).OfType<JsonObject>()
+            .Select(k => k["path"]?.GetValue<string>() ?? k["name"]?.GetValue<string>() ?? k["id"]!.GetValue<string>())
+            .Where(p => !File.Exists(p)).ToArray();
+        return new(clean, secrets, (clean["profiles"] as JsonArray)?.Count ?? 0, secrets.Count, missing);
+    }
+
+    private static byte[] DecryptBlock(JsonObject block, string passphrase)
+    {
+        if (passphrase.Length is < 1 or > 4096) throw new InvalidDataException("Invalid passphrase");
+        var workFactor = block["n"]?.GetValue<int>() ?? throw new InvalidDataException("Missing KDF work factor");
+        if (block["kdf"]?.GetValue<string>() != "scrypt" || workFactor is < 4096 or > 131072 || (workFactor & (workFactor - 1)) != 0)
+            throw new InvalidDataException("Invalid KDF parameters");
         byte[] Decode(string name, int? length = null)
         {
             var value = Convert.FromBase64String(block[name]!.GetValue<string>());
@@ -30,45 +94,42 @@ public static class ExportEnvelope
         var password = Encoding.UTF8.GetBytes(passphrase); byte[]? key = null; var plain = new byte[cipher.Length];
         try
         {
-            key = SCrypt.Generate(password, salt, 32768, 8, 1, 32);
+            key = SCrypt.Generate(password, salt, workFactor, 8, 1, 32);
             using var aes = new AesGcm(key, 16); aes.Decrypt(iv, cipher, tag, plain);
-            var payload = JsonNode.Parse(plain, documentOptions: new JsonDocumentOptions { MaxDepth = 32 })!.AsObject();
-            var data = payload["data"]?.AsObject() ?? throw new InvalidDataException("Missing export data");
-            var secrets = payload["secrets"]?.AsObject() ?? new();
-            if (secrets.Count > 10000 || secrets.Any(v => v.Key.Length > 128 || v.Value is not JsonValue j || !j.TryGetValue<string>(out _))) throw new InvalidDataException("Invalid secret map");
-            var clean = new JsonObject();
-            foreach (var kind in Collections)
-            {
-                if (data[kind] is not JsonArray array) continue;
-                if (array.Count > 10000 || array.Any(v => v is not JsonObject)) throw new InvalidDataException("Invalid collection");
-                var ids = new HashSet<string>();
-                foreach (var item in array.OfType<JsonObject>())
-                {
-                    var id = (item["id"] ?? item["key"])?.GetValue<string>();
-                    if (string.IsNullOrWhiteSpace(id) || id.Length > 512 || !ids.Add(id)) throw new InvalidDataException("Invalid or duplicate entity id");
-                    if (kind == "profiles") _ = ConnectionProfile.FromJson(item);
-                }
-                clean[kind] = array.DeepClone();
-            }
-            // Imported settings never select executables, environment facts or an update channel.
-            if (data["settings"] is JsonObject settings)
-            {
-                var safe = new JsonObject();
-                if (settings["themeMode"]?.GetValue<string>() is "dark" or "light" or "system") safe["themeMode"] = settings["themeMode"]!.DeepClone();
-                if (settings["language"] is JsonValue language && language.TryGetValue<string>(out var languageTag) && languageTag.Length <= 32) safe["language"] = languageTag;
-                if (settings["reduceTransparency"] is JsonValue transparency && transparency.TryGetValue<bool>(out var reduce)) safe["reduceTransparency"] = reduce;
-                clean["settings"] = safe;
-            }
-            var missing = (clean["privateKeys"] as JsonArray ?? []).OfType<JsonObject>()
-                .Select(k => k["path"]?.GetValue<string>() ?? k["name"]?.GetValue<string>() ?? k["id"]!.GetValue<string>())
-                .Where(p => !File.Exists(p)).ToArray();
-            return new(clean, (JsonObject)secrets.DeepClone(), (clean["profiles"] as JsonArray)?.Count ?? 0, secrets.Count, missing);
+            return plain.ToArray();
         }
         finally
         {
             CryptographicOperations.ZeroMemory(password); CryptographicOperations.ZeroMemory(plain);
             if (key != null) CryptographicOperations.ZeroMemory(key);
         }
+    }
+
+    private static JsonObject ReadSecrets(JsonObject secrets)
+    {
+        if (secrets.Count > 10000 || secrets.Any(v => v.Key.Length is < 1 or > 512 || v.Value is not JsonValue j || !j.TryGetValue<string>(out _)))
+            throw new InvalidDataException("Invalid secret map");
+        return (JsonObject)secrets.DeepClone();
+    }
+
+    private static JsonObject ValidateData(JsonObject data)
+    {
+        var clean = new JsonObject();
+        foreach (var kind in Collections)
+        {
+            if (data[kind] is not JsonArray array) continue;
+            if (array.Count > 10000 || array.Any(v => v is not JsonObject)) throw new InvalidDataException("Invalid collection");
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in array.OfType<JsonObject>())
+            {
+                var id = (item["id"] ?? item["key"])?.GetValue<string>();
+                if (string.IsNullOrWhiteSpace(id) || id.Length > 512 || !ids.Add(id)) throw new InvalidDataException("Invalid or duplicate entity id");
+                if (kind == "profiles") _ = ConnectionProfile.FromJson(item);
+            }
+            clean[kind] = array.DeepClone();
+        }
+        if (data["settings"] is JsonObject settings) clean["settings"] = NativeSettings.Portable(settings);
+        return clean;
     }
     public static byte[] Export(NativeStore store, string passphrase, bool includeSecrets = true)
     {
@@ -86,7 +147,7 @@ public static class ExportEnvelope
         }
         foreach (var kind in Collections)
         {
-            var items = store.List(kind).Select(v => { var copy = (JsonObject)v.DeepClone(); copy.Remove("_revision"); copy.Remove("materialRef"); return (JsonNode)copy; }).ToArray();
+            var items = (kind == "aiProfiles" ? NativeAiService.ExportProfiles(store) : store.List(kind)).Select(v => { var copy = (JsonObject)v.DeepClone(); copy.Remove("_revision"); copy.Remove("materialRef"); return (JsonNode)copy; }).ToArray();
             data[kind] = new JsonArray(items);
         }
         if (store.Find("settings", "settings") is { } settings) { settings.Remove("_revision"); settings.Remove("id"); data["settings"] = settings; }
@@ -100,7 +161,7 @@ public static class ExportEnvelope
             using var aes = new AesGcm(keyBytes, 16); aes.Encrypt(iv, bytes, cipher, tag);
             return Encoding.UTF8.GetBytes(new JsonObject {
                 ["app"] = "openfinalshell", ["formatVersion"] = 2, ["appVersion"] = "native-preview", ["exportedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ["includesSecrets"] = true, ["note"] = "Encrypted native preview export",
+                ["includesSecrets"] = includeSecrets, ["note"] = "Encrypted native preview export",
                 ["enc"] = new JsonObject { ["kdf"] = "scrypt", ["n"] = 32768, ["salt"] = Convert.ToBase64String(salt), ["iv"] = Convert.ToBase64String(iv), ["tag"] = Convert.ToBase64String(tag), ["cipher"] = Convert.ToBase64String(cipher) }
             }.ToJsonString());
         }

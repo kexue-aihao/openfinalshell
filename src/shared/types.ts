@@ -1159,6 +1159,7 @@ export type ImportConflictPolicy = 'skip' | 'overwrite' | 'duplicate'
 /** 勾选导入哪几部分（profiles 连带分组与密码一起） */
 export interface ImportSelection {
   profiles: boolean
+  aiProfiles: boolean
   snippets: boolean
   forwards: boolean
   knownHosts: boolean
@@ -1185,6 +1186,7 @@ export interface ImportPreview {
     groups: number
     proxies: number
     privateKeys: number
+    aiProfiles: number
     snippets: number
     forwards: number
     knownHosts: number
@@ -1194,6 +1196,8 @@ export interface ImportPreview {
   invalid: number
   /** 与本机现有连接 id 相同的条数 */
   conflicts: number
+  /** 与本机现有 AI provider id 相同的条数 */
+  aiConflicts: number
 }
 
 export interface ImportApplyOptions {
@@ -1210,6 +1214,7 @@ export interface ImportResult {
   /** 可复用的代理与私钥（跟着 profiles 那个开关一起导入） */
   proxies: number
   privateKeys: number
+  aiProfiles: number
   snippets: number
   forwards: number
   knownHosts: number
@@ -1265,6 +1270,10 @@ export interface LanSyncSendState {
   /** applied 阶段：对方回报的落库计数 */
   remoteResult?: {
     profiles: number
+    groups?: number
+    proxies?: number
+    privateKeys?: number
+    aiProfiles: number
     snippets: number
     forwards: number
     knownHosts: number

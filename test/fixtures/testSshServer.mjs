@@ -223,6 +223,11 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
               stream.write(`${ptyInfo.cols}x${ptyInfo.rows}\r\n`)
               return prompt()
             }
+            if (cmd === 'fixture-osc7-beta') {
+              stream.write('\x1b]7;file://fixture/be')
+              setTimeout(() => { if (!stream.destroyed) { stream.write('ta\x1b\\'); prompt() } }, 25)
+              return
+            }
             if (cmd.startsWith('echo ')) {
               stream.write(`${cmd.slice(5)}\r\n`)
               return prompt()
@@ -446,6 +451,10 @@ function attachFakeShell(stream) {
  * 只实现客户端会用到的操作，够验证传输管线；不做权限模拟。
  */
 function attachSftp(sftp) {
+  // Optional protocol metadata for permission/order assertions. No file contents.
+  const audit = (entry) => {
+    if (process.env.OFS_TEST_SFTP_AUDIT_FILE) fs.appendFileSync(process.env.OFS_TEST_SFTP_AUDIT_FILE, JSON.stringify(entry) + '\n')
+  }
   /** 句柄表：4 字节整数 handle → { fd, path } 或 { dirEntries, offset } */
   const handles = new Map()
   let nextHandle = 1
@@ -463,7 +472,8 @@ function attachSftp(sftp) {
     const normalized = path.posix.normalize(remote.replace(/\\/g, '/'))
     const rel = normalized.replace(/^\/+/, '')
     const abs = path.resolve(sftpRoot, rel)
-    if (!abs.startsWith(sftpRoot)) throw new Error('path escapes root')
+    const relative = path.relative(path.resolve(sftpRoot), abs)
+    if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('path escapes root')
     return abs
   }
 
@@ -492,10 +502,16 @@ function attachSftp(sftp) {
   sftp.on('REALPATH', (reqid, givenPath) => {
     try {
       const target = givenPath === '.' || givenPath === '' ? '/' : path.posix.normalize(givenPath)
-      const st = fs.statSync(local(target))
-      sftp.name(reqid, [{ filename: target, longname: longname(target, st), attrs: toAttrs(st) }])
-    } catch {
-      sftp.name(reqid, [{ filename: '/', longname: 'd--------- 1 test test 0 Jan 1 00:00 /', attrs: {} }])
+      const real = fs.realpathSync(local(target))
+      const relative = path.relative(fs.realpathSync(sftpRoot), real)
+      if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('path escapes root')
+      const resolved = '/' + relative.split(path.sep).join('/')
+      const st = fs.statSync(real)
+      sftp.name(reqid, [{ filename: resolved, longname: longname(resolved, st), attrs: toAttrs(st) }])
+    } catch (err) {
+      // Never report a missing target as the existing root directory. Clients
+      // use REALPATH while checking overwrite conflicts and preparing renames.
+      sftp.status(reqid, statusFromError(err))
     }
   })
 
@@ -530,17 +546,22 @@ function attachSftp(sftp) {
     if (h.offset >= h.entries.length) return sftp.status(reqid, SFTP_STATUS_CODE.EOF)
     const chunk = h.entries.slice(h.offset, h.offset + 50)
     h.offset += chunk.length
-    sftp.name(reqid, chunk)
+    const delayMs = Math.min(2000, Math.max(0, Number(process.env.OFS_TEST_SFTP_DIRECTORY_DELAY_MS) || 0))
+    if (delayMs) setTimeout(() => { if (!sftp.destroyed) sftp.name(reqid, chunk) }, delayMs)
+    else sftp.name(reqid, chunk)
   })
 
   sftp.on('OPEN', (reqid, filename, flags) => {
     try {
-      let mode = 'r'
-      if (flags & SFTP_OPEN_MODE.APPEND) mode = 'a'
-      else if (flags & SFTP_OPEN_MODE.TRUNC || flags & SFTP_OPEN_MODE.CREAT) mode = 'w'
-      if (flags & SFTP_OPEN_MODE.WRITE && mode === 'r') mode = 'r+'
+      const reading = Boolean(flags & SFTP_OPEN_MODE.READ)
+      const writing = Boolean(flags & SFTP_OPEN_MODE.WRITE)
+      let mode = reading && writing ? fsConstants.O_RDWR : writing ? fsConstants.O_WRONLY : fsConstants.O_RDONLY
+      if (flags & SFTP_OPEN_MODE.APPEND) mode |= fsConstants.O_APPEND
+      if (flags & SFTP_OPEN_MODE.CREAT) mode |= fsConstants.O_CREAT
+      if (flags & SFTP_OPEN_MODE.TRUNC) mode |= fsConstants.O_TRUNC
+      if (flags & SFTP_OPEN_MODE.EXCL) mode |= fsConstants.O_EXCL
       const fd = fs.openSync(local(filename), mode)
-      sftp.handle(reqid, makeHandle({ fd }))
+      sftp.handle(reqid, makeHandle({ fd, path: filename }))
     } catch (err) {
       sftp.status(reqid, statusFromError(err))
     }
@@ -568,6 +589,7 @@ function attachSftp(sftp) {
       if (sftp.destroyed) return
       try {
         fs.writeSync(h.fd, data, 0, data.length, offset)
+        audit({ operation: 'write', path: h.path, bytes: data.length })
         sftp.status(reqid, SFTP_STATUS_CODE.OK)
       } catch (err) {
         sftp.status(reqid, statusFromError(err))
@@ -602,6 +624,7 @@ function attachSftp(sftp) {
   sftp.on('SETSTAT', (reqid, p, attrs) =>
     simple(reqid, () => {
       if (attrs.mode !== undefined) fs.chmodSync(local(p), attrs.mode & 0o7777)
+      audit({ operation: 'setstat', path: p, mode: attrs.mode })
     })
   )
   sftp.on('FSETSTAT', (reqid) => sftp.status(reqid, SFTP_STATUS_CODE.OK))

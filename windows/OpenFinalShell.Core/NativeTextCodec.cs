@@ -9,6 +9,22 @@ namespace OpenFinalShell.Core;
 /// </summary>
 public static class NativeTextCodec
 {
+    static NativeTextCodec() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+    public static (string Text, NativeTextEncoding Encoding, bool HasBom, bool Lossless) DecodeForEditing(ReadOnlySpan<byte> bytes, NativeTextEncoding? requested = null)
+    {
+        var detected = Detect(bytes);
+        var encoding = requested ?? detected.Encoding;
+        if (LooksBinary(bytes, encoding)) throw new InvalidDataException("The file appears to contain binary data; download it instead of opening it as text.");
+        // A requested charset is a re-decode, not an encoding conversion. Strip
+        // only a real BOM that belongs to that charset; never drop leading bytes.
+        var sameUnicode = encoding == detected.Encoding ||
+            (encoding is NativeTextEncoding.Utf8 or NativeTextEncoding.Utf8Bom) && (detected.Encoding is NativeTextEncoding.Utf8 or NativeTextEncoding.Utf8Bom);
+        var bomLength = sameUnicode ? detected.BomLength : 0;
+        var text = Decode(bytes, encoding, bomLength);
+        var hasBom = bomLength > 0;
+        return (text, encoding, hasBom, IsLossless(text, bytes, encoding, hasBom));
+    }
     public static (NativeTextEncoding Encoding, int BomLength, bool HasBom) Detect(ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) return (NativeTextEncoding.Utf8Bom, 3, true);
@@ -40,12 +56,28 @@ public static class NativeTextCodec
 
     public static string NormalizeToLf(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
 
+    public static (string NewLine, bool Mixed) AnalyzeNewLines(string text)
+    {
+        var lf = 0; var crlf = 0; var bareCr = 0;
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (text[index] == '\n') { lf++; if (index > 0 && text[index - 1] == '\r') crlf++; }
+            else if (text[index] == '\r' && (index + 1 == text.Length || text[index + 1] != '\n')) bareCr++;
+        }
+        // Match the shared editor's majority choice (ties choose LF). A bare
+        // CR will also be normalized on save, so expose that warning as well.
+        return (crlf * 2 > lf ? "\r\n" : "\n", crlf > 0 && crlf < lf || bareCr > 0);
+    }
+
     public static string NormalizeFromLf(string text, string eol) => eol == "\r\n"
         ? NormalizeToLf(text).Replace("\n", "\r\n", StringComparison.Ordinal)
         : NormalizeToLf(text);
 
     public static bool IsLossless(string text, ReadOnlySpan<byte> original, NativeTextEncoding encoding, bool hasBom)
-        => Encode(text, encoding, hasBom).AsSpan().SequenceEqual(original);
+    {
+        try { return Encode(text, encoding, hasBom).AsSpan().SequenceEqual(original); }
+        catch (EncoderFallbackException) { return false; }
+    }
 
     public static bool LooksBinary(ReadOnlySpan<byte> bytes, NativeTextEncoding detectedEncoding)
     {
@@ -73,15 +105,18 @@ public static class NativeTextCodec
         return controls > Math.Max(2, bytes.Length / 100);
     }
 
-    private static Encoding GetEncoding(NativeTextEncoding encoding) => encoding switch
+    private static Encoding GetEncoding(NativeTextEncoding encoding) => Encoding.GetEncoding(encoding switch
     {
-        NativeTextEncoding.Utf16Le => Encoding.Unicode,
-        NativeTextEncoding.Utf16Be => Encoding.BigEndianUnicode,
-        NativeTextEncoding.Windows1252 => Encoding.GetEncoding(1252),
-        NativeTextEncoding.ShiftJis => Encoding.GetEncoding(932),
-        NativeTextEncoding.Gb18030 => Encoding.GetEncoding(936),
-        _ => new UTF8Encoding(false, true)
-    };
+        NativeTextEncoding.Utf16Le => 1200,
+        NativeTextEncoding.Utf16Be => 1201,
+        NativeTextEncoding.Windows1252 => 1252,
+        NativeTextEncoding.ShiftJis => 932,
+        NativeTextEncoding.Gb18030 => 54936,
+        NativeTextEncoding.Gbk => 936,
+        NativeTextEncoding.Big5 => 950,
+        NativeTextEncoding.Latin1 => 28591,
+        _ => 65001
+    }, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback);
 
     private static bool LooksUtf8(ReadOnlySpan<byte> bytes)
     {

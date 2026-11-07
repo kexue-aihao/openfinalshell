@@ -124,6 +124,10 @@ const frameSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('applied'),
     profiles: z.number().int().min(0),
+    groups: z.number().int().min(0).optional().default(0),
+    proxies: z.number().int().min(0).optional().default(0),
+    privateKeys: z.number().int().min(0).optional().default(0),
+    aiProfiles: z.number().int().min(0).optional().default(0),
     snippets: z.number().int().min(0),
     forwards: z.number().int().min(0),
     knownHosts: z.number().int().min(0),

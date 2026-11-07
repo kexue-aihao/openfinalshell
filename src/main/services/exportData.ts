@@ -68,6 +68,8 @@ interface ExportData {
   /** 可复用的代理与私钥（v0.4 起）。连接按 id 引用它们，所以必须一起导出 */
   proxies: unknown[]
   privateKeys: unknown[]
+  /** AI provider metadata; apiKeyRef resolves through the encrypted secrets map. */
+  aiProfiles: unknown[]
 }
 
 interface Envelope {
@@ -117,6 +119,26 @@ function collect(): ExportData {
         return portable
       }
     ),
+    aiProfiles: rows<{
+      id: string
+      name: string
+      base_url: string
+      model: string
+      enabled: number
+      secret_ref: string | null
+      created_at: number
+      updated_at: number
+    }>('SELECT id, name, base_url, model, enabled, secret_ref, created_at, updated_at FROM ai_profiles ORDER BY created_at').map((p) => ({
+      id: p.id,
+      name: p.name,
+      baseUrl: p.base_url,
+      model: p.model,
+      enabled: p.enabled !== 0,
+      apiKeyRef: p.secret_ref ?? undefined,
+      hasToken: p.secret_ref !== null,
+      createdAt: p.created_at,
+      updatedAt: p.updated_at
+    })),
     forwards: json('SELECT json FROM forwards'),
     // key 列现在是决定论 token；导出的是可移植的明文 "host:port:keyType"（老行 host_enc 为空时回落 key）
     knownHosts: rows<{
@@ -198,6 +220,9 @@ function referencedRefs(data: ExportData): string[] {
   }
   for (const k of data.privateKeys as Array<{ passphraseRef?: string }>) {
     if (k.passphraseRef) refs.add(k.passphraseRef)
+  }
+  for (const profile of data.aiProfiles as Array<{ apiKeyRef?: string }>) {
+    if (profile.apiKeyRef) refs.add(profile.apiKeyRef)
   }
   return [...refs]
 }

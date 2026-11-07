@@ -1,5 +1,6 @@
 #include "ofs_terminal.h"
 #include "vterm.h"
+#include "vterm_internal.h"
 #include "vterm_keycodes.h"
 #include <stdlib.h>
 #include <string.h>
@@ -80,11 +81,36 @@ size_t ofs_terminal_feed(ofs_terminal *t, const char *bytes, size_t length) {
 int ofs_terminal_resize(ofs_terminal *t, int rows, int cols) {
   if (!t || rows < 1 || cols < 1) return 0;
   if (cols != t->cols) {
-    VTermScreenCell *next = calloc((size_t)t->scrollback_capacity * (size_t)cols, sizeof(VTermScreenCell));
-    if (!next) return 0;
-    free(t->scrollback); t->scrollback = next; t->scrollback_count = 0; t->scrollback_start = 0;
+    if ((size_t)t->scrollback_capacity * (size_t)cols > (256U * 1024U * 1024U) / sizeof(VTermScreenCell)) return 0;
+    VTermScreenCell *next = t->scrollback_capacity ? calloc((size_t)t->scrollback_capacity * (size_t)cols, sizeof(VTermScreenCell)) : NULL;
+    if (t->scrollback_capacity && !next) return 0;
+    for (int line = 0; line < t->scrollback_count; line++) {
+      int index = (t->scrollback_start + line) % t->scrollback_capacity;
+      memcpy(next + (size_t)line * (size_t)cols, t->scrollback + (size_t)index * (size_t)t->cols,
+        sizeof(VTermScreenCell) * (size_t)(cols < t->cols ? cols : t->cols));
+    }
+    free(t->scrollback); t->scrollback = next; t->scrollback_start = 0;
   }
   vterm_set_size(t->vt, rows, cols); t->rows = rows; t->cols = cols; return 1;
+}
+int ofs_terminal_set_scrollback_limit(ofs_terminal *t, int lines) {
+  if (!t || lines < 0 || lines > 100000) return 0;
+  /* Bound allocations even for a very wide terminal. */
+  if ((size_t)lines * (size_t)t->cols > (256U * 1024U * 1024U) / sizeof(VTermScreenCell)) return 0;
+  VTermScreenCell *next = lines ? calloc((size_t)lines * (size_t)t->cols, sizeof(VTermScreenCell)) : NULL;
+  if (lines && !next) return 0;
+  int count = t->scrollback_count < lines ? t->scrollback_count : lines;
+  for (int line = 0; line < count; line++) {
+    int index = (t->scrollback_start + t->scrollback_count - count + line) % t->scrollback_capacity;
+    memcpy(next + (size_t)line * (size_t)t->cols, t->scrollback + (size_t)index * (size_t)t->cols, sizeof(VTermScreenCell) * (size_t)t->cols);
+  }
+  free(t->scrollback); t->scrollback = next; t->scrollback_capacity = lines; t->scrollback_count = count; t->scrollback_start = 0;
+  return 1;
+}
+void ofs_terminal_clear(ofs_terminal *t) {
+  if (!t) return;
+  t->scrollback_count = 0; t->scrollback_start = 0;
+  vterm_screen_reset(t->screen, 1);
 }
 size_t ofs_terminal_read_text(ofs_terminal *t, char *buffer, size_t capacity) {
   if (!t || !buffer || capacity == 0) return 0;
@@ -143,6 +169,9 @@ int ofs_terminal_get_scrollback_codepoints(ofs_terminal *t, int line, int col, u
 }
 int ofs_terminal_alt_screen(ofs_terminal *t) { return t ? t->alt_screen : 0; }
 int ofs_terminal_mouse_mode(ofs_terminal *t) { return t ? t->mouse_mode : 0; }
+int ofs_terminal_bracketed_paste(ofs_terminal *t) {
+  return t ? (int)vterm_obtain_state(t->vt)->mode.bracketpaste : 0;
+}
 
 static VTermModifier modifiers(int value) {
   return (VTermModifier)(value & VTERM_ALL_MODS_MASK);

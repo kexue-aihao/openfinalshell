@@ -157,7 +157,7 @@ describe('整文件加密导出 v2 → 导入 往返', () => {
       token: preview!.token,
       passphrase: 'correct horse battery',
       conflict: 'skip',
-      include: { profiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
+      include: { profiles: true, aiProfiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
     })
     expect(res.profiles).toBe(1)
     const p = getProfile('srv1')!
@@ -174,7 +174,7 @@ describe('整文件加密导出 v2 → 导入 往返', () => {
         token: preview!.token,
         passphrase: 'wrong passphrase',
         conflict: 'skip',
-        include: { profiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
+        include: { profiles: true, aiProfiles: true, snippets: true, forwards: true, knownHosts: true, settings: false }
       })
     ).rejects.toThrow()
   })

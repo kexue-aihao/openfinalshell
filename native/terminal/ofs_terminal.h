@@ -22,6 +22,8 @@ OFS_API ofs_terminal *ofs_terminal_create(int rows, int cols);
 OFS_API void ofs_terminal_destroy(ofs_terminal *terminal);
 OFS_API size_t ofs_terminal_feed(ofs_terminal *terminal, const char *bytes, size_t length);
 OFS_API int ofs_terminal_resize(ofs_terminal *terminal, int rows, int cols);
+OFS_API int ofs_terminal_set_scrollback_limit(ofs_terminal *terminal, int lines);
+OFS_API void ofs_terminal_clear(ofs_terminal *terminal);
 OFS_API size_t ofs_terminal_read_text(ofs_terminal *terminal, char *buffer, size_t capacity);
 OFS_API int ofs_terminal_cursor_row(ofs_terminal *terminal);
 OFS_API int ofs_terminal_cursor_col(ofs_terminal *terminal);
@@ -32,6 +34,7 @@ OFS_API int ofs_terminal_get_scrollback_cell(ofs_terminal *terminal, int line, i
 OFS_API int ofs_terminal_get_scrollback_codepoints(ofs_terminal *terminal, int line, int col, uint32_t *codepoints, int capacity);
 OFS_API int ofs_terminal_alt_screen(ofs_terminal *terminal);
 OFS_API int ofs_terminal_mouse_mode(ofs_terminal *terminal);
+OFS_API int ofs_terminal_bracketed_paste(ofs_terminal *terminal);
 /* Input helpers use libvterm's active application/keypad/mouse modes. */
 OFS_API int ofs_terminal_key(ofs_terminal *terminal, int key, int modifiers);
 OFS_API int ofs_terminal_unichar(ofs_terminal *terminal, uint32_t codepoint, int modifiers);

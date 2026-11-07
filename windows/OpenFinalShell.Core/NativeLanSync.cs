@@ -17,8 +17,25 @@ namespace OpenFinalShell.Core;
 
 public sealed record NativeLanSyncDevice(string DeviceId, string DeviceName, string AppVersion, string Address, int TcpPort);
 public sealed record NativeLanSyncPreview(string Token, string DeviceName, string Address, ImportPreview Import);
-public sealed record NativeLanSyncState(string Phase, string? PairingCode, int? TcpPort, NativeLanSyncDevice? Peer, NativeLanSyncPreview? Incoming, string? Error);
-public sealed record NativeLanSyncImportResult(int Profiles, int Snippets, int Forwards, int KnownHosts, int Secrets, int Skipped);
+public sealed record NativeLanSyncImportResult(
+    int Profiles,
+    int Groups,
+    int Proxies,
+    int PrivateKeys,
+    int AiProfiles,
+    int Snippets,
+    int Forwards,
+    int KnownHosts,
+    int Secrets,
+    int Skipped);
+public sealed record NativeLanSyncState(
+    string Phase,
+    string? PairingCode,
+    int? TcpPort,
+    NativeLanSyncDevice? Peer,
+    NativeLanSyncPreview? Incoming,
+    string? Error,
+    NativeLanSyncImportResult? LastResult = null);
 
 /// <summary>Protocol primitives shared by the native LAN sync implementation.</summary>
 public static class NativeLanSyncProtocol
@@ -65,7 +82,7 @@ public static class NativeLanSyncProtocol
             case "hello-ack": Required(frame, "deviceId", 64); Required(frame, "deviceName", 128); Required(frame, "appVersion", 32); Required(frame, "receiverPub", 128); Required(frame, "salt", 64); Required(frame, "sessionId", 64); break;
             case "confirm-s": case "confirm-r": Required(frame, "mac", 128); break;
             case "payload": if (Required(frame, "envelope", MaxFrameBytes).Length > MaxFrameBytes) throw new InvalidDataException("LAN sync payload too large."); break;
-            case "applied": foreach (var key in new[] { "profiles", "snippets", "forwards", "knownHosts", "secrets", "skipped" }) if (frame[key]?.GetValue<int>() is < 0) throw new InvalidDataException("Invalid LAN sync result."); break;
+            case "applied": foreach (var key in new[] { "profiles", "groups", "proxies", "privateKeys", "aiProfiles", "snippets", "forwards", "knownHosts", "secrets", "skipped" }) if (frame[key]?.GetValue<int>() is < 0) throw new InvalidDataException("Invalid LAN sync result."); break;
             case "error": Required(frame, "code", 64); break;
         }
     }
@@ -222,15 +239,40 @@ public sealed class NativeLanSyncService : IDisposable
         catch { if (ReferenceEquals(sendSocket, socket)) CancelSend(); throw; }
     }
 
-    public async Task<NativeLanSyncImportResult> ApplyIncomingAsync(string token, ImportConflict conflict, CancellationToken cancellation = default)
+    public async Task<NativeLanSyncImportResult> ApplyIncomingAsync(string token, ImportConflict conflict, CancellationToken cancellation = default, ImportPreview? selected = null)
     {
         ReceiveSession session;
         lock (gate) { session = incoming ?? throw new InvalidOperationException("No LAN sync import is waiting for confirmation."); if (session.Token != token) throw new InvalidOperationException("LAN sync preview expired."); }
         cancellation.ThrowIfCancellationRequested(); SetState(State with { Phase = "applying" });
-        store.Import(session.Preview, conflict);
-        var result = new NativeLanSyncImportResult(session.Preview.Profiles, Count(session.Preview.Data, "snippets"), Count(session.Preview.Data, "forwards"), Count(session.Preview.Data, "knownHosts"), session.Preview.SecretCount, 0);
+        var preview = selected ?? session.Preview;
+        NativeImportResult imported;
+        try
+        {
+            imported = store.Import(preview, conflict);
+        }
+        catch
+        {
+            // Import is transactional. Keep the authenticated preview alive so
+            // the native confirmation surface can show the error and retry.
+            SetState(State with { Phase = "incoming", Error = null });
+            throw;
+        }
+        var result = new NativeLanSyncImportResult(
+            imported.Profiles, imported.Groups, imported.Proxies, imported.PrivateKeys,
+            imported.AiProfiles, imported.Snippets, imported.Forwards,
+            imported.KnownHosts, imported.Secrets, imported.Skipped);
         lock (gate) { incoming = null; } Interlocked.Exchange(ref incomingBusy, 0);
-        try { await WriteAsync(session.Stream, new JsonObject { ["kind"] = "applied", ["profiles"] = result.Profiles, ["snippets"] = result.Snippets, ["forwards"] = result.Forwards, ["knownHosts"] = result.KnownHosts, ["secrets"] = result.Secrets, ["skipped"] = result.Skipped }, cancellation); } catch { /* data is committed; receipt delivery is best effort */ }
+        try
+        {
+            await WriteAsync(session.Stream, new JsonObject {
+                ["kind"] = "applied", ["profiles"] = result.Profiles, ["groups"] = result.Groups,
+                ["proxies"] = result.Proxies, ["privateKeys"] = result.PrivateKeys,
+                ["aiProfiles"] = result.AiProfiles, ["snippets"] = result.Snippets,
+                ["forwards"] = result.Forwards, ["knownHosts"] = result.KnownHosts,
+                ["secrets"] = result.Secrets, ["skipped"] = result.Skipped
+            }, cancellation);
+        }
+        catch { /* data is committed; receipt delivery is best effort */ }
         session.Dispose(); SetState(new("waiting", RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6"), State.TcpPort, null, null, null)); return result;
     }
     public void RejectIncoming(string token)
@@ -253,7 +295,21 @@ public sealed class NativeLanSyncService : IDisposable
         {
             var response = await ReadAsync(stream, cancellation);
             var kind = response["kind"]?.GetValue<string>();
-            if (kind == "applied") SetState(new("applied", null, null, State.Peer, null, null));
+            if (kind == "applied")
+            {
+                var result = new NativeLanSyncImportResult(
+                    response["profiles"]?.GetValue<int>() ?? 0,
+                    response["groups"]?.GetValue<int>() ?? 0,
+                    response["proxies"]?.GetValue<int>() ?? 0,
+                    response["privateKeys"]?.GetValue<int>() ?? 0,
+                    response["aiProfiles"]?.GetValue<int>() ?? 0,
+                    response["snippets"]?.GetValue<int>() ?? 0,
+                    response["forwards"]?.GetValue<int>() ?? 0,
+                    response["knownHosts"]?.GetValue<int>() ?? 0,
+                    response["secrets"]?.GetValue<int>() ?? 0,
+                    response["skipped"]?.GetValue<int>() ?? 0);
+                SetState(new("applied", null, null, State.Peer, null, null, result));
+            }
             else if (kind == "rejected") SetState(new("rejected", null, null, State.Peer, null, null));
             else if (kind == "error") SetState(State with { Phase = "error", Error = response["code"]?.GetValue<string>() });
             else SetState(State with { Phase = "error", Error = "Unexpected LAN sync response." });
@@ -262,7 +318,6 @@ public sealed class NativeLanSyncService : IDisposable
         catch (Exception error) { SetState(State with { Phase = "error", Error = error.Message }); }
         finally { try { socket.Dispose(); } catch { } if (ReferenceEquals(sendSocket, socket)) { sendSocket = null; sendCancellation?.Dispose(); sendCancellation = null; } }
     }
-    private static int Count(JsonObject data, string kind) => data[kind] is JsonArray array ? array.Count : 0;
     private async Task AcceptLoopAsync(TcpListener source, CancellationToken cancellation)
     {
         while (!cancellation.IsCancellationRequested)

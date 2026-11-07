@@ -437,6 +437,10 @@ class LanSyncManager {
       safeSend(r.socket, {
         kind: 'applied',
         profiles: result.profiles,
+        groups: result.groups,
+        proxies: result.proxies,
+        privateKeys: result.privateKeys,
+        aiProfiles: result.aiProfiles,
         snippets: result.snippets,
         forwards: result.forwards,
         knownHosts: result.knownHosts,
@@ -572,6 +576,10 @@ class LanSyncManager {
             phase: 'applied',
             remoteResult: {
               profiles: frame.profiles,
+              groups: frame.groups,
+              proxies: frame.proxies,
+              privateKeys: frame.privateKeys,
+              aiProfiles: frame.aiProfiles,
               snippets: frame.snippets,
               forwards: frame.forwards,
               knownHosts: frame.knownHosts,

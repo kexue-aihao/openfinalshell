@@ -16,19 +16,20 @@ public sealed class NativeRemoteEditorService
 
     public async Task<NativeRemoteFileView> ViewAsync(NativeSession session, string path, NativeTextEncoding? requestedEncoding = null, CancellationToken cancellation = default)
     {
-        var entry = await session.TryGetAsync(path, cancellation) ?? throw new FileNotFoundException("Remote file not found.", path);
-        if (entry.IsDirectory || entry.Type is NativeRemoteEntryType.Other) throw new InvalidOperationException("The remote entry is not a text file.");
+        var resolved = await session.RealPathAsync(path, cancellation, requireExisting: true);
+        var entry = await session.TryGetAsync(resolved, cancellation) ?? throw new FileNotFoundException("Remote file not found.", path);
+        if (entry.Type != NativeRemoteEntryType.File) throw new InvalidOperationException("The remote entry is not a text file.");
         EnsureSizeAllowed(entry.Size);
-        var bytes = await session.ReadFileAsync(path, cancellation, MaximumEditableBytes);
-        var detected = NativeTextCodec.Detect(bytes);
-        if (NativeTextCodec.LooksBinary(bytes, detected.Encoding)) throw new InvalidOperationException("The remote file appears to contain binary data; download it instead of opening it as text.");
-        var encoding = requestedEncoding ?? detected.Encoding;
-        var rawText = NativeTextCodec.Decode(bytes, encoding, encoding == NativeTextEncoding.Utf8Bom ? 3 : detected.BomLength);
-        var lossless = NativeTextCodec.IsLossless(rawText, bytes, encoding, detected.HasBom);
-        var eol = rawText.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var bytes = await session.ReadFileAsync(resolved, cancellation, MaximumEditableBytes);
+        if (!string.Equals(resolved, await session.RealPathAsync(path, cancellation, requireExisting: true), StringComparison.Ordinal))
+            throw new IOException("native.editor.targetChanged");
+        var decoded = NativeTextCodec.DecodeForEditing(bytes, requestedEncoding);
+        var rawText = decoded.Text;
+        var lossless = decoded.Lossless;
+        var (eol, mixedNewLines) = NativeTextCodec.AnalyzeNewLines(rawText);
         var hash = SHA256.HashData(bytes);
-        baselines[Key(session.SessionId, path)] = new(path, hash, bytes.LongLength, entry.Modified, lossless);
-        return new(path, path, NativeTextCodec.NormalizeToLf(rawText), encoding, eol, detected.HasBom, lossless, bytes.LongLength, entry.Mode, entry.Modified);
+        baselines[Key(session.SessionId, path)] = new(resolved, hash, bytes.LongLength, entry.Modified, lossless);
+        return new(path, resolved, NativeTextCodec.NormalizeToLf(rawText), decoded.Encoding, eol, decoded.HasBom, lossless, bytes.LongLength, entry.Mode, entry.Modified, mixedNewLines);
     }
 
     public async Task<NativeRemoteSaveResult> SaveAsync(
@@ -40,15 +41,19 @@ public sealed class NativeRemoteEditorService
         bool hasBom,
         bool overwriteRemoteChanges,
         bool allowShrink,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        bool allowNonAtomic = false)
     {
         if (!baselines.TryGetValue(Key(session.SessionId, path), out var baseline))
             throw new InvalidOperationException("Remote editor baseline is unavailable; reopen the file.");
         if (!baseline.Lossless) throw new InvalidOperationException("The file was not decoded losslessly; choose another encoding.");
 
-        var current = await session.TryGetAsync(path, cancellation) ?? throw new FileNotFoundException("Remote file not found.", path);
+        var resolved = await session.RealPathAsync(path, cancellation, requireExisting: true);
+        if (!string.Equals(resolved, baseline.ResolvedPath, StringComparison.Ordinal)) throw new IOException("native.editor.targetChanged");
+        var current = await session.TryGetAsync(resolved, cancellation) ?? throw new FileNotFoundException("Remote file not found.", path);
+        if (current.Type != NativeRemoteEntryType.File) throw new IOException("native.editor.targetChanged");
         EnsureSizeAllowed(current.Size);
-        var currentBytes = await session.ReadFileAsync(path, cancellation, MaximumEditableBytes);
+        var currentBytes = await session.ReadFileAsync(resolved, cancellation, MaximumEditableBytes);
         var currentHash = SHA256.HashData(currentBytes);
         var changed = !currentHash.AsSpan().SequenceEqual(baseline.Hash) || current.Modified != baseline.Modified || currentBytes.LongLength != baseline.Length;
         if (changed && !overwriteRemoteChanges)
@@ -60,10 +65,16 @@ public sealed class NativeRemoteEditorService
         if (!allowShrink && baseline.Length > 0 && bytes.LongLength * 5 < baseline.Length)
             return new(NativeRemoteSaveKind.Shrink, bytes.LongLength, current.Mode, "The new file is substantially smaller than the original.");
 
-        await session.WriteFileAtomicAsync(path, bytes, true, cancellation);
-        var after = await session.TryGetAsync(path, cancellation);
+        if (!string.Equals(resolved, await session.RealPathAsync(path, cancellation, requireExisting: true), StringComparison.Ordinal))
+            throw new IOException("native.editor.targetChanged");
+        try { await session.WriteFileAtomicAsync(resolved, bytes, true, cancellation, allowNonAtomic, currentHash); }
+        catch (NativeNonAtomicSaveRequiredException)
+        { return new(NativeRemoteSaveKind.NonAtomic, bytes.LongLength, current.Mode); }
+        catch (NativeRemoteFileChangedException)
+        { return new(NativeRemoteSaveKind.Conflict, 0, current.Mode, "native.editor.remoteChangedTitle"); }
+        var after = await session.TryGetAsync(resolved, cancellation);
         var result = new NativeRemoteSaveResult(NativeRemoteSaveKind.Saved, bytes.LongLength, after?.Mode ?? current.Mode);
-        baselines[Key(session.SessionId, path)] = new(path, SHA256.HashData(bytes), bytes.LongLength, after?.Modified ?? DateTime.UtcNow, true);
+        baselines[Key(session.SessionId, path)] = new(resolved, SHA256.HashData(bytes), bytes.LongLength, after?.Modified ?? DateTime.UtcNow, true);
         return result;
     }
 
@@ -81,3 +92,6 @@ public sealed class NativeRemoteEditorService
             throw new InvalidOperationException($"Remote text files are limited to {MaximumEditableBytes / (1024 * 1024)} MiB.");
     }
 }
+
+internal sealed class NativeNonAtomicSaveRequiredException : IOException { }
+internal sealed class NativeRemoteFileChangedException : IOException { }

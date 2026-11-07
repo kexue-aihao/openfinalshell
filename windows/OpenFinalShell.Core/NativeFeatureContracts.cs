@@ -5,6 +5,7 @@ namespace OpenFinalShell.Core;
 public sealed record AiProviderProfile(string Id, string Name, Uri BaseUrl, string Model, bool Enabled, bool HasToken, long CreatedAt, long UpdatedAt);
 public sealed record AiProviderDraft(string? Id, string Name, Uri BaseUrl, string Model, bool Enabled, string? Token, bool ClearToken = false);
 public sealed record AiModelInfo(string Id, string? OwnedBy, int? ContextWindow);
+public sealed record AiConnectionTestResult(string Model, int LatencyMs);
 public sealed record AiImageAttachment(string DataUrl, string Detail = "auto");
 public sealed record AiChatMessage(string Role, string Content, IReadOnlyList<AiImageAttachment>? Images = null);
 public sealed record AiImageCapabilityResult(string Model, string Image, string Outcome, string Message, int HttpStatus);

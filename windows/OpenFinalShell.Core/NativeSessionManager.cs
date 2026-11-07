@@ -109,6 +109,11 @@ public sealed class NativeSession : IDisposable
     private SshConnection? jumpConnection;
     private Task? outputPump;
     private int disposed;
+    private readonly SemaphoreSlim connectionGate = new(1, 1);
+    private readonly CancellationTokenSource lifetime = new();
+    private int reconnectScheduled;
+    private bool hasConnected;
+    private uint terminalColumns = 120, terminalRows = 40;
 
     public string SessionId { get; }
     public ConnectionProfile Profile { get; }
@@ -131,30 +136,84 @@ public sealed class NativeSession : IDisposable
 
     internal void SetState(NativeSessionState state, string? error)
     {
+        if (Volatile.Read(ref disposed) != 0 && state != NativeSessionState.Closed) return;
         Snapshot = Snapshot with { State = state, Error = error, ChangedAt = DateTimeOffset.UtcNow };
         StateChanged?.Invoke(Snapshot);
     }
 
     internal async Task ConnectAsync(CancellationToken cancellation)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
+        await connectionGate.WaitAsync(linked.Token);
+        try { await ConnectTransportAsync(linked.Token); }
+        finally { connectionGate.Release(); }
+    }
+    private async Task ConnectTransportAsync(CancellationToken cancellation)
+    {
+        ObjectDisposedException.ThrowIf(disposed != 0, this);
         outputPump ??= PumpOutputAsync(outputCancellation.Token);
         terminalCodec.Reset();
         var (resolvedPassword, targetConnectPort) = await PrepareJumpAsync(cancellation);
+        cancellation.ThrowIfCancellationRequested();
         connection = new SshConnection(Profile, store, confirmHost, prompt, resolvedPassword,
             targetConnectPort is null ? null : "127.0.0.1", targetConnectPort);
         connection.Output += PublishOutput;
-        connection.Failed += error => SetState(NativeSessionState.Failed, error.Message);
+        var transport = connection;
+        connection.Failed += error => TransportFailed(transport, error);
         connection.ForwardTelemetryChanged += PublishForwardTelemetry;
         connection.ForwardFailed += (id, error) => ForwardFailed?.Invoke(id, error);
-        await connection.ConnectAsync(120, 40, cancellation);
+        try
+        {
+            await transport.ConnectAsync(terminalColumns, terminalRows, cancellation);
+            cancellation.ThrowIfCancellationRequested();
+            ObjectDisposedException.ThrowIf(disposed != 0, this);
+        }
+        catch
+        {
+            if (ReferenceEquals(connection, transport)) connection = null;
+            transport.Dispose();
+            var jump = jumpConnection; jumpConnection = null; jump?.Dispose();
+            throw;
+        }
+        hasConnected = true;
         SetState(NativeSessionState.Ready, null);
     }
 
     internal async Task ReconnectAsync(CancellationToken cancellation)
     {
-        connection?.Dispose(); connection = null;
-        jumpConnection?.Dispose(); jumpConnection = null;
-        await ConnectAsync(cancellation);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
+        await connectionGate.WaitAsync(linked.Token);
+        try
+        {
+            var old = connection; connection = null; old?.Dispose();
+            var oldJump = jumpConnection; jumpConnection = null; oldJump?.Dispose();
+            await ConnectTransportAsync(linked.Token);
+        }
+        finally { connectionGate.Release(); }
+    }
+    private void TransportFailed(SshConnection source, Exception error)
+    {
+        if (disposed != 0 || !ReferenceEquals(source, connection)) return;
+        SetState(NativeSessionState.Failed, error.Message);
+        if (!hasConnected || Profile.Data["options"]?["autoReconnect"]?.GetValue<bool>() != true || Interlocked.CompareExchange(ref reconnectScheduled, 1, 0) != 0) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                for (var attempt = 0; attempt < 5 && !lifetime.IsCancellationRequested; attempt++)
+                {
+                    SetState(NativeSessionState.Reconnecting, error.Message);
+                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, 1 << attempt)), lifetime.Token);
+                    if (Snapshot.State == NativeSessionState.Ready) return;
+                    try { await ReconnectAsync(lifetime.Token); return; }
+                    catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
+                    catch (Exception failure) { error = failure; }
+                }
+                if (!lifetime.IsCancellationRequested) SetState(NativeSessionState.Failed, error.Message);
+            }
+            catch (OperationCanceledException) { }
+            finally { Volatile.Write(ref reconnectScheduled, 0); }
+        });
     }
 
     private async Task<(string? Password, int? LocalPort)> PrepareJumpAsync(CancellationToken cancellation)
@@ -186,12 +245,14 @@ public sealed class NativeSession : IDisposable
 
     private async Task<string?> ResolvePasswordAsync(ConnectionProfile profile, CancellationToken cancellation)
     {
+        cancellation.ThrowIfCancellationRequested();
         var auth = profile.Data["auth"] as JsonObject;
         if ((auth?["method"]?.GetValue<string>() ?? "password") != "password") return null;
         var storedPassword = store.ReadSecret(auth?["passwordRef"]?.GetValue<string>());
         if (storedPassword != null) return storedPassword;
         var promptLabel = $"native.password ({profile.Username}@{profile.Host}:{profile.Port})";
         var resolved = await prompt(promptLabel, false);
+        cancellation.ThrowIfCancellationRequested();
         return resolved ?? throw new OperationCanceledException(cancellation);
     }
 
@@ -240,9 +301,14 @@ public sealed class NativeSession : IDisposable
         var encoded = terminalCodec.EncodeInput(bytes);
         if (encoded.Length > 0) connection?.Write(encoded);
     }
-    public void Resize(uint columns, uint rows) => connection?.Resize(columns, rows);
+    public void Resize(uint columns, uint rows)
+    {
+        if (columns == 0 || rows == 0) return;
+        terminalColumns = columns; terminalRows = rows;
+        connection?.Resize(columns, rows);
+    }
     public Task<IReadOnlyList<RemoteEntry>> ListAsync(string path, CancellationToken token) => RequireConnection().ListAsync(path, token);
-    public Task<string> RealPathAsync(string path, CancellationToken token) => RequireConnection().RealPathAsync(path, token);
+    public Task<string> RealPathAsync(string path, CancellationToken token, bool requireExisting = false) => RequireConnection().RealPathAsync(path, token, requireExisting);
     public Task<NativeDeletePreview> PreviewDeleteAsync(string path, CancellationToken token) => RequireConnection().PreviewDeleteAsync(path, token);
     public Task DownloadAsync(string path, Stream destination, CancellationToken token, Action<long>? progress = null, long resumeOffset = 0) => RequireConnection().DownloadAsync(path, destination, token, progress, resumeOffset);
     public Task UploadAsync(Stream source, string path, bool overwrite, CancellationToken token, Action<long>? progress = null, long resumeOffset = 0) => RequireConnection().UploadAsync(source, path, overwrite, token, progress, resumeOffset);
@@ -250,7 +316,7 @@ public sealed class NativeSession : IDisposable
     public Task CreateDirectoryAsync(string path, CancellationToken token) => RequireConnection().CreateDirectoryAsync(path, token);
     public Task CreateFileAsync(string path, CancellationToken token) => RequireConnection().CreateFileAsync(path, token);
     public Task<byte[]> ReadFileAsync(string path, CancellationToken token, long maxBytes = long.MaxValue) => RequireConnection().ReadFileAsync(path, token, maxBytes);
-    public Task WriteFileAtomicAsync(string path, byte[] bytes, bool overwrite, CancellationToken token) => RequireConnection().WriteFileAtomicAsync(path, bytes, overwrite, token);
+    public Task WriteFileAtomicAsync(string path, byte[] bytes, bool overwrite, CancellationToken token, bool allowNonAtomic = false, byte[]? expectedHash = null) => RequireConnection().WriteFileAtomicAsync(path, bytes, overwrite, token, allowNonAtomic, expectedHash);
     public Task DeleteAsync(string path, bool recursive, CancellationToken token) => RequireConnection().DeleteAsync(path, recursive, token);
     public Task RenameAsync(string from, string to, CancellationToken token) => RequireConnection().RenameAsync(from, to, token);
     public Task ChmodAsync(string path, short mode, CancellationToken token) => RequireConnection().ChmodAsync(path, mode, token);
@@ -266,18 +332,29 @@ public sealed class NativeSession : IDisposable
         ForwardTelemetryChanged?.Invoke(snapshot);
     }
     public Task<string> ExecuteAsync(string command, CancellationToken token) => RequireConnection().ExecuteAsync(command, token);
+    public Task<NativeCommandResult> ExecuteDetailedAsync(string command, TimeSpan timeout, CancellationToken token) =>
+        RequireConnection().ExecuteDetailedAsync(command, timeout, token);
 
     private SshConnection RequireConnection() => connection ?? throw new InvalidOperationException("Native session is not connected.");
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        lifetime.Cancel();
         outputCancellation.Cancel();
         output.Writer.TryComplete();
         connection?.Dispose();
         connection = null;
         jumpConnection?.Dispose();
         jumpConnection = null;
+        // A credential prompt or handshake may still be completing. Once the
+        // connect gate drains, clean up anything created during cancellation.
+        _ = Task.Run(async () =>
+        {
+            await connectionGate.WaitAsync();
+            try { connection?.Dispose(); connection = null; jumpConnection?.Dispose(); jumpConnection = null; }
+            finally { connectionGate.Release(); }
+        });
         if (outputPump is { } pump)
             _ = pump.ContinueWith(_ => outputCancellation.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         else outputCancellation.Dispose();

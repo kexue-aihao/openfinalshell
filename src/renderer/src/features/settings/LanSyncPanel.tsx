@@ -38,6 +38,7 @@ export function LanSyncPanel(): React.JSX.Element {
   const [conflict, setConflict] = useState<ImportConflictPolicy>('skip')
   const [include, setInclude] = useState<ImportSelection>({
     profiles: true,
+    aiProfiles: true,
     snippets: true,
     forwards: true,
     knownHosts: true,
@@ -147,6 +148,7 @@ export function LanSyncPanel(): React.JSX.Element {
                   style={{ marginTop: 8 }}
                   message={t('settings.importResultSummary', {
                     profiles: receive.result.profiles,
+                    aiProfiles: receive.result.aiProfiles,
                     snippets: receive.result.snippets,
                     forwards: receive.result.forwards,
                     knownHosts: receive.result.knownHosts,
@@ -256,6 +258,7 @@ export function LanSyncPanel(): React.JSX.Element {
               style={{ marginTop: 8 }}
               message={t('sync.appliedSummary', {
                 profiles: send.remoteResult.profiles,
+                aiProfiles: send.remoteResult.aiProfiles,
                 secrets: send.remoteResult.secrets,
                 skipped: send.remoteResult.skipped
               })}
@@ -293,12 +296,23 @@ export function LanSyncPanel(): React.JSX.Element {
                 address: receive.from?.address ?? ''
               })}
             />
+            {receive.preview.aiConflicts > 0 && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={t('settings.importAiConflictWarn', { count: receive.preview.aiConflicts })}
+              />
+            )}
             <div className={styles.importChecks}>
               <Checkbox checked={include.profiles} onChange={(e) => toggle('profiles')(e.target.checked)}>
                 {t('settings.importIncludeProfiles', {
                   profiles: receive.preview.counts.profiles,
                   groups: receive.preview.counts.groups
                 })}
+              </Checkbox>
+              <Checkbox checked={include.aiProfiles} disabled={receive.preview.counts.aiProfiles === 0} onChange={(e) => toggle('aiProfiles')(e.target.checked)}>
+                {t('settings.importIncludeAiProfiles', { count: receive.preview.counts.aiProfiles })}
               </Checkbox>
               <Checkbox checked={include.snippets} onChange={(e) => toggle('snippets')(e.target.checked)}>
                 {t('settings.importIncludeSnippets', { count: receive.preview.counts.snippets })}

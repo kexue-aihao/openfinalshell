@@ -68,9 +68,37 @@ int main(void) {
   if (ofs_terminal_mouse_mode(t) == 0 || !ofs_terminal_mouse_move(t, 1, 2, 0) || !ofs_terminal_mouse_button(t, 1, 1, 0)) return 14;
   generated_size = read_output(t, generated, sizeof(generated));
   if (generated_size < 1) { fprintf(stderr, "mouse protocol emitted no data\n"); return 15; }
+  ofs_terminal *pasteMode = ofs_terminal_create(2, 20);
+  if (!pasteMode || ofs_terminal_bracketed_paste(pasteMode)) return 34;
+  const char *paste_enable_a = "\x1b[?20";
+  const char *paste_enable_b = "04h";
+  ofs_terminal_feed(pasteMode, paste_enable_a, strlen(paste_enable_a));
+  if (ofs_terminal_bracketed_paste(pasteMode)) return 35;
+  ofs_terminal_feed(pasteMode, paste_enable_b, strlen(paste_enable_b));
+  if (!ofs_terminal_bracketed_paste(pasteMode)) return 36;
+  const char *paste_disable = "\x1b[?2004l";
+  ofs_terminal_feed(pasteMode, paste_disable, strlen(paste_disable));
+  if (ofs_terminal_bracketed_paste(pasteMode)) return 37;
+  if (!ofs_terminal_paste_utf8(pasteMode, "echo", 4)) return 38;
+  generated_size = read_output(pasteMode, generated, sizeof(generated));
+  if (generated_size != 4 || memcmp(generated, "echo", 4) != 0) return 39;
+  ofs_terminal_destroy(pasteMode);
   const char *alternate = "\x1b[?1049h";
   ofs_terminal_feed(t, alternate, strlen(alternate));
   if (!ofs_terminal_alt_screen(t)) { fprintf(stderr, "alternate screen state missing\n"); return 16; }
+  ofs_terminal *history = ofs_terminal_create(2, 20);
+  if (!history || !ofs_terminal_set_scrollback_limit(history, 3)) return 26;
+  const char *history_lines = "first\r\nsecond\r\nthird\r\nfourth\r\nfifth";
+  ofs_terminal_feed(history, history_lines, strlen(history_lines));
+  if (ofs_terminal_scrollback_lines(history) != 3) return 27;
+  if (!ofs_terminal_resize(history, 2, 30) || ofs_terminal_scrollback_lines(history) != 3) return 28;
+  if (!ofs_terminal_get_scrollback_cell(history, 0, 0, &first) || first.codepoint != 'f') return 29;
+  if (!ofs_terminal_set_scrollback_limit(history, 1) || ofs_terminal_scrollback_lines(history) != 1) return 30;
+  if (!ofs_terminal_get_scrollback_cell(history, 0, 0, &first) || first.codepoint != 't') return 31;
+  if (!ofs_terminal_set_scrollback_limit(history, 0) || !ofs_terminal_resize(history, 2, 10)) return 32;
+  ofs_terminal_clear(history);
+  if (ofs_terminal_scrollback_lines(history) != 0 || ofs_terminal_cursor_row(history) != 0) return 33;
+  ofs_terminal_destroy(history);
   printf("terminal probe passed; cursor=%d,%d; bytes=%zu\n", ofs_terminal_cursor_row(t), ofs_terminal_cursor_col(t), n);
   ofs_terminal_destroy(t); return 0;
 }

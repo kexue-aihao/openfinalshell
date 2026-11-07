@@ -3,6 +3,7 @@ using Renci.SshNet.Common;
 using Renci.SshNet.Sftp;
 using System.Reflection;
 using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 
 namespace OpenFinalShell.Core;
 
@@ -88,8 +89,9 @@ public sealed class SshConnection : IDisposable
                 break;
             default: throw new InvalidDataException("Unsupported SSH authentication method.");
         }
-        var proxy = data["proxyMode"]?.GetValue<string>() == "direct" ? null
-            : data["proxyId"]?.GetValue<string>() is { } proxyId ? store.Find("proxies", proxyId) : data["proxy"] as JsonObject;
+        // The target of a jump tunnel connects to loopback; only the jump's
+        // own dial should resolve the global proxy.
+        var proxy = connectHost != null ? null : NativeProxyResolver.Resolve(data, store);
         if (proxy != null && proxy["type"]?.GetValue<string>() != "none")
         {
             if (connectHost != null)
@@ -102,6 +104,7 @@ public sealed class SshConnection : IDisposable
                 proxy["username"]?.GetValue<string>() ?? "", store.ReadSecret(proxy["passwordRef"]?.GetValue<string>()) ?? "", methods.ToArray());
         }
         else info = new ConnectionInfo(connectHost ?? profile.Host, connectPort ?? profile.Port, profile.Username, methods.ToArray());
+        NativeSshOptions.Apply(info, data["options"] as JsonObject);
         info.Timeout = TimeSpan.FromMilliseconds(data["options"]?["readyTimeout"]?.GetValue<int>() ?? 20000);
         client = new SshClient(info) { KeepAliveInterval = TimeSpan.FromMilliseconds(data["options"]?["keepaliveInterval"]?.GetValue<int>() ?? 15000) };
         client.HostKeyReceived += VerifyHost;
@@ -129,6 +132,7 @@ public sealed class SshConnection : IDisposable
         shell = client.CreateShellStream(terminalType, columns, rows, 0, 0, 65536);
         shell.DataReceived += (_, e) => Output?.Invoke(e.Data);
         shell.ErrorOccurred += (_, e) => Failed?.Invoke(e.Exception);
+        shell.Closed += (_, _) => Failed?.Invoke(new IOException("terminal.disconnected"));
         if (!string.IsNullOrWhiteSpace(startupCommand))
         {
             shell.Write(terminalCodec.EncodeText(startupCommand + "\r"));
@@ -170,33 +174,51 @@ public sealed class SshConnection : IDisposable
         } finally { sftpGate.Release(); }
     }
 
-    public async Task<string> RealPathAsync(string path, CancellationToken token)
+    public async Task<string> RealPathAsync(string path, CancellationToken token, bool requireExisting = false)
     {
         await sftpGate.WaitAsync(token);
         try
         {
             var client = await GetSftp(token);
-            // Use the SFTP REALPATH request rather than local string
-            // normalization. This resolves symlinks and server-specific home
-            // directory semantics and keeps navigation consistent with the
-            // remote file system.
-            var value = string.IsNullOrWhiteSpace(path) ? "." : path.Trim();
-            // SSH.NET exposes REALPATH on ISftpSession while keeping the
-            // session accessor internal on SftpClient. Use the public protocol
-            // interface through that accessor when available, with a safe
-            // lexical fallback for older SSH.NET builds.
-            var sessionProperty = typeof(SftpClient).GetProperty("SftpSession", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            if (sessionProperty?.GetValue(client) is { } session)
-            {
-                var method = session.GetType().GetMethod("GetCanonicalPathAsync", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, binder: null, types: [typeof(string), typeof(CancellationToken)], modifiers: null);
-                if (method?.Invoke(session, [value, token]) is Task<string> canonical)
-                    return await canonical;
-            }
-            if (value == ".") return client.WorkingDirectory;
-            if (value.StartsWith('/')) return NormalizeRemotePath(value);
-            return NormalizeRemotePath(client.WorkingDirectory.TrimEnd('/') + "/" + value);
+            return await ResolvePathAsync(client, path, token, requireExisting);
         }
         finally { sftpGate.Release(); }
+    }
+
+    private static async Task<string> ResolvePathAsync(SftpClient client, string path, CancellationToken token, bool requireExisting)
+    {
+        // Use the SFTP REALPATH request rather than local string
+        // normalization. This resolves symlinks and server-specific home
+        // directory semantics and keeps navigation consistent with the
+        // remote file system.
+        var value = string.IsNullOrEmpty(path) ? "." : path;
+        // SSH.NET exposes REALPATH on ISftpSession while keeping the
+        // session accessor internal on SftpClient. Use the public protocol
+        // interface through that accessor when available, with a safe
+        // lexical fallback for older SSH.NET builds.
+        var sessionProperty = typeof(SftpClient).GetProperty("SftpSession", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (sessionProperty?.GetValue(client) is { } session)
+        {
+            if (requireExisting)
+            {
+                var strictMethod = session.GetType().GetMethod("RequestRealPathAsync", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                    binder: null, types: [typeof(string), typeof(bool), typeof(CancellationToken)], modifiers: null);
+                var fullPath = value.StartsWith('/') ? value : client.WorkingDirectory.TrimEnd('/') + "/" + value;
+                if (strictMethod?.Invoke(session, [fullPath, false, token]) is Task<KeyValuePair<string, SftpFileAttributes>[]> request)
+                {
+                    var entries = await request;
+                    if (entries is { Length: > 0 } && !string.IsNullOrEmpty(entries[0].Key)) return entries[0].Key;
+                }
+                throw new IOException("The server could not resolve the remote file safely.");
+            }
+            var method = session.GetType().GetMethod("GetCanonicalPathAsync", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, binder: null, types: [typeof(string), typeof(CancellationToken)], modifiers: null);
+            if (method?.Invoke(session, [value, token]) is Task<string> canonical)
+                return await canonical;
+        }
+        if (requireExisting) throw new NotSupportedException("The SFTP transport cannot resolve the remote file safely.");
+        if (value == ".") return client.WorkingDirectory;
+        if (value.StartsWith('/')) return NormalizeRemotePath(value);
+        return NormalizeRemotePath(client.WorkingDirectory.TrimEnd('/') + "/" + value);
     }
 
     public async Task<NativeDeletePreview> PreviewDeleteAsync(string path, CancellationToken token, int maxEntries = 10000)
@@ -329,24 +351,65 @@ public sealed class SshConnection : IDisposable
         finally { sftpGate.Release(); }
     }
 
-    /// <summary>Writes a remote file through a same-directory temporary file and rename.</summary>
-    public async Task WriteFileAtomicAsync(string path, byte[] bytes, bool overwrite, CancellationToken token)
+    /// <summary>Uses POSIX atomic replacement when available; backup/rename fallback requires caller consent.</summary>
+    public async Task WriteFileAtomicAsync(string path, byte[] bytes, bool overwrite, CancellationToken token, bool allowNonAtomic = false, byte[]? expectedHash = null)
     {
         await sftpGate.WaitAsync(token);
         try
         {
             var client = await GetSftp(token);
-            if (!overwrite && client.Exists(path)) throw new IOException("Remote file already exists.");
+            int? originalMode = null;
+            if (client.Exists(path))
+            {
+                if (!overwrite) throw new IOException("Remote file already exists.");
+                var resolved = await ResolvePathAsync(client, path, token, requireExisting: true);
+                // Callers must pass a stable target, never replace a link itself.
+                if (!string.Equals(path, resolved, StringComparison.Ordinal)) throw new IOException("native.editor.targetChanged");
+                var original = client.Get(path);
+                if (!original.IsRegularFile) throw new IOException("native.editor.targetChanged");
+                originalMode = PermissionMode(original.Attributes);
+            }
             var temporary = $"{path}.ofs-edit-{Guid.NewGuid():N}";
+            var temporaryCreated = false;
             try
             {
-                await using (var destination = client.Open(temporary, FileMode.Create, FileAccess.Write))
+                await using (var destination = client.Open(temporary, FileMode.CreateNew, FileAccess.Write))
                 {
+                    temporaryCreated = true;
+                    // Restrict permissions before placing any file contents in the temporary file.
+                    client.ChangePermissions(temporary, ToSshPermissionDigits(originalMode ?? 384));
                     await destination.WriteAsync(bytes, token);
                     await destination.FlushAsync(token);
                 }
+                if (expectedHash != null)
+                {
+                    if (!client.Exists(path)) throw new NativeRemoteFileChangedException();
+                    await using var current = client.OpenRead(path);
+                    if (current.CanSeek && current.Length > NativeRemoteEditorService.MaximumEditableBytes) throw new NativeRemoteFileChangedException();
+                    using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+                    var buffer = new byte[32 * 1024]; long readTotal = 0;
+                    while (true)
+                    {
+                        var read = await current.ReadAsync(buffer, token);
+                        if (read == 0) break;
+                        if ((readTotal += read) > NativeRemoteEditorService.MaximumEditableBytes) throw new NativeRemoteFileChangedException();
+                        hash.AppendData(buffer, 0, read);
+                    }
+                    if (!CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), expectedHash)) throw new NativeRemoteFileChangedException();
+                }
                 if (client.Exists(path))
                 {
+                    // A target can appear while the temporary file is being
+                    // uploaded. Recheck consent before moving it to a backup.
+                    if (!overwrite) throw new IOException("Remote file already exists.");
+                    if (!string.Equals(path, await ResolvePathAsync(client, path, token, requireExisting: true), StringComparison.Ordinal)
+                        || !client.Get(path).IsRegularFile) throw new IOException("native.editor.targetChanged");
+                    if (originalMode.HasValue) client.ChangePermissions(temporary, ToSshPermissionDigits(originalMode.Value));
+                    token.ThrowIfCancellationRequested();
+                    try { RenamePosixExact(client, temporary, path); return; }
+                    catch (NotSupportedException) { if (!allowNonAtomic) throw new NativeNonAtomicSaveRequiredException(); }
+                    catch (SftpException error) when (error.StatusCode == StatusCode.OperationUnsupported)
+                    { if (!allowNonAtomic) throw new NativeNonAtomicSaveRequiredException(); }
                     var backup = $"{path}.ofs-backup-{Guid.NewGuid():N}";
                     await RenameExactAsync(client, path, backup, token);
                     try { await RenameExactAsync(client, temporary, path, token); }
@@ -355,7 +418,7 @@ public sealed class SshConnection : IDisposable
                 }
                 else await RenameExactAsync(client, temporary, path, token);
             }
-            finally { try { if (client.Exists(temporary)) await client.DeleteFileAsync(temporary, CancellationToken.None); } catch { } }
+            finally { try { if (temporaryCreated && client.Exists(temporary)) await client.DeleteFileAsync(temporary, CancellationToken.None); } catch { } }
         }
         finally { sftpGate.Release(); }
     }
@@ -441,11 +504,32 @@ public sealed class SshConnection : IDisposable
         await client.RenameFileAsync(oldPath, newPath, token);
     }
 
+    private static void RenamePosixExact(SftpClient client, string from, string to)
+    {
+        // SftpClient.RenameFile canonicalizes both names and can follow a new
+        // link at the destination. Keep the resolved destination fixed here.
+        var sessionProperty = typeof(SftpClient).GetProperty("SftpSession", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var session = sessionProperty?.GetValue(client);
+        var method = session?.GetType().GetMethod("RequestPosixRename", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null, types: [typeof(string), typeof(string)], modifiers: null);
+        if (method == null) throw new NotSupportedException("Exact POSIX rename is unavailable.");
+        try { method.Invoke(session, [from, to]); }
+        catch (TargetInvocationException error) when (error.InnerException != null)
+        { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw(); }
+    }
+
     public async Task ChmodAsync(string path, short mode, CancellationToken token)
     {
         await sftpGate.WaitAsync(token);
-        try { (await GetSftp(token)).ChangePermissions(path, mode); }
+        try { (await GetSftp(token)).ChangePermissions(path, ToSshPermissionDigits(mode)); }
         finally { sftpGate.Release(); }
+    }
+    // SSH.NET takes octal digits represented as a decimal short (e.g. 644),
+    // whereas the native model and UI use the actual permission bitmask (420).
+    private static short ToSshPermissionDigits(int mode)
+    {
+        if (mode is < 0 or > 4095) throw new ArgumentOutOfRangeException(nameof(mode));
+        return checked((short)int.Parse(Convert.ToString(mode, 8), System.Globalization.CultureInfo.InvariantCulture));
     }
     private static string NormalizeRemotePath(string value)
     {
@@ -492,6 +576,12 @@ public sealed class SshConnection : IDisposable
     {
         using var cmd = client.CreateCommand(command); cmd.CommandTimeout = TimeSpan.FromSeconds(30);
         await cmd.ExecuteAsync(token); return cmd.Result;
+    }
+    public async Task<NativeCommandResult> ExecuteDetailedAsync(string command, TimeSpan timeout, CancellationToken token)
+    {
+        using var cmd = client.CreateCommand(command); cmd.CommandTimeout = timeout;
+        await cmd.ExecuteAsync(token);
+        return new(cmd.Result, cmd.Error, cmd.ExitStatus);
     }
     public void Dispose() { shell?.Dispose(); sftp?.Dispose(); foreach (var id in forwards.Keys.ToArray()) StopForward(id); foreach (var tunnel in jumpTunnels) { try { tunnel.Stop(); } catch { } tunnel.Dispose(); } jumpTunnels.Clear(); client.Dispose(); foreach (var item in owned) item.Dispose(); }
 }

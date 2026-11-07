@@ -12,6 +12,7 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="UpdatePublicKey.pem" />
+    <EmbeddedResource Include="native-release-notes.json" Link="Assets/ReleaseNotes.json" />
     <EmbeddedResource Include="../../src/shared/locales/*.json" Link="Locales/%(Filename)%(Extension)" />
     <EmbeddedResource Include="../../shared-schema/schemas/*.json" Link="Schemas/%(Filename)%(Extension)" />
   </ItemGroup>

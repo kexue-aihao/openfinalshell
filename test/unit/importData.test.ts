@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { testUserDataDir } from '../stubs/electron'
@@ -10,6 +10,7 @@ import * as hostkeys from '../../src/main/ssh/hostkeys'
 import * as savedRefs from '../../src/main/store/savedRefs'
 import { vault } from '../../src/main/store/Vault'
 import { getSettings, patchSettings } from '../../src/main/services/settings'
+import { getAiProfile, getAiToken, saveAiProfile } from '../../src/main/services/aiProfiles'
 import { buildExportEnvelope, exportData } from '../../src/main/services/exportData'
 import {
   applyImport,
@@ -26,6 +27,7 @@ import type { ImportSelection } from '../../src/shared/types'
 
 const ALL: ImportSelection = {
   profiles: true,
+  aiProfiles: true,
   snippets: true,
   forwards: true,
   knownHosts: true,
@@ -57,7 +59,8 @@ function wipe(): void {
     'forwards',
     'known_hosts',
     'proxies',
-    'private_keys'
+    'private_keys',
+    'ai_profiles'
   ]) {
     prepare(`DELETE FROM ${table}`).run()
   }
@@ -127,6 +130,7 @@ function writeEnvelope(name: string, patch: Record<string, unknown>): string {
       data: {
         groups: [],
         profiles: [],
+        aiProfiles: [],
         snippetGroups: [],
         snippets: [],
         forwards: [],
@@ -511,6 +515,7 @@ describe('导入：安全与完整性边界', () => {
       data: {
         groups: [],
         profiles: [],
+        aiProfiles: [],
         snippetGroups: [],
         snippets: [],
         forwards: [
@@ -544,7 +549,7 @@ describe('导入：安全与完整性边界', () => {
       token: preview!.token,
       passphrase: PASS,
       conflict: 'skip',
-      include: { profiles: true, snippets: false, forwards: false, knownHosts: false, settings: false }
+      include: { profiles: true, aiProfiles: false, snippets: false, forwards: false, knownHosts: false, settings: false }
     })
 
     expect(r.profiles).toBe(1)
@@ -820,6 +825,148 @@ describe('导入：可复用的代理与私钥', () => {
       await applyImport({ token: preview!.token, conflict: 'overwrite', include: ALL })
     }
     expect(savedRefs.listProxies()).toHaveLength(1)
+  })
+})
+
+describe('AI 服务配置迁移', () => {
+  const AI_TOKEN = 'ai-private-token-🔐'
+
+  it('导出 AI 配置元数据，并仅在加密密钥段中携带用户选择的 Token', async () => {
+    wipe()
+    const provider = saveAiProfile({
+      name: '迁移用 AI',
+      baseUrl: 'https://ai.example.test/v1',
+      model: 'model-x',
+      token: AI_TOKEN
+    })
+    const exported = await exportSeed('ai-provider.json', true)
+    const raw = readFileSync(exported, 'utf8')
+    expect(raw).not.toContain(AI_TOKEN)
+
+    wipe()
+    const preview = await inspectImport({ sourcePath: exported })
+    expect(preview!.counts.aiProfiles).toBe(1)
+    const result = await applyImport({ token: preview!.token, passphrase: PASS, conflict: 'skip', include: ALL })
+    expect(result.aiProfiles).toBe(1)
+    expect(result.secrets).toBe(1)
+    expect(getAiProfile(provider.id)).toMatchObject({ name: '迁移用 AI', hasToken: true })
+    expect(getAiToken(provider.id).token).toBe(AI_TOKEN)
+  })
+
+  it('不勾选密钥导出时仍迁移 Provider，但不制造悬空 Token 引用', async () => {
+    wipe()
+    const provider = saveAiProfile({
+      name: '无 Token 迁移',
+      baseUrl: 'https://ai.example.test/v1',
+      model: 'model-y'
+    })
+    const exported = await exportSeed('ai-provider-no-token.json', false)
+    wipe()
+    const preview = await inspectImport({ sourcePath: exported })
+    const result = await applyImport({ token: preview!.token, conflict: 'skip', include: ALL })
+    expect(result.aiProfiles).toBe(1)
+    expect(getAiProfile(provider.id)).toMatchObject({ hasToken: false })
+    expect(() => getAiToken(provider.id)).toThrow(/Token 未配置/)
+  })
+
+  it('覆盖到源配置明确没有 Token 的 Provider 时清除本机旧 Token', async () => {
+    wipe()
+    const provider = saveAiProfile({
+      name: '空凭据源',
+      baseUrl: 'https://ai.example.test/v1',
+      model: 'model-clear'
+    })
+    const exported = await exportSeed('ai-provider-clear.json', false)
+    wipe()
+    const oldRef = vault.putSecret('stale-local-token')
+    prepare(`INSERT INTO ai_profiles(id,name,base_url,model,enabled,secret_ref,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?)`).run(provider.id, '本机旧配置', 'https://ai.example.test/v1', 'old-model', 1, oldRef, 1, 1)
+
+    const preview = await inspectImport({ sourcePath: exported })
+    const result = await applyImport({ token: preview!.token, conflict: 'overwrite', include: ALL })
+    expect(result.aiProfiles).toBe(1)
+    expect(getAiProfile(provider.id)).toMatchObject({ name: '空凭据源', hasToken: false })
+    expect(vault.getSecret(oldRef)).toBeNull()
+  })
+
+  it('重复导入为副本时使用独立 Token；未勾选 AI 类别不写入 Provider', async () => {
+    wipe()
+    const provider = saveAiProfile({
+      name: '重复测试',
+      baseUrl: 'https://ai.example.test/v1',
+      model: 'model-z',
+      token: AI_TOKEN
+    })
+    const exported = await exportSeed('ai-provider-duplicate.json', true)
+    const preview = await inspectImport({ sourcePath: exported })
+    expect(preview!.aiConflicts).toBe(1)
+    const duplicate = await applyImport({ token: preview!.token, passphrase: PASS, conflict: 'duplicate', include: ALL })
+    expect(duplicate.aiProfiles).toBe(1)
+    const ids = (prepare('SELECT id FROM ai_profiles ORDER BY id').all() as Array<{ id: string }>).map((row) => row.id)
+    expect(ids).toHaveLength(2)
+    const copyId = ids.find((id) => id !== provider.id)!
+    expect(getAiToken(copyId).token).toBe(AI_TOKEN)
+    expect(getAiProfile(copyId)?.secretRef).not.toBe(getAiProfile(provider.id)?.secretRef)
+
+    const before = ids.length
+    const optOutPreview = await inspectImport({ sourcePath: exported })
+    const optOut = await applyImport({
+      token: optOutPreview!.token,
+      passphrase: PASS,
+      conflict: 'duplicate',
+      include: { ...ALL, aiProfiles: false }
+    })
+    expect(optOut.aiProfiles).toBe(0)
+    expect(prepare('SELECT id FROM ai_profiles').all()).toHaveLength(before)
+  })
+
+  it('AI 类别可独立迁移，不要求同时导入连接配置', async () => {
+    wipe()
+    const provider = saveAiProfile({
+      name: '单独迁移 AI',
+      baseUrl: 'https://ai.example.test/v1',
+      model: 'model-independent',
+      token: AI_TOKEN
+    })
+    const exported = await exportSeed('ai-provider-independent.json', true)
+    wipe()
+    const preview = await inspectImport({ sourcePath: exported })
+    const result = await applyImport({
+      token: preview!.token,
+      passphrase: PASS,
+      conflict: 'skip',
+      include: { ...ALL, profiles: false, aiProfiles: true }
+    })
+    expect(result).toMatchObject({ profiles: 0, aiProfiles: 1, secrets: 1 })
+    expect(getAiToken(provider.id).token).toBe(AI_TOKEN)
+    expect(conns.listConnections().profiles).toHaveLength(0)
+  })
+
+  it('接受原生导出中无 Token Provider 的显式 null 引用', async () => {
+    wipe()
+    const file = writeEnvelope('native-ai-provider-empty-token.json', {
+      formatVersion: 2,
+      data: {
+        aiProfiles: [{
+          id: 'native-ai-no-token',
+          name: '原生端无 Token',
+          baseUrl: 'https://ai.example.test/v1',
+          model: 'model-native',
+          enabled: true,
+          apiKeyRef: null,
+          tokenRef: null,
+          hasToken: false,
+          createdAt: 1,
+          updatedAt: 1
+        }]
+      }
+    })
+    const preview = await inspectImport({ sourcePath: file })
+    expect(preview!.counts.aiProfiles).toBe(1)
+    expect(preview!.invalid).toBe(0)
+    const result = await applyImport({ token: preview!.token, conflict: 'skip', include: ALL })
+    expect(result.aiProfiles).toBe(1)
+    expect(getAiProfile('native-ai-no-token')).toMatchObject({ hasToken: false })
   })
 })
 
