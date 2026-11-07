@@ -15,7 +15,7 @@ describe('RDP worker packaging', () => {
     expect(builder).toContain("- '**/*'")
   })
 
-  it('ships required FreeRDP workers for supported desktop targets', () => {
+  it('ships the required FreeRDP worker for the supported Windows targets', () => {
     expect(releaseWorkflow).toContain('vcpkg.exe" install freerdp:x64-windows')
     expect(releaseWorkflow).toContain('CMAKE_TOOLCHAIN_FILE=$vcpkgRoot\\scripts\\buildsystems\\vcpkg.cmake')
     expect(releaseWorkflow).toContain('npm run build:rdp-worker -- --platform win --arch x64 --require-freerdp')
@@ -25,20 +25,12 @@ describe('RDP worker packaging', () => {
     expect(releaseWorkflow).toContain('OFS_TEST_RDP_HOST: ${{ secrets.OFS_TEST_RDP_HOST }}')
     expect(releaseWorkflow).toContain('--platform win --arch ${{ matrix.arch }} --package-disabled')
     expect(releaseWorkflow).toContain('--platform win --arch ${{ matrix.arch }} --app-dir $unpacked --expect-absent')
-    expect(releaseWorkflow).toContain('--platform mac --arch ${{ matrix.arch }} --require-freerdp')
-    expect(releaseWorkflow).toContain('--platform mac --arch ${{ matrix.arch }} --app-dir "$unpacked" --require-freerdp')
-    expect(releaseWorkflow).toContain('--platform linux --arch ${{ matrix.arch }} --require-freerdp')
-    expect(releaseWorkflow).toContain('--platform linux --arch ${{ matrix.arch }} --app-dir "$unpacked" --require-freerdp')
-    expect(releaseWorkflow).toContain('--platform linux --arch x64 --app-dir release/linux-unpacked --require-freerdp')
+    expect(releaseWorkflow).not.toContain('--platform mac')
+    expect(releaseWorkflow).not.toContain('--platform linux')
     expect(releaseWorkflow).not.toContain('gcc-arm-linux-gnueabihf')
     expect(releaseWorkflow).toContain("'release/win-unpacked'")
-    expect(releaseWorkflow).toContain('unpacked="release/mac-${{ matrix.arch }}/OpenFinalShell.app"')
-    expect(releaseWorkflow).toContain('unpacked="release/mac/OpenFinalShell.app"')
-    expect(releaseWorkflow).toContain('unpacked="release/linux-${{ matrix.arch }}-unpacked"')
-    expect(releaseWorkflow).toContain('unpacked="release/linux-unpacked"')
-    expect(ciWorkflow).toContain('--platform linux --arch ${{ matrix.arch }} --require-freerdp')
-    expect(ciWorkflow).toContain('unpacked="release/linux-${{ matrix.arch }}-unpacked"')
-    expect(ciWorkflow).toContain('--app-dir "$unpacked" --require-freerdp')
+    expect(ciWorkflow).not.toContain('--platform mac')
+    expect(ciWorkflow).not.toContain('--platform linux')
   })
 
   it('checks Windows x64 staging and packaged output with the required backend gate', () => {
