@@ -26,6 +26,7 @@ public sealed class RdpSessionViewModel : INotifyPropertyChanged, IAsyncDisposab
     private readonly int port;
     private readonly string username;
     private readonly string? domain;
+    private readonly NativeRdpProfileOptions options;
     private NativeRdpState state = NativeRdpState.Closed;
     private string? error;
     private NativeRdpDisplay display;
@@ -37,7 +38,8 @@ public sealed class RdpSessionViewModel : INotifyPropertyChanged, IAsyncDisposab
         host = profile["host"]?.GetValue<string>() ?? throw new InvalidDataException("Invalid RDP host.");
         port = profile["port"]?.GetValue<int>() ?? 3389;
         username = profile["username"]?.GetValue<string>() ?? throw new InvalidDataException("Invalid RDP username.");
-        domain = profile["domain"]?.GetValue<string>();
+        options = NativeRdpProfileOptions.FromProfile(profile);
+        domain = options.Domain;
         display = new NativeRdpDisplay();
         worker = new RdpWorkerClient(workerPath);
         clipboard = new RdpClipboardService(worker);
@@ -73,7 +75,7 @@ public sealed class RdpSessionViewModel : INotifyPropertyChanged, IAsyncDisposab
         Error = null;
         try
         {
-            await worker.StartAsync(host, port, username, domain, Display, cancellation);
+            await worker.StartAsync(host, port, username, domain, Display, cancellation, options);
         }
         catch (Exception ex)
         {

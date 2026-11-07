@@ -51,7 +51,7 @@ public sealed class ConnectionListViewModel : INotifyPropertyChanged
     private object ProfileSort(ConnectionProfile profile) => SortMode switch
     {
         "host" => profile.Host,
-        "recent" => -(profile.Data["lastConnectedAt"]?.GetValue<long>() ?? 0),
+        "recent" => -(profile.Data["lastUsedAt"]?.GetValue<long>() ?? profile.Data["lastConnectedAt"]?.GetValue<long>() ?? 0),
         _ => profile.Name
     };
 

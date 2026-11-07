@@ -21,9 +21,16 @@
     <AssemblyVersion>$(OpenFinalShellVersion)</AssemblyVersion>
     <FileVersion>$(OpenFinalShellVersion)</FileVersion>
     <ApplicationTitle>OpenFinalShell Native Preview</ApplicationTitle>
+    <ApplicationIcon>Assets\OpenFinalShell.ico</ApplicationIcon>
+    <AssemblyName Condition="'$(NativeAcceptanceName)' != ''">$(NativeAcceptanceName)</AssemblyName>
+    <RootNamespace>OpenFinalShell.App</RootNamespace>
     <NativeEditorRuntimeDirectory Condition="'$(NativeEditorRuntimeDirectory)' == ''">$(MSBuildProjectDirectory)/../../build/native-editor/$(Platform)</NativeEditorRuntimeDirectory>
+    <NativeTerminalRuntimeDirectory Condition="'$(NativeTerminalRuntimeDirectory)' == ''">$(MSBuildProjectDirectory)/../../build/native-terminal/$(Platform)</NativeTerminalRuntimeDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <Content Update="Assets/TerminalThemes.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="Assets/OpenFinalShell.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildProjectDirectory)/../../src/renderer/src/features/donate/qr/*.png" Link="Assets/Donate/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Compile Remove="build/**/*.cs" />
     <ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
@@ -31,7 +38,7 @@
     <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="$(MSBuildProjectDirectory)/../../build/native-terminal/$(Platform)/ofs-terminal.dll" Condition="Exists('$(MSBuildProjectDirectory)/../../build/native-terminal/$(Platform)/ofs-terminal.dll')" Link="ofs-terminal.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(NativeTerminalRuntimeDirectory)/ofs-terminal.dll" Condition="Exists('$(NativeTerminalRuntimeDirectory)/ofs-terminal.dll')" Link="ofs-terminal.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(NativeEditorRuntimeDirectory)/Scintilla.dll" Condition="Exists('$(NativeEditorRuntimeDirectory)/Scintilla.dll')" Link="Scintilla.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(NativeEditorRuntimeDirectory)/lexilla.dll" Condition="Exists('$(NativeEditorRuntimeDirectory)/lexilla.dll')" Link="Lexilla.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(NativeEditorRuntimeDirectory)/THIRD-PARTY-LICENSES.txt" Condition="Exists('$(NativeEditorRuntimeDirectory)/THIRD-PARTY-LICENSES.txt')" Link="NativeEditor-THIRD-PARTY-LICENSES.txt" CopyToOutputDirectory="PreserveNewest" />
@@ -45,7 +52,7 @@
       <_WinUIThemeXbf Include="$(TargetDir)Themes\*.xbf" />
     </ItemGroup>
     <Copy SourceFiles="@(_WinUIRootXbf)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(TargetDir)OpenFinalShell.App.pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)OpenFinalShell.App.pri')" />
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).pri" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" Condition="Exists('$(TargetDir)$(AssemblyName).pri')" />
     <Copy SourceFiles="@(_WinUIThemeXbf)" DestinationFolder="$(PublishDir)Themes" SkipUnchangedFiles="true" />
   </Target>
 </Project>

@@ -5,6 +5,11 @@ using OpenFinalShell.Core;
 
 namespace OpenFinalShell.App.ViewModels;
 
+public sealed record NativeAiTerminalTarget(string SessionId, string Name)
+{
+    public override string ToString() => Name;
+}
+
 public sealed class NativeChatLine(string role, string content) : INotifyPropertyChanged
 {
     private string content = content;
@@ -47,12 +52,22 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
     private AiProviderProfile? selectedProvider;
     private bool running;
     private string status = string.Empty;
+    private bool streamResponses = true;
     public ObservableCollection<AiProviderProfile> Providers { get; } = [];
     public ObservableCollection<AiModelInfo> Models { get; } = [];
     public ObservableCollection<NativeChatLine> Messages { get; } = [];
+    public ObservableCollection<NativeAiTerminalTarget> TerminalTargets { get; } = [];
+    private string? selectedTerminalSessionId;
+    public string? SelectedTerminalSessionId
+    {
+        get => selectedTerminalSessionId;
+        set { if (selectedTerminalSessionId == value) return; selectedTerminalSessionId = value; OnPropertyChanged(); OnPropertyChanged(nameof(SelectedTerminalAvailable)); }
+    }
+    public bool SelectedTerminalAvailable => SelectedTerminalSessionId != null && TerminalTargets.Any(item => item.SessionId == SelectedTerminalSessionId);
     public AiProviderProfile? SelectedProvider { get => selectedProvider; set { if (selectedProvider == value) return; selectedProvider = value; OnPropertyChanged(); } }
     public bool IsRunning { get => running; private set { if (running == value) return; running = value; OnPropertyChanged(); } }
     public string Status { get => status; private set { if (status == value) return; status = value; OnPropertyChanged(); } }
+    public bool StreamResponses { get => streamResponses; set { if (streamResponses == value) return; streamResponses = value; OnPropertyChanged(); } }
     public NativeAiViewModel(NativeAiService service) { this.service = service; ReloadProviders(); }
 
     public void ReloadProviders()
@@ -62,9 +77,26 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
         SelectedProvider = Providers.FirstOrDefault(item => item.Id == previousId) ?? Providers.FirstOrDefault(item => item.Enabled);
     }
 
+    public void RefreshTerminalTargets(IEnumerable<NativeAiTerminalTarget> targets)
+    {
+        var values = targets.ToArray();
+        TerminalTargets.Clear();
+        foreach (var item in values) TerminalTargets.Add(item);
+        if (SelectedTerminalSessionId == null && values.Length > 0) SelectedTerminalSessionId = values[0].SessionId;
+        OnPropertyChanged(nameof(SelectedTerminalAvailable));
+    }
+
     public AiProviderProfile Save(AiProviderDraft draft)
     {
         var saved = service.SaveProvider(draft); ReloadProviders(); SelectedProvider = Providers.FirstOrDefault(item => item.Id == saved.Id); return saved;
+    }
+
+    public void DeleteSelectedProvider()
+    {
+        if (Providers.Count < 2) throw new InvalidOperationException("At least one AI provider must be kept.");
+        var provider = SelectedProvider ?? throw new InvalidOperationException("Select an AI provider first.");
+        service.DeleteProvider(provider.Id);
+        ReloadProviders();
     }
 
     public async Task<IReadOnlyList<AiModelInfo>> DiscoverAsync(Uri url, string? token, CancellationToken cancellation = default)
@@ -75,7 +107,8 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
     public async Task TestAsync(CancellationToken cancellation = default)
     {
         if (SelectedProvider == null) throw new InvalidOperationException("Select a provider first.");
-        await service.TestConnectionAsync(SelectedProvider.Id, cancellation); Status = "Connection test succeeded.";
+        var result = await service.TestConnectionAsync(SelectedProvider.Id, cancellation);
+        Status = $"{result.Model} · {result.LatencyMs} ms";
     }
 
     public async Task SendAsync(string input)
@@ -103,6 +136,7 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
     private async Task SendCoreAsync(string input, string? imageDataUrl)
     {
         if (string.IsNullOrWhiteSpace(input) && imageDataUrl == null) return;
+        if (IsRunning) throw new InvalidOperationException("An AI response is already running.");
         var provider = SelectedProvider ?? throw new InvalidOperationException("Select a provider first.");
         var totalLength = Messages.Sum(item => item.Content.Length) + input.Length;
         if (totalLength > 32768) throw new InvalidOperationException("Conversation exceeds the native input limit.");
@@ -113,7 +147,14 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
         requestCancellation = new CancellationTokenSource(); IsRunning = true; Status = "Receiving response…";
         try
         {
-            await foreach (var delta in service.StreamChatAsync(provider.Id, history, requestCancellation.Token)) assistant.Content += delta;
+            if (StreamResponses)
+            {
+                await foreach (var delta in service.StreamChatAsync(provider.Id, history, requestCancellation.Token)) assistant.Content += delta;
+            }
+            else
+            {
+                assistant.Content = await service.CompleteChatAsync(provider.Id, history, requestCancellation.Token);
+            }
             Status = "Response completed.";
         }
         catch (OperationCanceledException) { Status = "Request canceled."; }

@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Automation.Peers;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -13,13 +14,11 @@ namespace OpenFinalShell.App.Controls;
 /// owns the document, undo stack, selection, IME and native editing behavior;
 /// the HWND is positioned over this transparent XAML surface after layout.
 /// </summary>
-public sealed class NativeScintillaTextSurface : UserControl, IDisposable
+public sealed partial class NativeScintillaTextSurface : UserControl, IDisposable
 {
-    private const uint WsChild = 0x40000000;
-    private const uint WsVisible = 0x10000000;
+    private const uint WsPopup = 0x80000000;
     private const uint WsTabStop = 0x00010000;
     private const uint WsClipSiblings = 0x04000000;
-    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
     private const int SciGetLength = 2006;
@@ -72,11 +71,14 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
     private readonly DispatcherQueueTimer pollTimer;
     private readonly SubclassProcedure subclassProcedure;
     private nint editorWindow;
+    private nint editorParent;
     private bool disposed;
     private bool lastModified;
     private string pendingText = string.Empty;
     private string pendingPath = string.Empty;
     private bool readOnly;
+    private (int X, int Y, int Width, int Height)? lastBounds;
+    private bool editorVisible;
 
     public event Action? DocumentChanged;
     public event Action? SaveRequested;
@@ -96,6 +98,8 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
 
     public string LexerLanguage { get; private set; } = "plain";
     public bool IsAvailable { get; private set; }
+    public Func<int, bool, bool, bool, bool>? WorkbenchKeyRequested { get; set; }
+    private bool nativeComposing;
     public static bool RuntimeFilesPresent => File.Exists(Path.Combine(AppContext.BaseDirectory, "Scintilla.dll")) &&
         File.Exists(Path.Combine(AppContext.BaseDirectory, "Lexilla.dll"));
 
@@ -117,6 +121,7 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
         this.coordinateRoot = coordinateRoot;
         Content = new Grid { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         IsTabStop = true;
+        GotFocus += (_, _) => { if (editorWindow != 0) SetFocus(editorWindow); };
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         SizeChanged += OnSizeChanged;
@@ -125,6 +130,7 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
         pollTimer.Interval = TimeSpan.FromMilliseconds(250);
         pollTimer.Tick += (_, _) =>
         {
+            UpdateBounds();
             var modified = HasUnsavedChanges;
             if (modified == lastModified) return;
             lastModified = modified;
@@ -145,16 +151,24 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
         }
     }
 
-    public bool Find(string query, bool backwards = false)
+    public bool Find(string query, bool backwards = false, bool matchCase = false, bool wholeWord = false, bool regex = false)
     {
         if (editorWindow == 0 || string.IsNullOrEmpty(query)) return false;
-        Send(SciSetSearchFlags, 0, 0);
+        var flags = (matchCase ? 4 : 0) | (wholeWord ? 2 : 0) | (regex ? 0x00200000 | 0x00800000 : 0);
+        Send(2160, checked((int)Send(backwards ? 2143 : 2145)), Send(backwards ? 2143 : 2145));
+        Send(2366); // Anchor at the edge of the current selection.
         var bytes = Encoding.UTF8.GetBytes(query + "\0");
         var pointer = Marshal.AllocHGlobal(bytes.Length);
         try
         {
             Marshal.Copy(bytes, 0, pointer, bytes.Length);
-            var found = Send(backwards ? SciSearchPrevious : SciSearchNext, 0, pointer);
+            var found = Send(backwards ? SciSearchPrevious : SciSearchNext, flags, pointer);
+            if (found < 0)
+            {
+                var position = backwards ? Send(SciGetLength) : 0;
+                Send(2160, checked((int)position), position); Send(2366);
+                found = Send(backwards ? SciSearchPrevious : SciSearchNext, flags, pointer);
+            }
             return found >= 0;
         }
         finally { Marshal.FreeHGlobal(pointer); }
@@ -162,7 +176,17 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
 
     public void FocusEditor()
     {
-        if (editorWindow != 0) SetFocus(editorWindow);
+        if (editorWindow != 0) { SetActiveWindow(editorWindow); SetFocus(editorWindow); }
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new EditorAutomationPeer(this);
+    private sealed class EditorAutomationPeer(NativeScintillaTextSurface owner) : FrameworkElementAutomationPeer(owner)
+    {
+        protected override string GetClassNameCore() => "Scintilla";
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Document;
+        protected override bool IsKeyboardFocusableCore() => true;
+        protected override bool HasKeyboardFocusCore() => owner.editorWindow != 0 && GetFocus() == owner.editorWindow;
+        protected override void SetFocusCore() => owner.FocusEditor();
     }
 
     public void SetSavePoint()
@@ -194,7 +218,7 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
     private void OnUnloaded(object sender, RoutedEventArgs args)
     {
         pollTimer.Stop();
-        if (editorWindow != 0) ShowWindow(editorWindow, 0);
+        HideEditor();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs args) => UpdateBounds();
@@ -203,13 +227,17 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
     private void CreateEditorWindow()
     {
         EnsureLibrariesLoaded();
+        // WinUI's composition surface occludes ordinary child HWNDs. Use an
+        // owned native window for the editor's layout slot, never a topmost
+        // window. Its owner controls minimization and lifetime.
+        editorParent = ownerWindow;
         editorWindow = CreateWindowExW(
-            0,
+            0, // An owned popup stays off the taskbar and accepts native focus.
             "Scintilla",
-            string.Empty,
-            WsChild | WsVisible | WsTabStop | WsClipSiblings,
+            "OpenFinalShell Native Editor",
+            WsPopup | WsTabStop | WsClipSiblings,
             0, 0, 1, 1,
-            ownerWindow,
+            editorParent,
             0,
             scintillaModule,
             0);
@@ -269,6 +297,7 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
             if (lexer == 0) LexerLanguage = "plain";
         }
         Send(SciSetILexer, 0, lexer);
+        ConfigureSyntaxStyles();
     }
 
     private void WriteText(string text)
@@ -306,37 +335,73 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
     private void UpdateBounds()
     {
         if (editorWindow == 0 || disposed) return;
-        if (!IsLoaded || Visibility != Visibility.Visible || ActualWidth < 2 || ActualHeight < 2)
+        var foreground = GetForegroundWindow();
+        var visible = IsLoaded && IsWindowVisible(ownerWindow) && !IsIconic(ownerWindow) && (foreground == ownerWindow || foreground == editorWindow);
+        DependencyObject? ancestor = this;
+        while (ancestor != null)
         {
-            ShowWindow(editorWindow, 0);
+            if (ancestor is UIElement element && element.Visibility != Visibility.Visible) { visible = false; break; }
+            ancestor = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(ancestor);
+        }
+        var popupCount = XamlRoot == null ? 0 : Microsoft.UI.Xaml.Media.VisualTreeHelper.GetOpenPopupsForXamlRoot(XamlRoot).Count;
+        if (popupCount > 0) visible = false;
+        if (!visible || ActualWidth < 2 || ActualHeight < 2)
+        {
+            HideEditor();
             return;
         }
         try
         {
-            var point = TransformToVisual(coordinateRoot).TransformPoint(new Point(0, 0));
+            var transform = TransformToVisual(null);
+            var point = transform.TransformPoint(new Point(0, 0));
+            var bottomRight = transform.TransformPoint(new Point(ActualWidth, ActualHeight));
             var scale = XamlRoot?.RasterizationScale ?? 1.0;
             var x = (int)Math.Round(point.X * scale);
             var y = (int)Math.Round(point.Y * scale);
-            var width = Math.Max(1, (int)Math.Round(ActualWidth * scale));
-            var height = Math.Max(1, (int)Math.Round(ActualHeight * scale));
-            SetWindowPos(editorWindow, 0, x, y, width, height, SwpNoZOrder | SwpNoActivate | SwpShowWindow);
+            var origin = new NativePoint { X = x, Y = y };
+            ClientToScreen(ownerWindow, ref origin);
+            x = origin.X; y = origin.Y;
+            var width = Math.Max(1, (int)Math.Round((bottomRight.X - point.X) * scale));
+            var height = Math.Max(1, (int)Math.Round((bottomRight.Y - point.Y) * scale));
+            var bounds = (x, y, width, height);
+            if (!editorVisible || lastBounds != bounds)
+            {
+                SetWindowPos(editorWindow, 0, x, y, width, height, SwpNoActivate | SwpShowWindow);
+                lastBounds = bounds;
+                editorVisible = true;
+            }
+            if (Environment.GetEnvironmentVariable("OFS_NATIVE_TEST_MODE") == "1")
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(this, $"Scintilla HWND {editorWindow}; host={editorParent}; owner={ownerWindow}; bounds={x},{y},{width},{height}; popups={popupCount}");
         }
         catch (InvalidOperationException)
         {
-            ShowWindow(editorWindow, 0);
+            HideEditor();
         }
+    }
+
+    private void HideEditor()
+    {
+        if (editorWindow != 0 && editorVisible) ShowWindow(editorWindow, 0);
+        editorVisible = false;
     }
 
     private nint SubclassWindowProcedure(nint hwnd, uint message, nuint wParam, nint lParam, nuint subclassId, nuint referenceData)
     {
         const uint WmKeyDown = 0x0100;
+        if (message == 0x010D) nativeComposing = true; // WM_IME_STARTCOMPOSITION
+        if (message == 0x010E) nativeComposing = false; // WM_IME_ENDCOMPOSITION
+        if (!nativeComposing && (message == WmKeyDown || message == 0x0104) && WorkbenchKeyRequested?.Invoke((int)wParam,
+            (GetKeyState(0x11) & 0x8000) != 0, (GetKeyState(0x10) & 0x8000) != 0, (GetKeyState(0x12) & 0x8000) != 0) == true) return 0;
+        if (message == 0x0201) SetFocus(hwnd); // WM_LBUTTONDOWN
+        if (message == 0x0007 && FrameworkElementAutomationPeer.FromElement(this) is { } peer)
+            peer.RaiseAutomationEvent(AutomationEvents.AutomationFocusChanged);
         const uint WmMouseWheel = 0x020A;
         const int VkControl = 0x11;
         const int VkS = 0x53;
         const int VkF = 0x46;
         const int VkOemPlus = 0xBB;
         const int VkOemMinus = 0xBD;
-        if (message == WmKeyDown && (GetKeyState(VkControl) & 0x8000) != 0)
+        if (!nativeComposing && message == WmKeyDown && (GetKeyState(VkControl) & 0x8000) != 0)
         {
             if ((int)wParam == VkS) { SaveRequested?.Invoke(); return 0; }
             if ((int)wParam == VkF) { SearchRequested?.Invoke(); return 0; }
@@ -438,10 +503,17 @@ public sealed class NativeScintillaTextSurface : UserControl, IDisposable
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint LoadLibraryExW(string fileName, nint file, uint flags);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern nint GetProcAddress(nint module, string name);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint CreateWindowExW(uint exStyle, string className, string windowName, uint style, int x, int y, int width, int height, nint parent, nint menu, nint instance, nint parameter);
+    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X; public int Y; }
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(nint hwnd, ref NativePoint point);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint hwnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(nint hwnd);
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern nint SendMessageW(nint hwnd, uint message, nuint wParam, nint lParam);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] private static extern bool ShowWindow(nint hwnd, int command);
     [DllImport("user32.dll")] private static extern nint SetFocus(nint hwnd);
+    [DllImport("user32.dll")] private static extern nint SetActiveWindow(nint hwnd);
+    [DllImport("user32.dll")] private static extern nint GetFocus();
     [DllImport("user32.dll")] private static extern short GetKeyState(int virtualKey);
     [DllImport("comctl32.dll", SetLastError = true)] private static extern bool SetWindowSubclass(nint hwnd, SubclassProcedure procedure, nuint subclassId, nuint referenceData);
     [DllImport("comctl32.dll", SetLastError = true)] private static extern bool RemoveWindowSubclass(nint hwnd, SubclassProcedure procedure, nuint subclassId);

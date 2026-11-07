@@ -26,14 +26,15 @@ public sealed class ConnectionGroupViewModel : INotifyPropertyChanged
         Selected = selectedId == null ? null : Groups.FirstOrDefault(x => x.Id == selectedId);
     }
 
-    public ConnectionGroup Save(string? id, string name, double order = 0, long? revision = null)
+    public ConnectionGroup Save(string? id, string name, double order = 0, long? revision = null, string? parentId = null, bool changeParent = false)
     {
         if (string.IsNullOrWhiteSpace(name) || name.Trim().Length > 120) throw new ArgumentException("Connection group name is invalid.");
         var groupId = string.IsNullOrWhiteSpace(id) ? Guid.NewGuid().ToString("N") : id.Trim();
         var existing = store.Find("groups", groupId);
         var expected = revision ?? existing?["_revision"]?.GetValue<long>();
         var payload = new JsonObject { ["id"] = groupId, ["name"] = name.Trim(), ["order"] = double.IsFinite(order) ? order : Groups.Count };
-        var next = store.Save("groups", groupId, payload, expected);
+        if (changeParent || existing == null) payload["parentId"] = parentId;
+        var next = store.SaveConnectionGroup(groupId, payload, expected);
         Reload();
         Selected = Groups.FirstOrDefault(x => x.Id == groupId);
         return Selected ?? new ConnectionGroup(groupId, name.Trim(), order, next);
@@ -51,10 +52,11 @@ public sealed class ConnectionGroupViewModel : INotifyPropertyChanged
     {
         if (direction is not (-1 or 1)) throw new ArgumentOutOfRangeException(nameof(direction));
         if (Selected is not { } group) return;
-        var index = Groups.IndexOf(group);
+        var siblings = Groups.Where(item => item.ParentId == group.ParentId).ToList();
+        var index = siblings.IndexOf(group);
         var neighborIndex = index + direction;
-        if (index < 0 || neighborIndex < 0 || neighborIndex >= Groups.Count) return;
-        var reordered = Groups.ToList();
+        if (index < 0 || neighborIndex < 0 || neighborIndex >= siblings.Count) return;
+        var reordered = siblings;
         (reordered[index], reordered[neighborIndex]) = (reordered[neighborIndex], reordered[index]);
         store.ReorderConnectionGroups(reordered.Select((item, order) => (item.Id, (double)order, item.Revision)).ToArray());
         Reload();

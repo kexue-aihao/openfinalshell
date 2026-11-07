@@ -15,6 +15,12 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
     private string currentPath = "/";
     private string status = string.Empty;
     private bool busy;
+    private IReadOnlyList<RemoteEntry> allEntries = [];
+    private bool showHidden;
+    private string sort = "name";
+    private bool descending;
+    private readonly SemaphoreSlim navigationGate = new(1, 1);
+    private long navigationRequest;
 
     public ObservableCollection<RemoteEntry> Entries { get; } = [];
     public string CurrentPath { get => currentPath; private set { if (currentPath == value) return; currentPath = value; OnPropertyChanged(); } }
@@ -26,22 +32,37 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
 
     public async Task NavigateAsync(string path, CancellationToken token = default)
     {
-        if (IsBusy) return;
-        IsBusy = true;
+        var request = Interlocked.Increment(ref navigationRequest);
+        await navigationGate.WaitAsync(token);
         try
         {
+            if (request != Volatile.Read(ref navigationRequest)) return;
+            IsBusy = true;
             var normalized = NormalizePath(path);
             var values = await session.ListAsync(normalized, token);
-            Entries.Clear();
-            foreach (var value in values) Entries.Add(value);
+            token.ThrowIfCancellationRequested();
+            if (request != Volatile.Read(ref navigationRequest)) return;
+            allEntries = values;
+            ApplyView();
             CurrentPath = normalized;
             Status = $"{normalized} · {values.Count}";
         }
-        catch (Exception error) { Status = error.Message; throw; }
-        finally { IsBusy = false; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception error) { if (request == Volatile.Read(ref navigationRequest)) Status = error.Message; throw; }
+        finally { IsBusy = false; navigationGate.Release(); }
     }
 
     public Task RefreshAsync(CancellationToken token = default) => NavigateAsync(CurrentPath, token);
+    public void ConfigureView(bool hidden, string order, bool reverse)
+    {
+        showHidden = hidden; sort = order; descending = reverse; ApplyView();
+    }
+    private void ApplyView()
+    {
+        var visible = allEntries.Where(e => showHidden || !e.Name.StartsWith('.'));
+        Entries.Clear();
+        foreach (var entry in NativeSftpSort.Apply(visible, sort, descending)) Entries.Add(entry);
+    }
     public Task GoUpAsync(CancellationToken token = default) => NavigateAsync(ParentPath(CurrentPath), token);
 
     public async Task CreateDirectoryAsync(string name, CancellationToken token = default)
