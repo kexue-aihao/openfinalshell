@@ -85,12 +85,8 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         chmod.Click += async (_, _) => await ChmodAsync();
         delete.Click += async (_, _) => await DeleteAsync();
         entries.ItemsSource = viewModel.Entries;
-        entries.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Grid MinWidth=\"920\" Padding=\"8,4\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"2.4*\"/><ColumnDefinition Width=\"0.7*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"1.1*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"1.5*\"/></Grid.ColumnDefinitions><TextBlock Text=\"{Binding Name}\" TextTrimming=\"CharacterEllipsis\"/><TextBlock Grid.Column=\"1\" Text=\"{Binding Type}\" Opacity=\"0.65\" TextTrimming=\"CharacterEllipsis\"/><TextBlock Grid.Column=\"2\" Text=\"{Binding Size}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"3\" Text=\"{Binding Mode}\" Opacity=\"0.65\" HorizontalAlignment=\"Center\"/><TextBlock Grid.Column=\"4\" Text=\"{Binding OwnerId}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"5\" Text=\"{Binding GroupId}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"6\" Text=\"{Binding Modified}\" Opacity=\"0.65\" TextTrimming=\"CharacterEllipsis\"/></Grid></DataTemplate>");
-        entries.ContainerContentChanging += (_, args) =>
-        {
-            if (args.Item is RemoteEntry entry && args.ItemContainer is ListViewItem item)
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, $"{entry.Name} · {entry.Type} · {entry.Size} · {entry.Modified} · {entry.Mode} · {entry.OwnerId} · {entry.GroupId}");
-        };
+        entries.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Grid MinWidth=\"1000\" Padding=\"8,4\" ColumnSpacing=\"12\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"2.4*\"/><ColumnDefinition Width=\"0.7*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"1.1*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"260\"/></Grid.ColumnDefinitions><TextBlock Text=\"{Binding Name}\" TextTrimming=\"CharacterEllipsis\"/><TextBlock Grid.Column=\"1\" Text=\"{Binding Type}\" Opacity=\"0.65\" TextTrimming=\"CharacterEllipsis\"/><TextBlock Grid.Column=\"2\" Text=\"{Binding Size}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"3\" Text=\"{Binding Mode}\" Opacity=\"0.65\" HorizontalAlignment=\"Center\"/><TextBlock Grid.Column=\"4\" Text=\"{Binding OwnerId}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"5\" Text=\"{Binding GroupId}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"6\"  Opacity=\"0.65\" TextTrimming=\"CharacterEllipsis\"/></Grid></DataTemplate>");
+        entries.ContainerContentChanging += UpdateEntryPresentation;
         entries.IsItemClickEnabled = false;
         entries.DoubleTapped += async (_, args) =>
         {
@@ -187,14 +183,14 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         breadcrumbRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         breadcrumbRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         breadcrumbRow.Children.Add(breadcrumbScroller); breadcrumbRow.Children.Add(hidden); Grid.SetColumn(hidden, 1);
-        var header = new Grid { MinWidth = 920, Padding = new Thickness(8, 4, 8, 4), Background = Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out var headerBrush) && headerBrush is Brush fill ? fill : null };
+        var header = new Grid { MinWidth = 1000, ColumnSpacing = 12, Padding = new Thickness(8, 4, 8, 4), Background = Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out var headerBrush) && headerBrush is Brush fill ? fill : null };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.4, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.7, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.9, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.9, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.9, GridUnitType.Star) });
-        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.5, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
         AddSortableHeader(header, "name", text("sftp.colName"), 0);
         AddHeaderCell(header, text("sftp.colType"), 1);
         AddSortableHeader(header, "size", text("sftp.colSize"), 2, true);
@@ -250,6 +246,20 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             pendingFollowPath ??= queuedFollow;
             ScheduleFollow();
         };
+    }
+
+    private void UpdateEntryPresentation(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue || args.Item is not RemoteEntry entry) return;
+        var modified = SftpTimestamp.Format(entry.Modified, preferences.Language);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(args.ItemContainer,
+            $"{entry.Name} · {entry.Type} · {entry.Size} · {modified} · {entry.Mode} · {entry.OwnerId} · {entry.GroupId}");
+        if (args.ItemContainer.ContentTemplateRoot is Grid row && row.Children.Count > 6 && row.Children[6] is TextBlock label)
+        {
+            label.Text = modified;
+            ToolTipService.SetToolTip(label, modified);
+        }
+        else if (args.Phase == 0) args.RegisterUpdateCallback(1, UpdateEntryPresentation);
     }
 
     public void Configure(NativeSettings settings)

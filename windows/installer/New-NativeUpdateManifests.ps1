@@ -60,7 +60,18 @@ try {
             notesUrl = "https://github.com/$Repository/releases/tag/$tag"
         }
         $outputPath = Join-Path $OutputDirectory "native-update-$architecture.json"
-        $json = $entry | ConvertTo-Json -Depth 4
+        $inventoryName = "native-files-$architecture.json"
+        $inventoryPath = Join-Path $InstallerDirectory $inventoryName
+        if (!(Test-Path -LiteralPath $inventoryPath)) { throw "Signed file inventory missing: $inventoryName" }
+        $inventoryHash = (Get-FileHash -LiteralPath $inventoryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $inventorySignature = $privateRsa.SignData([Text.Encoding]::UTF8.GetBytes("$Version`n$Channel`n$inventoryHash`n"), [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+        $entry.incremental = [ordered]@{
+            schemaVersion = 1; version = $Version; channel = $Channel; architecture = $architecture
+            fileName = $inventoryName; downloadUrl = "https://github.com/$Repository/releases/download/$tag/$inventoryName"
+            sha256 = $inventoryHash; signature = [Convert]::ToBase64String($inventorySignature)
+            bytes = (Get-Item -LiteralPath $inventoryPath).Length
+        }
+        $json = $entry | ConvertTo-Json -Depth 8
         [IO.File]::WriteAllText($outputPath, "$json`n", [Text.UTF8Encoding]::new($false))
         Write-Output "Signed native update manifest: $outputPath"
     }

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <UpdatePublicKeyPath Condition="'$(UpdatePublicKeyPath)' == ''">$(MSBuildThisFileDirectory)../OpenFinalShell.Core/UpdatePublicKey.pem</UpdatePublicKeyPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../OpenFinalShell.Core/NativeFileUpdate.cs" Link="NativeFileUpdate.cs" />
+    <EmbeddedResource Include="$(UpdatePublicKeyPath)" Link="UpdatePublicKey.pem" />
+  </ItemGroup>
+</Project>

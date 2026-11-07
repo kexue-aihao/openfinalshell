@@ -1234,7 +1234,7 @@
       "ready": "版本 {{version}} 已准备安装。",
       "failed": "更新失败：{{detail}}",
       "idle": "自动更新检查已启用。",
-      "installConfirm": "安装 {{version}}？验证通过的安装器启动前，应用将关闭。",
+      "installConfirm": "安装 {{version}}？确认后将提示处理未保存文件，自动关闭会话和当前程序，完成更新后重新打开。取消权限确认不会关闭程序。",
       "activity": "安装前请先关闭 {{sessions}} 个会话、{{transfers}} 个传输、{{forwards}} 条转发、{{editors}} 个已修改编辑器和 {{rdp}} 个 RDP 会话。",
       "releaseNotes": "发行说明",
       "recovered": "上次更新未完成。当前版本仍可使用；请查看发行说明后重试。"

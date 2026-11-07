@@ -28,14 +28,17 @@ public sealed record NativeUpdateManifest(
     string SignatureBase64,
     long Bytes,
     DateTimeOffset? PublishedAt,
-    Uri? NotesUri);
+    Uri? NotesUri)
+{
+    public NativeUpdateManifest? Incremental { get; init; }
+}
 
 /// <summary>
 /// Signed, architecture-specific update feed for the unpackaged WinUI client.
 /// The installer itself is verified again by NativeUpdateCoordinator immediately
 /// before launch, so a changed file cannot cross the download-to-install gap.
 /// </summary>
-public sealed class NativeUpdateService : IDisposable
+public sealed partial class NativeUpdateService : IDisposable
 {
     private const int MaximumManifestBytes = 64 * 1024;
     private const long MaximumInstallerBytes = 2L * 1024 * 1024 * 1024;
@@ -45,6 +48,7 @@ public sealed class NativeUpdateService : IDisposable
     private readonly Uri manifestUri;
     private readonly string trustedPublicKeyPem;
     private readonly string downloadDirectory;
+    private readonly string installDirectory;
     private readonly SemaphoreSlim gate = new(1, 1);
     private int disposed;
 
@@ -65,7 +69,8 @@ public sealed class NativeUpdateService : IDisposable
         string trustedPublicKeyPem,
         Uri? manifestUri = null,
         string? downloadDirectory = null,
-        HttpClient? client = null)
+        HttpClient? client = null,
+        string? installDirectory = null)
     {
         this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
         CurrentVersion = NormalizeVersion(currentVersion);
@@ -73,6 +78,7 @@ public sealed class NativeUpdateService : IDisposable
         this.manifestUri = manifestUri ?? DefaultManifestUri;
         ValidateHttpsUri(this.manifestUri, "manifest");
         this.downloadDirectory = Path.GetFullPath(downloadDirectory ?? Path.Combine(NativeStore.DefaultDirectory, "updates"));
+        this.installDirectory = Path.GetFullPath(installDirectory ?? AppContext.BaseDirectory);
         ownsClient = client == null;
         this.client = client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = true, AutomaticDecompression = DecompressionMethods.All })
         {
@@ -155,6 +161,7 @@ public sealed class NativeUpdateService : IDisposable
 
     private async Task<NativeUpdateArtifact> DownloadCoreAsync(NativeUpdateManifest manifest, CancellationToken cancellation)
     {
+        if (manifest.Incremental != null) return await StageIncrementalAsync(manifest, cancellation).ConfigureAwait(false);
         Directory.CreateDirectory(downloadDirectory);
         var safeName = $"{NormalizeVersion(manifest.Version)}-{manifest.Architecture}-{manifest.FileName}";
         var destination = Path.Combine(downloadDirectory, safeName);
@@ -211,10 +218,10 @@ public sealed class NativeUpdateService : IDisposable
     }
 
     public NativeUpdateInstallDecision PrepareInstall() => coordinator.PrepareInstall();
-    public void Install(bool userConfirmed)
+    public async Task InstallAsync(bool userConfirmed)
     {
         if (DownloadedArtifact is not { } artifact) throw new InvalidOperationException("No verified update package is ready.");
-        coordinator.LaunchVerifiedInstaller(artifact, userConfirmed);
+        await coordinator.LaunchVerifiedInstallerAsync(artifact, userConfirmed, installDirectory);
     }
     public void MarkInstallCompleted() => coordinator.MarkInstallCompleted();
     public string? RecoverInterruptedInstall() => coordinator.RecoverInterruptedInstall();
@@ -245,7 +252,15 @@ public sealed class NativeUpdateService : IDisposable
         if (root.TryGetProperty("publishedAt", out var publishedValue) && publishedValue.ValueKind == JsonValueKind.String &&
             DateTimeOffset.TryParse(publishedValue.GetString(), out var publishedAt)) published = publishedAt;
         NativeUpdateCoordinator.VerifySignature(version, channel, hash, signature, trustedPublicKeyPem);
-        return new(version, channel, architecture, fileName, download, hash, signature, size, published, notes);
+        var result = new NativeUpdateManifest(version, channel, architecture, fileName, download, hash, signature, size, published, notes);
+        if (root.TryGetProperty("incremental", out var incremental))
+        {
+            if (incremental.TryGetProperty("incremental", out _)) throw new InvalidDataException("Nested incremental feed.");
+            var files = ParseManifest(Encoding.UTF8.GetBytes(incremental.GetRawText()));
+            if (files.Version != version || files.Channel != channel || files.Bytes > 4 * 1024 * 1024) throw new InvalidDataException("Incremental inventory does not match the release.");
+            result = result with { Incremental = files };
+        }
+        return result;
     }
 
     private NativeUpdateArtifact ToArtifact(NativeUpdateManifest manifest, string path) =>

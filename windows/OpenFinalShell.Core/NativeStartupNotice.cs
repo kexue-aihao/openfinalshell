@@ -11,6 +11,9 @@ public sealed record NativeStartupNotice(NativeStartupNoticeKind Kind, string? F
 {
     private const string LastLaunchedVersionKey = "last_launched_version";
 
+    public static NativeStartupNotice PendingLaunch(NativeStore store, string currentVersion) =>
+        ClassifyLaunch(store.ReadMetaText(LastLaunchedVersionKey), currentVersion);
+
     public static NativeStartupNotice ClassifyLaunch(string? previousVersion, string currentVersion)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(currentVersion);

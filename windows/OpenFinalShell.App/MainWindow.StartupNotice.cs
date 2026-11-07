@@ -11,7 +11,7 @@ public sealed partial class MainWindow
         NativeStartupNotice notice;
         try
         {
-            notice = NativeStartupNotice.AdvanceLaunch(store, updateService.CurrentVersion);
+            notice = NativeStartupNotice.PendingLaunch(store, updateService.CurrentVersion);
         }
         catch (Exception error)
         {
@@ -28,15 +28,26 @@ public sealed partial class MainWindow
             Title = firstRun
                 ? localization["onboarding.welcomeTitle"]
                 : localization.Format("onboarding.whatsNewTitle", ("version", notice.ToVersion)),
-            Content = new ScrollViewer { Content = firstRun ? BuildFirstRunContent() : BuildUpdateContent(notice), MaxHeight = 560, MaxWidth = 720 },
+            Content = new ScrollViewer
+            {
+                Content = BuildUpdateContent(notice),
+                MaxHeight = Math.Clamp(Root.XamlRoot.Size.Height * .52, 160, 480),
+                Width = Math.Clamp(Root.XamlRoot.Size.Width - 100, 200, 640),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                HorizontalScrollMode = ScrollMode.Disabled
+            },
             PrimaryButtonText = localization[firstRun ? "onboarding.getStarted" : "onboarding.gotIt"],
-            SecondaryButtonText = firstRun ? null : localization["onboarding.viewReleases"],
+            SecondaryButtonText = localization["onboarding.viewReleases"],
             XamlRoot = Root.XamlRoot
         };
 
+        dialog.Resources["ContentDialogMaxWidth"] = 720d;
         try
         {
-            if (await dialog.ShowGatedAsync() == ContentDialogResult.Secondary)
+            var result = await dialog.ShowGatedAsync();
+            NativeStartupNotice.AdvanceLaunch(store, updateService.CurrentVersion);
+            if (result == ContentDialogResult.Secondary)
                 await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/kexue-aihao/openfinalshell/releases"));
         }
         catch (Exception error)
@@ -62,6 +73,8 @@ public sealed partial class MainWindow
     private StackPanel BuildUpdateContent(NativeStartupNotice notice)
     {
         var content = new StackPanel { Spacing = 10 };
+        if (notice.Kind == NativeStartupNoticeKind.Fresh)
+            content.Children.Add(new TextBlock { Text = localization["onboarding.welcomeIntro"], TextWrapping = TextWrapping.Wrap, Opacity = .8 });
         if (!string.IsNullOrWhiteSpace(notice.FromVersion))
             content.Children.Add(new TextBlock
             {
@@ -71,8 +84,8 @@ public sealed partial class MainWindow
             });
 
         var notes = NativeReleaseNotes.All
-            .Where(note => NativeReleaseNotes.CompareVersions(note.Version, notice.FromVersion ?? "0.0.0") > 0
-                && NativeReleaseNotes.CompareVersions(note.Version, notice.ToVersion) <= 0)
+            .Where(note => NativeReleaseNotes.CompareVersions(note.Version, notice.ToVersion) <= 0)
+            .OrderByDescending(note => note.Version, Comparer<string>.Create(NativeReleaseNotes.CompareVersions))
             .ToArray();
         if (notes.Length == 0)
         {
@@ -83,8 +96,7 @@ public sealed partial class MainWindow
         var useChinese = localization.Language.StartsWith("zh", StringComparison.OrdinalIgnoreCase);
         foreach (var note in notes)
         {
-            if (notes.Length > 1)
-                content.Children.Add(new TextBlock { Text = "v" + note.Version, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Microsoft.UI.Xaml.Thickness(0, 5, 0, 0) });
+            content.Children.Add(new TextBlock { Text = "v" + note.Version, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Microsoft.UI.Xaml.Thickness(0, 5, 0, 0) });
             foreach (var item in note.Items)
             {
                 var kind = item.Type.Equals("fix", StringComparison.OrdinalIgnoreCase) ? "onboarding.typeFix" : "onboarding.typeFeat";

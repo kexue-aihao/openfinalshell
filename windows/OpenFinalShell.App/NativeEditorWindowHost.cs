@@ -119,6 +119,14 @@ internal sealed class NativeEditorWindowHost : IDisposable
         window.Close();
     }
 
+    public void SetUpdateBusy(bool busy)
+    {
+        if (window != null) EnableWindow(WindowHandle(), !busy);
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool EnableWindow(nint window, bool enable);
+
     public void Dispose()
     {
         if (disposed) return;

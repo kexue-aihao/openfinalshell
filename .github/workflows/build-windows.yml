@@ -56,6 +56,22 @@ jobs:
       - run: npm run typecheck
       - run: npm run check:i18n
 
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 原生更新与输入契约回归
+        shell: pwsh
+        run: |
+          node test/fixtures/nativeExport.mjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Push-Location windows
+          try {
+            dotnet run --project OpenFinalShell.Core.Tests -c Release
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+          .\scripts\testNativeFilePayload.ps1
+
       # 集成测试会起本地 fixture SSH 服务；真机验收用例无 OFS_TEST_* 时自动跳过。
       # Windows 上的三个真 POSIX shell 测试不能与其他测试文件并发启动 MSYS sh。
       - name: npm test（Windows 串行 shell）
@@ -359,6 +375,19 @@ jobs:
         shell: pwsh
         run: choco install nsis -y --no-progress
 
+      - name: 构建签名文件增量载荷
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          OFS_NATIVE_UPDATE_PRIVATE_KEY_B64: ${{ secrets.NATIVE_UPDATE_PRIVATE_KEY_B64 }}
+        run: |
+          .\windows\installer\New-NativeFilePayload.ps1 `
+            -InputDirectory './build/native-preview/${{ matrix.platform }}' `
+            -OutputDirectory './build/native-installer' `
+            -Version '${{ steps.native-version.outputs.version }}' `
+            -Repository '${{ github.repository }}' `
+            -Architecture '${{ matrix.arch }}'
+
       - name: 构建版本化原生安装包
         shell: pwsh
         run: .\windows\installer\build-native-installer.ps1 -Architecture ${{ matrix.platform }} -Version '${{ steps.native-version.outputs.version }}'
@@ -387,6 +416,8 @@ jobs:
           path: |
             build/native-installer/OpenFinalShell-NativePreview-*-Setup.exe
             build/native-installer/native-update-*.json
+            build/native-installer/native-files-*.json
+            build/native-installer/native-files-*.ofsdata
           if-no-files-found: error
           retention-days: 14
 
@@ -415,6 +446,8 @@ jobs:
           [ "$(count 'OpenFinalShell-NativePreview-*-Setup.exe')" -eq 3 ] || { echo "::error::期望 3 个原生安装器"; exit 1; }
           for arch in x64 x86 arm64; do
             test -f "native-update-$arch.json" || { echo "::error::缺少原生 $arch 更新清单"; exit 1; }
+            test -f "native-files-$arch.json" || exit 1
+            test -f "native-files-${GITHUB_REF_NAME#v}-$arch.ofsdata" || exit 1
           done
           [ "$(count 'native-update-*.json')" -eq 3 ] || { echo "::error::期望 3 个原生更新清单"; exit 1; }
           [ "$(count '*.exe.blockmap')" -eq 3 ] || { echo "::error::期望 3 个 blockmap"; exit 1; }
@@ -435,7 +468,7 @@ jobs:
       - name: 生成校验和
         run: |
           cd dist
-          sha256sum *.exe *.exe.blockmap latest-*.yml native-update-*.json | tee SHA256SUMS.txt
+          sha256sum *.exe *.exe.blockmap latest-*.yml native-update-*.json native-files-*.json native-files-*.ofsdata | tee SHA256SUMS.txt
           ls -lh
 
       - name: 创建 Release 并上传
@@ -460,7 +493,7 @@ jobs:
 
           Electron Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`；WinUI3 原生预览版需要管理员权限，默认装到 `C:\Program Files\OpenFinalShell Native Preview`，两者均可改安装目录。
 
-          原生预览版使用 `native-update-<arch>.json` 签名清单自动检查并下载升级；覆盖安装和卸载保留 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 中的连接与凭据数据。
+          原生预览版从 v0.30.39 起支持签名文件增量更新：复用本机未变化文件，只请求 `.ofsdata` 中变化文件的字节范围；旧客户端需要一次完整升级来获得新更新器。覆盖安装和卸载保留 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 中的连接与凭据数据。
 
           > `latest-*.yml` 与 `*.blockmap` 是更新检查元数据，不用手工下载。
           > 其中 blockmap 让下一版只下载变化的部分，所以历史版本的这两个文件不会删。
@@ -516,6 +549,6 @@ jobs:
             done
 
           gh release upload "$GITHUB_REF_NAME" \
-            dist/*.exe dist/*.exe.blockmap dist/latest-*.yml dist/native-update-*.json dist/SHA256SUMS.txt \
+            dist/*.exe dist/*.exe.blockmap dist/latest-*.yml dist/native-update-*.json dist/native-files-*.json dist/native-files-*.ofsdata dist/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --clobber

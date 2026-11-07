@@ -10,7 +10,7 @@ public sealed record NativeUpdateActivity(int Sessions, int Transfers, int Forwa
     public bool HasActivity => Sessions > 0 || Transfers > 0 || Forwards > 0 || Editors > 0 || RdpSessions > 0;
 }
 public sealed record NativeUpdateInstallDecision(bool Allowed, bool NeedsConfirmation, NativeUpdateActivity Activity, string? Error);
-public sealed record NativeUpdateArtifact(string Version, string Path, string Sha256, string SignatureBase64, string Channel);
+public sealed record NativeUpdateArtifact(string Version, string Path, string Sha256, string SignatureBase64, string Channel, string? StagingDirectory = null);
 
 /// <summary>
 /// Native update gate. Verification is performed before an installer can be
@@ -74,12 +74,46 @@ public sealed class NativeUpdateCoordinator
     {
         try { return File.Exists(markerPath) ? JsonDocument.Parse(File.ReadAllText(markerPath)).RootElement.GetProperty("Version").GetString() : null; } catch { return null; }
     }
+    public async Task LaunchVerifiedInstallerAsync(NativeUpdateArtifact artifact, bool userConfirmed, string installDirectory)
+    {
+        if (!userConfirmed) throw new InvalidOperationException("User confirmation is required before launching an update.");
+        VerifyArtifact(artifact);
+        if (artifact.StagingDirectory != null)
+        {
+            var inventory = NativeFileUpdate.ReadVerified(artifact.StagingDirectory, trustedPublicKeyPem);
+            NativeFileUpdate.VerifyStaged(inventory, artifact.StagingDirectory);
+        }
+        // The watcher stays at the original user's privilege level and restarts
+        // the application after the elevated worker finishes. The worker signals
+        // readiness only after validation/UAC, while the application is still alive.
+        var helper = Path.Combine(installDirectory, "UpdateHost", "OpenFinalShell.UpdateHost.exe");
+        if (!File.Exists(helper)) throw new FileNotFoundException("Native update helper is missing. Repair this installation before updating.", helper);
+        var runner = Path.Combine(Path.GetDirectoryName(artifact.Path)!, "runner-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(runner);
+        var executable = Path.Combine(runner, Path.GetFileName(helper));
+        File.Copy(helper, executable);
+        var pipeName = "ofs-update-" + Guid.NewGuid().ToString("N");
+        using var pipe = new System.IO.Pipes.NamedPipeServerStream(pipeName, System.IO.Pipes.PipeDirection.In,
+            1, System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly);
+        var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "--watch", Environment.ProcessId.ToString(), Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks.ToString(),
+            installDirectory, artifact.StagingDirectory ?? artifact.Path, pipeName, artifact.StagingDirectory == null ? "installer" : "files",
+            artifact.Version, artifact.Channel, artifact.Sha256, artifact.SignatureBase64 }) start.ArgumentList.Add(argument);
+        using var watcher = Process.Start(start) ?? throw new IOException("Could not start the native update helper.");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+        await pipe.WaitForConnectionAsync(timeout.Token);
+        using var reader = new StreamReader(pipe);
+        var message = await reader.ReadLineAsync(timeout.Token);
+        if (message != "ready") throw new InvalidOperationException(message ?? "The update helper did not become ready.");
+        MarkInstallStarted(artifact);
+    }
+
+    // Kept for callers that only launch an installer and do their own shutdown.
     public void LaunchVerifiedInstaller(NativeUpdateArtifact artifact, bool userConfirmed)
     {
         if (!userConfirmed) throw new InvalidOperationException("User confirmation is required before launching an update.");
-        var decision = PrepareInstall();
-        if (decision.NeedsConfirmation) throw new InvalidOperationException("Active sessions or transfers must be closed before launching the installer.");
-        VerifyArtifact(artifact); MarkInstallStarted(artifact);
+        if (PrepareInstall().NeedsConfirmation) throw new InvalidOperationException("Active sessions or transfers must be closed before launching the installer.");
+        VerifyArtifact(artifact);
         var startInfo = new ProcessStartInfo(artifact.Path)
         {
             Arguments = $"/S /WAITPID={Environment.ProcessId}",
@@ -87,5 +121,6 @@ public sealed class NativeUpdateCoordinator
             UseShellExecute = true
         };
         Process.Start(startInfo);
+        MarkInstallStarted(artifact);
     }
 }

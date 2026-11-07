@@ -10,6 +10,7 @@ public sealed partial class MainWindow
     private async void MainWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (confirmedWindowClose) return;
+        if (closeDialogOpen) { args.Cancel = true; return; }
         var activity = CurrentUpdateActivity(updateCoordinator.Activity());
         if (!activity.HasActivity && !editorWindowHost.HasDocuments) return;
         args.Cancel = true;

@@ -23,6 +23,8 @@ try {
   $args=@($project,'-c','Release','-r',$rid,$platformArg,"-p:OpenFinalShellVersion=$Version",'--no-restore','--self-contained','true','-o',$output)
   if ($Publish) { dotnet publish @args } else { dotnet build @args }
   if ($LASTEXITCODE) { throw "Native preview build failed for $Architecture" }
+  dotnet publish (Join-Path $PSScriptRoot 'OpenFinalShell.UpdateHost/OpenFinalShell.UpdateHost.csproj') -c Release -r $rid --self-contained true -o (Join-Path $output 'UpdateHost')
+  if ($LASTEXITCODE) { throw "Native update helper build failed for $Architecture" }
 } finally { Pop-Location }
 if (!(Test-Path (Join-Path $output 'OpenFinalShell.App.exe'))) { throw "Native executable missing" }
 Write-Output "Native preview $Architecture $Version ready: $output"

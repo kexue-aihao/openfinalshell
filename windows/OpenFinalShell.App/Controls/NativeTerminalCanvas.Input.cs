@@ -16,7 +16,9 @@ public sealed partial class NativeTerminalCanvas
         HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
         MinWidth = 1, MinHeight = 1, Width = 100, Height = 24,
         Padding = new(0), BorderThickness = new(0), Opacity = .01,
-        IsHitTestVisible = false, AcceptsReturn = false,
+        // WinUI can report logical focus on a hit-test-disabled TextBox while
+        // its native text input client never receives keyboard messages.
+        IsHitTestVisible = true, IsTabStop = true, AcceptsReturn = false,
         IsSpellCheckEnabled = false, IsTextPredictionEnabled = false,
         Background = new SolidColorBrush(Colors.Transparent)
     };
@@ -37,26 +39,23 @@ public sealed partial class NativeTerminalCanvas
         };
         textInput.TextChanged += (_, _) =>
         {
-            // With the text client focused, CharacterReceived is the single
-            // source of committed keyboard characters. TextChanged remains a
-            // fallback for automation and composition updates when the client
-            // is not the active focus target.
-            if (!composing && !clearingInput && textInput.FocusState == FocusState.Unfocused) CommitTextInput();
+            // TextBox consumes CharacterReceived internally. Its committed Text
+            // is the source of truth, including when it owns keyboard focus.
+            if (!composing && !clearingInput) CommitTextInput();
         };
-        // When the hidden text client owns focus, CharacterReceived is routed
-        // to it before the canvas. Forward the committed character immediately
-        // so normal keyboard input cannot remain trapped in TextBox.Text.
-        textInput.CharacterReceived += OnCharacterReceived;
         textInput.LostFocus += (_, _) =>
         {
-            composing = false;
             CommitTextInput();
+            // An interrupted composition must never execute remote input.
+            ClearTextInputBuffer();
+            composing = false; textInput.Opacity = .01;
         };
         GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
     }
     private void FocusTextInput(FocusState state)
     {
-        PositionTextInput(); textInput.Focus(state);
+        PositionTextInput();
+        textInput.Focus(state);
     }
     private void CommitTextInput()
     {

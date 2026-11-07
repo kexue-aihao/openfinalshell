@@ -17,6 +17,15 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.39',
+    items: [
+      { type: 'fix', zh: '修复原生 SSH 终端输入焦点不可用和普通字符被输入框截留的问题，恢复键盘、回车和 Unicode 粘贴', en: 'Restore focus and committed text delivery in the native SSH terminal, including keyboard input, Enter and Unicode paste' },
+      { type: 'fix', zh: '原生文件列表修改时间统一为中文日期、星期、上午/下午和秒，并改善时间列间距', en: 'Format native file timestamps with date, weekday, AM/PM and seconds, with clearer column spacing' },
+      { type: 'feat', zh: '加入签名文件增量更新，仅下载变化文件；更新确认后自动关闭并重启，替换失败时回滚。旧客户端需一次完整升级才能启用', en: 'Add signed file-level incremental updates, downloading only changed files with automatic shutdown, restart and rollback on replacement failure; older clients need one full upgrade to enable this updater' },
+      { type: 'feat', zh: '首次启动及升级后的首次启动显示可滚动的完整更新历史，弹窗大小随窗口调整', en: 'Show scrollable release history on first launch and after upgrades, sized to the application window' }
+    ]
+  },
+  {
     version: '0.30.38',
     items: [
       { type: 'fix', zh: '调整 WinUI 3 原生预览版安装器：默认安装到 C:\\Program Files\\OpenFinalShell Native Preview，并在安装时正确请求管理员权限；升级器同时兼容新的系统安装目录和旧版用户目录', en: 'Update the WinUI 3 native preview installer to default to C:\\Program Files\\OpenFinalShell Native Preview with the required administrator permission, while keeping the updater compatible with the new machine-wide location and legacy per-user installs' }

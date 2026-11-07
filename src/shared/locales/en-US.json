@@ -1355,7 +1355,7 @@
       "ready": "Version {{version}} is ready to install.",
       "failed": "Update failed: {{detail}}",
       "idle": "Automatic update checks are enabled.",
-      "installConfirm": "Install version {{version}}? The app will close before the verified installer starts.",
+      "installConfirm": "Install version {{version}}? Unsaved files will be reviewed, then sessions and this app will close automatically. The app reopens after updating. Canceling elevation leaves it running.",
       "activity": "Close {{sessions}} sessions, {{transfers}} transfers, {{forwards}} forwarding rules, {{editors}} modified editors, and {{rdp}} RDP sessions before installing.",
       "releaseNotes": "Release notes",
       "recovered": "The previous update did not finish. The current version remains usable; try again after checking the release notes."

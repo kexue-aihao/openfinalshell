@@ -218,6 +218,8 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         if (parser == 0) return;
         if (composing || (int)args.Key == 229) return;
+        // Keep committed text ahead of Enter and other terminal control keys.
+        CommitTextInput();
         var modifiers = CurrentModifiers();
         var control = (modifiers & 4) != 0;
         if (control && (modifiers & 1) != 0 && args.Key == Windows.System.VirtualKey.H) { HistoryRequested?.Invoke(); args.Handled = true; return; }
@@ -247,7 +249,9 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 
     private void OnCharacterReceived(UIElement sender, Microsoft.UI.Xaml.Input.CharacterReceivedRoutedEventArgs args)
     {
-        if (composing) return;
+        // Focused TextBox input is forwarded by TextChanged. This handler is
+        // only a fallback for characters delivered directly to the canvas.
+        if (composing || textInput.FocusState != FocusState.Unfocused) return;
         var value = args.Character;
         if (char.IsHighSurrogate(value)) { pendingHighSurrogate = value; args.Handled = true; return; }
         if (char.IsLowSurrogate(value))
@@ -393,6 +397,10 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         selecting = true;
         CapturePointer(args.Pointer);
         canvas.Invalidate();
+        args.Handled = true;
+        // Pointer default handling/capture must finish before the TSF client
+        // takes keyboard focus; otherwise a click can immediately steal it.
+        DispatcherQueue.TryEnqueue(() => FocusTextInput(FocusState.Programmatic));
     }
 
     private void OnPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)

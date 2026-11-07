@@ -67,15 +67,23 @@ FunctionEnd
 
 Function WaitForPreviousApplication
   StrCmp $OFS_WAIT_PID "" done
-  IntOp $0 $OFS_WAIT_PID + 0
+  IntOp $2 $OFS_WAIT_PID + 0
+  StrCpy $3 0
 wait_loop:
   System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i r2) p .r0'
   StrCmp $0 "0" done
   System::Call 'kernel32::WaitForSingleObject(p r0, i 250) i .r1'
   System::Call 'kernel32::CloseHandle(p r0)'
   StrCmp $1 "0" done
+  IntOp $3 $3 + 1
+  IntCmp $3 120 timed_out wait_again timed_out
+wait_again:
   Sleep 250
   Goto wait_loop
+timed_out:
+  MessageBox MB_ICONSTOP "OpenFinalShell is still running. Installation was canceled; please close the application and retry." /SD IDOK
+  SetErrorLevel 2
+  Quit
 done:
 FunctionEnd
 

@@ -100,6 +100,16 @@ public sealed class NativeStore : IDisposable
         }
     }
 
+    public string? ReadMetaText(string name)
+    {
+        lock (gate)
+        {
+            using var read = Command("SELECT v FROM meta WHERE k=$k");
+            read.Parameters.AddWithValue("$k", name);
+            return read.ExecuteScalar() is byte[] bytes ? Encoding.UTF8.GetString(bytes) : null;
+        }
+    }
+
     // Host names and key algorithms are sensitive metadata. Keep their lookup token
     // deterministic for conflict checks, while the display value remains inside the
     // authenticated encrypted payload.

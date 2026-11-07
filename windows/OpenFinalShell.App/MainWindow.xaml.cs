@@ -2248,41 +2248,50 @@ public sealed partial class MainWindow : Window
 
     private async void InstallUpdate(object sender, RoutedEventArgs args)
     {
-        if (updateCheckRunning || updateService.DownloadedArtifact is not { } artifact) return;
-        var decision = updateCoordinator.PrepareInstall();
-        var activity = CurrentUpdateActivity(decision.Activity);
-        if (activity.HasActivity)
-        {
-            ShowUpdateActivity(activity);
-            return;
-        }
-        var dialog = new ContentDialog
-        {
-            Title = localization["native.update.title"],
-            Content = localization.Format("native.update.installConfirm", ("version", artifact.Version)),
-            PrimaryButtonText = localization["native.update.install"],
-            CloseButtonText = localization["native.common.cancel"],
-            XamlRoot = Root.XamlRoot
-        };
-        if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return;
-        activity = CurrentUpdateActivity(updateCoordinator.Activity());
-        if (activity.HasActivity)
-        {
-            ShowUpdateActivity(activity);
-            return;
-        }
+        if (updateCheckRunning || closeDialogOpen || updateService.DownloadedArtifact is not { } artifact) return;
+        updateCheckRunning = true;
+        closeDialogOpen = true;
         try
         {
-            updateCheckRunning = true;
-            updateService.Install(userConfirmed: true);
+            var activity = CurrentUpdateActivity(updateCoordinator.Activity());
+            var message = localization.Format("native.update.installConfirm", ("version", artifact.Version));
+            if (activity.HasActivity)
+                message += "\n\n" + localization.Format("native.workbench.exitActivity",
+                    ("sessions", (activity.Sessions + activity.RdpSessions).ToString()), ("transfers", activity.Transfers.ToString()),
+                    ("forwards", activity.Forwards.ToString()), ("editors", activity.Editors.ToString()));
+            var dialog = new ContentDialog
+            {
+                Title = localization["native.update.title"], Content = message,
+                PrimaryButtonText = localization["native.update.install"], CloseButtonText = localization["native.common.cancel"], XamlRoot = Root.XamlRoot
+            };
+            if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return;
+            if (!await editorWindowHost.ConfirmCloseAllAsync()) return;
+            foreach (var workspace in sessionWorkspaces.Values.ToArray()) if (!await workspace.ConfirmCloseAsync()) return;
+            foreach (var editor in sessionContents.Values.OfType<Controls.NativeRemoteEditor>().ToArray()) if (!await editor.ConfirmCloseAsync()) return;
+            // Keep the workbench stable while UAC/verification is pending. A
+            // canceled elevation leaves all sessions and documents intact.
+            EnableWindowForUpdate(WindowHandle(), false);
+            editorWindowHost.SetUpdateBusy(true);
+            await updateService.InstallAsync(userConfirmed: true);
+            editorWindowHost.CloseAfterConfirmation();
+            foreach (var rdp in rdpSessions.Values.ToArray()) await rdp.DisposeAsync();
+            rdpSessions.Clear();
+            confirmedWindowClose = true;
             Close();
+            Application.Current.Exit();
         }
-        catch (Exception error)
+        catch (Exception error) { ShowError(localization.Format("native.update.failed", ("detail", error.Message))); }
+        finally
         {
+            if (!confirmedWindowClose) { EnableWindowForUpdate(WindowHandle(), true); editorWindowHost.SetUpdateBusy(false); }
+            closeDialogOpen = false;
             updateCheckRunning = false;
-            ShowError(localization.Format("native.update.failed", ("detail", error.Message)));
         }
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "EnableWindow")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool EnableWindowForUpdate(nint window, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool enable);
 
     private NativeUpdateActivity CurrentUpdateActivity(NativeUpdateActivity activity) => activity with
     {
