@@ -1,6 +1,6 @@
 {
   "name": "openfinalshell",
-  "version": "0.30.34",
+  "version": "0.30.35",
   "description": "开源跨平台远程运维工作台，集成 SSH/SFTP、嵌入式 RDP、AI 助手、服务器监控与端口转发",
   "desktopName": "openfinalshell.desktop",
   "type": "module",
@@ -18,6 +18,7 @@
     "check:i18n": "node scripts/checkI18n.mjs",
     "test": "vitest run",
     "icon": "node scripts/generateIcon.mjs",
+    "icon:windows": "npm run icon && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateNativeWindowsIcon.ps1",
     "package": "npm run build:rdp-worker -- --platform win --arch x64 --require-freerdp && npm run check:rdp-worker -- --platform win --arch x64 --require-freerdp && electron-vite build && electron-builder --win --x64 --publish never && npm run check:rdp-worker -- --platform win --arch x64 --app-dir release/win-unpacked --require-freerdp",
     "package:deb": "npm run build:rdp-worker -- --platform linux --arch x64 --require-freerdp && npm run check:rdp-worker -- --platform linux --arch x64 --require-freerdp && electron-vite build && electron-builder --linux deb --x64 --publish never && npm run check:rdp-worker -- --platform linux --arch x64 --app-dir release/linux-unpacked --require-freerdp",
     "package:win:arm64": "npm run build:rdp-worker -- --platform win --arch arm64 --package-disabled && npm run check:rdp-worker -- --platform win --arch arm64 --expect-absent && electron-vite build && electron-builder --win --arm64 --publish never && npm run check:rdp-worker -- --platform win --arch arm64 --app-dir release/win-arm64-unpacked --expect-absent",

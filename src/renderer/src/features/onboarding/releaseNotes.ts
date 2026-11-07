@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.35',
+    items: [
+      { type: 'feat', zh: '统一 WinUI 3 原生预览版与 Electron 版的软件图标，覆盖窗口、任务栏、程序文件及原生安装器', en: 'Use the same OpenFinalShell app icon in the WinUI 3 native preview and Electron, including the window, taskbar, executable and native installer' }
+    ]
+  },
+  {
     version: '0.30.34',
     items: [
       { type: 'feat', zh: '新增 Electron 到 WinUI 3 原生预览版的迁移入口：支持加密导出、架构匹配的安装包下载、SHA-256 校验和安装后启动，并保留 Electron 数据与独立原生数据目录', en: 'Add an Electron to WinUI 3 native preview migration entry with encrypted export, architecture-matched installer downloads, SHA-256 verification and post-install launch while preserving Electron data and the native app’s separate data directory' },

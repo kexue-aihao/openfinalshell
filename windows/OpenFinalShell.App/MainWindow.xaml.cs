@@ -158,6 +158,8 @@ public sealed partial class MainWindow : Window
         InitializeElectronLayout();
         AppWindow.Changed += OnAppWindowChanged;
         InitializeWorkbenchShortcuts();
+        var appIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "OpenFinalShell.ico");
+        if (File.Exists(appIconPath)) AppWindow.SetIcon(appIconPath);
         Closed += MainWindowClosed;
         AppWindow.Closing += MainWindowClosing;
         ApplyPlatformResources();
