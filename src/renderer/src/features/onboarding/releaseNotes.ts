@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.40',
+    items: [
+      { type: 'fix', zh: '修复原生终端单击后残留选中色块的问题，隐藏输入框自身的光标，仅显示正常闪烁的终端光标', en: 'Remove the selected-cell artifact left by a native terminal click and hide the input client caret so only the normal blinking terminal cursor is shown' },
+      { type: 'fix', zh: '修复原生终端选中即复制：拖选结束自动复制文字，支持单字符选择，并避免隐藏输入框截走鼠标事件', en: 'Restore native terminal copy-on-select after a drag, including single-character selections, and prevent the hidden input client from swallowing pointer events' }
+    ]
+  },
+  {
     version: '0.30.39',
     items: [
       { type: 'fix', zh: '修复原生 SSH 终端输入焦点不可用和普通字符被输入框截留的问题，恢复键盘、回车和 Unicode 粘贴', en: 'Restore focus and committed text delivery in the native SSH terminal, including keyboard input, Enter and Unicode paste' },

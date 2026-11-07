@@ -85,11 +85,12 @@ public sealed partial class NativeTerminalCanvas
     private void SelectAll()
     {
         selectionStart = (0, 0); selectionEnd = (CurrentScrollbackLines + ScreenRows - 1, ScreenColumns - 1); canvas.Invalidate();
+        CopySelectionIfEnabled();
     }
     public void ClearScreen()
     {
         if (parser == 0) return;
-        ofs_terminal_clear(parser); scrollOffset = 0; selectionStart = selectionEnd = null;
+        ofs_terminal_clear(parser); scrollOffset = 0; ClearSelection();
         searchResults.Clear(); submittedAt = null; canvas.Invalidate(); UpdateAccessibleText();
     }
     private void ShowContextMenu(Windows.Foundation.Point position)

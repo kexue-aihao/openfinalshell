@@ -37,6 +37,8 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private int scrollOffset;
     private (int line, int column)? selectionStart;
     private (int line, int column)? selectionEnd;
+    private (int line, int column)? selectionAnchor;
+    private Point selectionOrigin;
     private bool selecting;
     private string searchTerm = string.Empty;
     private readonly List<(int line, int column, int length)> searchResults = [];
@@ -82,10 +84,14 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(this, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(accessibleScreen, "Visible terminal text");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetLiveSetting(accessibleScreen, Microsoft.UI.Xaml.Automation.Peers.AutomationLiveSetting.Polite);
-        PointerPressed += OnPointerPressed;
-        PointerMoved += OnPointerMoved;
-        PointerReleased += OnPointerReleased;
-        PointerWheelChanged += OnPointerWheelChanged;
+        // The focused TSF TextBox may handle pointer events first. Keep terminal
+        // selection/release working even when a drag starts over that client.
+        AddHandler(PointerPressedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(OnPointerPressed), true);
+        AddHandler(PointerMovedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(OnPointerMoved), true);
+        AddHandler(PointerReleasedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(OnPointerReleased), true);
+        AddHandler(PointerWheelChangedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(OnPointerWheelChanged), true);
+        PointerCanceled += CancelPointerSelection;
+        PointerCaptureLost += CancelPointerSelection;
     }
 
     private void EnsureParser()
@@ -186,7 +192,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
                 if ((cell.Attributes & 16) != 0) args.DrawingSession.DrawLine(x, y + cellHeight / 2, x + cellWidth * Math.Max(1, (int)cell.Width), y + cellHeight / 2, foreground);
             }
         }
-        if (scrollOffset > 0 || !cursorOn) return;
+        if (scrollOffset > 0 || !cursorOn || composing || textInput.FocusState == FocusState.Unfocused) return;
         var cursorRow = ofs_terminal_cursor_row(parser); var cursorCol = ofs_terminal_cursor_col(parser);
         if (cursorRow >= 0 && cursorCol >= 0 && cursorCol < columns && cursorRow < rows)
         {
@@ -322,11 +328,19 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         return result;
     }
 
-    private bool HasSelection => selectionStart is not null && selectionEnd is not null && selectionStart != selectionEnd;
+    private bool HasSelection => selectionStart is not null && selectionEnd is not null;
+
+    private void ClearSelection()
+    {
+        selecting = false;
+        selectionAnchor = selectionStart = selectionEnd = null;
+        canvas.Invalidate();
+    }
 
     private void SendNativeKey(int key, int modifiers)
     {
         if (parser == 0 || ofs_terminal_key(parser, key, modifiers) == 0) return;
+        ClearSelection(); cursorOn = true;
         if (key == 1 && ofs_terminal_alt_screen(parser) == 0) submittedAt = Stopwatch.GetTimestamp();
         DrainGeneratedOutput();
     }
@@ -334,6 +348,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private void SendCodepoint(uint codepoint, int modifiers)
     {
         if (parser == 0 || ofs_terminal_unichar(parser, codepoint, modifiers) == 0) return;
+        ClearSelection(); cursorOn = true;
         DrainGeneratedOutput();
     }
 
@@ -364,6 +379,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 
     private void OnPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
     {
+        if (composing) return;
         FocusTextInput(FocusState.Pointer);
         var point = args.GetCurrentPoint(this).Position;
         var cell = PointToCell(point);
@@ -389,11 +405,16 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             else _ = PasteClipboardAsync();
             args.Handled = true; return;
         }
+        if (!args.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         var screenRows = ScreenRows;
         var total = CurrentScrollbackLines + screenRows;
         var first = Math.Max(0, total - screenRows - scrollOffset);
-        selectionStart = (first + cell.row, cell.column);
-        selectionEnd = selectionStart;
+        textInput.ReleasePointerCapture(args.Pointer);
+        // A click only anchors a possible drag; it must never paint a selected
+        // cell or overwrite the clipboard. A real drag can select one cell.
+        selectionAnchor = (first + cell.row, cell.column);
+        selectionOrigin = point;
+        selectionStart = selectionEnd = null;
         selecting = true;
         CapturePointer(args.Pointer);
         canvas.Invalidate();
@@ -412,14 +433,18 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             ofs_terminal_mouse_move(parser, mouseCell.row, mouseCell.column, CurrentModifiers());
             DrainGeneratedOutput(); args.Handled = true; return;
         }
-        if (!selecting) return;
+        if (!selecting || selectionAnchor is not { } anchor) return;
         var point = args.GetCurrentPoint(this).Position;
         var cell = PointToCell(point);
         var screenRows = ScreenRows;
         var total = CurrentScrollbackLines + screenRows;
         var first = Math.Max(0, total - screenRows - scrollOffset);
-        selectionEnd = (Math.Clamp(first + cell.row, 0, Math.Max(0, total - 1)), cell.column);
+        var end = (Math.Clamp(first + cell.row, 0, Math.Max(0, total - 1)), cell.column);
+        if (!HasSelection && end == anchor && Math.Abs(point.X - selectionOrigin.X) < 4 && Math.Abs(point.Y - selectionOrigin.Y) < 4) return;
+        selectionStart = anchor;
+        selectionEnd = end;
         canvas.Invalidate();
+        args.Handled = true;
     }
 
     private void OnPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
@@ -432,9 +457,26 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             ofs_terminal_mouse_button(parser, activeMouseButton, 0, CurrentModifiers());
             DrainGeneratedOutput(); args.Handled = true; return;
         }
+        if (!selecting) return;
+        OnPointerMoved(sender, args);
         selecting = false;
-        if (HasSelection && NativeSettings.ReadPath(preferences, "copyOnSelect", NativeSettings.DefaultTerminalCopyOnSelect)) _ = CopySelectionAsync();
+        selectionAnchor = null;
+        CopySelectionIfEnabled();
         ReleasePointerCapture(args.Pointer);
+        args.Handled = true;
+        canvas.Invalidate();
+    }
+
+    private void CancelPointerSelection(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
+    {
+        // ReleasePointerCapture also raises this event after a completed drag.
+        // Only an interrupted gesture should discard its unfinished selection.
+        if (selecting) ClearSelection();
+    }
+
+    private void CopySelectionIfEnabled()
+    {
+        if (HasSelection && NativeSettings.ReadPath(preferences, "copyOnSelect", NativeSettings.DefaultTerminalCopyOnSelect)) _ = CopySelectionAsync();
     }
 
     private void OnPointerWheelChanged(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
@@ -459,7 +501,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     }
 
     private (int row, int column) PointToCell(Point point) =>
-        (Math.Max(0, (int)((point.Y - 4) / cellHeight)), Math.Max(0, (int)((point.X - 8) / cellWidth)));
+        (Math.Clamp((int)((point.Y - 4) / cellHeight), 0, ScreenRows - 1), Math.Clamp((int)((point.X - 8) / cellWidth), 0, ScreenColumns - 1));
 
     private bool IsSelected(int line, int column)
     {
@@ -470,11 +512,19 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         return line >= first.line && line <= last.line && (line != first.line || column >= first.column) && (line != last.line || column <= last.column);
     }
 
-    private async Task CopySelectionAsync()
+    private Task CopySelectionAsync()
     {
         var value = ReadSelection();
-        if (string.IsNullOrEmpty(value)) return;
-        var package = new DataPackage(); package.SetText(value); Clipboard.SetContent(package);
+        if (!string.IsNullOrEmpty(value))
+        {
+            try
+            {
+                var package = new DataPackage(); package.SetText(value);
+                Clipboard.SetContent(package); Clipboard.Flush();
+            }
+            catch { InputRejected?.Invoke(); }
+        }
+        return Task.CompletedTask;
     }
 
     private async Task PasteClipboardAsync()
@@ -497,6 +547,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             return false;
         }
         submittedAt = null; // Pasted newlines need not be shell submissions (bracketed paste).
+        ClearSelection(); cursorOn = true;
         DrainGeneratedOutput();
         return true;
     }

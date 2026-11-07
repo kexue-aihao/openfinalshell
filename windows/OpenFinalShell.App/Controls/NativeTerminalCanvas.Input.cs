@@ -15,7 +15,8 @@ public sealed partial class NativeTerminalCanvas
     {
         HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
         MinWidth = 1, MinHeight = 1, Width = 100, Height = 24,
-        Padding = new(0), BorderThickness = new(0), Opacity = .01,
+        Padding = new(0), BorderThickness = new(0), Opacity = 0,
+        UseSystemFocusVisuals = false,
         // WinUI can report logical focus on a hit-test-disabled TextBox while
         // its native text input client never receives keyboard messages.
         IsHitTestVisible = true, IsTabStop = true, AcceptsReturn = false,
@@ -32,7 +33,7 @@ public sealed partial class NativeTerminalCanvas
         textInput.TextCompositionChanged += (_, _) => PositionTextInput();
         textInput.TextCompositionEnded += (_, _) =>
         {
-            composing = false; textInput.Opacity = .01;
+            composing = false; textInput.Opacity = 0;
             // TextChanged may follow CompositionEnded in the same dispatch.
             CommitTextInput();
             DispatcherQueue.TryEnqueue(CommitTextInput);
@@ -48,8 +49,10 @@ public sealed partial class NativeTerminalCanvas
             CommitTextInput();
             // An interrupted composition must never execute remote input.
             ClearTextInputBuffer();
-            composing = false; textInput.Opacity = .01;
+            composing = false; textInput.Opacity = 0;
+            canvas.Invalidate();
         };
+        textInput.GotFocus += (_, _) => { cursorOn = true; canvas.Invalidate(); };
         GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
     }
     private void FocusTextInput(FocusState state)
@@ -72,7 +75,9 @@ public sealed partial class NativeTerminalCanvas
         if (parser != 0)
         { x += Math.Max(0, ofs_terminal_cursor_col(parser)) * cellWidth; y += Math.Max(0, ofs_terminal_cursor_row(parser)) * cellHeight; }
         textInput.Margin = new(Math.Clamp(x, 0, Math.Max(0, ActualWidth - 20)), Math.Clamp(y, 0, Math.Max(0, ActualHeight - cellHeight)), 0, 0);
-        textInput.Width = Math.Max(20, Math.Min(320, ActualWidth - textInput.Margin.Left));
+        // Keep the TSF client focusable without placing an invisible editor
+        // over the terminal's selectable text. Expand only for IME composition.
+        textInput.Width = composing ? Math.Max(20, Math.Min(320, ActualWidth - textInput.Margin.Left)) : 1;
         textInput.Height = Math.Max(20, cellHeight + 4);
         textInput.FontFamily = new FontFamily(textFormat.FontFamily); textInput.FontSize = textFormat.FontSize;
         textInput.Foreground = new SolidColorBrush(terminalForeground); textInput.Background = new SolidColorBrush(terminalBackground);
