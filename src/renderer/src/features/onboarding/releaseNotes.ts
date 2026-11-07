@@ -19,7 +19,8 @@ export const RELEASE_NOTES: ReleaseNote[] = [
   {
     version: '0.30.36',
     items: [
-      { type: 'feat', zh: '继续对齐 WinUI 3 原生预览版与 Electron 版的前端布局、连接树、终端、文件管理、传输、监控、设置和编辑器交互，并将发布工作流收敛为 Windows 与 Android 产物', en: 'Continue aligning the WinUI 3 native preview with the Electron frontend across layout, connection tree, terminal, file management, transfers, monitoring, settings and editor interactions, while limiting release workflows to Windows and Android artifacts' }
+      { type: 'feat', zh: '继续对齐 WinUI 3 原生预览版与 Electron 版的前端布局、连接树、终端、文件管理、传输、监控、设置和编辑器交互，并将发布工作流收敛为 Windows 与 Android 产物', en: 'Continue aligning the WinUI 3 native preview with the Electron frontend across layout, connection tree, terminal, file management, transfers, monitoring, settings and editor interactions, while limiting release workflows to Windows and Android artifacts' },
+      { type: 'fix', zh: '原生预览版安装器改用与 Electron 一致的向导式界面，补齐系统卸载项，并修复卸载后安装目录残留的问题', en: 'Use the same assisted wizard style as Electron for the native preview installer, register it in Windows uninstall settings, and remove the installation directory completely during uninstall' }
     ]
   },
   {
