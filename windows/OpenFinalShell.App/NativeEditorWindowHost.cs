@@ -75,9 +75,15 @@ internal sealed class NativeEditorWindowHost : IDisposable
         var tab = new TabViewItem
         {
             Header = $"{profileName} · {Path.GetFileName(remotePath)}",
-            Tag = key
+            Tag = key,
+            IsClosable = true,
+            MinHeight = 32,
+            Padding = new Thickness(10, 0, 10, 0)
         };
+        ToolTipService.SetToolTip(tab, remotePath);
         AutomationProperties.SetName(tab, $"{profileName} · {remotePath}");
+        editor.StateChanged += () => UpdateTabHeader(tab, profileName, remotePath, editor);
+        UpdateTabHeader(tab, profileName, remotePath, editor);
         var document = new Document(key, session.SessionId, editor, tab);
         documents.Add(key, document);
         tabs!.TabItems.Add(tab);
@@ -95,6 +101,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
 
     public void Configure(NativeSettings value)
     {
+        ApplyTheme(value);
         foreach (var document in documents.Values) document.Editor.Configure(value);
     }
 
@@ -143,7 +150,14 @@ internal sealed class NativeEditorWindowHost : IDisposable
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
             }
         };
-        tabs = new TabView { IsAddTabButtonVisible = false };
+        ApplyTheme(settings());
+        tabs = new TabView
+        {
+            IsAddTabButtonVisible = false,
+            TabWidthMode = TabViewWidthMode.SizeToContent,
+            Padding = new Thickness(6, 4, 6, 0),
+            Background = Application.Current.Resources["ShellBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush
+        };
         tabs.TabCloseRequested += TabCloseRequested;
         tabs.SelectionChanged += (_, _) =>
         {
@@ -165,6 +179,24 @@ internal sealed class NativeEditorWindowHost : IDisposable
         window.AppWindow.Closing += WindowClosing;
         window.Closed += WindowClosed;
         window.Activate();
+    }
+
+    private void ApplyTheme(NativeSettings value)
+    {
+        if (root == null) return;
+        root.RequestedTheme = value.ThemeMode switch
+        {
+            "dark" => ElementTheme.Dark,
+            "light" => ElementTheme.Light,
+            _ => ElementTheme.Default
+        };
+    }
+
+    private static void UpdateTabHeader(TabViewItem tab, string profileName, string remotePath, NativeRemoteEditor editor)
+    {
+        var prefix = editor.HasUnsavedChanges ? "● " : string.Empty;
+        tab.Header = $"{prefix}{profileName} · {Path.GetFileName(remotePath)}";
+        ToolTipService.SetToolTip(tab, remotePath);
     }
 
     private async void TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)

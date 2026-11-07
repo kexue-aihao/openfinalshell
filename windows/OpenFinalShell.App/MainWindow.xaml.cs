@@ -15,6 +15,17 @@ namespace OpenFinalShell.App;
 
 public sealed partial class MainWindow : Window
 {
+    private static readonly IReadOnlyDictionary<string, string> ActivityIconGlyphs = new Dictionary<string, string>(StringComparer.Ordinal)
+    {
+        ["connections"] = "\uE774",
+        ["commands"] = "\uE943",
+        ["forwards"] = "\uE8AB",
+        ["transfers"] = "\uE896",
+        ["ai"] = "\uE99A",
+        ["theme"] = "\uE793",
+        ["settings"] = "\uE713"
+    };
+
     private sealed class SessionTerminalSink
     {
         private readonly NativeSessionManager sessions;
@@ -266,6 +277,7 @@ public sealed partial class MainWindow : Window
         ExportButton.Label = localization["native.common.export"];
         SettingsHeading.Text = localization["activity.settings"];
         AiHeading.Text = localization["aiAssistant.title"];
+        ApplyActivityIcons();
         CloseSettingsButton.Content = "×";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CloseSettingsButton, localization["common.close"]);
         ShortcutsButton.Content = localization["settings.section_shortcuts"];
@@ -442,6 +454,17 @@ public sealed partial class MainWindow : Window
         UpdateRecentEmptyState();
     }
 
+    private void ApplyActivityIcons()
+    {
+        ConnectionsIcon.Glyph = ActivityIconGlyphs["connections"];
+        CommandsIcon.Glyph = ActivityIconGlyphs["commands"];
+        ForwardIcon.Glyph = ActivityIconGlyphs["forwards"];
+        TransfersIcon.Glyph = ActivityIconGlyphs["transfers"];
+        AiIcon.Glyph = ActivityIconGlyphs["ai"];
+        ThemeIcon.Glyph = ActivityIconGlyphs["theme"];
+        SettingsIcon.Glyph = ActivityIconGlyphs["settings"];
+    }
+
     private void ActivityItemClicked(object sender, RoutedEventArgs args)
     {
         if (sender is not Button { Tag: string tag }) return;
@@ -458,6 +481,7 @@ public sealed partial class MainWindow : Window
         ThemeChoice.SelectedItem = ThemeChoice.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, next));
         loadingSettings = false;
         ApplyAppearance();
+        UpdateActivityMarkers();
         Status.Text = localization.Format("native.themeStatus", ("value", next));
     }
 
@@ -509,12 +533,23 @@ public sealed partial class MainWindow : Window
     private void UpdateActivityMarkers()
     {
         var overlay = activeOverlay;
-        ConnectionsMarker.Visibility = overlay == null && activeActivity == "connections" ? Visibility.Visible : Visibility.Collapsed;
-        CommandsMarker.Visibility = overlay == null && activeActivity == "commands" ? Visibility.Visible : Visibility.Collapsed;
-        ForwardMarker.Visibility = overlay == null && activeActivity == "forwards" ? Visibility.Visible : Visibility.Collapsed;
-        TransfersMarker.Visibility = overlay == null && activeActivity == "transfers" ? Visibility.Visible : Visibility.Collapsed;
-        AiMarker.Visibility = overlay == "ai" ? Visibility.Visible : Visibility.Collapsed;
-        SettingsMarker.Visibility = overlay is "settings" or "lansync" or "about" ? Visibility.Visible : Visibility.Collapsed;
+        var connectionsSelected = overlay == null && activeActivity == "connections";
+        var commandsSelected = overlay == null && activeActivity == "commands";
+        var forwardsSelected = overlay == null && activeActivity == "forwards";
+        var transfersSelected = overlay == null && activeActivity == "transfers";
+        var aiSelected = overlay == "ai";
+        var settingsSelected = overlay is "settings" or "lansync" or "about";
+        ConnectionsMarker.Visibility = connectionsSelected ? Visibility.Visible : Visibility.Collapsed;
+        CommandsMarker.Visibility = commandsSelected ? Visibility.Visible : Visibility.Collapsed;
+        ForwardMarker.Visibility = forwardsSelected ? Visibility.Visible : Visibility.Collapsed;
+        TransfersMarker.Visibility = transfersSelected ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionsSelection.Visibility = connectionsSelected ? Visibility.Visible : Visibility.Collapsed;
+        CommandsSelection.Visibility = commandsSelected ? Visibility.Visible : Visibility.Collapsed;
+        ForwardSelection.Visibility = forwardsSelected ? Visibility.Visible : Visibility.Collapsed;
+        TransfersSelection.Visibility = transfersSelected ? Visibility.Visible : Visibility.Collapsed;
+        AiSelection.Visibility = aiSelected ? Visibility.Visible : Visibility.Collapsed;
+        SettingsSelection.Visibility = settingsSelected ? Visibility.Visible : Visibility.Collapsed;
+        ThemeSelection.Visibility = Root.ActualTheme == ElementTheme.Dark ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ActivatePage(string? tag)

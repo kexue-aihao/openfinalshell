@@ -17,7 +17,7 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     private readonly ContentControl files = new() { Visibility = Visibility.Collapsed, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly ContentControl monitoring = new() { Visibility = Visibility.Collapsed, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly ContentControl editorContent = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-    private readonly TabView editorTabs = new() { IsAddTabButtonVisible = false };
+    private readonly TabView editorTabs = new() { IsAddTabButtonVisible = false, TabWidthMode = TabViewWidthMode.SizeToContent, Padding = new Thickness(4, 3, 4, 0) };
     private readonly Grid editors = new() { Visibility = Visibility.Collapsed };
     private readonly Dictionary<string, (TabViewItem Tab, NativeRemoteEditor Editor)> documents = new(StringComparer.Ordinal);
     private readonly NativeStore store;
@@ -146,7 +146,10 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         if (!documents.TryGetValue(path, out var item))
         {
             var editor = createEditor(path);
-            var tab = new TabViewItem { Header = Path.GetFileName(path), Tag = path };
+            var tab = new TabViewItem { Header = Path.GetFileName(path), Tag = path, IsClosable = true, MinHeight = 32, Padding = new Thickness(10, 0, 10, 0) };
+            ToolTipService.SetToolTip(tab, path);
+            editor.StateChanged += () => UpdateTabHeader(tab, path, editor);
+            UpdateTabHeader(tab, path, editor);
             documents[path] = item = (tab, editor); editorTabs.TabItems.Add(tab);
         }
         editorTabs.SelectedItem = item.Tab; editorContent.Content = item.Editor;
@@ -168,6 +171,11 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     private void FollowRemoteDirectory(string directory)
     {
         if (files.Content is NativeSftpBrowser browser) browser.FollowRemoteDirectory(directory);
+    }
+    private static void UpdateTabHeader(TabViewItem tab, string path, NativeRemoteEditor editor)
+    {
+        tab.Header = $"{(editor.HasUnsavedChanges ? "● " : string.Empty)}{Path.GetFileName(path)}";
+        ToolTipService.SetToolTip(tab, path);
     }
     public void FollowShellCommand(string command)
     {

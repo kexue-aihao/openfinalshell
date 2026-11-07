@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using OpenFinalShell.Core;
+using Windows.UI;
+using Windows.UI.ViewManagement;
 
 namespace OpenFinalShell.App.Controls;
 
@@ -42,13 +44,37 @@ public sealed partial class NativeScintillaTextSurface
     private void ConfigureSyntaxStyles()
     {
         if (editorWindow == 0) return;
-        var back = darkTheme ? 0x002E2822 : 0x00FFFFFF;
-        var fore = darkTheme ? 0x00D7D7D7 : 0x00202020;
+        var accessibility = new AccessibilitySettings();
+        var highContrast = accessibility.HighContrast;
+        var uiSettings = new UISettings();
+        var background = highContrast
+            ? uiSettings.GetColorValue(UIColorType.Background)
+            : darkTheme ? Color.FromArgb(255, 39, 39, 39) : Color.FromArgb(255, 251, 251, 251);
+        var foreground = highContrast
+            ? uiSettings.GetColorValue(UIColorType.Foreground)
+            : darkTheme ? Color.FromArgb(255, 215, 215, 215) : Color.FromArgb(255, 32, 32, 32);
+        var gutter = highContrast
+            ? background
+            : darkTheme ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243);
+        var gutterForeground = highContrast
+            ? foreground
+            : darkTheme ? Color.FromArgb(255, 139, 139, 139) : Color.FromArgb(255, 96, 96, 96);
+        var currentLine = highContrast
+            ? background
+            : darkTheme ? Color.FromArgb(255, 51, 51, 51) : Color.FromArgb(255, 244, 244, 244);
+        var selection = highContrast
+            ? foreground
+            : darkTheme ? Color.FromArgb(255, 74, 58, 48) : Color.FromArgb(255, 245, 214, 179);
+        var selectionForeground = highContrast
+            ? background
+            : darkTheme ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 32, 32, 32);
+        var back = ToScintillaColor(background);
+        var fore = ToScintillaColor(foreground);
         Send(SciStyleSetFore, StyleDefault, fore); Send(SciStyleSetBack, StyleDefault, back); Send(SciStyleClearAll);
-        Send(SciStyleSetFore, StyleLineNumber, darkTheme ? 0x008B8B8B : 0x00606060);
-        Send(SciStyleSetBack, StyleLineNumber, back);
-        Send(2069, fore); Send(SciSetCaretLineBack, darkTheme ? 0x003D3530 : 0x00F4F4F4);
-        Send(2068, 1, darkTheme ? 0x006A4D3A : 0x00F5D6B3);
+        Send(SciStyleSetFore, StyleLineNumber, ToScintillaColor(gutterForeground));
+        Send(SciStyleSetBack, StyleLineNumber, ToScintillaColor(gutter));
+        Send(2069, ToScintillaColor(selectionForeground)); Send(SciSetCaretLineBack, ToScintillaColor(currentLine));
+        Send(2068, 1, ToScintillaColor(selection));
         void Style(int id, int color) => Send(SciStyleSetFore, id, color);
         var comment = darkTheme ? 0x008BC298 : 0x00508020;
         var keyword = darkTheme ? 0x00E7A1C6 : 0x00A03070;
@@ -77,6 +103,8 @@ public sealed partial class NativeScintillaTextSurface
         Send(2040, 30, 12); Send(2040, 31, 14);
         Send(4003, 0, -1); // Colourise all text after changing lexer properties.
     }
+
+    private static int ToScintillaColor(Color color) => color.R << 16 | color.G << 8 | color.B;
     public int ReplaceAll(string query, string replacement, bool matchCase, bool wholeWord, bool regex)
     {
         if (editorWindow == 0 || IsReadOnly || string.IsNullOrEmpty(query)) return 0;

@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.37',
+    items: [
+      { type: 'fix', zh: '修复 Windows 原生 SSH 终端输入被隐藏输入框截留的问题，现在普通按键、回车、快捷键和中文输入都会正确转发到远程 shell', en: 'Fix Windows native SSH terminal input being trapped in the hidden input client so regular keys, Enter, shortcuts and IME input are forwarded to the remote shell' },
+      { type: 'feat', zh: '优化 WinUI 3 原生版活动栏图标、编辑器工具栏、标签状态和浅色/深色/高对比度主题', en: 'Polish the WinUI 3 native activity rail, editor toolbar, tab states and light, dark and high-contrast themes' }
+    ]
+  },
+  {
     version: '0.30.36',
     items: [
       { type: 'feat', zh: '继续对齐 WinUI 3 原生预览版与 Electron 版的前端布局、连接树、终端、文件管理、传输、监控、设置和编辑器交互，并将发布工作流收敛为 Windows 与 Android 产物', en: 'Continue aligning the WinUI 3 native preview with the Electron frontend across layout, connection tree, terminal, file management, transfers, monitoring, settings and editor interactions, while limiting release workflows to Windows and Android artifacts' },

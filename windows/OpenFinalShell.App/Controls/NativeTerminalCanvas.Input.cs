@@ -32,9 +32,26 @@ public sealed partial class NativeTerminalCanvas
         {
             composing = false; textInput.Opacity = .01;
             // TextChanged may follow CompositionEnded in the same dispatch.
+            CommitTextInput();
             DispatcherQueue.TryEnqueue(CommitTextInput);
         };
-        textInput.TextChanged += (_, _) => { if (!composing && !clearingInput) CommitTextInput(); };
+        textInput.TextChanged += (_, _) =>
+        {
+            // With the text client focused, CharacterReceived is the single
+            // source of committed keyboard characters. TextChanged remains a
+            // fallback for automation and composition updates when the client
+            // is not the active focus target.
+            if (!composing && !clearingInput && textInput.FocusState == FocusState.Unfocused) CommitTextInput();
+        };
+        // When the hidden text client owns focus, CharacterReceived is routed
+        // to it before the canvas. Forward the committed character immediately
+        // so normal keyboard input cannot remain trapped in TextBox.Text.
+        textInput.CharacterReceived += OnCharacterReceived;
+        textInput.LostFocus += (_, _) =>
+        {
+            composing = false;
+            CommitTextInput();
+        };
         GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
     }
     private void FocusTextInput(FocusState state)

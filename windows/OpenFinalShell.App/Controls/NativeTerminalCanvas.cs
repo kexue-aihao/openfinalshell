@@ -247,7 +247,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 
     private void OnCharacterReceived(UIElement sender, Microsoft.UI.Xaml.Input.CharacterReceivedRoutedEventArgs args)
     {
-        if (textInput.FocusState != FocusState.Unfocused || composing) return;
+        if (composing) return;
         var value = args.Character;
         if (char.IsHighSurrogate(value)) { pendingHighSurrogate = value; args.Handled = true; return; }
         if (char.IsLowSurrogate(value))
@@ -257,6 +257,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
                 SendCodepoint((uint)char.ConvertToUtf32(high, value), 0);
                 pendingHighSurrogate = null;
             }
+            ClearTextInputBuffer();
             args.Handled = true; return;
         }
         if (pendingHighSurrogate != null)
@@ -265,7 +266,16 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             pendingHighSurrogate = null;
         }
         if (!char.IsControl(value)) SendCodepoint(value, CurrentModifiers() & 3);
+        ClearTextInputBuffer();
         args.Handled = true;
+    }
+
+    private void ClearTextInputBuffer()
+    {
+        if (clearingInput || textInput.Text.Length == 0) return;
+        clearingInput = true;
+        try { textInput.Text = ""; }
+        finally { clearingInput = false; }
     }
 
     private static int? MapNativeKey(Windows.System.VirtualKey key) => key switch
