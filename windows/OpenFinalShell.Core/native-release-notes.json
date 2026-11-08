@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.43",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 WinUI3 连接列表将 TreeViewNode 类型名误显示为连接名称的问题，恢复连接名称、位置图标和主机信息的正常呈现",
+        "en": "Fix the WinUI 3 connection list displaying TreeViewNode type names instead of connection names, restoring the connection labels, location icons and host details"
+      }
+    ]
+  },
+  {
     "version": "0.30.42",
     "items": [
       {

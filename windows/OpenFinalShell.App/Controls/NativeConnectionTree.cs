@@ -35,6 +35,7 @@ public sealed class NativeConnectionTree : UserControl
     public NativeConnectionTree(NativeStore store, Func<string, string> text)
     {
         this.store = store; this.text = text;
+        tree.ItemTemplate = (DataTemplate)Application.Current.Resources["NativeConnectionTreeNodeTemplate"];
         AutomationProperties.SetName(tree, text("activity.connections"));
         search.TextChanged += (_, _) => Rebuild();
         tree.ItemInvoked += (_, args) =>

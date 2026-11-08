@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.43',
+    items: [
+      { type: 'fix', zh: '修复 WinUI3 连接列表将 TreeViewNode 类型名误显示为连接名称的问题，恢复连接名称、位置图标和主机信息的正常呈现', en: 'Fix the WinUI 3 connection list displaying TreeViewNode type names instead of connection names, restoring the connection labels, location icons and host details' }
+    ]
+  },
+  {
     version: '0.30.42',
     items: [
       { type: 'fix', zh: '修复 WinUI3 在高对比度 API 不可用时启动崩溃，并增加本机数据库完整性检查、可验证备份恢复和空配置启动入口', en: 'Prevent WinUI 3 startup crashes when optional high-contrast APIs are unavailable, and add local database validation, verified backup recovery and a fresh-profile option' },
