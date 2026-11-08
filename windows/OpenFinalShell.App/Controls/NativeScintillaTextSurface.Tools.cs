@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.UI.Xaml;
 using OpenFinalShell.Core;
 using Windows.UI;
 using Windows.UI.ViewManagement;
@@ -44,30 +45,34 @@ public sealed partial class NativeScintillaTextSurface
     private void ConfigureSyntaxStyles()
     {
         if (editorWindow == 0) return;
-        var accessibility = new AccessibilitySettings();
-        var highContrast = accessibility.HighContrast;
-        var uiSettings = new UISettings();
-        var background = highContrast
-            ? uiSettings.GetColorValue(UIColorType.Background)
-            : darkTheme ? Color.FromArgb(255, 39, 39, 39) : Color.FromArgb(255, 251, 251, 251);
-        var foreground = highContrast
-            ? uiSettings.GetColorValue(UIColorType.Foreground)
-            : darkTheme ? Color.FromArgb(255, 215, 215, 215) : Color.FromArgb(255, 32, 32, 32);
-        var gutter = highContrast
-            ? background
-            : darkTheme ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243);
-        var gutterForeground = highContrast
-            ? foreground
-            : darkTheme ? Color.FromArgb(255, 139, 139, 139) : Color.FromArgb(255, 96, 96, 96);
-        var currentLine = highContrast
-            ? background
-            : darkTheme ? Color.FromArgb(255, 51, 51, 51) : Color.FromArgb(255, 244, 244, 244);
-        var selection = highContrast
-            ? foreground
-            : darkTheme ? Color.FromArgb(255, 74, 58, 48) : Color.FromArgb(255, 245, 214, 179);
-        var selectionForeground = highContrast
-            ? background
-            : darkTheme ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 32, 32, 32);
+        var highContrast = OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => new AccessibilitySettings().HighContrast);
+        var background = ThemeColor("EditorBackgroundBrush", darkTheme ? Color.FromArgb(255, 39, 39, 39) : Color.FromArgb(255, 251, 251, 251));
+        var foreground = ThemeColor("EditorForegroundBrush", darkTheme ? Color.FromArgb(255, 215, 215, 215) : Color.FromArgb(255, 32, 32, 32));
+        var gutter = ThemeColor("EditorGutterBrush", darkTheme ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243));
+        var gutterForeground = ThemeColor("EditorGutterForegroundBrush", darkTheme ? Color.FromArgb(255, 139, 139, 139) : Color.FromArgb(255, 96, 96, 96));
+        var currentLine = ThemeColor("EditorCurrentLineBrush", darkTheme ? Color.FromArgb(255, 51, 51, 51) : Color.FromArgb(255, 244, 244, 244));
+        var selection = ThemeColor("EditorSelectionBrush", darkTheme ? Color.FromArgb(255, 49, 75, 101) : Color.FromArgb(255, 220, 235, 250));
+        var selectionForeground = ThemeColor("EditorSelectionForegroundBrush", darkTheme ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 32, 32, 32));
+        var comment = ThemeColor("EditorCommentForegroundBrush", darkTheme ? Color.FromArgb(255, 139, 194, 152) : Color.FromArgb(255, 32, 128, 80));
+        var keyword = ThemeColor("EditorKeywordForegroundBrush", darkTheme ? Color.FromArgb(255, 198, 161, 231) : Color.FromArgb(255, 112, 48, 160));
+        var literal = ThemeColor("EditorLiteralForegroundBrush", darkTheme ? Color.FromArgb(255, 229, 195, 145) : Color.FromArgb(255, 160, 112, 64));
+        if (highContrast)
+        {
+            try
+            {
+                var uiSettings = new UISettings();
+                background = uiSettings.GetColorValue(UIColorType.Background);
+                foreground = uiSettings.GetColorValue(UIColorType.Foreground);
+            }
+            catch (System.Runtime.InteropServices.COMException) { highContrast = false; }
+            if (highContrast)
+            {
+                gutter = background;
+                gutterForeground = comment = keyword = literal = foreground;
+                currentLine = selectionForeground = background;
+                selection = foreground;
+            }
+        }
         var back = ToScintillaColor(background);
         var fore = ToScintillaColor(foreground);
         Send(SciStyleSetFore, StyleDefault, fore); Send(SciStyleSetBack, StyleDefault, back); Send(SciStyleClearAll);
@@ -76,17 +81,17 @@ public sealed partial class NativeScintillaTextSurface
         Send(2069, ToScintillaColor(selectionForeground)); Send(SciSetCaretLineBack, ToScintillaColor(currentLine));
         Send(2068, 1, ToScintillaColor(selection));
         void Style(int id, int color) => Send(SciStyleSetFore, id, color);
-        var comment = darkTheme ? 0x008BC298 : 0x00508020;
-        var keyword = darkTheme ? 0x00E7A1C6 : 0x00A03070;
-        var literal = darkTheme ? 0x0091C3E5 : 0x004070A0;
+        var commentColor = ToScintillaColor(comment);
+        var keywordColor = ToScintillaColor(keyword);
+        var literalColor = ToScintillaColor(literal);
         switch (LexerLanguage)
         {
-            case "python": Style(1, comment); Style(3, literal); Style(4, literal); Style(5, keyword); Style(6, literal); Style(7, literal); Style(12, comment); break;
-            case "javascript": case "cpp": case "css": case "sql": Style(1, comment); Style(2, comment); Style(3, comment); Style(5, keyword); Style(6, literal); Style(7, literal); break;
-            case "bash": Style(2, comment); Style(4, keyword); Style(5, literal); Style(6, literal); break;
-            case "props": Style(1, comment); Style(2, keyword); Style(3, keyword); Style(4, literal); break;
-            case "json": Style(2, literal); Style(4, keyword); Style(6, comment); Style(7, comment); Style(11, keyword); break;
-            case "yaml": Style(1, comment); Style(2, keyword); Style(3, keyword); Style(4, literal); break;
+            case "python": Style(1, commentColor); Style(3, literalColor); Style(4, literalColor); Style(5, keywordColor); Style(6, literalColor); Style(7, literalColor); Style(12, commentColor); break;
+            case "javascript": case "cpp": case "css": case "sql": Style(1, commentColor); Style(2, commentColor); Style(3, commentColor); Style(5, keywordColor); Style(6, literalColor); Style(7, literalColor); break;
+            case "bash": Style(2, commentColor); Style(4, keywordColor); Style(5, literalColor); Style(6, literalColor); break;
+            case "props": Style(1, commentColor); Style(2, keywordColor); Style(3, keywordColor); Style(4, literalColor); break;
+            case "json": Style(2, literalColor); Style(4, keywordColor); Style(6, commentColor); Style(7, commentColor); Style(11, keywordColor); break;
+            case "yaml": Style(1, commentColor); Style(2, keywordColor); Style(3, keywordColor); Style(4, literalColor); break;
         }
         var keywords = LexerLanguage switch
         {
@@ -104,7 +109,12 @@ public sealed partial class NativeScintillaTextSurface
         Send(4003, 0, -1); // Colourise all text after changing lexer properties.
     }
 
-    private static int ToScintillaColor(Color color) => color.R << 16 | color.G << 8 | color.B;
+    private static Color ThemeColor(string key, Color fallback)
+        => Application.Current.Resources.TryGetValue(key, out var resource) && resource is Microsoft.UI.Xaml.Media.SolidColorBrush brush
+            ? brush.Color
+            : fallback;
+
+    private static int ToScintillaColor(Color color) => color.R | color.G << 8 | color.B << 16;
     public int ReplaceAll(string query, string replacement, bool matchCase, bool wholeWord, bool regex)
     {
         if (editorWindow == 0 || IsReadOnly || string.IsNullOrEmpty(query)) return 0;

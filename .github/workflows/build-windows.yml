@@ -162,9 +162,43 @@ jobs:
 
       - run: npm ci
 
+      - name: 计算 vcpkg 二进制缓存指纹
+        if: matrix.arch == 'x64'
+        id: vcpkg-cache
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot) { $vcpkgRoot = 'C:\vcpkg' }
+          $vcpkg = Join-Path $vcpkgRoot 'vcpkg.exe'
+          if (-not (Test-Path -LiteralPath $vcpkg)) {
+            Write-Error "BLOCKED_EXTERNAL_ENV: vcpkg.exe was not found at $vcpkg"
+            exit 1
+          }
+          $version = (& $vcpkg version 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) {
+            Write-Error 'BLOCKED_EXTERNAL_ENV: unable to determine the installed vcpkg version'
+            exit 1
+          }
+          # Refresh binary packages when the hosted compiler image changes;
+          # vcpkg package ABI checks remain the final compatibility guard.
+          $runnerImage = "$env:ImageOS/$env:ImageVersion"
+          $fingerprintInput = "$version`n$runnerImage`nfreerdp:x64-windows`ndefault-features"
+          $sha = [System.Security.Cryptography.SHA256]::HashData([System.Text.Encoding]::UTF8.GetBytes($fingerprintInput))
+          $fingerprint = [Convert]::ToHexString($sha).ToLowerInvariant()
+          "fingerprint=$fingerprint" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: 缓存 FreeRDP vcpkg 二进制包（Windows x64）
+        if: matrix.arch == 'x64'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-freerdp-x64-${{ steps.vcpkg-cache.outputs.fingerprint }}
+
       - name: 安装 FreeRDP SDK（Windows x64）
         if: matrix.arch == 'x64'
         shell: pwsh
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
         run: |
           $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
           if (-not $vcpkgRoot) { $vcpkgRoot = 'C:\vcpkg' }

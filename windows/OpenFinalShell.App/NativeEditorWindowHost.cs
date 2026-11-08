@@ -27,7 +27,8 @@ internal sealed class NativeEditorWindowHost : IDisposable
     private readonly Func<string, string> text;
     private readonly Func<NativeSettings> settings;
     private readonly Func<int, bool, bool, bool, bool> shortcut;
-    private readonly AccessibilitySettings accessibilitySettings = new();
+    private AccessibilitySettings? accessibilitySettings;
+    private bool accessibilitySubscribed;
     private readonly Dictionary<string, Document> documents = new(StringComparer.Ordinal);
     private Window? window;
     private Grid? root;
@@ -47,7 +48,17 @@ internal sealed class NativeEditorWindowHost : IDisposable
         this.text = text;
         this.settings = settings;
         this.shortcut = shortcut;
-        accessibilitySettings.HighContrastChanged += AccessibilitySettings_HighContrastChanged;
+        try
+        {
+            var accessibility = new AccessibilitySettings();
+            accessibilitySettings = accessibility;
+            accessibilitySubscribed = NativeAccessibilityGuard.TryRegister(
+                () => accessibility.HighContrastChanged += AccessibilitySettings_HighContrastChanged);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            accessibilitySettings = null;
+        }
     }
 
     public bool HasDocuments => documents.Count > 0;
@@ -108,7 +119,6 @@ internal sealed class NativeEditorWindowHost : IDisposable
     public void Configure(NativeSettings value)
     {
         ApplyTheme(value);
-        foreach (var document in documents.Values) document.Editor.Configure(value);
     }
 
     public async Task<bool> ConfirmCloseAllAsync()
@@ -144,7 +154,9 @@ internal sealed class NativeEditorWindowHost : IDisposable
             window.Closed -= WindowClosed;
             window.Close();
         }
-        accessibilitySettings.HighContrastChanged -= AccessibilitySettings_HighContrastChanged;
+        if (accessibilitySubscribed && accessibilitySettings is { } accessibility)
+            NativeAccessibilityGuard.TryUnregister(() => accessibility.HighContrastChanged -= AccessibilitySettings_HighContrastChanged);
+        accessibilitySubscribed = false;
         foreach (var document in documents.Values) document.Editor.Dispose();
         documents.Clear();
         window = null;
@@ -213,6 +225,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
         };
         root.Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush;
         if (content != null) content.Background = root.Background;
+        foreach (var document in documents.Values) document.Editor.Configure(value);
         var dark = value.ThemeMode == "dark" || value.ThemeMode == "system" && root.ActualTheme == ElementTheme.Dark;
         var background = (Application.Current.Resources["ShellBackgroundBrush"] as Microsoft.UI.Xaml.Media.SolidColorBrush)?.Color
             ?? (dark ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243));
@@ -222,7 +235,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
         var titleBar = window?.AppWindow.TitleBar;
         if (titleBar != null)
         {
-            if (accessibilitySettings.HighContrast)
+            if (NativeAccessibilityGuard.ReadHighContrast(() => accessibilitySettings?.HighContrast ?? false))
             {
                 titleBar.BackgroundColor = null;
                 titleBar.ForegroundColor = null;

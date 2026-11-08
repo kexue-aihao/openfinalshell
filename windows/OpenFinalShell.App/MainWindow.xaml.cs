@@ -106,6 +106,8 @@ public sealed partial class MainWindow : Window
     private readonly TransferQueueViewModel transferViewModel;
     private readonly NativeRemoteEditorService remoteEditorService = new();
     private readonly NativeEditorWindowHost editorWindowHost;
+    private Windows.UI.ViewManagement.AccessibilitySettings? accessibilitySettings;
+    private bool accessibilitySubscribed;
     private readonly Dictionary<string, TabViewItem> sessionTabs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ConnectionProfile> sessionProfiles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, FrameworkElement> sessionContents = new(StringComparer.Ordinal);
@@ -167,6 +169,17 @@ public sealed partial class MainWindow : Window
         sessionsManager.StateChanged += OnSessionStateChanged;
         InitializeComponent();
         InitializeElectronLayout();
+        try
+        {
+            var accessibility = new Windows.UI.ViewManagement.AccessibilitySettings();
+            accessibilitySettings = accessibility;
+            accessibilitySubscribed = NativeAccessibilityGuard.TryRegister(
+                () => accessibility.HighContrastChanged += AccessibilitySettings_HighContrastChanged);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            accessibilitySettings = null;
+        }
         AppWindow.Changed += OnAppWindowChanged;
         InitializeWorkbenchShortcuts();
         var appIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "OpenFinalShell.ico");
@@ -2396,6 +2409,9 @@ public sealed partial class MainWindow : Window
     private nint WindowHandle() => WindowNative.GetWindowHandle(this);
     private void MainWindowClosed(object sender, WindowEventArgs args)
     {
+        if (accessibilitySubscribed && accessibilitySettings is { } accessibility)
+            NativeAccessibilityGuard.TryUnregister(() => accessibility.HighContrastChanged -= AccessibilitySettings_HighContrastChanged);
+        accessibilitySubscribed = false;
         editorWindowHost.Dispose();
         windowBoundsSaveTimer?.Stop();
         SaveWindowBounds();
@@ -2422,6 +2438,15 @@ public sealed partial class MainWindow : Window
         rdpSessions.Clear();
         foreach (var surface in rdpSurfaces.Values) surface.Dispose();
         rdpSurfaces.Clear();
+    }
+
+    private void AccessibilitySettings_HighContrastChanged(Windows.UI.ViewManagement.AccessibilitySettings sender, object args)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            ApplyShellPalette();
+            ApplyNativeEditorTheme();
+        });
     }
 
     public void ApplyExternalConfiguration(NativeInstanceChange change)

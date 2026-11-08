@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.41" && NativeReleaseNotes.All[0].Items.Count >= 2, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.42" && NativeReleaseNotes.All[0].Items.Count >= 2, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,
@@ -152,6 +152,18 @@ using (var startupNoticeStore = new NativeStore(startupNoticeStorePath, new Test
 }
 NativeParityTests.Run(root, Check, Reject);
 NativeWindowBoundsTests.Run(Check);
+NativeStoreRecoveryTests.Run(root, Check);
+Check(!OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490))),
+    "Unavailable high-contrast query falls back without failing startup");
+Check(!OpenFinalShell.App.NativeAccessibilityGuard.TryRegister(() => throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490))),
+    "Unavailable high-contrast change event does not block startup");
+var unregisterAttempted = false;
+OpenFinalShell.App.NativeAccessibilityGuard.TryUnregister(() =>
+{
+    unregisterAttempted = true;
+    throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490));
+});
+Check(unregisterAttempted, "Unavailable high-contrast event cleanup is harmless");
 foreach (var build in new[] { 19045, 21999, 22000, 22621 }) {
     var env = PlatformEnvironment.Resolve(10, build, 1);
     Check(env.Supported && (env.Profile == "windows-11") == (build >= 22000), $"Windows boundary {build}");

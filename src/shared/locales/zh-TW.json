@@ -1126,6 +1126,19 @@
     }
   },
   "native": {
+    "recovery": {
+      "title": "原生版資料需要復原",
+      "description": "本機資料未能通過完整性驗證。原始檔案會保留。請選擇已驗證的備份、使用全新空白設定啟動，或結束程式。",
+      "backups": "已驗證的備份",
+      "noBackups": "沒有可用的有效備份。您可以使用全新空白設定啟動，原始資料會封存保留。",
+      "snapshot": "{{date}} · {{entities}} 筆記錄 · {{secrets}} 個憑證",
+      "restore": "復原所選備份",
+      "fresh": "使用全新空白設定啟動",
+      "exit": "結束",
+      "selectBackup": "請選擇要復原的有效備份。",
+      "restoreFailed": "無法復原所選備份，原始資料仍已保留。",
+      "freshFailed": "無法建立新設定，原始資料仍已保留。"
+    },
     "common": {
       "import": "Import",
       "export": "Export",

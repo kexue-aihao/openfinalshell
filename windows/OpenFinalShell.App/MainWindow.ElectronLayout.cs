@@ -19,13 +19,18 @@ public sealed partial class MainWindow
 
     private void InitializeElectronLayout()
     {
+        Root.ActualThemeChanged += (_, _) =>
+        {
+            ApplyShellPalette();
+            ApplyNativeEditorTheme();
+            UpdateTitleBarLayout();
+        };
         if (AppWindowTitleBar.IsCustomizationSupported())
         {
             ExtendsContentIntoTitleBar = true;
             AppWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
             AppWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
             Root.Loaded += (_, _) => UpdateTitleBarLayout();
-            Root.ActualThemeChanged += (_, _) => { ApplyShellPalette(); UpdateTitleBarLayout(); };
         }
         else CaptionButtonsColumn.Width = new GridLength(0);
         Body.SizeChanged += (_, _) => UpdateOverlayLayout();

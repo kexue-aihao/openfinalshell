@@ -1126,6 +1126,19 @@
     }
   },
   "native": {
+    "recovery": {
+      "title": "Se requiere recuperar los datos nativos",
+      "description": "No se pudieron validar por completo los datos locales. Se conservarán los archivos originales. Elige una copia de seguridad verificada, inicia con un perfil vacío o sal.",
+      "backups": "Copias de seguridad verificadas",
+      "noBackups": "No hay copias válidas. Puedes iniciar con un perfil vacío; los datos originales se archivarán.",
+      "snapshot": "{{date}} · {{entities}} registros · {{secrets}} credenciales",
+      "restore": "Restaurar la copia seleccionada",
+      "fresh": "Iniciar con un perfil vacío",
+      "exit": "Salir",
+      "selectBackup": "Selecciona una copia verificada para restaurar.",
+      "restoreFailed": "No se pudo restaurar la copia seleccionada. Los datos originales siguen intactos.",
+      "freshFailed": "No se pudo crear un perfil nuevo. Los datos originales siguen intactos."
+    },
     "common": {
       "import": "Import",
       "export": "Export",

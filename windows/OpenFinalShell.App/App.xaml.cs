@@ -9,6 +9,7 @@ namespace OpenFinalShell.App;
 public partial class App : Application
 {
     private MainWindow? window;
+    private NativeStoreRecoveryWindow? recoveryWindow;
     private readonly PlatformEnvironment environment;
     private readonly NativeInstanceCoordinator coordinator;
     public App()
@@ -41,16 +42,70 @@ public partial class App : Application
             // is ready. The shell uses explicit fallback colors during markup
             // construction, so a missing material resource cannot block startup.
             LoadPlatformTheme();
-            window = new MainWindow(environment, coordinator);
-            coordinator.FocusRequested += () => window.DispatcherQueue.TryEnqueue(() => window.Activate());
-            coordinator.ConfigurationChanged += change => window.DispatcherQueue.TryEnqueue(() => window.ApplyExternalConfiguration(change));
-            window.Closed += (_, _) => coordinator.Dispose();
-            window.Activate();
+            var validation = NativeStoreRecovery.ValidateDirectory(NativeStore.DefaultDirectory, new DpapiProtector());
+            if (!validation.IsValid)
+            {
+                ShowRecoveryWindow(validation);
+                return;
+            }
+            LaunchMainWindow();
         }
         catch (Exception error)
         {
             WriteStartupError(error);
             throw;
+        }
+    }
+
+    private void LaunchMainWindow()
+    {
+        window = new MainWindow(environment, coordinator);
+        var mainWindow = window;
+        coordinator.FocusRequested += () => mainWindow.DispatcherQueue.TryEnqueue(() => mainWindow.Activate());
+        coordinator.ConfigurationChanged += change => mainWindow.DispatcherQueue.TryEnqueue(() => mainWindow.ApplyExternalConfiguration(change));
+        mainWindow.Closed += (_, _) => coordinator.Dispose();
+        mainWindow.Activate();
+    }
+
+    private void ShowRecoveryWindow(NativeStoreValidation validation)
+    {
+        var localization = new Localization();
+        var snapshots = NativeStoreRecovery.FindValidSnapshots(NativeStore.DefaultDirectory, new DpapiProtector());
+        var recovery = new NativeStoreRecoveryWindow(localization, validation, snapshots);
+        recoveryWindow = recovery;
+        var transitioning = false;
+        Action focusRecovery = () => recovery.DispatcherQueue.TryEnqueue(() => recovery.Activate());
+        coordinator.FocusRequested += focusRecovery;
+        recovery.Closed += (_, _) =>
+        {
+            coordinator.FocusRequested -= focusRecovery;
+            recoveryWindow = null;
+            if (!transitioning) coordinator.Dispose();
+        };
+        recovery.RestoreRequested += path => CompleteRecovery(recovery, () => transitioning = true,
+            () => NativeStoreRecovery.RestoreSnapshot(NativeStore.DefaultDirectory, path, new DpapiProtector()), startingFresh: false);
+        recovery.StartFreshRequested += () => CompleteRecovery(recovery, () => transitioning = true,
+            () => NativeStoreRecovery.StartFreshProfile(NativeStore.DefaultDirectory, new DpapiProtector()), startingFresh: true);
+        recovery.ExitRequested += () =>
+        {
+            recovery.Close();
+            Exit();
+        };
+        recovery.Activate();
+
+        void CompleteRecovery(NativeStoreRecoveryWindow owner, Action transitioning, Func<string?> operation, bool startingFresh)
+        {
+            try
+            {
+                _ = operation();
+                transitioning();
+                owner.Close();
+                LaunchMainWindow();
+            }
+            catch
+            {
+                owner.ShowFailure(startingFresh);
+            }
         }
     }
 

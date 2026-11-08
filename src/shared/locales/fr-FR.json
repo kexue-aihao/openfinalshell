@@ -1126,6 +1126,19 @@
     }
   },
   "native": {
+    "recovery": {
+      "title": "Récupération des données natives requise",
+      "description": "Les données locales n’ont pas pu être entièrement vérifiées. Les fichiers d’origine seront conservés. Choisissez une sauvegarde vérifiée, démarrez avec un profil vide ou quittez.",
+      "backups": "Sauvegardes vérifiées",
+      "noBackups": "Aucune sauvegarde valide n’est disponible. Vous pouvez démarrer avec un profil vide ; les données d’origine seront archivées.",
+      "snapshot": "{{date}} · {{entities}} enregistrements · {{secrets}} identifiants",
+      "restore": "Restaurer la sauvegarde sélectionnée",
+      "fresh": "Démarrer avec un profil vide",
+      "exit": "Quitter",
+      "selectBackup": "Sélectionnez une sauvegarde vérifiée à restaurer.",
+      "restoreFailed": "La sauvegarde sélectionnée n’a pas pu être restaurée. Les données d’origine sont conservées.",
+      "freshFailed": "Le nouveau profil n’a pas pu être créé. Les données d’origine sont conservées."
+    },
     "common": {
       "import": "Import",
       "export": "Export",

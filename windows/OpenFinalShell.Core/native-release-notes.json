@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.30.42",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 WinUI3 在高对比度 API 不可用时启动崩溃，并增加本机数据库完整性检查、可验证备份恢复和空配置启动入口",
+        "en": "Prevent WinUI 3 startup crashes when optional high-contrast APIs are unavailable, and add local database validation, verified backup recovery and a fresh-profile option"
+      },
+      {
+        "type": "feat",
+        "zh": "缓存 Windows x64 FreeRDP 的 vcpkg 二进制包，减少 Electron 发布工作流的重复依赖编译时间",
+        "en": "Cache Windows x64 FreeRDP vcpkg binaries to reduce repeated dependency build time in the Electron release workflow"
+      }
+    ]
+  },
+  {
     "version": "0.30.41",
     "items": [
       {

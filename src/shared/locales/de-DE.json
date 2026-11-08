@@ -1126,6 +1126,19 @@
     }
   },
   "native": {
+    "recovery": {
+      "title": "Wiederherstellung lokaler Daten erforderlich",
+      "description": "Die lokalen Daten konnten nicht vollständig geprüft werden. Die Originaldateien bleiben erhalten. Wählen Sie eine geprüfte Sicherung, starten Sie mit einem leeren Profil oder beenden Sie die Anwendung.",
+      "backups": "Geprüfte Sicherungen",
+      "noBackups": "Keine gültige Sicherung verfügbar. Sie können mit einem neuen leeren Profil starten; die Originaldaten werden archiviert.",
+      "snapshot": "{{date}} · {{entities}} Einträge · {{secrets}} Zugangsdaten",
+      "restore": "Ausgewählte Sicherung wiederherstellen",
+      "fresh": "Mit einem neuen leeren Profil starten",
+      "exit": "Beenden",
+      "selectBackup": "Wählen Sie eine gültige Sicherung zur Wiederherstellung aus.",
+      "restoreFailed": "Die ausgewählte Sicherung konnte nicht wiederhergestellt werden. Die Originaldaten bleiben erhalten.",
+      "freshFailed": "Ein neues Profil konnte nicht erstellt werden. Die Originaldaten bleiben erhalten."
+    },
     "common": {
       "import": "Import",
       "export": "Export",

@@ -1122,6 +1122,19 @@
     }
   },
   "native": {
+    "recovery": {
+      "title": "Native data needs recovery",
+      "description": "The local data could not be fully validated. The original files will be preserved. Choose a verified backup, start a new empty profile, or exit.",
+      "backups": "Verified backups",
+      "noBackups": "No verified backup is available. You can start a new empty profile; the original data will be archived.",
+      "snapshot": "{{date}} · {{entities}} records · {{secrets}} credentials",
+      "restore": "Restore selected backup",
+      "fresh": "Start with a new empty profile",
+      "exit": "Exit",
+      "selectBackup": "Select a verified backup to restore.",
+      "restoreFailed": "The selected backup could not be restored. The original data remains preserved.",
+      "freshFailed": "A new profile could not be created. The original data remains preserved."
+    },
     "common": {
       "import": "Import",
       "export": "Export",

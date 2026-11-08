@@ -2,4 +2,5 @@
  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup>
  <ItemGroup><ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/Controls/SftpTimestamp.cs" Link="SftpTimestamp.cs" /></ItemGroup>
+ <ItemGroup><Compile Include="../OpenFinalShell.App/NativeAccessibilityGuard.cs" Link="NativeAccessibilityGuard.cs" /></ItemGroup>
 </Project>

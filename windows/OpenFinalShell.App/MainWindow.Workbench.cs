@@ -49,14 +49,46 @@ public sealed partial class MainWindow
         var shell = Gray(light ? (byte)(windows11 ? 243 : 240) : (byte)(windows11 ? 32 : 31));
         var workspace = Gray(light ? (byte)(windows11 ? 251 : 255) : (byte)(windows11 ? 39 : 37));
         var stroke = light ? Color.FromArgb(40, 0, 0, 0) : Color.FromArgb(40, 255, 255, 255);
-        if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
+        var editorForeground = light ? Gray(32) : Gray(215);
+        var gutterForeground = light ? Gray(96) : Gray(139);
+        var currentLine = light ? Gray(244) : Gray(51);
+        var selection = light ? Color.FromArgb(255, 220, 235, 250) : Color.FromArgb(255, 49, 75, 101);
+        var selectionForeground = light ? Gray(32) : Gray(255);
+        var comment = light ? Color.FromArgb(255, 32, 128, 80) : Color.FromArgb(255, 152, 194, 139);
+        var keyword = light ? Color.FromArgb(255, 112, 48, 160) : Color.FromArgb(255, 198, 161, 231);
+        var literal = light ? Color.FromArgb(255, 160, 112, 64) : Color.FromArgb(255, 229, 195, 145);
+        var highContrast = NativeAccessibilityGuard.ReadHighContrast(() => new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast);
+        if (highContrast)
         {
-            var colors = new Windows.UI.ViewManagement.UISettings();
-            shell = workspace = colors.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
-            stroke = colors.GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground);
+            try
+            {
+                var colors = new Windows.UI.ViewManagement.UISettings();
+                shell = workspace = colors.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
+                stroke = editorForeground = colors.GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground);
+                gutterForeground = editorForeground;
+                currentLine = workspace;
+                selection = editorForeground;
+                selectionForeground = workspace;
+                comment = keyword = literal = editorForeground;
+            }
+            catch (System.Runtime.InteropServices.COMException) { }
         }
-        foreach (var (key, color) in new[] { ("ShellBackgroundBrush", shell), ("WorkspaceBackgroundBrush", workspace), ("CardStrokeColorDefaultBrush", stroke) })
+        foreach (var (key, color) in new[]
+        {
+            ("ShellBackgroundBrush", shell), ("WorkspaceBackgroundBrush", workspace), ("CardStrokeColorDefaultBrush", stroke),
+            ("EditorBackgroundBrush", workspace), ("EditorForegroundBrush", editorForeground),
+            ("EditorGutterBrush", shell), ("EditorGutterForegroundBrush", gutterForeground),
+            ("EditorCurrentLineBrush", currentLine), ("EditorSelectionBrush", selection),
+            ("EditorSelectionForegroundBrush", selectionForeground), ("EditorCommentForegroundBrush", comment),
+            ("EditorKeywordForegroundBrush", keyword), ("EditorLiteralForegroundBrush", literal)
+        })
             if (Application.Current.Resources[key] is SolidColorBrush brush) brush.Color = color;
+    }
+
+    private void ApplyNativeEditorTheme()
+    {
+        foreach (var workspace in sessionWorkspaces.Values) workspace.Configure(settings);
+        editorWindowHost.Configure(settings);
     }
     private static void ApplyAccentResources(string value)
     {

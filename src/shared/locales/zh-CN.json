@@ -1122,6 +1122,19 @@
     }
   },
   "native": {
+    "recovery": {
+      "title": "原生版数据需要恢复",
+      "description": "本机数据未能通过完整性校验。原始数据文件会保留。请选择经过验证的备份、使用全新空配置启动，或退出。",
+      "backups": "已验证的备份",
+      "noBackups": "没有可用的有效备份。你可以使用全新空配置启动，原始数据会归档保留。",
+      "snapshot": "{{date}} · {{entities}} 条记录 · {{secrets}} 个凭据",
+      "restore": "恢复所选备份",
+      "fresh": "使用全新空配置启动",
+      "exit": "退出",
+      "selectBackup": "请选择要恢复的有效备份。",
+      "restoreFailed": "无法恢复所选备份，原始数据仍已保留。",
+      "freshFailed": "无法创建新配置，原始数据仍已保留。"
+    },
     "common": {
       "import": "导入",
       "export": "导出",
