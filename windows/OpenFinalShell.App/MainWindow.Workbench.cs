@@ -32,7 +32,7 @@ public sealed partial class MainWindow
         Root.RequestedTheme = settings.ThemeMode switch { "dark" => ElementTheme.Dark, "light" => ElementTheme.Light, _ => ElementTheme.Default };
         ApplyShellPalette();
         ApplyAccentResources(settings.Accent);
-        try { SystemBackdrop = !settings.ReduceTransparency && environment.MicaEligible ? new MicaBackdrop() : null; } catch { SystemBackdrop = null; }
+        ApplyWindowBackdrop();
         foreach (var terminal in sessionTerminals.Values) terminal.Configure(settings, key => localization[key]);
         foreach (var workspace in sessionWorkspaces.Values) workspace.Configure(settings);
         editorWindowHost.Configure(settings);

@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.43" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.44" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,
@@ -170,6 +170,17 @@ foreach (var build in new[] { 19045, 21999, 22000, 22621 }) {
 }
 Check(!PlatformEnvironment.Resolve(10, 26100, 3).Supported && !PlatformEnvironment.Resolve(10, 26100, 3).MicaEligible, "Server conservative fallback");
 Check(!PlatformEnvironment.Resolve(10, 17763, 1).Supported, "Unsupported Windows rejected");
+var windows11Version = PlatformEnvironment.Resolve(10, 0, 26100, 1, "24H2", 1742, "AMD64");
+Check(windows11Version.Profile == "windows-11" && windows11Version.WindowsName == "Windows 11"
+    && windows11Version.DisplayText == "Windows 11 24H2 · 10.0.26100.1742 · x64",
+    "Windows 11 displays release, full UBR version and operating system architecture");
+var windows10Version = PlatformEnvironment.Resolve(10, 0, 19045, 1, "22H2", null, "X86");
+Check(windows10Version.Profile == "windows-10" && windows10Version.WindowsName == "Windows 10"
+    && windows10Version.DisplayText == "Windows 10 22H2 · 10.0.19045 · x86",
+    "Windows 10 displays its release and falls back cleanly when UBR is unavailable");
+var partialVersion = PlatformEnvironment.Resolve(10, 0, 19045, 1, "", null, null);
+Check(partialVersion.DisplayText == "Windows 10 · 10.0.19045 · unknown",
+    "Platform display preserves known version data when release and architecture cannot be read");
 var preview = ExportEnvelope.Inspect(bytes, password);
 Check(preview.Profiles == 1 && preview.Secrets["password-1"]!.GetValue<string>() == "secret-密码", "Node v2 decrypted with Unicode passphrase");
 Check(preview.Data["settings"]?["rdpClientPath"] == null && preview.Data["settings"]?["profile"] == null, "Untrusted settings stripped");
@@ -227,6 +238,67 @@ using (var libraryStore = new NativeStore(Path.Combine(root, "commands-" + Guid.
     library.AddHistory("session-a", "pwd"); library.AddHistory("session-b", "whoami");
     Check(library.ListHistory("session-a").SequenceEqual(["pwd"]), "Command history can be scoped to a session");
     library.ClearHistory("session-a"); Check(library.ListHistory("session-a").Count == 0 && library.ListHistory("session-b").Count == 1, "Command history clear is session scoped");
+}
+using (var seedStore = new NativeStore(Path.Combine(root, "command-seed-" + Guid.NewGuid().ToString("N")), new TestProtector()))
+{
+    var seededLibrary = new NativeCommandLibrary(seedStore);
+    Check(seededLibrary.SeedDefaultSnippets(key => key), "An empty command library receives its first-run defaults");
+    Check(seededLibrary.ListGroups().Count == 5 && seededLibrary.ListSnippets().Count == 26,
+        "First-run command library contains five categorized groups and 26 operations commands");
+    var snippets = seededLibrary.ListSnippets();
+    Check(snippets.Single(item => item.Id == "builtin-uname").AutoEnter
+        && !snippets.Single(item => item.Id == "builtin-dns").AutoEnter
+        && !snippets.Single(item => item.Id == "builtin-install-debian").AutoEnter
+        && !snippets.Single(item => item.Id == "builtin-scan-top100").AutoEnter,
+        "Read-only defaults auto-enter while install and scan commands wait for review");
+    Check(seededLibrary.SeedDefaultSnippets(_ => "changed") == false && seededLibrary.ListSnippets().Count == 26,
+        "Built-in command seeding is idempotent and keeps the first localized names");
+    foreach (var group in seededLibrary.ListGroups()) seededLibrary.DeleteGroup(group.Id);
+    Check(!seededLibrary.SeedDefaultSnippets(_ => "again") && seededLibrary.ListGroups().Count == 0,
+        "Deleting all built-ins does not cause them to be seeded again");
+}
+using (var existingCommandStore = new NativeStore(Path.Combine(root, "command-existing-" + Guid.NewGuid().ToString("N")), new TestProtector()))
+{
+    var existingLibrary = new NativeCommandLibrary(existingCommandStore);
+    var group = existingLibrary.SaveGroup(null, "Personal");
+    existingLibrary.SaveSnippet(null, group.Id, "My command", "printf user", false);
+    Check(!existingLibrary.SeedDefaultSnippets(key => key) && existingLibrary.ListGroups().Count == 1
+        && existingLibrary.ListSnippets().Single().Name == "My command",
+        "Existing command data suppresses built-ins and records the one-time seed decision");
+    existingLibrary.DeleteGroup(group.Id);
+    Check(!existingLibrary.SeedDefaultSnippets(key => key) && existingLibrary.ListGroups().Count == 0,
+        "Existing user data is never replaced by later default seeding");
+}
+using (var duplicateStore = new NativeStore(Path.Combine(root, "command-duplicates-" + Guid.NewGuid().ToString("N")), new TestProtector()))
+{
+    var duplicateLibrary = new NativeCommandLibrary(duplicateStore);
+    var firstGroup = duplicateLibrary.SaveGroup(null, "First");
+    var secondGroup = duplicateLibrary.SaveGroup(null, "Second");
+    var first = duplicateLibrary.SaveSnippet(null, firstGroup.Id, "Original", "printf one\r\nprintf two", true);
+    var second = duplicateLibrary.SaveSnippet(null, firstGroup.Id, "Alternate", "printf one\nprintf two", false);
+    duplicateLibrary.SaveSnippet(null, secondGroup.Id, "Other group", "printf one\nprintf two", false);
+    duplicateLibrary.SaveSnippet(null, firstGroup.Id, "Case differs", "printf ONE\nprintf two", false);
+    duplicateLibrary.SaveSnippet(null, firstGroup.Id, "Whitespace differs", "printf  one\nprintf two", false);
+    var duplicateGroups = duplicateLibrary.FindDuplicates();
+    Check(duplicateGroups.Count == 1 && new HashSet<string>(duplicateGroups[0].Snippets.Select(item => item.Id), StringComparer.Ordinal).SetEquals([first.Id, second.Id]),
+        "Duplicate detection normalizes CRLF/LF, preserves other text, and scopes matches to one group");
+    Reject(() => duplicateLibrary.RemoveDuplicates([
+        new NativeSnippetDuplicateSelection(duplicateGroups[0].Key, "not-a-member",
+            duplicateGroups[0].Snippets.Select(item => item.Id).ToArray())
+    ]), "Duplicate cleanup rejects a survivor that is not part of the matching command group");
+    Check(duplicateLibrary.ListSnippets(firstGroup.Id).Count == 4, "Rejected duplicate cleanup leaves every command intact");
+    Reject(() => duplicateLibrary.RemoveDuplicates([
+        new NativeSnippetDuplicateSelection(duplicateGroups[0].Key, second.Id, [first.Id])
+    ]), "Duplicate cleanup rejects a stale preview membership list");
+    Check(duplicateLibrary.ListSnippets(firstGroup.Id).Count == 4, "Stale duplicate cleanup leaves every command intact");
+    var removed = duplicateLibrary.RemoveDuplicates([
+        new NativeSnippetDuplicateSelection(duplicateGroups[0].Key, second.Id,
+            duplicateGroups[0].Snippets.Select(item => item.Id).ToArray())
+    ]);
+    Check(removed == 1 && duplicateLibrary.ListSnippets(firstGroup.Id).Any(item => item.Id == second.Id)
+        && !duplicateLibrary.ListSnippets(firstGroup.Id).Any(item => item.Id == first.Id)
+        && duplicateLibrary.ListSnippets(secondGroup.Id).Single().Name == "Other group",
+        "Duplicate cleanup honors the selected survivor and preserves other groups atomically");
 }
 using (var aiStore = new NativeStore(Path.Combine(root, "ai-" + Guid.NewGuid().ToString("N")), new TestProtector())) {
     aiStore.Patch("settings", "settings", new() { ["aiAssistantEnabled"] = true });

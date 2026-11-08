@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Net.Sockets;
@@ -236,6 +237,7 @@ async Task TestJumpHostEndToEndAsync()
     store.Save("profiles", "target-fixture", targetJson);
     using var sessions = new NativeSessionManager(store);
     var confirmed = new List<string>();
+    var jumpProgress = new ConcurrentQueue<NativeConnectionProgress>();
     var output = new StringBuilder();
     var outputReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     sessions.Output += (_, bytes) =>
@@ -249,8 +251,18 @@ async Task TestJumpHostEndToEndAsync()
     var snapshot = await sessions.OpenAsync(ConnectionProfile.FromJson(targetJson), challenge =>
     {
         confirmed.Add($"{challenge.Host}:{challenge.Port}"); return Task.FromResult(true);
-    }, (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None);
+    }, (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None,
+        onConnectionProgress: progress => jumpProgress.Enqueue(progress));
     if (snapshot.State != NativeSessionState.Ready) throw new InvalidOperationException("Single-hop target session did not reach Ready.");
+    var observedProgress = jumpProgress.ToArray();
+    if (observedProgress.Length < 10 || observedProgress[^1].Percent != 100
+        || observedProgress.Select((item, index) => (item, index)).Any(pair => pair.index > 0 && pair.item.Percent < observedProgress[pair.index - 1].Percent)
+        || observedProgress.Select((item, index) => (item, index)).Any(pair => pair.index > 0 && pair.item.StepIndex < observedProgress[pair.index - 1].StepIndex)
+        || !observedProgress.Any(item => item.StepKey == "native.connection.jumpTunnelReady")
+        || !observedProgress.Any(item => item.StepKey == "native.connection.establishingJumpTunnel")
+        || !observedProgress.Any(item => item.StepKey == "native.connection.connectingTarget")
+        || !observedProgress.Any(item => item.WaitingForUser && item.WaitingReasonKey == "native.connection.waitingForHostKey"))
+        throw new InvalidOperationException("Jump-host connection progress did not report monotonic milestone and host-key waiting states.");
     if (!confirmed.Contains($"127.0.0.1:{jumpPort}") || !confirmed.Contains($"127.0.0.1:{targetPort}"))
         throw new InvalidOperationException("Jump and target host keys were not confirmed independently.");
     var session = sessions.Get(snapshot.SessionId);
@@ -280,8 +292,17 @@ async Task TestJumpHostEndToEndAsync()
     Console.WriteLine("PASS: two local SSH fixtures connect through one jump; host keys, terminal, and SFTP reach target independently");
 
     var missing = ProfileJson("missing-jump-target", "Missing jump target", targetPort, "does-not-exist");
-    try { await sessions.OpenAsync(ConnectionProfile.FromJson(missing), _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None); throw new InvalidOperationException("Missing jump host was accepted."); }
+    var failedProgress = new ConcurrentQueue<NativeConnectionProgress>();
+    try
+    {
+        await sessions.OpenAsync(ConnectionProfile.FromJson(missing), _ => Task.FromResult(true),
+            (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None,
+            onConnectionProgress: progress => failedProgress.Enqueue(progress));
+        throw new InvalidOperationException("Missing jump host was accepted.");
+    }
     catch (KeyNotFoundException error) when (error.Message == "native.errors.jumpHostMissing") { }
+    if (failedProgress.IsEmpty || failedProgress.Last().Percent >= 100)
+        throw new InvalidOperationException("A failed connection must not report successful completion.");
     total++;
     Console.WriteLine("PASS: missing jump-host references fail explicitly");
 
@@ -312,9 +333,21 @@ async Task TestForwardBridgeEndToEndAsync()
         ["terminal"] = new JsonObject { ["charset"] = "utf8" },
         ["options"] = new JsonObject { ["readyTimeout"] = 8000 }
     };
+    profileJson["auth"] = new JsonObject { ["method"] = "password" };
     store.Save("profiles", "forward-fixture", profileJson);
     using var sessions = new NativeSessionManager(store);
-    var opened = await sessions.OpenAsync(ConnectionProfile.FromJson(profileJson), _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None);
+    var forwardingProgress = new ConcurrentQueue<NativeConnectionProgress>();
+    var opened = await sessions.OpenAsync(ConnectionProfile.FromJson(profileJson), _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None,
+        onConnectionProgress: progress => forwardingProgress.Enqueue(progress));
+    var directSteps = forwardingProgress.ToArray();
+    if (directSteps.Length < 6 || directSteps[^1].Percent != 100
+        || directSteps.Select((item, index) => (item, index)).Any(pair => pair.index > 0 && pair.item.Percent < directSteps[pair.index - 1].Percent)
+        || directSteps.Select((item, index) => (item, index)).Any(pair => pair.index > 0 && pair.item.StepIndex < directSteps[pair.index - 1].StepIndex)
+        || !directSteps.Any(item => item.StepKey == "native.connection.verifyingTargetHost")
+        || !directSteps.Any(item => item.WaitingForUser && item.WaitingReasonKey == "native.connection.waitingForCredentials")
+        || !directSteps.Any(item => item.WaitingForUser && item.WaitingReasonKey == "native.connection.waitingForHostKey")
+        || directSteps[^1].StepCount != 6)
+        throw new InvalidOperationException("Direct SSH connection progress did not report monotonic milestone states.");
     var session = sessions.Get(opened.SessionId);
     var navigation = new OpenFinalShell.App.ViewModels.SftpBrowserViewModel(session);
     Directory.CreateDirectory(Path.Combine(fixtureRoot, "alpha")); Directory.CreateDirectory(Path.Combine(fixtureRoot, "beta"));

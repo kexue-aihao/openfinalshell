@@ -1285,7 +1285,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "重複コマンドを検出",
+      "noDuplicates": "重複コマンドはありません。",
+      "duplicatePreview": "{{groups}} グループの重複コマンドが見つかりました。各グループで残すコマンドを選び、削除を確定してください。",
+      "keepCommand": "「{{group}}」で残す",
+      "removeDuplicates": "重複 {{count}} 件を削除",
+      "duplicatesRemoved": "重複コマンドを {{count}} 件削除しました。",
+      "defaults": {
+        "groups": {
+          "system": "システムとサービスの確認",
+          "network": "ネットワーク診断",
+          "audit": "更新と SSH 監査",
+          "tools": "ツールのインストール",
+          "scan": "許可されたセキュリティスキャン"
+        },
+        "snippets": {
+          "uname": "システムとカーネル情報",
+          "uptime": "稼働時間と負荷",
+          "identity": "現在のユーザーとグループ",
+          "disk": "ディスク容量とファイルシステム",
+          "memory": "メモリとスワップ",
+          "cpu": "CPU 使用率の高いプロセス",
+          "memoryProcesses": "メモリ使用率の高いプロセス",
+          "addresses": "ネットワークインターフェイスのアドレス",
+          "routes": "ルーティングテーブル",
+          "listeners": "待受ポートとプロセス",
+          "systemdFailed": "失敗した systemd サービス",
+          "journalWarnings": "過去 24 時間の警告",
+          "openrcStatus": "OpenRC サービス状態（Alpine）",
+          "alpineLog": "最近のシステムログ（Alpine）",
+          "dns": "DNS 検索（接続先ホスト）",
+          "https": "HTTPS ヘッダー（接続先ホスト）",
+          "ping": "接続確認（接続先ホスト）",
+          "aptUpdates": "利用可能な更新（Debian/Ubuntu）",
+          "dnfUpdates": "利用可能な更新（RPM 系）",
+          "apkUpdates": "利用可能な更新（Alpine）",
+          "sshdEffective": "有効な SSH サーバー設定",
+          "installDebian": "診断ツールをインストール（Debian/Ubuntu）",
+          "installRpm": "診断ツールをインストール（RPM 系）",
+          "installAlpine": "診断ツールをインストール（Alpine）",
+          "scanTop100": "低速の一般ポートスキャン（許可された利用）",
+          "scanPort": "低速の単一ポート確認（許可された利用）"
+        }
+      },
+      "autoEnterOn": "自動で Enter",
+      "autoEnterOff": "手動で送信"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1444,6 +1489,28 @@
       "exitTitle": "アプリを終了しますか？",
       "exitActivity": "終了すると {{sessions}} 件のセッション、{{transfers}} 件の転送、{{forwards}} 件のポート転送が停止します。編集中の {{editors}} 件の文書は保存の確認が必要です。",
       "transferClose": "このセッションを閉じると {{count}} 件の転送がキャンセルされます。"
+    },
+    "connection": {
+      "preparing": "接続を準備中",
+      "preparingJump": "踏み台ホストを準備中",
+      "connectingJump": "踏み台ホストに接続中",
+      "verifyingJumpHost": "踏み台ホストの鍵を確認中",
+      "authenticatingJump": "踏み台ホストを認証中",
+      "jumpAuthenticated": "踏み台ホストを認証しました",
+      "jumpTunnelReady": "踏み台トンネルを確立しました",
+      "connectingTarget": "SSH 接続を確立中",
+      "verifyingTargetHost": "ホスト鍵を確認中",
+      "authenticatingTarget": "認証中",
+      "targetAuthenticated": "認証が完了しました",
+      "openingShell": "ターミナルを開いています",
+      "ready": "接続準備完了",
+      "step": "{{count}} ステップ中 {{index}} ステップ目",
+      "waiting": "続行する入力を待っています",
+      "waitingForCredentials": "資格情報の入力待ち",
+      "waitingForHostKey": "ホスト鍵の確認待ち",
+      "waitingForAuthentication": "認証応答待ち",
+      "preparingTarget": "接続先ホストを準備中",
+      "establishingJumpTunnel": "踏み台トンネルを確立中"
     }
   },
   "nativePreview": {

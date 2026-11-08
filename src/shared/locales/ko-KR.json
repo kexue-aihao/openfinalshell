@@ -1285,7 +1285,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "중복 명령 검색",
+      "noDuplicates": "중복 명령이 없습니다.",
+      "duplicatePreview": "중복 명령 그룹 {{groups}}개를 찾았습니다. 각 그룹에서 유지할 명령을 선택한 다음 삭제를 확인하세요.",
+      "keepCommand": "‘{{group}}’에서 유지",
+      "removeDuplicates": "중복 {{count}}개 삭제",
+      "duplicatesRemoved": "중복 명령 {{count}}개를 삭제했습니다.",
+      "defaults": {
+        "groups": {
+          "system": "시스템 및 서비스 점검",
+          "network": "네트워크 진단",
+          "audit": "업데이트 및 SSH 감사",
+          "tools": "도구 설치",
+          "scan": "승인된 보안 스캔"
+        },
+        "snippets": {
+          "uname": "시스템 및 커널 정보",
+          "uptime": "가동 시간 및 부하",
+          "identity": "현재 사용자 및 그룹",
+          "disk": "디스크 공간 및 파일 시스템",
+          "memory": "메모리 및 스왑",
+          "cpu": "CPU 사용량 상위 프로세스",
+          "memoryProcesses": "메모리 사용량 상위 프로세스",
+          "addresses": "네트워크 인터페이스 주소",
+          "routes": "라우팅 테이블",
+          "listeners": "수신 대기 포트 및 프로세스",
+          "systemdFailed": "실패한 systemd 서비스",
+          "journalWarnings": "최근 24시간 경고",
+          "openrcStatus": "OpenRC 서비스 상태(Alpine)",
+          "alpineLog": "최근 시스템 로그(Alpine)",
+          "dns": "DNS 조회(연결 호스트)",
+          "https": "HTTPS 헤더(연결 호스트)",
+          "ping": "연결 확인(연결 호스트)",
+          "aptUpdates": "사용 가능한 업데이트(Debian/Ubuntu)",
+          "dnfUpdates": "사용 가능한 업데이트(RPM 계열)",
+          "apkUpdates": "사용 가능한 업데이트(Alpine)",
+          "sshdEffective": "유효 SSH 서버 설정",
+          "installDebian": "진단 도구 설치(Debian/Ubuntu)",
+          "installRpm": "진단 도구 설치(RPM 계열)",
+          "installAlpine": "진단 도구 설치(Alpine)",
+          "scanTop100": "저속 일반 포트 스캔(승인된 사용)",
+          "scanPort": "저속 단일 포트 확인(승인된 사용)"
+        }
+      },
+      "autoEnterOn": "자동 Enter",
+      "autoEnterOff": "수동 전송"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1444,6 +1489,28 @@
       "exitTitle": "앱을 종료할까요?",
       "exitActivity": "종료하면 세션 {{sessions}}개, 전송 {{transfers}}개, 포워딩 {{forwards}}개가 중지됩니다. 수정한 문서 {{editors}}개는 저장 여부를 선택해야 합니다.",
       "transferClose": "이 세션을 닫으면 진행 중인 전송 {{count}}개가 취소됩니다."
+    },
+    "connection": {
+      "preparing": "연결 준비 중",
+      "preparingJump": "점프 호스트 준비 중",
+      "connectingJump": "점프 호스트에 연결 중",
+      "verifyingJumpHost": "점프 호스트 키 확인 중",
+      "authenticatingJump": "점프 호스트 인증 중",
+      "jumpAuthenticated": "점프 호스트 인증 완료",
+      "jumpTunnelReady": "점프 터널 연결 완료",
+      "connectingTarget": "SSH 연결 설정 중",
+      "verifyingTargetHost": "호스트 키 확인 중",
+      "authenticatingTarget": "인증 중",
+      "targetAuthenticated": "인증 완료",
+      "openingShell": "터미널 여는 중",
+      "ready": "연결 준비 완료",
+      "step": "{{count}}단계 중 {{index}}단계",
+      "waiting": "계속하려면 입력이 필요합니다",
+      "waitingForCredentials": "자격 증명 입력 대기 중",
+      "waitingForHostKey": "호스트 키 확인 대기 중",
+      "waitingForAuthentication": "인증 응답 대기 중",
+      "preparingTarget": "대상 호스트 준비 중",
+      "establishingJumpTunnel": "점프 터널 설정 중"
     }
   },
   "nativePreview": {

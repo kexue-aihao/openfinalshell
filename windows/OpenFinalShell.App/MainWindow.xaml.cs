@@ -148,10 +148,11 @@ public sealed partial class MainWindow : Window
         knownHosts = new KnownHostViewModel(store);
         aiService = new NativeAiService(store);
         aiViewModel = new NativeAiViewModel(aiService);
-        commandLibrary = new NativeCommandLibrary(store);
-        CommandViewModel = new CommandLibraryViewModel(commandLibrary);
         settings = NativeSettings.Load(store);
         localization.SetLanguage(settings.Language);
+        commandLibrary = new NativeCommandLibrary(store);
+        commandLibrary.SeedDefaultSnippets(key => localization[key]);
+        CommandViewModel = new CommandLibraryViewModel(commandLibrary);
         editorWindowHost = new NativeEditorWindowHost(remoteEditorService, key => localization[key], () => settings, HandleNativeEditorShortcut);
         editorWindowHost.Failed += ShowError;
         sessionsManager = new NativeSessionManager(store);
@@ -232,14 +233,19 @@ public sealed partial class MainWindow : Window
         if (Application.Current.Resources["ShellBackgroundBrush"] is Brush shellBackground)
             Root.Background = shellBackground;
 
-        if (environment.Profile == "windows-11" && environment.MicaEligible)
-        {
-            // Mica is cosmetic and may be unavailable because of policy,
-            // accessibility settings, remote sessions, or an older compositor.
-            // Keep the same layout and fall back to the solid theme brush.
-            try { SystemBackdrop = new MicaBackdrop(); }
-            catch { SystemBackdrop = null; }
-        }
+        ApplyWindowBackdrop();
+    }
+
+    private void ApplyWindowBackdrop()
+    {
+        // Mica is a Win11-only shell material. Keep Win10 and high-contrast
+        // sessions on solid theme brushes, and tolerate compositor/API failure.
+        var highContrast = NativeAccessibilityGuard.ReadHighContrast(
+            () => new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast);
+        var useMica = environment.Profile == "windows-11" && environment.MicaEligible &&
+            !settings.ReduceTransparency && !highContrast;
+        try { SystemBackdrop = useMica ? new MicaBackdrop() : null; }
+        catch { SystemBackdrop = null; }
     }
 
     private void ConfigureLabels()
@@ -313,7 +319,7 @@ public sealed partial class MainWindow : Window
         DeleteConnectionGroupButton.Content = localization["native.common.delete"];
         MoveConnectionGroupUpButton.Content = localization["native.groups.moveUp"];
         MoveConnectionGroupDownButton.Content = localization["native.groups.moveDown"];
-        EnvironmentLabel.Text = $"{environment.Profile} · build {environment.Build} · " +
+        EnvironmentLabel.Text = $"{environment.DisplayText} · " +
             (environment.Supported ? localization["platform.available"] : localization["platform.unavailable"]);
         EditButton.Label = localization["native.common.edit"];
         DuplicateButton.Label = localization["native.common.duplicateConnection"];
@@ -362,6 +368,9 @@ public sealed partial class MainWindow : Window
         DeleteSnippetButton.Label = localization["native.common.delete"];
         SendSnippetButton.Label = localization["native.commands.send"];
         ClearHistoryButton.Label = localization["native.commands.clearHistory"];
+        FindDuplicateCommandsButton.Label = localization["native.commands.findDuplicates"];
+        ToolTipService.SetToolTip(FindDuplicateCommandsButton, localization["native.commands.findDuplicates"]);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(FindDuplicateCommandsButton, localization["native.commands.findDuplicates"]);
         CommandSearch.PlaceholderText = localization["native.workbench.search"];
         CommandMoveUp.Content = localization["native.groups.moveUp"];
         CommandMoveDown.Content = localization["native.groups.moveDown"];
@@ -857,16 +866,50 @@ public sealed partial class MainWindow : Window
             var initialTerminal = new Controls.NativeTerminalCanvas { Margin = new Thickness(8, 4, 0, 4) };
             var terminalSink = new SessionTerminalSink(sessionsManager) { Error = ShowError };
             terminalSink.Attach(initialTerminal);
+            var connectionStepCount = profile.Data["jumpHostId"] != null ? 10 : 6;
             var connectingId = "connecting:" + Guid.NewGuid().ToString("N");
             var connectingTab = new TabViewItem { Header = profile.Name, Tag = connectingId, IsClosable = false };
             var progressRing = new ProgressRing { IsActive = true, Width = 36, Height = 36, HorizontalAlignment = HorizontalAlignment.Center };
             var connectionLabel = new TextBlock
             {
-                Text = localization.Format("terminal.connecting", ("target", profile.Name)),
+                Text = localization["native.connection.preparing"],
                 FontSize = 16,
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 TextAlignment = TextAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
+            };
+            var connectionStep = new TextBlock
+            {
+                Text = localization.Format("native.connection.step", ("index", "1"),
+                    ("count", connectionStepCount.ToString(System.Globalization.CultureInfo.CurrentCulture))),
+                FontSize = 12,
+                Opacity = .75,
+                TextAlignment = TextAlignment.Center
+            };
+            var connectionPercent = new TextBlock
+            {
+                Text = "0%",
+                FontSize = 13,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center
+            };
+            var connectionProgressBar = new ProgressBar
+            {
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                Width = 360,
+                Height = 6,
+                IsIndeterminate = false,
+                HorizontalAlignment = HorizontalAlignment.Center
+            };
+            var connectionWaiting = new TextBlock
+            {
+                Text = localization["native.connection.waiting"],
+                FontSize = 12,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                Visibility = Visibility.Collapsed
             };
             var connectionTarget = new TextBlock
             {
@@ -883,12 +926,12 @@ public sealed partial class MainWindow : Window
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
                 MaxWidth = 480,
-                Children = { progressRing, connectionLabel, connectionTarget }
+                Children = { progressRing, connectionLabel, connectionStep, connectionProgressBar, connectionPercent, connectionWaiting, connectionTarget }
             };
             var connectionProgress = new Border
             {
                 Padding = new Thickness(32),
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = NativeSceneStyle.CornerRadius("OverlayCornerRadius", 8),
                 BorderThickness = new Thickness(1),
                 BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
                 Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Brush,
@@ -900,8 +943,34 @@ public sealed partial class MainWindow : Window
             progressHost.Children.Add(connectionProgress);
             AddSessionTab(connectingTab, progressHost);
             NativeSessionSnapshot snapshot;
-            try { snapshot = await sessionsManager.OpenAsync(profile, ConfirmHostAsync, PromptAsync, CancellationToken.None, terminalSink.WriteAsync); }
-            catch { RemoveSessionTab(connectingTab); terminalSink.Detach(initialTerminal); initialTerminal.Dispose(); throw; }
+            var connectionProgressActive = 1;
+            void UpdateConnectionProgress(NativeConnectionProgress progress)
+            {
+                if (Volatile.Read(ref connectionProgressActive) == 0) return;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (Volatile.Read(ref connectionProgressActive) == 0) return;
+                    connectionLabel.Text = localization[progress.StepKey];
+                    connectionStep.Text = localization.Format("native.connection.step",
+                        ("index", progress.StepIndex.ToString(System.Globalization.CultureInfo.CurrentCulture)),
+                        ("count", progress.StepCount.ToString(System.Globalization.CultureInfo.CurrentCulture)));
+                    connectionProgressBar.Value = progress.Percent;
+                    connectionPercent.Text = progress.Percent.ToString(System.Globalization.CultureInfo.CurrentCulture) + "%";
+                    connectionWaiting.Text = localization[progress.WaitingReasonKey ?? "native.connection.waiting"];
+                    connectionWaiting.Visibility = progress.WaitingForUser ? Visibility.Visible : Visibility.Collapsed;
+                });
+            }
+            try
+            {
+                snapshot = await sessionsManager.OpenAsync(profile, ConfirmHostAsync, PromptAsync, CancellationToken.None, terminalSink.WriteAsync, UpdateConnectionProgress);
+                Volatile.Write(ref connectionProgressActive, 0);
+                sessionsManager.Get(snapshot.SessionId).ConnectionProgressChanged -= UpdateConnectionProgress;
+            }
+            catch
+            {
+                Volatile.Write(ref connectionProgressActive, 0);
+                RemoveSessionTab(connectingTab); terminalSink.Detach(initialTerminal); initialTerminal.Dispose(); throw;
+            }
             RemoveSessionTab(connectingTab);
             terminalSink.Bind(snapshot.SessionId);
             sessionOutputSinks[snapshot.SessionId] = terminalSink;
@@ -1546,10 +1615,20 @@ public sealed partial class MainWindow : Window
     private async void DuplicateCommandSnippet(object sender, RoutedEventArgs args) => await EditSnippetAsync(CommandViewModel.SelectedSnippet, true);
     private async void DeleteCommandSnippet(object sender, RoutedEventArgs args)
     {
-        var selected = CommandViewModel.SelectedSnippet; if (selected == null) return;
+        await DeleteSnippetAsync(CommandViewModel.SelectedSnippet);
+    }
+
+    private async Task DeleteSnippetAsync(NativeSnippet? selected)
+    {
+        if (selected == null) return;
         var dialog = new ContentDialog { Title = localization["native.common.delete"], Content = selected.Name, PrimaryButtonText = localization["native.common.delete"], CloseButtonText = localization["native.common.cancel"], XamlRoot = Root.XamlRoot };
         if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return;
-        try { CommandViewModel.SelectedSnippet = selected; CommandViewModel.DeleteSelectedSnippet(); }
+        try
+        {
+            CommandViewModel.SelectedSnippet = selected;
+            CommandViewModel.DeleteSelectedSnippet();
+            CommandSnippets.SelectedItem = CommandViewModel.SelectedSnippet;
+        }
         catch (Exception error) { ShowError(error); }
     }
 
@@ -1567,18 +1646,24 @@ public sealed partial class MainWindow : Window
         try
         {
             var ready = sessionsManager.List().Where(s => s.State == NativeSessionState.Ready && sessionTerminals.ContainsKey(s.SessionId)).ToArray();
-            var targets = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = 220 };
+            var viewport = Root.XamlRoot.Size;
+            var dialogWidth = Math.Min(960d, Math.Max(320d, viewport.Width - 48d));
+            var dialogContentHeight = Math.Max(180d, Math.Min(760d, Math.Min(viewport.Height * .78, viewport.Height - 180d)));
+            var editorHeight = Math.Clamp(viewport.Height * .36, 200d, 420d);
+            var targets = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = Math.Min(220d, Math.Max(120d, dialogContentHeight * .3)) };
             foreach (var session in ready) targets.Items.Add(new ListViewItem { Content = session.ProfileName, Tag = session.SessionId });
             var activeId = (Sessions.SelectedItem as TabViewItem)?.Tag?.ToString();
             if (targets.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Tag?.ToString() == activeId) is { } selected) targets.SelectedItems.Add(selected);
             var autoEnter = new ToggleSwitch { Header = localization["commandEditor.autoEnter"], IsOn = appendEnter };
             ToolTipService.SetToolTip(autoEnter, localization["commandEditor.autoEnterHint"]);
-            var commandInput = new TextBox { PlaceholderText = localization["commandEditor.placeholder"], AcceptsReturn = true, MinHeight = 160, MaxHeight = 260, TextWrapping = TextWrapping.Wrap, Text = initialCommand };
+            var commandInput = new TextBox { PlaceholderText = localization["commandEditor.placeholder"], AcceptsReturn = true, Height = editorHeight, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Text = initialCommand };
+            ScrollViewer.SetVerticalScrollBarVisibility(commandInput, ScrollBarVisibility.Auto);
             var expand = new CheckBox { Content = localization["commandEditor.expandVars"], IsChecked = true };
             ToolTipService.SetToolTip(expand, localization["commandEditor.expandVarsHint"] + " {{host}} {{user}} {{port}}");
-            var dialog = new ContentDialog { Title = localization["commandEditor.title"], XamlRoot = Root.XamlRoot,
-                Content = new ScrollViewer { MaxHeight = 540, Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } } },
+            var dialog = new ContentDialog { Title = localization["commandEditor.title"], XamlRoot = Root.XamlRoot, Width = dialogWidth,
+                Content = new ScrollViewer { MaxHeight = dialogContentHeight, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } } },
                 PrimaryButtonText = localization["commandEditor.send"], SecondaryButtonText = localization["commandEditor.saveAsSnippet"], CloseButtonText = localization["common.cancel"] };
+            dialog.Resources["ContentDialogMaxWidth"] = dialogWidth;
             bool ValidCommand() => !string.IsNullOrWhiteSpace(commandInput.Text) && !commandInput.Text.Contains('\0') && commandInput.Text.Length <= 32768;
             void UpdateSend()
             {
@@ -2445,6 +2530,7 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
         {
             ApplyShellPalette();
+            ApplyWindowBackdrop();
             ApplyNativeEditorTheme();
         });
     }

@@ -19,6 +19,7 @@ public sealed class SshConnection : IDisposable
     private readonly SshClient client;
     private readonly ConnectionInfo info;
     private readonly Func<HostKeyChallenge, Task<bool>> confirmHost;
+    private readonly Action<NativeSshConnectionProgress>? progressChanged;
     private readonly string terminalType;
     private readonly string startupCommand;
     private readonly TerminalCharsetCodec terminalCodec;
@@ -43,9 +44,10 @@ public sealed class SshConnection : IDisposable
         Func<string, bool, Task<string?>> prompt,
         string? resolvedPassword = null,
         string? connectHost = null,
-        int? connectPort = null)
+        int? connectPort = null,
+        Action<NativeSshConnectionProgress>? progressChanged = null)
     {
-        this.store = store; this.confirmHost = confirmHost;
+        this.store = store; this.confirmHost = confirmHost; this.progressChanged = progressChanged;
         var data = profile.Data;
         hostKeyHost = profile.Host;
         hostKeyPort = profile.Port;
@@ -69,9 +71,14 @@ public sealed class SshConnection : IDisposable
                 methods.Add(new PasswordAuthenticationMethod(profile.Username, password));
                 var interactive = new KeyboardInteractiveAuthenticationMethod(profile.Username);
                 interactive.AuthenticationPrompt += (_, e) => {
-                    foreach (var item in e.Prompts)
-                        item.Response = prompt(item.Request, item.IsEchoed).GetAwaiter().GetResult()
-                            ?? throw new OperationCanceledException();
+                    progressChanged?.Invoke(new("authentication", true, "authentication"));
+                    try
+                    {
+                        foreach (var item in e.Prompts)
+                            item.Response = prompt(item.Request, item.IsEchoed).GetAwaiter().GetResult()
+                                ?? throw new OperationCanceledException();
+                    }
+                    finally { progressChanged?.Invoke(new("authentication")); }
                 };
                 methods.Add(interactive);
                 break;
@@ -113,22 +120,33 @@ public sealed class SshConnection : IDisposable
     private void VerifyHost(object? sender, HostKeyEventArgs e)
     {
         e.CanTrust = false;
+        progressChanged?.Invoke(new("hostKey"));
         var key = $"{hostKeyHost}:{hostKeyPort}:{e.HostKeyName}";
         var fingerprint = "SHA256:" + Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(e.HostKey)).TrimEnd('=');
         var known = store.Find("knownHosts", key);
-        if (known?["fingerprintSha256"]?.GetValue<string>() == fingerprint) { e.CanTrust = true; return; }
+        if (known?["fingerprintSha256"]?.GetValue<string>() == fingerprint)
+        {
+            e.CanTrust = true;
+            progressChanged?.Invoke(new("authentication"));
+            return;
+        }
+        progressChanged?.Invoke(new("hostKey", true, "hostKey"));
         if (!confirmHost(new(hostKeyHost, hostKeyPort, e.HostKeyName, fingerprint, known != null)).GetAwaiter().GetResult()) return;
         store.Save("knownHosts", key, new() { ["key"] = key, ["keyType"] = e.HostKeyName,
             ["fingerprintSha256"] = fingerprint, ["addedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }, known?["_revision"]?.GetValue<long>() ?? 0);
         e.CanTrust = true;
+        progressChanged?.Invoke(new("authentication"));
     }
     public async Task ConnectAsync(uint columns, uint rows, CancellationToken cancellation, bool openShell = true)
     {
         // SSH.NET's host-key and keyboard-interactive callbacks are synchronous.
         // Keep them off the WinUI dispatcher because those callbacks may wait for
         // a confirmation/input dialog posted to that dispatcher.
+        progressChanged?.Invoke(new("connecting"));
         await Task.Run(async () => await client.ConnectAsync(cancellation).ConfigureAwait(false), cancellation).ConfigureAwait(false);
+        progressChanged?.Invoke(new("authenticated"));
         if (!openShell) return;
+        progressChanged?.Invoke(new("openingShell"));
         shell = client.CreateShellStream(terminalType, columns, rows, 0, 0, 65536);
         shell.DataReceived += (_, e) => Output?.Invoke(e.Data);
         shell.ErrorOccurred += (_, e) => Failed?.Invoke(e.Exception);

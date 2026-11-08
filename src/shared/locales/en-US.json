@@ -1281,7 +1281,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "Find duplicate commands",
+      "noDuplicates": "No duplicate commands found.",
+      "duplicatePreview": "Found {{groups}} groups of duplicate commands. Choose one command to keep in each group, then confirm removal.",
+      "keepCommand": "Keep in {{group}}",
+      "removeDuplicates": "Remove {{count}} duplicates",
+      "duplicatesRemoved": "Removed {{count}} duplicate commands.",
+      "defaults": {
+        "groups": {
+          "system": "System and service checks",
+          "network": "Network diagnostics",
+          "audit": "Updates and SSH audit",
+          "tools": "Tool installation",
+          "scan": "Authorized security scans"
+        },
+        "snippets": {
+          "uname": "System and kernel information",
+          "uptime": "Uptime and load",
+          "identity": "Current user and groups",
+          "disk": "Disk space and filesystems",
+          "memory": "Memory and swap",
+          "cpu": "Top CPU processes",
+          "memoryProcesses": "Top memory processes",
+          "addresses": "Network interface addresses",
+          "routes": "Routing table",
+          "listeners": "Listening ports and processes",
+          "systemdFailed": "Failed systemd services",
+          "journalWarnings": "Warnings from the last 24 hours",
+          "openrcStatus": "OpenRC service status (Alpine)",
+          "alpineLog": "Recent system log (Alpine)",
+          "dns": "DNS lookup (connected host)",
+          "https": "HTTPS headers (connected host)",
+          "ping": "Connectivity check (connected host)",
+          "aptUpdates": "Available updates (Debian/Ubuntu)",
+          "dnfUpdates": "Available updates (RPM family)",
+          "apkUpdates": "Available updates (Alpine)",
+          "sshdEffective": "Effective SSH server settings",
+          "installDebian": "Install diagnostic tools (Debian/Ubuntu)",
+          "installRpm": "Install diagnostic tools (RPM family)",
+          "installAlpine": "Install diagnostic tools (Alpine)",
+          "scanTop100": "Slow common-port scan (authorized use)",
+          "scanPort": "Slow single-port check (authorized use)"
+        }
+      },
+      "autoEnterOn": "Auto-enter",
+      "autoEnterOff": "Manual send"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1440,6 +1485,28 @@
       "exitTitle": "Close the application?",
       "exitActivity": "Closing stops {{sessions}} sessions, {{transfers}} transfers and {{forwards}} forwards. {{editors}} edited documents still need a save decision.",
       "transferClose": "Closing this session cancels {{count}} active transfers."
+    },
+    "connection": {
+      "preparing": "Preparing connection",
+      "preparingJump": "Preparing jump host",
+      "connectingJump": "Connecting to jump host",
+      "verifyingJumpHost": "Verifying jump-host key",
+      "authenticatingJump": "Authenticating to jump host",
+      "jumpAuthenticated": "Jump host authenticated",
+      "jumpTunnelReady": "Jump tunnel established",
+      "connectingTarget": "Establishing SSH connection",
+      "verifyingTargetHost": "Verifying host key",
+      "authenticatingTarget": "Authenticating",
+      "targetAuthenticated": "Authentication complete",
+      "openingShell": "Opening terminal",
+      "ready": "Connection ready",
+      "step": "Step {{index}} of {{count}}",
+      "waiting": "Waiting for input to continue",
+      "waitingForCredentials": "Waiting for credentials",
+      "waitingForHostKey": "Waiting for host-key confirmation",
+      "waitingForAuthentication": "Waiting for an authentication response",
+      "preparingTarget": "Preparing target host",
+      "establishingJumpTunnel": "Establishing jump tunnel"
     }
   },
   "nativePreview": {

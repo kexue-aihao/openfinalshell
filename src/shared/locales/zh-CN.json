@@ -1342,7 +1342,52 @@
       "send": "发送到会话",
       "clearHistory": "清空历史",
       "clearConfirm": "确认清空命令历史？",
-      "selectSession": "请先打开一个会话。"
+      "selectSession": "请先打开一个会话。",
+      "findDuplicates": "检测重复命令",
+      "noDuplicates": "没有发现重复命令。",
+      "duplicatePreview": "发现 {{groups}} 组重复命令。请选择每组要保留的命令，再确认移除。",
+      "keepCommand": "在「{{group}}」中保留",
+      "removeDuplicates": "移除 {{count}} 条重复命令",
+      "duplicatesRemoved": "已移除 {{count}} 条重复命令。",
+      "defaults": {
+        "groups": {
+          "system": "系统与服务检查",
+          "network": "网络诊断",
+          "audit": "更新与 SSH 审计",
+          "tools": "工具安装",
+          "scan": "授权安全扫描"
+        },
+        "snippets": {
+          "uname": "系统与内核信息",
+          "uptime": "运行时长与负载",
+          "identity": "当前用户与组",
+          "disk": "磁盘空间与文件系统",
+          "memory": "内存与交换区",
+          "cpu": "CPU 占用进程排行",
+          "memoryProcesses": "内存占用进程排行",
+          "addresses": "网络接口地址",
+          "routes": "路由表",
+          "listeners": "监听端口与进程",
+          "systemdFailed": "失败的 systemd 服务",
+          "journalWarnings": "最近 24 小时警告日志",
+          "openrcStatus": "OpenRC 服务状态（Alpine）",
+          "alpineLog": "最近系统日志（Alpine）",
+          "dns": "DNS 查询（当前连接主机）",
+          "https": "HTTPS 响应头（当前连接主机）",
+          "ping": "连通性检查（当前连接主机）",
+          "aptUpdates": "可用更新（Debian/Ubuntu）",
+          "dnfUpdates": "可用更新（RPM 系）",
+          "apkUpdates": "可用更新（Alpine）",
+          "sshdEffective": "有效 SSH 服务配置",
+          "installDebian": "安装常用诊断工具（Debian/Ubuntu）",
+          "installRpm": "安装常用诊断工具（RPM 系）",
+          "installAlpine": "安装常用诊断工具（Alpine）",
+          "scanTop100": "低速扫描常见端口（授权后使用）",
+          "scanPort": "低速检查单个端口（授权后使用）"
+        }
+      },
+      "autoEnterOn": "自动回车",
+      "autoEnterOff": "不自动回车"
     },
     "monitor": {
       "title": "监控",
@@ -1440,6 +1485,28 @@
       "exitTitle": "关闭应用？",
       "exitActivity": "关闭后将停止 {{sessions}} 个会话、{{transfers}} 项传输和 {{forwards}} 条转发。{{editors}} 个已修改文档仍需选择是否保存。",
       "transferClose": "关闭此会话将取消 {{count}} 项活动传输。"
+    },
+    "connection": {
+      "preparing": "准备连接",
+      "preparingJump": "准备跳板机",
+      "connectingJump": "正在连接跳板机",
+      "verifyingJumpHost": "验证跳板机密钥",
+      "authenticatingJump": "正在验证跳板机身份",
+      "jumpAuthenticated": "跳板机验证完成",
+      "jumpTunnelReady": "跳板隧道已建立",
+      "connectingTarget": "正在建立 SSH 连接",
+      "verifyingTargetHost": "验证主机密钥",
+      "authenticatingTarget": "正在验证 SSH 身份",
+      "targetAuthenticated": "身份验证完成",
+      "openingShell": "正在打开终端",
+      "ready": "连接就绪",
+      "step": "第 {{index}} 步，共 {{count}} 步",
+      "waiting": "等待输入以继续",
+      "waitingForCredentials": "等待输入凭据",
+      "waitingForHostKey": "等待确认主机密钥",
+      "waitingForAuthentication": "等待 SSH 身份验证响应",
+      "preparingTarget": "准备连接目标主机",
+      "establishingJumpTunnel": "正在建立跳板隧道"
     }
   },
   "nativePreview": {

@@ -31,6 +31,7 @@ public sealed class NativeSessionManager : IDisposable
     private readonly ConcurrentDictionary<string, NativeSession> sessions = new(StringComparer.Ordinal);
 
     public event Action<NativeSessionSnapshot>? StateChanged;
+    public event Action<NativeConnectionProgress>? ConnectionProgressChanged;
     public event Action<string, byte[]>? Output;
 
     public NativeSessionManager(NativeStore store) => this.store = store;
@@ -40,12 +41,14 @@ public sealed class NativeSessionManager : IDisposable
         Func<HostKeyChallenge, Task<bool>> confirmHost,
         Func<string, bool, Task<string?>> prompt,
         CancellationToken cancellation,
-        Func<byte[], Task>? onOutput = null)
+        Func<byte[], Task>? onOutput = null,
+        Action<NativeConnectionProgress>? onConnectionProgress = null)
     {
         var id = Guid.NewGuid().ToString("N");
-        var session = new NativeSession(id, profile, store, confirmHost, prompt, onOutput);
+        var session = new NativeSession(id, profile, store, confirmHost, prompt, onOutput, onConnectionProgress);
         if (!sessions.TryAdd(id, session)) throw new InvalidOperationException("Unable to allocate native session.");
         session.StateChanged += snapshot => StateChanged?.Invoke(snapshot);
+        session.ConnectionProgressChanged += progress => ConnectionProgressChanged?.Invoke(progress);
         session.Output += bytes => Output?.Invoke(id, bytes);
         try
         {
@@ -113,12 +116,14 @@ public sealed class NativeSession : IDisposable
     private readonly CancellationTokenSource lifetime = new();
     private int reconnectScheduled;
     private bool hasConnected;
+    private int lastConnectionProgressPercent;
     private uint terminalColumns = 120, terminalRows = 40;
 
     public string SessionId { get; }
     public ConnectionProfile Profile { get; }
     public NativeSessionSnapshot Snapshot { get; private set; }
     public event Action<NativeSessionSnapshot>? StateChanged;
+    public event Action<NativeConnectionProgress>? ConnectionProgressChanged;
     public event Action<byte[]>? Output;
     public event Action<ForwardTelemetrySnapshot>? ForwardTelemetryChanged;
     public event Action<string, Exception>? ForwardFailed;
@@ -126,10 +131,12 @@ public sealed class NativeSession : IDisposable
     public NativeSession(string sessionId, ConnectionProfile profile, NativeStore store,
         Func<HostKeyChallenge, Task<bool>> confirmHost,
         Func<string, bool, Task<string?>> prompt,
-        Func<byte[], Task>? onOutput = null)
+        Func<byte[], Task>? onOutput = null,
+        Action<NativeConnectionProgress>? onConnectionProgress = null)
     {
         SessionId = sessionId; Profile = profile; this.store = store;
         this.confirmHost = confirmHost; this.prompt = prompt; this.onOutput = onOutput;
+        if (onConnectionProgress != null) ConnectionProgressChanged += onConnectionProgress;
         terminalCodec = new TerminalCharsetCodec(profile.Data["terminal"]?["charset"]?.GetValue<string>());
         Snapshot = new(sessionId, profile.Id, profile.Name, NativeSessionState.Closed, null, DateTimeOffset.UtcNow);
     }
@@ -153,10 +160,15 @@ public sealed class NativeSession : IDisposable
         ObjectDisposedException.ThrowIf(disposed != 0, this);
         outputPump ??= PumpOutputAsync(outputCancellation.Token);
         terminalCodec.Reset();
-        var (resolvedPassword, targetConnectPort) = await PrepareJumpAsync(cancellation);
+        lastConnectionProgressPercent = 0;
+        var hasJump = Profile.Data["jumpHostId"] != null;
+        var stepCount = hasJump ? 10 : 6;
+        ReportProgress("native.connection.preparing", 5, 1, stepCount);
+        var (resolvedPassword, targetConnectPort) = await PrepareJumpAsync(cancellation, hasJump, stepCount);
         cancellation.ThrowIfCancellationRequested();
         connection = new SshConnection(Profile, store, confirmHost, prompt, resolvedPassword,
-            targetConnectPort is null ? null : "127.0.0.1", targetConnectPort);
+            targetConnectPort is null ? null : "127.0.0.1", targetConnectPort,
+            progressChanged: progress => ReportSshProgress("target", progress, hasJump, stepCount));
         connection.Output += PublishOutput;
         var transport = connection;
         connection.Failed += error => TransportFailed(transport, error);
@@ -176,6 +188,7 @@ public sealed class NativeSession : IDisposable
             throw;
         }
         hasConnected = true;
+        ReportProgress("native.connection.ready", 100, stepCount, stepCount);
         SetState(NativeSessionState.Ready, null);
     }
 
@@ -216,7 +229,7 @@ public sealed class NativeSession : IDisposable
         });
     }
 
-    private async Task<(string? Password, int? LocalPort)> PrepareJumpAsync(CancellationToken cancellation)
+    private async Task<(string? Password, int? LocalPort)> PrepareJumpAsync(CancellationToken cancellation, bool hasJump, int stepCount)
     {
         var jumpId = Profile.Data["jumpHostId"]?.GetValue<string>();
         int? localPort = null;
@@ -232,28 +245,96 @@ public sealed class NativeSession : IDisposable
             if (jumpProfile.Data["protocol"]?.GetValue<string>() == "rdp")
                 throw new InvalidDataException("native.errors.jumpRdpUnsupported");
 
-            var jumpPassword = await ResolvePasswordAsync(jumpProfile, cancellation);
-            jumpConnection = new SshConnection(jumpProfile, store, confirmHost, prompt, jumpPassword);
+            ReportProgress("native.connection.preparingJump", 10, 1, stepCount);
+            var jumpPassword = await ResolvePasswordAsync(jumpProfile, cancellation, "jump", hasJump, stepCount);
+            jumpConnection = new SshConnection(jumpProfile, store, confirmHost, prompt, jumpPassword,
+                progressChanged: progress => ReportSshProgress("jump", progress, hasJump, stepCount));
+            ReportProgress("native.connection.connectingJump", 15, 2, stepCount);
             await jumpConnection.ConnectAsync(0, 0, cancellation, openShell: false);
+            ReportProgress("native.connection.establishingJumpTunnel", 38, 5, stepCount);
             localPort = jumpConnection.StartJumpTunnel(Profile.Host, Profile.Port);
+            ReportProgress("native.connection.jumpTunnelReady", 40, 5, stepCount);
         }
 
-        var resolvedPassword = await ResolvePasswordAsync(Profile, cancellation);
+        var resolvedPassword = await ResolvePasswordAsync(Profile, cancellation, "target", hasJump, stepCount);
         cancellation.ThrowIfCancellationRequested();
         return (resolvedPassword, localPort);
     }
 
-    private async Task<string?> ResolvePasswordAsync(ConnectionProfile profile, CancellationToken cancellation)
+    private async Task<string?> ResolvePasswordAsync(ConnectionProfile profile, CancellationToken cancellation, string role = "target", bool hasJump = false, int stepCount = 6)
     {
         cancellation.ThrowIfCancellationRequested();
+        var step = role == "jump" ? 1 : hasJump ? 5 : 1;
+        var percent = role == "jump" ? 10 : hasJump ? 45 : 5;
+        var stepKey = role == "jump"
+            ? "native.connection.preparingJump"
+            : hasJump ? "native.connection.preparingTarget" : "native.connection.preparing";
+        ReportProgress(stepKey, percent, step, stepCount);
         var auth = profile.Data["auth"] as JsonObject;
         if ((auth?["method"]?.GetValue<string>() ?? "password") != "password") return null;
         var storedPassword = store.ReadSecret(auth?["passwordRef"]?.GetValue<string>());
         if (storedPassword != null) return storedPassword;
         var promptLabel = $"native.password ({profile.Username}@{profile.Host}:{profile.Port})";
+        ReportProgress(stepKey, percent, step, stepCount, waitingForUser: true, waitingReasonKey: "native.connection.waitingForCredentials");
         var resolved = await prompt(promptLabel, false);
         cancellation.ThrowIfCancellationRequested();
+        ReportProgress(stepKey, percent, step, stepCount);
         return resolved ?? throw new OperationCanceledException(cancellation);
+    }
+
+    private void ReportSshProgress(string role, NativeSshConnectionProgress progress, bool hasJump, int stepCount)
+    {
+        var jump = role == "jump";
+        var stepKey = progress.Phase switch
+        {
+            "connecting" => jump ? "native.connection.connectingJump" : "native.connection.connectingTarget",
+            "hostKey" => jump ? "native.connection.verifyingJumpHost" : "native.connection.verifyingTargetHost",
+            "authentication" => jump ? "native.connection.authenticatingJump" : "native.connection.authenticatingTarget",
+            "authenticated" => jump ? "native.connection.jumpAuthenticated" : "native.connection.targetAuthenticated",
+            "openingShell" => "native.connection.openingShell",
+            _ => "native.connection.preparing"
+        };
+        var (percent, step) = (jump, progress.Phase) switch
+        {
+            (true, "connecting") => (15, 2),
+            (true, "hostKey") => (25, 3),
+            (true, "authentication") => (30, 4),
+            (true, "authenticated") => (35, 4),
+            (false, "connecting") when hasJump => (50, 6),
+            (false, "hostKey") when hasJump => (65, 7),
+            (false, "authentication") when hasJump => (75, 8),
+            (false, "authenticated") when hasJump => (85, 8),
+            (false, "openingShell") when hasJump => (95, 9),
+            (false, "connecting") => (20, 2),
+            (false, "hostKey") => (50, 3),
+            (false, "authentication") => (65, 4),
+            (false, "authenticated") => (85, 4),
+            (false, "openingShell") => (95, 5),
+            _ => (lastConnectionProgressPercent, 1)
+        };
+        var waitingReasonKey = progress.WaitingReasonKey switch
+        {
+            "hostKey" => "native.connection.waitingForHostKey",
+            "authentication" => "native.connection.waitingForAuthentication",
+            _ => null
+        };
+        ReportProgress(stepKey, percent, step, stepCount, progress.WaitingForUser, waitingReasonKey);
+    }
+
+    private void ReportProgress(string stepKey, int percent, int stepIndex, int stepCount,
+        bool waitingForUser = false, string? waitingReasonKey = null)
+    {
+        percent = Math.Clamp(Math.Max(lastConnectionProgressPercent, percent), 0, 100);
+        lastConnectionProgressPercent = percent;
+        try
+        {
+            ConnectionProgressChanged?.Invoke(new NativeConnectionProgress(
+                SessionId, Profile.Id, stepKey, percent, stepIndex, stepCount, waitingForUser, waitingReasonKey));
+        }
+        catch
+        {
+            // Progress reporting must not change connection or authentication behavior.
+        }
     }
 
     private void PublishOutput(byte[] bytes)

@@ -1285,7 +1285,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "偵測重複命令",
+      "noDuplicates": "沒有發現重複命令。",
+      "duplicatePreview": "發現 {{groups}} 組重複命令。請選擇每組要保留的命令，再確認移除。",
+      "keepCommand": "在「{{group}}」中保留",
+      "removeDuplicates": "移除 {{count}} 條重複命令",
+      "duplicatesRemoved": "已移除 {{count}} 條重複命令。",
+      "defaults": {
+        "groups": {
+          "system": "系統與服務檢查",
+          "network": "網路診斷",
+          "audit": "更新與 SSH 稽核",
+          "tools": "工具安裝",
+          "scan": "授權安全掃描"
+        },
+        "snippets": {
+          "uname": "系統與核心資訊",
+          "uptime": "運作時間與負載",
+          "identity": "目前使用者與群組",
+          "disk": "磁碟空間與檔案系統",
+          "memory": "記憶體與交換區",
+          "cpu": "CPU 使用率程序排行",
+          "memoryProcesses": "記憶體使用率程序排行",
+          "addresses": "網路介面位址",
+          "routes": "路由表",
+          "listeners": "監聽連接埠與程序",
+          "systemdFailed": "失敗的 systemd 服務",
+          "journalWarnings": "最近 24 小時警告記錄",
+          "openrcStatus": "OpenRC 服務狀態（Alpine）",
+          "alpineLog": "最近系統記錄（Alpine）",
+          "dns": "DNS 查詢（目前連線主機）",
+          "https": "HTTPS 回應標頭（目前連線主機）",
+          "ping": "連線狀態檢查（目前連線主機）",
+          "aptUpdates": "可用更新（Debian/Ubuntu）",
+          "dnfUpdates": "可用更新（RPM 系）",
+          "apkUpdates": "可用更新（Alpine）",
+          "sshdEffective": "有效 SSH 服務設定",
+          "installDebian": "安裝常用診斷工具（Debian/Ubuntu）",
+          "installRpm": "安裝常用診斷工具（RPM 系）",
+          "installAlpine": "安裝常用診斷工具（Alpine）",
+          "scanTop100": "低速掃描常見連接埠（授權後使用）",
+          "scanPort": "低速檢查單一連接埠（授權後使用）"
+        }
+      },
+      "autoEnterOn": "自動換行",
+      "autoEnterOff": "不自動換行"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1444,6 +1489,28 @@
       "exitTitle": "關閉應用程式？",
       "exitActivity": "關閉後將停止 {{sessions}} 個工作階段、{{transfers}} 項傳輸和 {{forwards}} 條轉送。{{editors}} 個已修改文件仍需選擇是否儲存。",
       "transferClose": "關閉此工作階段將取消 {{count}} 項進行中的傳輸。"
+    },
+    "connection": {
+      "preparing": "準備連線",
+      "preparingJump": "準備跳板機",
+      "connectingJump": "正在連線跳板機",
+      "verifyingJumpHost": "驗證跳板機金鑰",
+      "authenticatingJump": "正在驗證跳板機身分",
+      "jumpAuthenticated": "跳板機驗證完成",
+      "jumpTunnelReady": "跳板通道已建立",
+      "connectingTarget": "正在建立 SSH 連線",
+      "verifyingTargetHost": "驗證主機金鑰",
+      "authenticatingTarget": "正在驗證 SSH 身分",
+      "targetAuthenticated": "身分驗證完成",
+      "openingShell": "正在開啟終端機",
+      "ready": "連線就緒",
+      "step": "第 {{index}} 步，共 {{count}} 步",
+      "waiting": "等待輸入以繼續",
+      "waitingForCredentials": "等待輸入憑證",
+      "waitingForHostKey": "等待確認主機金鑰",
+      "waitingForAuthentication": "等待 SSH 身分驗證回應",
+      "preparingTarget": "準備連線目標主機",
+      "establishingJumpTunnel": "正在建立跳板通道"
     }
   },
   "nativePreview": {

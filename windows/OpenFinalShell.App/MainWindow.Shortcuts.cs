@@ -125,7 +125,7 @@ public sealed partial class MainWindow
                     Background = Application.Current.Resources["ShellBackgroundBrush"] as Brush,
                     BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
+                    CornerRadius = NativeSceneStyle.CornerRadius("ControlCornerRadius", 4),
                     Padding = new Thickness(8, 4, 8, 4),
                     VerticalAlignment = VerticalAlignment.Center,
                     Child = new TextBlock { Text = keys, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"), FontSize = 12 }
@@ -139,7 +139,7 @@ public sealed partial class MainWindow
                 Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Brush,
                 BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = NativeSceneStyle.CornerRadius("OverlayCornerRadius", 6),
                 Padding = new Thickness(12),
                 Child = rows
             });

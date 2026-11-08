@@ -1285,7 +1285,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "Rechercher les commandes en double",
+      "noDuplicates": "Aucune commande en double trouvée.",
+      "duplicatePreview": "{{groups}} groupes de commandes en double trouvés. Choisissez celle à conserver dans chaque groupe, puis confirmez la suppression.",
+      "keepCommand": "Conserver dans « {{group}} »",
+      "removeDuplicates": "Supprimer {{count}} doublons",
+      "duplicatesRemoved": "{{count}} commandes en double supprimées.",
+      "defaults": {
+        "groups": {
+          "system": "Contrôles système et services",
+          "network": "Diagnostic réseau",
+          "audit": "Mises à jour et audit SSH",
+          "tools": "Installation d’outils",
+          "scan": "Analyses de sécurité autorisées"
+        },
+        "snippets": {
+          "uname": "Informations système et noyau",
+          "uptime": "Durée de fonctionnement et charge",
+          "identity": "Utilisateur et groupes actuels",
+          "disk": "Espace disque et systèmes de fichiers",
+          "memory": "Mémoire et swap",
+          "cpu": "Processus les plus gourmands en CPU",
+          "memoryProcesses": "Processus les plus gourmands en mémoire",
+          "addresses": "Adresses des interfaces réseau",
+          "routes": "Table de routage",
+          "listeners": "Ports et processus en écoute",
+          "systemdFailed": "Services systemd en échec",
+          "journalWarnings": "Alertes des dernières 24 heures",
+          "openrcStatus": "État des services OpenRC (Alpine)",
+          "alpineLog": "Journal système récent (Alpine)",
+          "dns": "Recherche DNS (hôte connecté)",
+          "https": "En-têtes HTTPS (hôte connecté)",
+          "ping": "Test de connectivité (hôte connecté)",
+          "aptUpdates": "Mises à jour disponibles (Debian/Ubuntu)",
+          "dnfUpdates": "Mises à jour disponibles (famille RPM)",
+          "apkUpdates": "Mises à jour disponibles (Alpine)",
+          "sshdEffective": "Configuration effective du serveur SSH",
+          "installDebian": "Installer les outils de diagnostic (Debian/Ubuntu)",
+          "installRpm": "Installer les outils de diagnostic (famille RPM)",
+          "installAlpine": "Installer les outils de diagnostic (Alpine)",
+          "scanTop100": "Analyse lente des ports courants (usage autorisé)",
+          "scanPort": "Vérification lente d’un port (usage autorisé)"
+        }
+      },
+      "autoEnterOn": "Valider automatiquement",
+      "autoEnterOff": "Envoi manuel"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1444,6 +1489,28 @@
       "exitTitle": "Fermer l’application ?",
       "exitActivity": "La fermeture arrête {{sessions}} sessions, {{transfers}} transferts et {{forwards}} redirections. Vous devez encore décider de sauvegarder {{editors}} documents modifiés.",
       "transferClose": "Fermer cette session annule {{count}} transferts actifs."
+    },
+    "connection": {
+      "preparing": "Préparation de la connexion",
+      "preparingJump": "Préparation de l’hôte de rebond",
+      "connectingJump": "Connexion à l’hôte de rebond",
+      "verifyingJumpHost": "Vérification de la clé de l’hôte de rebond",
+      "authenticatingJump": "Authentification auprès de l’hôte de rebond",
+      "jumpAuthenticated": "Hôte de rebond authentifié",
+      "jumpTunnelReady": "Tunnel de rebond établi",
+      "connectingTarget": "Établissement de la connexion SSH",
+      "verifyingTargetHost": "Vérification de la clé de l’hôte",
+      "authenticatingTarget": "Authentification en cours",
+      "targetAuthenticated": "Authentification terminée",
+      "openingShell": "Ouverture du terminal",
+      "ready": "Connexion prête",
+      "step": "Étape {{index}} sur {{count}}",
+      "waiting": "En attente d’une saisie",
+      "waitingForCredentials": "En attente des identifiants",
+      "waitingForHostKey": "En attente de la confirmation de la clé de l’hôte",
+      "waitingForAuthentication": "En attente d’une réponse d’authentification",
+      "preparingTarget": "Préparation de l’hôte cible",
+      "establishingJumpTunnel": "Établissement du tunnel de rebond"
     }
   },
   "nativePreview": {

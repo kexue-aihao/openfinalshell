@@ -221,7 +221,7 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             Margin = new Thickness(8),
             Padding = new Thickness(12),
             BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = OpenFinalShell.App.NativeSceneStyle.CornerRadius("OverlayCornerRadius", 8),
             Background = Application.Current.Resources.TryGetValue("CardBackgroundFillColorDefaultBrush", out var cardBrush) && cardBrush is Brush card ? card : new SolidColorBrush(Windows.UI.Color.FromArgb(242, 36, 36, 36)),
             BorderBrush = Application.Current.Resources.TryGetValue("AccentFillColorDefaultBrush", out var accentBrush) && accentBrush is Brush accent ? accent : new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0, 120, 212)),
             Child = dropHint

@@ -110,6 +110,62 @@ public sealed class NativeStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Seeds the built-in command library at most once. Existing groups or commands
+    /// are treated as user data and permanently suppress the seed for this store.
+    /// </summary>
+    public bool SeedCommandLibraryOnce(IReadOnlyList<JsonObject> groups, IReadOnlyList<JsonObject> snippets)
+    {
+        const string marker = "native-command-library-seeded-v1";
+        lock (gate)
+        {
+            using var tx = connection.BeginTransaction(deferred: false);
+            using (var read = Command("SELECT v FROM meta WHERE k=$k", tx))
+            {
+                read.Parameters.AddWithValue("$k", marker);
+                if (read.ExecuteScalar() is not null) return false;
+            }
+
+            long groupCount;
+            long snippetCount;
+            using (var count = Command("SELECT kind,COUNT(*) FROM entities WHERE kind IN ('snippetGroups','snippets') GROUP BY kind", tx))
+            using (var rows = count.ExecuteReader())
+            {
+                groupCount = 0;
+                snippetCount = 0;
+                while (rows.Read())
+                {
+                    if (rows.GetString(0) == "snippetGroups") groupCount = rows.GetInt64(1);
+                    else if (rows.GetString(0) == "snippets") snippetCount = rows.GetInt64(1);
+                }
+            }
+
+            var seeded = groupCount == 0 && snippetCount == 0;
+            if (seeded)
+            {
+                foreach (var group in groups)
+                {
+                    var id = group["id"]?.GetValue<string>() ?? throw new InvalidDataException("Built-in command group requires an id.");
+                    Upsert("snippetGroups", id, group, tx, null);
+                }
+                foreach (var snippet in snippets)
+                {
+                    var id = snippet["id"]?.GetValue<string>() ?? throw new InvalidDataException("Built-in command requires an id.");
+                    Upsert("snippets", id, snippet, tx, null);
+                }
+            }
+
+            using (var write = Command("INSERT INTO meta(k,v) VALUES($k,$v)", tx))
+            {
+                write.Parameters.AddWithValue("$k", marker);
+                write.Parameters.AddWithValue("$v", Encoding.UTF8.GetBytes("1"));
+                write.ExecuteNonQuery();
+            }
+            tx.Commit();
+            return seeded;
+        }
+    }
+
     // Host names and key algorithms are sensitive metadata. Keep their lookup token
     // deterministic for conflict checks, while the display value remains inside the
     // authenticated encrypted payload.

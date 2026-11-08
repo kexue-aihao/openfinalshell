@@ -45,7 +45,7 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         var tools = new Border
         {
             Child = toolbar, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 6, 14, 0), Padding = new Thickness(2), CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(0, 6, 14, 0), Padding = new Thickness(2), CornerRadius = OpenFinalShell.App.NativeSceneStyle.CornerRadius("ControlCornerRadius", 4),
             BorderThickness = new Thickness(1), Opacity = 0,
             Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush,
             BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush

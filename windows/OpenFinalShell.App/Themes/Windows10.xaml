@@ -3,6 +3,7 @@
   <CornerRadius x:Key="ControlCornerRadius">0</CornerRadius>
   <CornerRadius x:Key="OverlayCornerRadius">0</CornerRadius>
   <CornerRadius x:Key="CardCornerRadius">0</CornerRadius>
+  <CornerRadius x:Key="NavigationSelectionCornerRadius">0</CornerRadius>
   <Thickness x:Key="CardPadding">16</Thickness>
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Light"><SolidColorBrush x:Key="ShellBackgroundBrush" Color="#FFF0F0F0" /><SolidColorBrush x:Key="WorkspaceBackgroundBrush" Color="#FFFFFFFF" /><SolidColorBrush x:Key="EditorBackgroundBrush" Color="#FFFFFFFF" /><SolidColorBrush x:Key="EditorForegroundBrush" Color="#FF202020" /><SolidColorBrush x:Key="EditorGutterBrush" Color="#FFF0F0F0" /><SolidColorBrush x:Key="EditorGutterForegroundBrush" Color="#FF606060" /><SolidColorBrush x:Key="EditorCurrentLineBrush" Color="#FFF4F4F4" /><SolidColorBrush x:Key="EditorSelectionBrush" Color="#FFDCEBFA" /><SolidColorBrush x:Key="EditorSelectionForegroundBrush" Color="#FF202020" /></ResourceDictionary>

@@ -102,7 +102,8 @@ public sealed partial class MainWindow
         AboutProductName.Text = localization["nativePreview.title"];
         AboutDescription.Text = localization["nativePreview.description"];
         AboutVersion.Text = localization.Format("native.update.current", ("version", updateService.CurrentVersion));
-        AboutEnvironment.Text = $"{environment.Profile} · build {environment.Build} · {RuntimeInformation.ProcessArchitecture}";
+        var supportStatus = environment.Supported ? localization["platform.available"] : localization["platform.unavailable"];
+        AboutEnvironment.Text = $"{environment.DisplayText} · {supportStatus} · process {RuntimeInformation.ProcessArchitecture}";
         AboutChangelogButton.Content = localization["settings.changelog"];
         AboutCheckUpdatesButton.Content = localization["native.update.check"];
         AboutGithubButton.Content = "GitHub";
@@ -183,7 +184,7 @@ public sealed partial class MainWindow
                 Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 255, 255, 255)),
                 BorderThickness = new Thickness(1),
                 BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
-                CornerRadius = new CornerRadius(8),
+                CornerRadius = NativeSceneStyle.CornerRadius("CardCornerRadius", 8),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Child = image
             };

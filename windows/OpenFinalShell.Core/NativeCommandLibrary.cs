@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace OpenFinalShell.Core;
 
@@ -7,6 +9,118 @@ public sealed class NativeCommandLibrary
     public const bool DefaultSnippetAutoEnter = true;
     private readonly NativeStore store;
     public NativeCommandLibrary(NativeStore store) => this.store = store;
+
+    private sealed record DefaultGroup(string Id, string NameKey);
+    private sealed record DefaultSnippet(string Id, string GroupId, string NameKey, string Command, bool AutoEnter);
+
+    private static readonly DefaultGroup[] DefaultGroups =
+    [
+        new("builtin-system", "native.commands.defaults.groups.system"),
+        new("builtin-network", "native.commands.defaults.groups.network"),
+        new("builtin-audit", "native.commands.defaults.groups.audit"),
+        new("builtin-tools", "native.commands.defaults.groups.tools"),
+        new("builtin-scan", "native.commands.defaults.groups.scan")
+    ];
+
+    private static readonly DefaultSnippet[] DefaultSnippets =
+    [
+        new("builtin-uname", "builtin-system", "native.commands.defaults.snippets.uname", "uname -a", true),
+        new("builtin-uptime", "builtin-system", "native.commands.defaults.snippets.uptime", "uptime", true),
+        new("builtin-identity", "builtin-system", "native.commands.defaults.snippets.identity", "id", true),
+        new("builtin-disk", "builtin-system", "native.commands.defaults.snippets.disk", "df -hT", true),
+        new("builtin-memory", "builtin-system", "native.commands.defaults.snippets.memory", "free -h", true),
+        new("builtin-cpu", "builtin-system", "native.commands.defaults.snippets.cpu", "ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 11", true),
+        new("builtin-memory-processes", "builtin-system", "native.commands.defaults.snippets.memoryProcesses", "ps -eo pid,comm,%mem,%cpu --sort=-%mem | head -n 11", true),
+        new("builtin-addresses", "builtin-system", "native.commands.defaults.snippets.addresses", "ip -br address", true),
+        new("builtin-routes", "builtin-system", "native.commands.defaults.snippets.routes", "ip route", true),
+        new("builtin-listeners", "builtin-system", "native.commands.defaults.snippets.listeners", "ss -lntup", true),
+        new("builtin-systemd-failed", "builtin-system", "native.commands.defaults.snippets.systemdFailed", "systemctl --failed --no-pager", true),
+        new("builtin-journal-warnings", "builtin-system", "native.commands.defaults.snippets.journalWarnings", "journalctl -p warning --since \"24 hours ago\" --no-pager", true),
+        new("builtin-openrc-status", "builtin-system", "native.commands.defaults.snippets.openrcStatus", "rc-status --all", true),
+        new("builtin-alpine-log", "builtin-system", "native.commands.defaults.snippets.alpineLog", "logread | tail -n 100", true),
+        new("builtin-dns", "builtin-network", "native.commands.defaults.snippets.dns", "dig +short {{host}}", false),
+        new("builtin-https", "builtin-network", "native.commands.defaults.snippets.https", "curl -I --max-time 10 https://{{host}}", false),
+        new("builtin-ping", "builtin-network", "native.commands.defaults.snippets.ping", "ping -c 4 {{host}}", false),
+        new("builtin-apt-updates", "builtin-audit", "native.commands.defaults.snippets.aptUpdates", "apt list --upgradable", true),
+        new("builtin-dnf-updates", "builtin-audit", "native.commands.defaults.snippets.dnfUpdates", "dnf check-update", true),
+        new("builtin-apk-updates", "builtin-audit", "native.commands.defaults.snippets.apkUpdates", "apk version -l '<'", true),
+        new("builtin-sshd-effective", "builtin-audit", "native.commands.defaults.snippets.sshdEffective", "sshd -T | grep -Ei '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication) '", true),
+        new("builtin-install-debian", "builtin-tools", "native.commands.defaults.snippets.installDebian", "sudo apt-get update && sudo apt-get install -y curl dnsutils iproute2 procps nmap", false),
+        new("builtin-install-rpm", "builtin-tools", "native.commands.defaults.snippets.installRpm", "sudo dnf install -y curl bind-utils iproute procps-ng nmap", false),
+        new("builtin-install-alpine", "builtin-tools", "native.commands.defaults.snippets.installAlpine", "apk add curl bind-tools iproute2 procps nmap", false),
+        new("builtin-scan-top100", "builtin-scan", "native.commands.defaults.snippets.scanTop100", "nmap -sT -T2 -Pn --top-ports 100 --open {{host}}", false),
+        new("builtin-scan-port", "builtin-scan", "native.commands.defaults.snippets.scanPort", "nmap -sT -T2 -Pn -p {{port}} --open {{host}}", false)
+    ];
+
+    public bool SeedDefaultSnippets(Func<string, string> localize)
+    {
+        ArgumentNullException.ThrowIfNull(localize);
+        var groups = DefaultGroups.Select((item, index) => new JsonObject
+        {
+            ["id"] = item.Id,
+            ["name"] = localize(item.NameKey),
+            ["order"] = index
+        }).ToArray();
+        var snippets = DefaultSnippets.Select((item, index) => new JsonObject
+        {
+            ["id"] = item.Id,
+            ["groupId"] = item.GroupId,
+            ["name"] = localize(item.NameKey),
+            ["command"] = item.Command,
+            ["autoEnter"] = item.AutoEnter,
+            ["order"] = DefaultSnippets.Take(index).Count(previous => previous.GroupId == item.GroupId)
+        }).ToArray();
+        return store.SeedCommandLibraryOnce(groups, snippets);
+    }
+
+    public IReadOnlyList<NativeSnippetDuplicateGroup> FindDuplicates()
+    {
+        var groupNames = ListGroups().ToDictionary(item => item.Id, item => item.Name, StringComparer.Ordinal);
+        return ListSnippets()
+            .GroupBy(item => (item.GroupId, Command: NormalizeLineEndings(item.Command)))
+            .Where(items => items.Count() > 1)
+            .Select(items =>
+            {
+                var ordered = items.OrderBy(item => item.Order).ThenBy(item => item.Name, StringComparer.CurrentCulture).ToArray();
+                var keyMaterial = ordered[0].GroupId + "\0" + NormalizeLineEndings(ordered[0].Command);
+                var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(keyMaterial))).ToLowerInvariant();
+                return new NativeSnippetDuplicateGroup(key, ordered[0].GroupId,
+                    groupNames.GetValueOrDefault(ordered[0].GroupId, ordered[0].GroupId), ordered);
+            })
+            .OrderBy(item => groupNames.GetValueOrDefault(item.GroupId, item.GroupId), StringComparer.CurrentCulture)
+            .ThenBy(item => item.Snippets[0].Order)
+            .ToArray();
+    }
+
+    public int RemoveDuplicates(IReadOnlyList<NativeSnippetDuplicateSelection> selections)
+    {
+        ArgumentNullException.ThrowIfNull(selections);
+        var groups = FindDuplicates();
+        if (groups.Count == 0) return 0;
+        if (selections.Count != groups.Count) throw new InvalidOperationException("The duplicate preview is out of date.");
+
+        var deleteIds = new List<string>();
+        foreach (var selection in selections)
+        {
+            var group = groups.FirstOrDefault(item => item.Key == selection.GroupKey);
+            if (group == null || !group.Snippets.Any(item => item.Id == selection.KeepSnippetId)
+                || !new HashSet<string>(group.Snippets.Select(item => item.Id), StringComparer.Ordinal)
+                    .SetEquals(selection.PreviewSnippetIds))
+                throw new InvalidOperationException("Choose one command to keep in each duplicate group.");
+            deleteIds.AddRange(group.Snippets.Where(item => item.Id != selection.KeepSnippetId).Select(item => item.Id));
+        }
+        if (deleteIds.Count == 0) return 0;
+
+        var revisions = deleteIds.Select(id =>
+        {
+            var value = store.Find("snippets", id) ?? throw new InvalidOperationException("The duplicate preview is out of date.");
+            return new NativeStore.EntityRevision("snippets", id, value["_revision"]?.GetValue<long>() ?? 0);
+        }).ToArray();
+        store.DeleteWithSecrets(revisions, []);
+        return revisions.Length;
+    }
+
+    private static string NormalizeLineEndings(string command) => command.Replace("\r\n", "\n", StringComparison.Ordinal);
 
     public IReadOnlyList<NativeSnippetGroup> ListGroups() => store.List("snippetGroups")
         .Select(value => new NativeSnippetGroup(value["id"]?.GetValue<string>() ?? "", value["name"]?.GetValue<string>() ?? "", value["order"]?.GetValue<double>() ?? 0))

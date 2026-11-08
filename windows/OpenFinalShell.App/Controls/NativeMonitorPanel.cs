@@ -46,7 +46,7 @@ public sealed class NativeMonitorPanel : UserControl, IDisposable
         identity.FontSize = 12;
         var systemCard = new Border
         {
-            Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1),
+            Padding = new Thickness(10, 8, 10, 8), CornerRadius = OpenFinalShell.App.NativeSceneStyle.CornerRadius("CardCornerRadius", 6), BorderThickness = new Thickness(1),
             BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush,
             Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush,
             Child = identity

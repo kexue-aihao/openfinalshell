@@ -1285,7 +1285,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "Buscar comandos duplicados",
+      "noDuplicates": "No se encontraron comandos duplicados.",
+      "duplicatePreview": "Se encontraron {{groups}} grupos de comandos duplicados. Elige cuál conservar en cada grupo y confirma la eliminación.",
+      "keepCommand": "Conservar en «{{group}}»",
+      "removeDuplicates": "Eliminar {{count}} duplicados",
+      "duplicatesRemoved": "Se eliminaron {{count}} comandos duplicados.",
+      "defaults": {
+        "groups": {
+          "system": "Comprobaciones del sistema y servicios",
+          "network": "Diagnóstico de red",
+          "audit": "Actualizaciones y auditoría SSH",
+          "tools": "Instalación de herramientas",
+          "scan": "Escaneos de seguridad autorizados"
+        },
+        "snippets": {
+          "uname": "Información del sistema y kernel",
+          "uptime": "Tiempo activo y carga",
+          "identity": "Usuario y grupos actuales",
+          "disk": "Espacio en disco y sistemas de archivos",
+          "memory": "Memoria y swap",
+          "cpu": "Procesos con mayor uso de CPU",
+          "memoryProcesses": "Procesos con mayor uso de memoria",
+          "addresses": "Direcciones de interfaces de red",
+          "routes": "Tabla de rutas",
+          "listeners": "Puertos y procesos en escucha",
+          "systemdFailed": "Servicios systemd fallidos",
+          "journalWarnings": "Avisos de las últimas 24 horas",
+          "openrcStatus": "Estado de servicios OpenRC (Alpine)",
+          "alpineLog": "Registro reciente del sistema (Alpine)",
+          "dns": "Consulta DNS (host conectado)",
+          "https": "Cabeceras HTTPS (host conectado)",
+          "ping": "Prueba de conectividad (host conectado)",
+          "aptUpdates": "Actualizaciones disponibles (Debian/Ubuntu)",
+          "dnfUpdates": "Actualizaciones disponibles (familia RPM)",
+          "apkUpdates": "Actualizaciones disponibles (Alpine)",
+          "sshdEffective": "Configuración efectiva del servidor SSH",
+          "installDebian": "Instalar herramientas de diagnóstico (Debian/Ubuntu)",
+          "installRpm": "Instalar herramientas de diagnóstico (familia RPM)",
+          "installAlpine": "Instalar herramientas de diagnóstico (Alpine)",
+          "scanTop100": "Escaneo lento de puertos comunes (uso autorizado)",
+          "scanPort": "Comprobación lenta de un puerto (uso autorizado)"
+        }
+      },
+      "autoEnterOn": "Enviar con Intro",
+      "autoEnterOff": "Enviar manualmente"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1444,6 +1489,28 @@
       "exitTitle": "¿Cerrar la aplicación?",
       "exitActivity": "Se detendrán {{sessions}} sesiones, {{transfers}} transferencias y {{forwards}} reenvíos. Aún debe decidir si guarda {{editors}} documentos modificados.",
       "transferClose": "Cerrar esta sesión cancela {{count}} transferencias activas."
+    },
+    "connection": {
+      "preparing": "Preparando conexión",
+      "preparingJump": "Preparando host puente",
+      "connectingJump": "Conectando al host puente",
+      "verifyingJumpHost": "Verificando la clave del host puente",
+      "authenticatingJump": "Autenticando en el host puente",
+      "jumpAuthenticated": "Host puente autenticado",
+      "jumpTunnelReady": "Túnel del host puente establecido",
+      "connectingTarget": "Estableciendo conexión SSH",
+      "verifyingTargetHost": "Verificando la clave del host",
+      "authenticatingTarget": "Autenticando",
+      "targetAuthenticated": "Autenticación completada",
+      "openingShell": "Abriendo terminal",
+      "ready": "Conexión lista",
+      "step": "Paso {{index}} de {{count}}",
+      "waiting": "Esperando una entrada para continuar",
+      "waitingForCredentials": "Esperando credenciales",
+      "waitingForHostKey": "Esperando confirmación de la clave del host",
+      "waitingForAuthentication": "Esperando respuesta de autenticación",
+      "preparingTarget": "Preparando el host de destino",
+      "establishingJumpTunnel": "Estableciendo el túnel del host puente"
     }
   },
   "nativePreview": {

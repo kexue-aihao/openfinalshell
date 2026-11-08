@@ -1285,7 +1285,52 @@
       "send": "Send to session",
       "clearHistory": "Clear history",
       "clearConfirm": "Clear command history?",
-      "selectSession": "Open a session first."
+      "selectSession": "Open a session first.",
+      "findDuplicates": "Найти повторяющиеся команды",
+      "noDuplicates": "Повторяющихся команд не найдено.",
+      "duplicatePreview": "Найдено групп повторяющихся команд: {{groups}}. Выберите команду для сохранения в каждой группе и подтвердите удаление.",
+      "keepCommand": "Оставить в группе «{{group}}»",
+      "removeDuplicates": "Удалить повторов: {{count}}",
+      "duplicatesRemoved": "Удалено повторяющихся команд: {{count}}.",
+      "defaults": {
+        "groups": {
+          "system": "Проверка системы и служб",
+          "network": "Диагностика сети",
+          "audit": "Обновления и аудит SSH",
+          "tools": "Установка инструментов",
+          "scan": "Авторизованные проверки безопасности"
+        },
+        "snippets": {
+          "uname": "Сведения о системе и ядре",
+          "uptime": "Время работы и нагрузка",
+          "identity": "Текущий пользователь и группы",
+          "disk": "Место на диске и файловые системы",
+          "memory": "Память и подкачка",
+          "cpu": "Процессы с наибольшей загрузкой CPU",
+          "memoryProcesses": "Процессы с наибольшим потреблением памяти",
+          "addresses": "Адреса сетевых интерфейсов",
+          "routes": "Таблица маршрутизации",
+          "listeners": "Прослушиваемые порты и процессы",
+          "systemdFailed": "Сбойные службы systemd",
+          "journalWarnings": "Предупреждения за последние 24 часа",
+          "openrcStatus": "Состояние служб OpenRC (Alpine)",
+          "alpineLog": "Последние записи системного журнала (Alpine)",
+          "dns": "DNS-запрос (подключенный хост)",
+          "https": "Заголовки HTTPS (подключенный хост)",
+          "ping": "Проверка связи (подключенный хост)",
+          "aptUpdates": "Доступные обновления (Debian/Ubuntu)",
+          "dnfUpdates": "Доступные обновления (семейство RPM)",
+          "apkUpdates": "Доступные обновления (Alpine)",
+          "sshdEffective": "Действующие настройки SSH-сервера",
+          "installDebian": "Установка средств диагностики (Debian/Ubuntu)",
+          "installRpm": "Установка средств диагностики (семейство RPM)",
+          "installAlpine": "Установка средств диагностики (Alpine)",
+          "scanTop100": "Медленное сканирование частых портов (с разрешения)",
+          "scanPort": "Медленная проверка одного порта (с разрешения)"
+        }
+      },
+      "autoEnterOn": "Автоввод Enter",
+      "autoEnterOff": "Ручная отправка"
     },
     "openMonitor": "Open monitor",
     "monitor": {
@@ -1444,6 +1489,28 @@
       "exitTitle": "Закрыть приложение?",
       "exitActivity": "Будут остановлены сеансы ({{sessions}}), передачи ({{transfers}}) и перенаправления ({{forwards}}). Для изменённых документов ({{editors}}) ещё нужно выбрать сохранение.",
       "transferClose": "Закрытие сеанса отменит активные передачи: {{count}}."
+    },
+    "connection": {
+      "preparing": "Подготовка подключения",
+      "preparingJump": "Подготовка узла-посредника",
+      "connectingJump": "Подключение к узлу-посреднику",
+      "verifyingJumpHost": "Проверка ключа узла-посредника",
+      "authenticatingJump": "Аутентификация на узле-посреднике",
+      "jumpAuthenticated": "Узел-посредник аутентифицирован",
+      "jumpTunnelReady": "Туннель через посредник создан",
+      "connectingTarget": "Установка SSH-соединения",
+      "verifyingTargetHost": "Проверка ключа хоста",
+      "authenticatingTarget": "Аутентификация",
+      "targetAuthenticated": "Аутентификация завершена",
+      "openingShell": "Открытие терминала",
+      "ready": "Подключение готово",
+      "step": "Шаг {{index}} из {{count}}",
+      "waiting": "Ожидание ввода для продолжения",
+      "waitingForCredentials": "Ожидание учетных данных",
+      "waitingForHostKey": "Ожидание подтверждения ключа хоста",
+      "waitingForAuthentication": "Ожидание ответа аутентификации",
+      "preparingTarget": "Подготовка целевого хоста",
+      "establishingJumpTunnel": "Установка туннеля через посредник"
     }
   },
   "nativePreview": {

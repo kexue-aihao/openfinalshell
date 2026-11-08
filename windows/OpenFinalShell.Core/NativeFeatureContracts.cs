@@ -34,6 +34,18 @@ public sealed record PortTrafficEntry(int Port, long Connections, bool RatesAvai
 public sealed record PortTrafficSnapshot(long Timestamp, IReadOnlyList<PortTrafficEntry> Ports);
 public sealed record NativeSnippetGroup(string Id, string Name, double Order);
 public sealed record NativeSnippet(string Id, string GroupId, string Name, string Command, bool AutoEnter, double Order);
+public sealed record NativeSnippetDuplicateGroup(string Key, string GroupId, string GroupName, IReadOnlyList<NativeSnippet> Snippets);
+public sealed record NativeSnippetDuplicateSelection(string GroupKey, string KeepSnippetId, IReadOnlyList<string> PreviewSnippetIds);
+public sealed record NativeConnectionProgress(
+    string SessionId,
+    string ProfileId,
+    string StepKey,
+    int Percent,
+    int StepIndex,
+    int StepCount,
+    bool WaitingForUser,
+    string? WaitingReasonKey = null);
+public sealed record NativeSshConnectionProgress(string Phase, bool WaitingForUser = false, string? WaitingReasonKey = null);
 
 public enum NativeForwardType { Local, Remote, Dynamic }
 public enum NativeForwardState { Stopped, Active, Error }

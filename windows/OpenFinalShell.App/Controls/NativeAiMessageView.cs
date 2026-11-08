@@ -104,7 +104,7 @@ public sealed class NativeAiMessageView : UserControl, IDisposable
             BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(Color.FromArgb(48, 128, 128, 128)),
             Background = new SolidColorBrush(Color.FromArgb(20, 128, 128, 128)),
-            CornerRadius = new CornerRadius(4),
+            CornerRadius = OpenFinalShell.App.NativeSceneStyle.CornerRadius("ControlCornerRadius", 4),
             Padding = new Thickness(8)
         };
         var panel = new StackPanel { Spacing = 6 };

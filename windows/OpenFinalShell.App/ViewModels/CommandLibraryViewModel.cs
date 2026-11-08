@@ -31,6 +31,13 @@ public sealed class CommandLibraryViewModel : INotifyPropertyChanged
     public void MoveGroup(int direction) { if (SelectedGroup == null) return; library.Move("snippetGroups", SelectedGroup.Id, direction); Reload(); }
     public void MoveSnippet(int direction) { if (SelectedSnippet == null) return; library.Move("snippets", SelectedSnippet.Id, direction); ReloadSnippets(); }
     public void DeleteSelectedSnippet() { if (SelectedSnippet == null) return; library.DeleteSnippet(SelectedSnippet.Id); ReloadSnippets(); }
+    public IReadOnlyList<NativeSnippetDuplicateGroup> FindDuplicates() => library.FindDuplicates();
+    public int RemoveDuplicates(IReadOnlyList<NativeSnippetDuplicateSelection> selections)
+    {
+        var removed = library.RemoveDuplicates(selections);
+        Reload();
+        return removed;
+    }
     public void DeleteSelectedGroup() { if (SelectedGroup == null) return; library.DeleteGroup(SelectedGroup.Id); Reload(); }
     public void ClearHistory(string? sessionId = null) { library.ClearHistory(sessionId); ReloadHistory(sessionId); }
     public void AddHistory(string sessionId, string command) { library.AddHistory(sessionId, command); ReloadHistory(sessionId); }

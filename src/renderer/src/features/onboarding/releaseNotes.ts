@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.44',
+    items: [
+      { type: 'feat', zh: '原生命令库首次启动提供 5 个分组、26 条常用运维命令；默认只读诊断命令可自动回车，安装与扫描命令默认等待审核', en: 'Seed the native command library with 5 groups and 26 common operations commands; read-only diagnostics auto-enter by default while install and scan commands wait for review' },
+      { type: 'feat', zh: '新增重复命令检测与分组预览，可逐组选择保留项并原子移除其余重复项；命令列表加入右键及键盘菜单', en: 'Add grouped duplicate-command detection with preview, per-group survivor selection and atomic cleanup, plus context and keyboard menus for command items' },
+      { type: 'feat', zh: 'SSH 连接页显示直连或跳板机的步骤、百分比与等待输入提示；关于页显示 Windows 版本、完整版本号和系统架构', en: 'Show direct and jump-host SSH connection steps, percentage and input prompts, and display the Windows release, full version and architecture in About' }
+    ]
+  },
+  {
     version: '0.30.43',
     items: [
       { type: 'fix', zh: '修复 WinUI3 连接列表将 TreeViewNode 类型名误显示为连接名称的问题，恢复连接名称、位置图标和主机信息的正常呈现', en: 'Fix the WinUI 3 connection list displaying TreeViewNode type names instead of connection names, restoring the connection labels, location icons and host details' }
