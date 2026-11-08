@@ -750,7 +750,13 @@
     "paste": "Einfügen",
     "sigint": "Interrupt senden (nie abgefangen)",
     "renameFile": "Datei umbenennen (im Dateimanager)",
-    "closeOverlay": "Suchleiste schließen / Umbenennen abbrechen"
+    "closeOverlay": "Suchleiste schließen / Umbenennen abbrechen",
+    "groups": {
+      "sessions": "Sitzungen",
+      "terminal": "Terminal",
+      "files": "Dateien",
+      "overlays": "Einblendungen"
+    }
   },
   "common": {
     "ok": "OK",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "Wird erfasst",
+      "starting": "Monitor wird gestartet…",
+      "unsupportedState": "Überwachung wird auf diesem System nicht unterstützt",
+      "disconnected": "Verbindung unterbrochen; Wiederherstellung wird abgewartet",
+      "stopped": "Gestoppt",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

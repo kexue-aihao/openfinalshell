@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.41',
+    items: [
+      { type: 'feat', zh: '优化 WinUI3 原生编辑器窗口的应用标识、标题栏与主题边框，并在设置页直接展示分组快捷键', en: 'Polish the WinUI 3 native editor window branding, title bar and themed border, and show grouped shortcuts directly in Settings' },
+      { type: 'feat', zh: '重整原生服务器监控面板的信息层级、磁盘用量和趋势图例；SSH 连接时显示进度，连接成功后按配置自动打开监控', en: 'Improve the native server monitor hierarchy, disk usage and chart legends; show SSH connection progress and open monitoring automatically when enabled' },
+      { type: 'feat', zh: '为原生连接编辑器与连接树增加离线国家/地区、局域网和公网位置标记', en: 'Add offline country, region, LAN and public-location markers to the native connection editor and tree' }
+    ]
+  },
+  {
     version: '0.30.40',
     items: [
       { type: 'fix', zh: '修复原生终端单击后残留选中色块的问题，隐藏输入框自身的光标，仅显示正常闪烁的终端光标', en: 'Remove the selected-cell artifact left by a native terminal click and hide the input client caret so only the normal blinking terminal cursor is shown' },

@@ -750,7 +750,13 @@
     "paste": "Coller",
     "sigint": "Envoyer une interruption (jamais interceptée)",
     "renameFile": "Renommer le fichier (dans le gestionnaire de fichiers)",
-    "closeOverlay": "Fermer la barre de recherche / annuler le renommage"
+    "closeOverlay": "Fermer la barre de recherche / annuler le renommage",
+    "groups": {
+      "sessions": "Sessions",
+      "terminal": "Terminal",
+      "files": "Fichiers",
+      "overlays": "Panneaux"
+    }
   },
   "common": {
     "ok": "OK",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "Collecte en cours",
+      "starting": "Démarrage du moniteur…",
+      "unsupportedState": "La surveillance n’est pas prise en charge sur ce système",
+      "disconnected": "Connexion interrompue, en attente de reprise",
+      "stopped": "Arrêté",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

@@ -746,7 +746,13 @@
     "paste": "Paste",
     "sigint": "Send interrupt (never intercepted)",
     "renameFile": "Rename file (in file manager)",
-    "closeOverlay": "Close find bar / cancel rename"
+    "closeOverlay": "Close find bar / cancel rename",
+    "groups": {
+      "sessions": "Sessions",
+      "terminal": "Terminal",
+      "files": "Files",
+      "overlays": "Overlays"
+    }
   },
   "common": {
     "ok": "OK",
@@ -1269,6 +1275,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "Collecting",
+      "starting": "Starting monitor…",
+      "unsupportedState": "Monitoring is not supported on this system",
+      "disconnected": "Connection lost; waiting for recovery",
+      "stopped": "Stopped",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

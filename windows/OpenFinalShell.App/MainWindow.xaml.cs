@@ -280,7 +280,7 @@ public sealed partial class MainWindow : Window
         ApplyActivityIcons();
         CloseSettingsButton.Content = "×";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CloseSettingsButton, localization["common.close"]);
-        ShortcutsButton.Content = localization["settings.section_shortcuts"];
+        ConfigureShortcutList();
         ResetTrustButton.Content = localization["native.settings.resetTrust"];
         UpdateHeading.Text = localization["native.update.title"];
         UpdateCurrentLabel.Text = localization.Format("native.update.current", ("version", updateService.CurrentVersion));
@@ -677,7 +677,27 @@ public sealed partial class MainWindow : Window
         var startup = new TextBox { Header = localization["native.startupCommand"], Text = data["terminal"]?["startupCommand"]?.GetValue<string>() ?? "" };
         var keepAlive = new NumberBox { Header = localization["native.keepAlive"], Value = data["options"]?["keepaliveInterval"]?.GetValue<int>() ?? 15000, Minimum = 0, Maximum = 600000 };
         var timeout = new NumberBox { Header = localization["native.readyTimeout"], Value = data["options"]?["readyTimeout"]?.GetValue<int>() ?? 20000, Minimum = 1000, Maximum = 600000 };
-        var flag = new TextBox { Header = localization["conn.flag"], Text = data["flag"]?.GetValue<string>() ?? "" };
+        var flag = new ComboBox { Header = localization["conn.flag"], HorizontalAlignment = HorizontalAlignment.Stretch };
+        var flagOptions = new[] { "", "lan", "CN", "HK", "TW", "JP", "KR", "SG", "US", "CA", "GB", "DE", "FR", "NL", "RU", "IN", "AU", "BR", "globe" };
+        foreach (var code in flagOptions)
+        {
+            var label = string.IsNullOrWhiteSpace(code) ? localization["conn.flagNone"] : localization[$"region.{code}"];
+            var item = new ComboBoxItem { Tag = code, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            if (!string.IsNullOrWhiteSpace(code)) row.Children.Add(NativeRegionMarker.Create(code, 16));
+            row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+            item.Content = row;
+            flag.Items.Add(item);
+        }
+        var currentFlag = data["flag"]?.GetValue<string>() ?? "";
+        if (!string.IsNullOrWhiteSpace(currentFlag) && !flagOptions.Contains(currentFlag, StringComparer.Ordinal))
+        {
+            var legacy = new ComboBoxItem { Tag = currentFlag, Content = currentFlag };
+            flag.Items.Add(legacy);
+        }
+        flag.SelectedItem = flag.Items.OfType<ComboBoxItem>().FirstOrDefault(item => string.Equals(item.Tag?.ToString(), currentFlag, StringComparison.Ordinal)) ?? flag.Items[0];
+        ToolTipService.SetToolTip(flag, localization["conn.flagHint"]);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(flag, localization["conn.flag"]);
         var note = new TextBox { Header = localization["conn.note"], AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Text = data["note"]?.GetValue<string>() ?? "" };
         var autoReconnect = new CheckBox { Content = localization["native.workbench.autoReconnect"], IsChecked = data["options"]?["autoReconnect"]?.GetValue<bool>() ?? true };
         var monitorEnabled = new CheckBox { Content = localization["conn.monitorEnabled"], IsChecked = data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true };
@@ -720,7 +740,9 @@ public sealed partial class MainWindow : Window
         var payload = (JsonObject)data.DeepClone();
         payload["id"] = id; payload["name"] = name.Text.Trim(); payload["host"] = host.Text.Trim(); payload["port"] = (int)port.Value;
         payload["username"] = user.Text.Trim(); payload["protocol"] = protocol.SelectedItem?.ToString() ?? "ssh";
-        payload["flag"] = flag.Text.Trim(); payload["note"] = note.Text;
+        var selectedFlag = (flag.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "";
+        if (string.IsNullOrWhiteSpace(selectedFlag)) payload.Remove("flag"); else payload["flag"] = selectedFlag;
+        payload["note"] = note.Text;
         if (payload["protocol"]?.GetValue<string>() == "rdp")
         {
             if (domain.Text.Length > 120) { ShowError(localization["conn.rdpDomainTooLong"]); return; }
@@ -822,9 +844,52 @@ public sealed partial class MainWindow : Window
             var initialTerminal = new Controls.NativeTerminalCanvas { Margin = new Thickness(8, 4, 0, 4) };
             var terminalSink = new SessionTerminalSink(sessionsManager) { Error = ShowError };
             terminalSink.Attach(initialTerminal);
+            var connectingId = "connecting:" + Guid.NewGuid().ToString("N");
+            var connectingTab = new TabViewItem { Header = profile.Name, Tag = connectingId, IsClosable = false };
+            var progressRing = new ProgressRing { IsActive = true, Width = 36, Height = 36, HorizontalAlignment = HorizontalAlignment.Center };
+            var connectionLabel = new TextBlock
+            {
+                Text = localization.Format("terminal.connecting", ("target", profile.Name)),
+                FontSize = 16,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            };
+            var connectionTarget = new TextBlock
+            {
+                Text = $"{profile.Username}@{profile.Host}:{profile.Port}",
+                FontSize = 12,
+                Opacity = .7,
+                TextAlignment = TextAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true
+            };
+            var connectionCard = new StackPanel
+            {
+                Spacing = 14,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MaxWidth = 480,
+                Children = { progressRing, connectionLabel, connectionTarget }
+            };
+            var connectionProgress = new Border
+            {
+                Padding = new Thickness(32),
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
+                Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Brush,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = connectionCard
+            };
+            var progressHost = new Grid { Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Brush };
+            progressHost.Children.Add(connectionProgress);
+            AddSessionTab(connectingTab, progressHost);
             NativeSessionSnapshot snapshot;
             try { snapshot = await sessionsManager.OpenAsync(profile, ConfirmHostAsync, PromptAsync, CancellationToken.None, terminalSink.WriteAsync); }
-            catch { terminalSink.Detach(initialTerminal); initialTerminal.Dispose(); throw; }
+            catch { RemoveSessionTab(connectingTab); terminalSink.Detach(initialTerminal); initialTerminal.Dispose(); throw; }
+            RemoveSessionTab(connectingTab);
             terminalSink.Bind(snapshot.SessionId);
             sessionOutputSinks[snapshot.SessionId] = terminalSink;
             CreateSessionTerminalTab(profile, snapshot.SessionId, initialTerminal);
@@ -881,6 +946,8 @@ public sealed partial class MainWindow : Window
         sessionTabs[sessionId] = tab;
         sessionProfiles[sessionId] = profile;
         AddSessionTab(tab, content);
+        if (profile.Data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true)
+            content.ToggleMonitor(true);
         RefreshAiTargets();
     }
 

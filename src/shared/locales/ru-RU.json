@@ -750,7 +750,13 @@
     "paste": "Вставить",
     "sigint": "Отправить прерывание (никогда не перехватывается)",
     "renameFile": "Переименовать файл (в менеджере файлов)",
-    "closeOverlay": "Закрыть панель поиска / отменить переименование"
+    "closeOverlay": "Закрыть панель поиска / отменить переименование",
+    "groups": {
+      "sessions": "Сеансы",
+      "terminal": "Терминал",
+      "files": "Файлы",
+      "overlays": "Панели"
+    }
   },
   "common": {
     "ok": "OK",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "Сбор данных",
+      "starting": "Запуск мониторинга…",
+      "unsupportedState": "Мониторинг в этой системе не поддерживается",
+      "disconnected": "Соединение потеряно; ожидание восстановления",
+      "stopped": "Остановлено",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

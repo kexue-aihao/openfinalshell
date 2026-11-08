@@ -17,7 +17,7 @@
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.40</OpenFinalShellVersion>
+    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.41</OpenFinalShellVersion>
     <Version>$(OpenFinalShellVersion)</Version>
     <AssemblyVersion>$(OpenFinalShellVersion)</AssemblyVersion>
     <FileVersion>$(OpenFinalShellVersion)</FileVersion>
@@ -31,6 +31,7 @@
   <ItemGroup>
     <Content Update="Assets/TerminalThemes.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="Assets/OpenFinalShell.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets/Regions/*.svg" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(MSBuildProjectDirectory)/../../src/renderer/src/features/donate/qr/*.png" Link="Assets/Donate/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Update="Assets/OpenFinalShell.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Compile Remove="build/**/*.cs" />

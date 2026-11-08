@@ -12,6 +12,12 @@ public sealed partial class MainWindow
     {
         tab.FontSize = 12;
         tab.MinWidth = 96; tab.MaxWidth = 200;
+        var tag = tab.Tag?.ToString();
+        if (tag?.StartsWith("connecting:", StringComparison.Ordinal) == true)
+        {
+            tab.ContextFlyout = null;
+            return;
+        }
         var menu = new MenuFlyout();
         void Action(string key, Func<Task> action)
         {

@@ -750,7 +750,13 @@
     "paste": "Pegar",
     "sigint": "Enviar interrupción (nunca interceptada)",
     "renameFile": "Renombrar archivo (en el gestor de archivos)",
-    "closeOverlay": "Cerrar barra de búsqueda / cancelar renombrado"
+    "closeOverlay": "Cerrar barra de búsqueda / cancelar renombrado",
+    "groups": {
+      "sessions": "Sesiones",
+      "terminal": "Terminal",
+      "files": "Archivos",
+      "overlays": "Paneles"
+    }
   },
   "common": {
     "ok": "Aceptar",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "Recopilando",
+      "starting": "Iniciando monitor…",
+      "unsupportedState": "Este sistema no admite la supervisión",
+      "disconnected": "Conexión perdida; esperando recuperación",
+      "stopped": "Detenido",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

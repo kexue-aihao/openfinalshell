@@ -750,7 +750,13 @@
     "paste": "Colar",
     "sigint": "Enviar interrupção (nunca interceptado)",
     "renameFile": "Renomear arquivo (no gerenciador de arquivos)",
-    "closeOverlay": "Fechar barra de busca / cancelar renomeação"
+    "closeOverlay": "Fechar barra de busca / cancelar renomeação",
+    "groups": {
+      "sessions": "Sessões",
+      "terminal": "Terminal",
+      "files": "Arquivos",
+      "overlays": "Painéis"
+    }
   },
   "common": {
     "ok": "OK",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "Coletando",
+      "starting": "Iniciando monitor…",
+      "unsupportedState": "Este sistema não oferece suporte à monitoração",
+      "disconnected": "Conexão perdida; aguardando recuperação",
+      "stopped": "Parado",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

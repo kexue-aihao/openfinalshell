@@ -750,7 +750,13 @@
     "paste": "貼上",
     "sigint": "傳送中斷訊號（永不攔截）",
     "renameFile": "重新命名檔案（在檔案管理員中）",
-    "closeOverlay": "關閉尋找列／取消重新命名"
+    "closeOverlay": "關閉尋找列／取消重新命名",
+    "groups": {
+      "sessions": "工作階段",
+      "terminal": "終端機",
+      "files": "檔案",
+      "overlays": "浮層"
+    }
   },
   "common": {
     "ok": "確定",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "正在收集",
+      "starting": "正在建立監控連線…",
+      "unsupportedState": "目前系統暫不支援監控",
+      "disconnected": "連線已中斷，等待恢復",
+      "stopped": "已停止",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

@@ -6,6 +6,8 @@ using OpenFinalShell.App.Controls;
 using OpenFinalShell.Core;
 using WinRT.Interop;
 using Windows.Graphics;
+using Windows.UI;
+using Windows.UI.ViewManagement;
 
 namespace OpenFinalShell.App;
 
@@ -16,6 +18,8 @@ namespace OpenFinalShell.App;
 internal sealed class NativeEditorWindowHost : IDisposable
 {
     private const int MaximumOpenDocuments = 10;
+    private const uint DwmAttributeBorderColor = 34;
+    private const uint DwmColorDefault = 0xFFFFFFFF;
 
     private sealed record Document(string Key, string SessionId, NativeRemoteEditor Editor, TabViewItem Tab);
 
@@ -23,6 +27,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
     private readonly Func<string, string> text;
     private readonly Func<NativeSettings> settings;
     private readonly Func<int, bool, bool, bool, bool> shortcut;
+    private readonly AccessibilitySettings accessibilitySettings = new();
     private readonly Dictionary<string, Document> documents = new(StringComparer.Ordinal);
     private Window? window;
     private Grid? root;
@@ -42,6 +47,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
         this.text = text;
         this.settings = settings;
         this.shortcut = shortcut;
+        accessibilitySettings.HighContrastChanged += AccessibilitySettings_HighContrastChanged;
     }
 
     public bool HasDocuments => documents.Count > 0;
@@ -138,6 +144,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
             window.Closed -= WindowClosed;
             window.Close();
         }
+        accessibilitySettings.HighContrastChanged -= AccessibilitySettings_HighContrastChanged;
         foreach (var document in documents.Values) document.Editor.Dispose();
         documents.Clear();
         window = null;
@@ -150,14 +157,18 @@ internal sealed class NativeEditorWindowHost : IDisposable
     {
         if (window != null) return;
         window = new Window { Title = text("editor.windowTitle") };
+        var appIconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "OpenFinalShell.ico");
+        if (File.Exists(appIconPath)) window.AppWindow.SetIcon(appIconPath);
         root = new Grid
         {
+            Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush,
             RowDefinitions =
             {
                 new RowDefinition { Height = GridLength.Auto },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
             }
         };
+        root.ActualThemeChanged += (_, _) => ApplyTheme(settings());
         ApplyTheme(settings());
         tabs = new TabView
         {
@@ -175,6 +186,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
         };
         content = new ContentControl
         {
+            Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch
         };
@@ -187,6 +199,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
         window.AppWindow.Closing += WindowClosing;
         window.Closed += WindowClosed;
         window.Activate();
+        ApplyTheme(settings());
     }
 
     private void ApplyTheme(NativeSettings value)
@@ -198,6 +211,63 @@ internal sealed class NativeEditorWindowHost : IDisposable
             "light" => ElementTheme.Light,
             _ => ElementTheme.Default
         };
+        root.Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.Brush;
+        if (content != null) content.Background = root.Background;
+        var dark = value.ThemeMode == "dark" || value.ThemeMode == "system" && root.ActualTheme == ElementTheme.Dark;
+        var background = (Application.Current.Resources["ShellBackgroundBrush"] as Microsoft.UI.Xaml.Media.SolidColorBrush)?.Color
+            ?? (dark ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243));
+        var foreground = dark ? Color.FromArgb(255, 245, 245, 245) : Color.FromArgb(255, 28, 28, 28);
+        var hover = dark ? Color.FromArgb(255, 58, 58, 58) : Color.FromArgb(255, 224, 224, 224);
+        var pressed = dark ? Color.FromArgb(255, 72, 72, 72) : Color.FromArgb(255, 210, 210, 210);
+        var titleBar = window?.AppWindow.TitleBar;
+        if (titleBar != null)
+        {
+            if (accessibilitySettings.HighContrast)
+            {
+                titleBar.BackgroundColor = null;
+                titleBar.ForegroundColor = null;
+                titleBar.ButtonBackgroundColor = null;
+                titleBar.ButtonForegroundColor = null;
+                titleBar.ButtonHoverBackgroundColor = null;
+                titleBar.ButtonHoverForegroundColor = null;
+                titleBar.ButtonPressedBackgroundColor = null;
+                titleBar.ButtonPressedForegroundColor = null;
+                titleBar.ButtonInactiveBackgroundColor = null;
+                titleBar.ButtonInactiveForegroundColor = null;
+                SetWindowBorder(null);
+                return;
+            }
+            titleBar.BackgroundColor = background;
+            titleBar.ForegroundColor = foreground;
+            titleBar.ButtonBackgroundColor = background;
+            titleBar.ButtonForegroundColor = foreground;
+            titleBar.ButtonHoverBackgroundColor = hover;
+            titleBar.ButtonHoverForegroundColor = foreground;
+            titleBar.ButtonPressedBackgroundColor = pressed;
+            titleBar.ButtonPressedForegroundColor = foreground;
+            titleBar.ButtonInactiveBackgroundColor = background;
+            titleBar.ButtonInactiveForegroundColor = foreground;
+            SetWindowBorder((Application.Current.Resources["WorkspaceBackgroundBrush"] as Microsoft.UI.Xaml.Media.SolidColorBrush)?.Color ?? background);
+        }
+    }
+
+    private void SetWindowBorder(Color? color)
+    {
+        if (window == null || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)) return;
+        var hwnd = WindowNative.GetWindowHandle(window);
+        if (hwnd == 0) return;
+        var value = color is { } actual
+            ? (uint)(actual.R | actual.G << 8 | actual.B << 16)
+            : DwmColorDefault;
+        _ = DwmSetWindowAttribute(hwnd, DwmAttributeBorderColor, ref value, sizeof(uint));
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll", PreserveSig = true)]
+    private static extern int DwmSetWindowAttribute(nint hwnd, uint attribute, ref uint value, uint size);
+
+    private void AccessibilitySettings_HighContrastChanged(AccessibilitySettings sender, object args)
+    {
+        root?.DispatcherQueue.TryEnqueue(() => ApplyTheme(settings()));
     }
 
     private static void UpdateTabHeader(TabViewItem tab, string profileName, string remotePath, NativeRemoteEditor editor)

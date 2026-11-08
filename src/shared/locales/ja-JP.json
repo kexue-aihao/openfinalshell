@@ -750,7 +750,13 @@
     "paste": "貼り付け",
     "sigint": "割り込みを送信 (常に横取りされません)",
     "renameFile": "ファイル名を変更 (ファイルマネージャー内)",
-    "closeOverlay": "検索バーを閉じる / 名前変更をキャンセル"
+    "closeOverlay": "検索バーを閉じる / 名前変更をキャンセル",
+    "groups": {
+      "sessions": "セッション",
+      "terminal": "ターミナル",
+      "files": "ファイル",
+      "overlays": "オーバーレイ"
+    }
   },
   "common": {
     "ok": "OK",
@@ -1273,6 +1279,11 @@
       "title": "Monitor",
       "state": "Monitor",
       "failed": "Monitor failed",
+      "collecting": "収集中",
+      "starting": "モニターを開始しています…",
+      "unsupportedState": "このシステムでは監視に対応していません",
+      "disconnected": "接続が切断されました。復旧を待っています",
+      "stopped": "停止",
       "cpu": "CPU",
       "memory": "Memory",
       "network": "Network",

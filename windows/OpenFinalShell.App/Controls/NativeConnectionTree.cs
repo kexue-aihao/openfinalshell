@@ -128,7 +128,27 @@ public sealed class NativeConnectionTree : UserControl
         try { store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["expandedGroups"] = new JsonArray(expanded.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()) }); }
         catch (Exception error) { Failed?.Invoke(error); }
     }
-    private static Item? Unwrap(object? value) => value is TreeViewNode node ? node.Content as Item : value as Item;
+    private static Item? Unwrap(object? value) => value switch
+    {
+        TreeViewNode node => Unwrap(node.Content),
+        FrameworkElement element => element.Tag as Item,
+        Item item => item,
+        _ => null
+    };
+    private static FrameworkElement ItemVisual(Item item, FrameworkElement marker, string title, string? detail = null)
+    {
+        var row = new Grid { ColumnSpacing = 8, MinHeight = detail == null ? 32 : 42, Padding = new Thickness(2, 3, 2, 3), Tag = item };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        marker.VerticalAlignment = VerticalAlignment.Top;
+        row.Children.Add(marker);
+        var labels = new StackPanel { Spacing = 1 };
+        labels.Children.Add(new TextBlock { Text = title, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        if (detail != null) labels.Children.Add(new TextBlock { Text = detail, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 11, Opacity = .7 });
+        row.Children.Add(labels);
+        Grid.SetColumn(labels, 1);
+        return row;
+    }
     private static IEnumerable<TreeViewNode> Flatten(IEnumerable<TreeViewNode> roots)
     {
         foreach (var node in roots)
@@ -194,7 +214,15 @@ public sealed class NativeConnectionTree : UserControl
             warnings.AddRange(profiles.Where(p => p.Data["groupId"]?.GetValue<string>() is { } id && !groupIds.Contains(id))
                 .Select(p => $"⚠ {p.Name}: {text("native.workbench.groupMissing")}"));
             warning.Text = string.Join("\n", warnings);
-            var nodes = groups.ToDictionary(g => g.Id, g => new TreeViewNode { Content = new Item(g.Id, true, "📁 " + g.Name), IsExpanded = query.Length > 0 || expanded.Contains(g.Id) });
+            var nodes = groups.ToDictionary(g => g.Id, g =>
+            {
+                var item = new Item(g.Id, true, g.Name);
+                return new TreeViewNode
+                {
+                    Content = ItemVisual(item, new FontIcon { Glyph = "\uE8B7", FontSize = 15 }, g.Name),
+                    IsExpanded = query.Length > 0 || expanded.Contains(g.Id)
+                };
+            });
             var visible = new HashSet<string>(StringComparer.Ordinal);
             void Include(string? id)
             {
@@ -221,8 +249,15 @@ public sealed class NativeConnectionTree : UserControl
                 if (query.Length > 0 && !($"{profile.Name} {profile.Host} {profile.Username}".Contains(query, StringComparison.CurrentCultureIgnoreCase)) && (group == null || !matchingGroups.Contains(group))) continue;
                 Include(group);
                 var host = mask && profile.Host.Length > 6 ? profile.Host[..3] + "•••" + profile.Host[^3..] : profile.Host;
-                var marker = profile.Data["flag"]?.GetValue<string>() ?? (profile.Data["protocol"]?.GetValue<string>() == "rdp" ? "▣" : "⌘");
-                var node = new TreeViewNode { Content = new Item(profile.Id, false, $"{marker} {profile.Name}\n{profile.Username}@{host}:{profile.Port}") };
+                var item = new Item(profile.Id, false, profile.Name);
+                var markerCode = NativeRegionMarker.EffectiveCode(profile.Data["flag"]?.GetValue<string>(), profile.Host);
+                FrameworkElement marker = markerCode == null
+                    ? new FontIcon { Glyph = profile.Data["protocol"]?.GetValue<string>() == "rdp" ? "\uE9D9" : "\uE756", FontSize = 15 }
+                    : NativeRegionMarker.Create(markerCode, 16);
+                var node = new TreeViewNode
+                {
+                    Content = ItemVisual(item, marker, profile.Name, $"{profile.Username}@{host}:{profile.Port}")
+                };
                 if (grouped && group != null && nodes.TryGetValue(group, out var parent)) parent.Children.Add(node); else tree.RootNodes.Add(node);
                 if (selectedId == profile.Id && !selectedGroup) tree.SelectedNode = node;
             }

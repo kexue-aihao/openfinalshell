@@ -84,17 +84,65 @@ public sealed partial class MainWindow
         var selected = SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString());
         if (selected != null && sessionTerminals.TryGetValue(selected, out var terminal)) terminal.Focus(FocusState.Programmatic);
     }
-    private async void ShowShortcuts(object sender, RoutedEventArgs args)
+    private void ConfigureShortcutList()
     {
-        var content = new StackPanel { Spacing = 12 };
-        foreach (var (keys, key) in new[]
+        ShortcutList.Children.Clear();
+        var groups = new (string Key, (string Keys, string Description)[] Items)[]
         {
-            ("Ctrl+Shift+T", "shortcut.duplicateSession"), ("Ctrl+W", "shortcut.closeTab"),
-            ("Ctrl+Tab", "shortcut.nextTab"), ("Ctrl+Shift+Tab", "shortcut.prevTab"), ("Alt+1…9", "shortcut.gotoTab"),
-            ("Ctrl+F", "shortcut.search"), ("Ctrl+Shift+H", "shortcut.history"), ("Ctrl+Shift+C", "shortcut.copy"),
-            ("Ctrl+Shift+V / Ctrl+V", "shortcut.paste"), ("Ctrl+C", "shortcut.sigint"), ("F2", "shortcut.renameFile"), ("Esc", "shortcut.closeOverlay")
-        }) content.Children.Add(new TextBlock { Text = keys + "  ·  " + localization[key], TextWrapping = TextWrapping.Wrap });
-        try { await new ContentDialog { Title = localization["settings.section_shortcuts"], Content = new ScrollViewer { Content = content, MaxHeight = 520 }, CloseButtonText = localization["common.close"], XamlRoot = Root.XamlRoot }.ShowGatedAsync(); }
-        catch (Exception error) { ShowError(error); }
+            ("sessions", [
+                ("Ctrl+Shift+T", "shortcut.duplicateSession"), ("Ctrl+W", "shortcut.closeTab"),
+                ("Ctrl+Tab", "shortcut.nextTab"), ("Ctrl+Shift+Tab", "shortcut.prevTab"), ("Alt+1…9", "shortcut.gotoTab")]),
+            ("terminal", [
+                ("Ctrl+F", "shortcut.search"), ("Ctrl+Shift+H", "shortcut.history"),
+                ("Ctrl+Shift+C", "shortcut.copy"), ("Ctrl+Shift+V / Ctrl+V", "shortcut.paste"),
+                ("Ctrl+C", "shortcut.sigint")]),
+            ("files", [("F2", "shortcut.renameFile")]),
+            ("overlays", [("Esc", "shortcut.closeOverlay")])
+        };
+        foreach (var group in groups)
+        {
+            var rows = new StackPanel { Spacing = 4 };
+            rows.Children.Add(new TextBlock
+            {
+                Text = localization[$"shortcut.groups.{group.Key}"],
+                FontSize = 14,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            foreach (var (keys, description) in group.Items)
+            {
+                var line = new Grid { ColumnSpacing = 12, MinHeight = 38 };
+                line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                line.Children.Add(new TextBlock
+                {
+                    Text = localization[description],
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                var keycap = new Border
+                {
+                    Background = Application.Current.Resources["ShellBackgroundBrush"] as Brush,
+                    BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(4),
+                    Padding = new Thickness(8, 4, 8, 4),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Child = new TextBlock { Text = keys, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"), FontSize = 12 }
+                };
+                line.Children.Add(keycap);
+                Grid.SetColumn(keycap, 1);
+                rows.Children.Add(line);
+            }
+            ShortcutList.Children.Add(new Border
+            {
+                Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Brush,
+                BorderBrush = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Brush,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12),
+                Child = rows
+            });
+        }
     }
 }

@@ -746,7 +746,13 @@
     "paste": "粘贴",
     "sigint": "发送中断信号（不会被拦截）",
     "renameFile": "重命名文件（文件管理器内）",
-    "closeOverlay": "关闭查找条 / 取消重命名"
+    "closeOverlay": "关闭查找条 / 取消重命名",
+    "groups": {
+      "sessions": "会话",
+      "terminal": "终端",
+      "files": "文件",
+      "overlays": "浮层"
+    }
   },
   "common": {
     "ok": "确定",
@@ -1329,6 +1335,11 @@
       "title": "监控",
       "state": "监控",
       "failed": "监控失败",
+      "collecting": "正在采集",
+      "starting": "正在建立监控连接…",
+      "unsupportedState": "当前系统暂不支持监控",
+      "disconnected": "连接已断开，等待恢复",
+      "stopped": "已停止",
       "cpu": "CPU",
       "memory": "内存",
       "network": "网络",
