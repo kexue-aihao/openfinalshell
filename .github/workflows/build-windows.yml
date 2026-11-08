@@ -200,6 +200,7 @@ jobs:
         env:
           VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
         run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
           if (-not $vcpkgRoot) { $vcpkgRoot = 'C:\vcpkg' }
           $vcpkg = Join-Path $vcpkgRoot 'vcpkg.exe'
