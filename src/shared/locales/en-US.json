@@ -1418,6 +1418,7 @@
       "download": "Download update",
       "install": "Install and close",
       "checking": "Checking for updates...",
+      "installing": "Preparing the update...",
       "upToDate": "You are using the latest version.",
       "available": "Version {{version}} is available.",
       "downloading": "Downloading version {{version}}... {{percent}}%",

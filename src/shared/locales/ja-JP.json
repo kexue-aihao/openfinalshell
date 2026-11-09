@@ -1422,6 +1422,7 @@
       "download": "更新をダウンロード",
       "install": "インストールして終了",
       "checking": "更新を確認しています…",
+      "installing": "アップデートを準備しています…",
       "upToDate": "最新バージョンです。",
       "available": "バージョン {{version}} を利用できます。",
       "downloading": "バージョン {{version}} をダウンロード中… {{percent}}%",

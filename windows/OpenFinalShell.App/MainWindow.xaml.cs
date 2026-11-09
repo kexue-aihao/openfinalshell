@@ -1663,24 +1663,13 @@ public sealed partial class MainWindow : Window
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            var dragHandle = new FontIcon
-            {
-                Glyph = "\uE76F",
-                FontSize = 14,
-                Opacity = 0.7,
-                VerticalAlignment = VerticalAlignment.Center
-            };
             var titleBar = new Grid
             {
                 Height = 36,
                 Margin = new Thickness(0, 0, 0, 8),
                 Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
             };
-            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             titleBar.Children.Add(titleText);
-            Grid.SetColumn(dragHandle, 1);
-            titleBar.Children.Add(dragHandle);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(titleBar, localization["commandEditor.title"]);
             var editorBody = new ScrollViewer
             {
@@ -2425,6 +2414,7 @@ public sealed partial class MainWindow : Window
         if (automatic && settings.Data["autoCheckUpdate"]?.GetValue<bool>() == false) return;
         if (updateCheckRunning || updateCancellation.IsCancellationRequested) return;
         updateCheckRunning = true;
+        ShowUpdateActivityAnimation(localization["native.update.checking"]);
         try { await updateService.CheckAndDownloadAsync(updateCancellation.Token); }
         catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
         catch (Exception error)
@@ -2442,6 +2432,8 @@ public sealed partial class MainWindow : Window
     {
         if (updateCheckRunning || updateCancellation.IsCancellationRequested) return;
         updateCheckRunning = true;
+        ShowUpdateActivityAnimation(localization.Format("native.update.downloading",
+            ("version", updateService.Available?.Version ?? ""), ("percent", "0")));
         try { await updateService.DownloadAsync(updateCancellation.Token); }
         catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
         catch (Exception error) { ShowError(localization.Format("native.update.failed", ("detail", error.Message))); }
@@ -2466,6 +2458,11 @@ public sealed partial class MainWindow : Window
             : Visibility.Collapsed;
         UpdateProgress.Value = state.ProgressPercent;
         UpdateProgress.IsIndeterminate = state.Status == NativeUpdateStatus.Checking || (state.Status == NativeUpdateStatus.Downloading && state.ProgressPercent == 0);
+        var updateAnimating = state.Status is NativeUpdateStatus.Checking or NativeUpdateStatus.Downloading;
+        UpdateProgressRing.IsActive = updateAnimating;
+        UpdateProgressRing.Visibility = updateAnimating ? Visibility.Visible : Visibility.Collapsed;
+        AboutUpdateProgressRing.IsActive = updateAnimating;
+        AboutUpdateProgressRing.Visibility = updateAnimating ? Visibility.Visible : Visibility.Collapsed;
         UpdateStatusText.Text = state.Status switch
         {
             NativeUpdateStatus.Idle => localization["native.update.idle"],
@@ -2510,6 +2507,7 @@ public sealed partial class MainWindow : Window
             foreach (var editor in sessionContents.Values.OfType<Controls.NativeRemoteEditor>().ToArray()) if (!await editor.ConfirmCloseAsync()) return;
             // Keep the workbench stable while UAC/verification is pending. A
             // canceled elevation leaves all sessions and documents intact.
+            ShowUpdateActivityAnimation(localization["native.update.installing"]);
             EnableWindowForUpdate(WindowHandle(), false);
             editorWindowHost.SetUpdateBusy(true);
             await updateService.InstallAsync(userConfirmed: true);
@@ -2526,7 +2524,18 @@ public sealed partial class MainWindow : Window
             if (!confirmedWindowClose) { EnableWindowForUpdate(WindowHandle(), true); editorWindowHost.SetUpdateBusy(false); }
             closeDialogOpen = false;
             updateCheckRunning = false;
+            ApplyUpdateState(updateService.State);
         }
+    }
+
+    private void ShowUpdateActivityAnimation(string text)
+    {
+        UpdateStatusText.Text = text;
+        UpdateProgressRing.IsActive = true;
+        UpdateProgressRing.Visibility = Visibility.Visible;
+        AboutUpdateProgressRing.IsActive = true;
+        AboutUpdateProgressRing.Visibility = Visibility.Visible;
+        RefreshAboutUpdateStatus();
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "EnableWindow")]

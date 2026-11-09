@@ -1422,6 +1422,7 @@
       "download": "Baixar atualizacao",
       "install": "Instalar e fechar",
       "checking": "Verificando atualizacoes...",
+      "installing": "Preparando a atualizacao...",
       "upToDate": "Voce esta usando a versao mais recente.",
       "available": "A versao {{version}} esta disponivel.",
       "downloading": "Baixando a versao {{version}}... {{percent}}%",

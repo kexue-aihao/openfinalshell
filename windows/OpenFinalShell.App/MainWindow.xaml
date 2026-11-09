@@ -160,12 +160,13 @@
            <TextBlock Text="MIT License"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="8">
+           <ProgressRing x:Name="AboutUpdateProgressRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center"/>
            <Button x:Name="AboutChangelogButton" Click="OpenAboutChangelog"/>
            <Button x:Name="AboutCheckUpdatesButton" Click="CheckForUpdates"/>
            <HyperlinkButton x:Name="AboutGithubButton" Click="OpenAboutGithub"/>
           </StackPanel>
           <TextBlock x:Name="AboutUpdateStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-          <StackPanel Spacing="8" Padding="12" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="{ThemeResource CardCornerRadius}"><TextBlock x:Name="UpdateHeading" FontSize="18" FontWeight="SemiBold"/><TextBlock x:Name="UpdateCurrentLabel"/><ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled"><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="CheckUpdatesButton" Click="CheckForUpdates"/><Button x:Name="DownloadUpdateButton" Click="DownloadUpdate"/><Button x:Name="InstallUpdateButton" Click="InstallUpdate"/><HyperlinkButton x:Name="UpdateReleaseNotesButton"/></StackPanel></ScrollViewer><ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100"/><TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/></StackPanel>
+          <StackPanel Spacing="8" Padding="12" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="{ThemeResource CardCornerRadius}"><TextBlock x:Name="UpdateHeading" FontSize="18" FontWeight="SemiBold"/><TextBlock x:Name="UpdateCurrentLabel"/><ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled"><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="CheckUpdatesButton" Click="CheckForUpdates"/><Button x:Name="DownloadUpdateButton" Click="DownloadUpdate"/><Button x:Name="InstallUpdateButton" Click="InstallUpdate"/><HyperlinkButton x:Name="UpdateReleaseNotesButton"/></StackPanel></ScrollViewer><ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100"/><StackPanel Orientation="Horizontal" Spacing="10"><ProgressRing x:Name="UpdateProgressRing" Width="24" Height="24" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center"/><TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"/></StackPanel></StackPanel>
           <TextBlock x:Name="EnvironmentLabel" TextWrapping="Wrap"/>
           <StackPanel x:Name="DonateHost" Spacing="8" Margin="0,8,0,0"/>
          </StackPanel>

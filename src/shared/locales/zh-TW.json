@@ -1422,6 +1422,7 @@
       "download": "下載更新",
       "install": "安裝並關閉",
       "checking": "正在檢查更新…",
+      "installing": "正在準備升級…",
       "upToDate": "目前已是最新版本。",
       "available": "發現新版本 {{version}}。",
       "downloading": "正在下載 {{version}}… {{percent}}%",

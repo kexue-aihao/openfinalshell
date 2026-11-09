@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.50" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.51" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,

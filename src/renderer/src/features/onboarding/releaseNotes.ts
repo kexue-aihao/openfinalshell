@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.51',
+    items: [
+      { type: 'fix', zh: '移除命令编辑器标题旁的可见拖动方块，整条标题文字区域仍可直接拖动', en: 'Remove the visible drag-handle box beside the command editor title while keeping the whole title area draggable' },
+      { type: 'feat', zh: '检查更新、下载和准备安装时显示持续旋转的进度环，并为安装准备阶段增加独立本地化状态', en: 'Show a continuously animated progress ring while checking, downloading and preparing updates, with a dedicated localized install-preparation status' }
+    ]
+  },
+  {
     version: '0.30.50',
     items: [
       { type: 'fix', zh: '修复命令编辑器拖动无效：标题栏改为内容区独立拖动区域，使用 WinUI 合成层 Translation 移动整个对话框，并继续限制在可视窗口内', en: 'Fix command editor dragging by moving the title bar into the dialog content and translating the entire dialog with the WinUI composition Translation property while keeping it inside the visible window' }

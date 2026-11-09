@@ -108,6 +108,8 @@ public sealed partial class MainWindow
         AboutCheckUpdatesButton.Content = localization["native.update.check"];
         AboutGithubButton.Content = "GitHub";
         AboutUpdateStatus.Text = UpdateStatusText.Text;
+        AboutUpdateProgressRing.IsActive = UpdateProgressRing.IsActive;
+        AboutUpdateProgressRing.Visibility = UpdateProgressRing.Visibility;
         BuildDonationContent();
     }
 

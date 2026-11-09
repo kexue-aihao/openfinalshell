@@ -1422,6 +1422,7 @@
       "download": "Update herunterladen",
       "install": "Installieren und schliessen",
       "checking": "Suche nach Updates laeuft...",
+      "installing": "Update wird vorbereitet...",
       "upToDate": "Sie verwenden die neueste Version.",
       "available": "Version {{version}} ist verfuegbar.",
       "downloading": "Version {{version}} wird heruntergeladen... {{percent}}%",

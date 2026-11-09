@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.30.51",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "移除命令编辑器标题旁的可见拖动方块，整条标题文字区域仍可直接拖动",
+        "en": "Remove the visible drag-handle box beside the command editor title while keeping the whole title area draggable"
+      },
+      {
+        "type": "feat",
+        "zh": "检查更新、下载和准备安装时显示持续旋转的进度环，并为安装准备阶段增加独立本地化状态",
+        "en": "Show a continuously animated progress ring while checking, downloading and preparing updates, with a dedicated localized install-preparation status"
+      }
+    ]
+  },
+  {
     "version": "0.30.50",
     "items": [
       {
