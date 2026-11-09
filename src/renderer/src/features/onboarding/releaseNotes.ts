@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.47',
+    items: [
+      { type: 'fix', zh: '修复 WinUI3 原生终端在浅色 ANSI 背景上默认浅灰文字难以辨认的问题：仅当脚本未指定前景色时按 WCAG 对比度自动选择黑字或白字，脚本显式指定的前景颜色保持不变', en: 'Fix low-contrast default text on light ANSI backgrounds in the WinUI 3 native terminal by automatically choosing black or white text according to WCAG contrast only when the script has not specified a foreground color, while preserving all explicit ANSI foreground colors' }
+    ]
+  },
+  {
     version: '0.30.46',
     items: [
       { type: 'fix', zh: '修复 WinUI3 原生终端 0.30.45 中 cell 宽度被向上取整、连续中文逐字布局造成的额外字距和文字割裂；恢复字体原始步进，合并连续窄字符与宽字符 run，并按终端单元格宽度对文本 run 做受限水平贴合', en: 'Fix extra spacing and fragmented text in the WinUI 3 native terminal introduced by rounded-up cells and per-glyph CJK layout in 0.30.45; restore the font’s natural advance, merge contiguous narrow and wide-character runs, and fit text runs to their terminal cell spans with bounded horizontal scaling' }

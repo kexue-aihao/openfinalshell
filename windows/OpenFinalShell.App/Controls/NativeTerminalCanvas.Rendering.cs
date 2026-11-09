@@ -156,8 +156,14 @@ public sealed partial class NativeTerminalCanvas
             }
 
             var foreground = ResolveColor(cell.FgType, cell.FgR, cell.FgG, cell.FgB, cell.FgIndex, terminalForeground);
-            if ((cell.Attributes & 8) != 0)
+            var reverse = (cell.Attributes & 8) != 0;
+            if (reverse)
                 foreground = ResolveColor(cell.BgType, cell.BgR, cell.BgG, cell.BgB, cell.BgIndex, terminalBackground);
+            var adjustedForeground = NativeTerminalTextContrast.Resolve(
+                ToTerminalRgb(foreground),
+                ToTerminalRgb(background),
+                NativeTerminalTextContrast.UsesDefaultForeground(cell.FgType, cell.BgType, reverse));
+            foreground = Windows.UI.Color.FromArgb(255, adjustedForeground.R, adjustedForeground.G, adjustedForeground.B);
             var style = new TerminalTextStyle(
                 foreground,
                 Bold: (cell.Attributes & 1) != 0,
@@ -271,6 +277,8 @@ public sealed partial class NativeTerminalCanvas
         }
         return scale;
     }
+
+    private static TerminalRgbColor ToTerminalRgb(Windows.UI.Color color) => new(color.R, color.G, color.B);
 
     private static void AddPaintSpan(List<TerminalPaintSpan> spans, int start, int count, Color color)
     {

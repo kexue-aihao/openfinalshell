@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.47",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 WinUI3 原生终端在浅色 ANSI 背景上默认浅灰文字难以辨认的问题：仅当脚本未指定前景色时按 WCAG 对比度自动选择黑字或白字，脚本显式指定的前景颜色保持不变",
+        "en": "Fix low-contrast default text on light ANSI backgrounds in the WinUI 3 native terminal by automatically choosing black or white text according to WCAG contrast only when the script has not specified a foreground color, while preserving all explicit ANSI foreground colors"
+      }
+    ]
+  },
+  {
     "version": "0.30.46",
     "items": [
       {

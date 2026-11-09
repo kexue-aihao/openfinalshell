@@ -3,4 +3,5 @@
  <ItemGroup><ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/Controls/SftpTimestamp.cs" Link="SftpTimestamp.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/NativeAccessibilityGuard.cs" Link="NativeAccessibilityGuard.cs" /></ItemGroup>
+ <ItemGroup><Compile Include="../OpenFinalShell.App/NativeTerminalTextContrast.cs" Link="NativeTerminalTextContrast.cs" /></ItemGroup>
 </Project>

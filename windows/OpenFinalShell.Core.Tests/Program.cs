@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.46" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.47" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,
@@ -152,6 +152,31 @@ using (var startupNoticeStore = new NativeStore(startupNoticeStorePath, new Test
 }
 NativeParityTests.Run(root, Check, Reject);
 NativeWindowBoundsTests.Run(Check);
+var terminalThemeForeground = new OpenFinalShell.App.TerminalRgbColor(171, 178, 191);
+var terminalGreen = new OpenFinalShell.App.TerminalRgbColor(152, 195, 121);
+var terminalYellow = new OpenFinalShell.App.TerminalRgbColor(229, 192, 123);
+var terminalRed = new OpenFinalShell.App.TerminalRgbColor(224, 108, 117);
+var terminalBlack = new OpenFinalShell.App.TerminalRgbColor(0, 0, 0);
+var adjustedGreen = OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
+    terminalThemeForeground, terminalGreen, usesDefaultForeground: true);
+var adjustedYellow = OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
+    terminalThemeForeground, terminalYellow, usesDefaultForeground: true);
+var adjustedRed = OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
+    terminalThemeForeground, terminalRed, usesDefaultForeground: true);
+Check(adjustedGreen == terminalBlack && adjustedYellow == terminalBlack && adjustedRed == terminalBlack,
+    "Default terminal foreground auto-contrasts on bright ANSI backgrounds");
+Check(OpenFinalShell.App.NativeTerminalTextContrast.ContrastRatio(adjustedGreen, terminalGreen) >= 4.5
+    && OpenFinalShell.App.NativeTerminalTextContrast.ContrastRatio(adjustedYellow, terminalYellow) >= 4.5
+    && OpenFinalShell.App.NativeTerminalTextContrast.ContrastRatio(adjustedRed, terminalRed) >= 4.5,
+    "Auto-contrast terminal foreground reaches the WCAG AA ratio");
+Check(OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
+        terminalThemeForeground, terminalGreen, usesDefaultForeground: false) == terminalThemeForeground,
+    "Explicit ANSI foreground is never replaced by auto-contrast");
+Check(OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(2, 1, reverse: false)
+    && !OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(1, 2, reverse: false)
+    && OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(1, 2, reverse: true)
+    && !OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(1, 1, reverse: true),
+    "Reverse video uses the actual foreground source for terminal auto-contrast");
 NativeStoreRecoveryTests.Run(root, Check);
 Check(!OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490))),
     "Unavailable high-contrast query falls back without failing startup");

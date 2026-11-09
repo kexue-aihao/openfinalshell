@@ -27,3 +27,8 @@ not bundle a separate CJK font. `scripts/nativeTerminalLayoutFixture.sh`
 provides ANSI badges, wide text, block characters, box drawing, and mixed
 ASCII/CJK columns for visual regression checks at multiple font sizes and DPI
 scales.
+
+When a cell uses the terminal's default foreground on an ANSI background with
+contrast below WCAG AA (`4.5:1`), the host selects black or white, whichever
+has higher contrast. Explicit ANSI foreground colors, including indexed and RGB
+colors, are always preserved.
