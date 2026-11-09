@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.50',
+    items: [
+      { type: 'fix', zh: '修复命令编辑器拖动无效：标题栏改为内容区独立拖动区域，使用 WinUI 合成层 Translation 移动整个对话框，并继续限制在可视窗口内', en: 'Fix command editor dragging by moving the title bar into the dialog content and translating the entire dialog with the WinUI composition Translation property while keeping it inside the visible window' }
+    ]
+  },
+  {
     version: '0.30.49',
     items: [
       { type: 'feat', zh: '命令编辑器支持拖动：按住标题区域可将对话框移动到合适位置，拖动范围限制在当前窗口可视区域内，宽屏和竖屏均可用', en: 'Make the command editor draggable: hold its title area to reposition the dialog within the visible application viewport on both widescreen and portrait layouts' }

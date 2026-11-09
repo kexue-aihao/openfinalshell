@@ -1670,16 +1670,32 @@ public sealed partial class MainWindow : Window
                 Opacity = 0.7,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            var titleBar = new Grid { Height = 36, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)) };
+            var titleBar = new Grid
+            {
+                Height = 36,
+                Margin = new Thickness(0, 0, 0, 8),
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
+            };
             titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             titleBar.Children.Add(titleText);
             Grid.SetColumn(dragHandle, 1);
             titleBar.Children.Add(dragHandle);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(titleBar, localization["commandEditor.title"]);
-            var dialogTransform = new CompositeTransform();
-            var dialog = new ContentDialog { Title = titleBar, RenderTransform = dialogTransform, XamlRoot = Root.XamlRoot, Width = editorLayout.DialogWidth, MinWidth = editorLayout.DialogWidth, MaxWidth = editorLayout.DialogWidth, MaxHeight = Math.Min(900, viewport.Height - 24),
-                Content = new ScrollViewer { MaxHeight = editorLayout.ContentHeight, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } } },
+            var editorBody = new ScrollViewer
+            {
+                MaxHeight = Math.Max(180, editorLayout.ContentHeight - 44),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } }
+            };
+            var editorContent = new Grid();
+            editorContent.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            editorContent.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            editorContent.Children.Add(titleBar);
+            Grid.SetRow(editorBody, 1);
+            editorContent.Children.Add(editorBody);
+            var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Width = editorLayout.DialogWidth, MinWidth = editorLayout.DialogWidth, MaxWidth = editorLayout.DialogWidth, MaxHeight = Math.Min(900, viewport.Height - 24),
+                Content = editorContent,
                 PrimaryButtonText = localization["commandEditor.send"], SecondaryButtonText = localization["commandEditor.saveAsSnippet"], CloseButtonText = localization["common.cancel"] };
             dialog.Resources["ContentDialogMinWidth"] = editorLayout.DialogWidth;
             dialog.Resources["ContentDialogMaxWidth"] = editorLayout.DialogWidth;
@@ -1694,8 +1710,8 @@ public sealed partial class MainWindow : Window
                     !point.Properties.IsLeftButtonPressed) return;
                 dragging = true;
                 dragStart = pointerArgs.GetCurrentPoint(Root).Position;
-                dragStartX = dialogTransform.TranslateX;
-                dragStartY = dialogTransform.TranslateY;
+                dragStartX = dialog.Translation.X;
+                dragStartY = dialog.Translation.Y;
                 titleBar.CapturePointer(pointerArgs.Pointer);
                 pointerArgs.Handled = true;
             };
@@ -1710,8 +1726,7 @@ public sealed partial class MainWindow : Window
                     viewport.Height,
                     dialog.ActualWidth > 0 ? dialog.ActualWidth : editorLayout.DialogWidth,
                     dialog.ActualHeight > 0 ? dialog.ActualHeight : editorLayout.ContentHeight);
-                dialogTransform.TranslateX = offset.X;
-                dialogTransform.TranslateY = offset.Y;
+                dialog.Translation = new System.Numerics.Vector3((float)offset.X, (float)offset.Y, 0);
                 pointerArgs.Handled = true;
             };
             void EndTitleDrag(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs pointerArgs)
