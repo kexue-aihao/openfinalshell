@@ -666,6 +666,16 @@ AI 超时现按操作区分：聊天流式/非流式请求 120 秒；模型发�
 
 总览周期刷新续补：桌面队列每秒刷新一次速度与 ETA，传输结束后速度会归零；字节总和采用饱和加法，ETA 格式化不依赖可能溢出的 `TimeSpan` 构造。r15 x64 self-contained 发布通过，Core 323、SSH 49、TypeScript 与 i18n 检查通过。结果见 `build/windows-native-acceptance/full-flow-20261107/results-r15.json`；UIA 仍未运行。
 
+## 原生终端 ANSI/CJK 网格
+
+`0.30.45` 将原生终端绘制从逐 cell 背景和逐 cell 文本改为连续 span/run：
+
+- ANSI 背景、选择区和搜索高亮各自合并连续区间，矩形边界按当前 DPI 对齐物理像素。
+- 同前景色和字体样式的单格宽字符合并为文本 run；CJK、emoji 等宽字符按 libvterm 报告的 cell 数居中裁剪。
+- 系统字体回退保持不变，不增加内置 CJK 字体；字体、字号、行高或 DPI 改变后重新计算 cell 网格。
+- `terminal_probe` 新增中文、emoji、组合字符、方块字符、制表符和 continuation cell 断言。
+- 视觉验收使用 `scripts/nativeTerminalLayoutFixture.sh`，覆盖 100%/125%/150%/200% DPI、字号 8/14/24、行高 1.0/1.2/2.0，并检查连续背景无接缝、徽标不溢出、ASCII 列保持对齐。
+
 ## 2026-11-07 SFTP 表格续验（r17）
 
 原生 SFTP 表格新增名称、大小、修改时间表头排序，始终将目录排在文件前；增加类型、权限、数字 UID/GID 和修改时间列。本轮只完成代码、Core 合同和 Release 包验证，没有得到窗口截图/UIA 树，因此不记为实际 UI 通过。Electron 会从长名称显示属主/组名；Native 当前显示 UID/GID，名称映射仍未实现。

@@ -146,6 +146,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         EnsureParser();
         if (parser == 0) return;
+        RefreshDpiMetricsIfNeeded();
         PositionTextInput();
         var columns = ScreenColumns;
         var rows = ScreenRows;
@@ -153,55 +154,26 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         var scrollback = CurrentScrollbackLines;
         var totalLines = scrollback + screenRows;
         var firstLine = Math.Max(0, totalLines - rows - scrollOffset);
-        var cells = new NativeTerminalCell[columns];
         for (var row = 0; row < rows; row++)
         {
             var line = firstLine + row;
-            // Paint all backgrounds first: a wide glyph must not be erased by
-            // the background of its continuation cell.
-            for (var column = 0; column < columns; column++)
-            {
-                var ok = line < scrollback ? ofs_terminal_get_scrollback_cell(parser, line, column, out cells[column]) : ofs_terminal_get_cell(parser, line - scrollback, column, out cells[column]);
-                if (ok == 0) continue;
-                var cell = cells[column]; var x = 8 + column * cellWidth; var y = 4 + row * cellHeight;
-                var background = ResolveColor(cell.BgType, cell.BgR, cell.BgG, cell.BgB, cell.BgIndex, terminalBackground);
-                if ((cell.Attributes & 8) != 0) background = ResolveColor(cell.FgType, cell.FgR, cell.FgG, cell.FgB, cell.FgIndex, terminalForeground);
-                args.DrawingSession.FillRectangle(x, y, cellWidth, cellHeight, background);
-                if (IsSelected(line, column)) args.DrawingSession.FillRectangle(x, y, cellWidth, cellHeight, Windows.UI.Color.FromArgb(100, 70, 130, 220));
-                if (searchResults.Any(result => result.line == line && column >= result.column && column < result.column + result.length))
-                {
-                    var active = searchIndex >= 0 && searchIndex < searchResults.Count && searchResults[searchIndex].line == line &&
-                        column >= searchResults[searchIndex].column && column < searchResults[searchIndex].column + searchResults[searchIndex].length;
-                    args.DrawingSession.FillRectangle(x, y, cellWidth, cellHeight, active
-                        ? Windows.UI.Color.FromArgb(190, 255, 170, 0)
-                        : Windows.UI.Color.FromArgb(100, 255, 210, 0));
-                }
-            }
-            for (var column = 0; column < columns; column++)
-            {
-                var cell = cells[column];
-                if (cell.CodePoint == 0xFFFFFFFFu) continue;
-                var x = 8 + column * cellWidth; var y = 4 + row * cellHeight;
-                var foreground = ResolveColor(cell.FgType, cell.FgR, cell.FgG, cell.FgB, cell.FgIndex, terminalForeground);
-                if ((cell.Attributes & 8) != 0) foreground = ResolveColor(cell.BgType, cell.BgR, cell.BgG, cell.BgB, cell.BgIndex, terminalBackground);
-                var cellText = ReadCellText(line, column, scrollback, cell);
-                textFormat.FontWeight = (cell.Attributes & 1) != 0 ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
-                textFormat.FontStyle = (cell.Attributes & 4) != 0 ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal;
-                if (!string.IsNullOrEmpty(cellText) && cellText != " ") args.DrawingSession.DrawText(cellText, new Vector2(x, y), foreground, textFormat);
-                if ((cell.Attributes & 2) != 0) args.DrawingSession.DrawLine(x, y + cellHeight - 2, x + cellWidth * Math.Max(1, (int)cell.Width), y + cellHeight - 2, foreground);
-                if ((cell.Attributes & 16) != 0) args.DrawingSession.DrawLine(x, y + cellHeight / 2, x + cellWidth * Math.Max(1, (int)cell.Width), y + cellHeight / 2, foreground);
-            }
+            RenderTerminalRow(args.DrawingSession, row, line, scrollback, columns);
         }
         if (scrollOffset > 0 || !cursorOn || composing || textInput.FocusState == FocusState.Unfocused) return;
         var cursorRow = ofs_terminal_cursor_row(parser); var cursorCol = ofs_terminal_cursor_col(parser);
         if (cursorRow >= 0 && cursorCol >= 0 && cursorCol < columns && cursorRow < rows)
         {
-            var x = 8 + cursorCol * cellWidth; var y = 4 + cursorRow * cellHeight;
+            var bounds = CellSpanRect(cursorRow, cursorCol, 1);
+            var x = (float)bounds.X; var y = (float)bounds.Y;
             switch (NativeSettings.ReadPath(preferences, "cursorStyle", "bar"))
             {
-                case "block": args.DrawingSession.DrawRectangle(x, y, cellWidth, cellHeight, terminalCursor, 1); break;
-                case "underline": args.DrawingSession.FillRectangle(x, y + cellHeight - 2, cellWidth, 2, terminalCursor); break;
-                default: args.DrawingSession.FillRectangle(x, y, 2, cellHeight, terminalCursor); break;
+                case "block": args.DrawingSession.DrawRectangle(bounds, terminalCursor, (float)(1d / DrawingScale)); break;
+                case "underline":
+                    args.DrawingSession.FillRectangle(new Rect(bounds.X, bounds.Bottom - 2, bounds.Width, 2), terminalCursor);
+                    break;
+                default:
+                    args.DrawingSession.FillRectangle(new Rect(bounds.X, bounds.Y, 2, bounds.Height), terminalCursor);
+                    break;
             }
         }
     }

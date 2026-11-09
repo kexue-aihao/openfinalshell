@@ -63,6 +63,21 @@ int main(void) {
   if (continuation_count != 1 || codepoints[0] != 0xFFFFFFFFu || continuation.width != 1) return 24;
   if (!ofs_terminal_get_cell(unicode_cells, 0, 2, &first) || first.codepoint != 'A') return 25;
   ofs_terminal_destroy(unicode_cells);
+  ofs_terminal *layout_cells = ofs_terminal_create(5, 32);
+  if (!layout_cells) return 40;
+  const char *layout_text = "中A\r\n█─\r\nA\xCC\x81" "B\r\n\xF0\x9F\x99\x82" "C\r\n\tZ";
+  if (ofs_terminal_feed(layout_cells, layout_text, strlen(layout_text)) != strlen(layout_text)) return 41;
+  if (!ofs_terminal_get_cell(layout_cells, 0, 0, &first) || first.codepoint != 0x4E2Du || first.width != 2) return 42;
+  if (!ofs_terminal_get_cell(layout_cells, 0, 2, &first) || first.codepoint != 'A') return 42;
+  if (!ofs_terminal_get_cell(layout_cells, 1, 0, &first) || first.codepoint != 0x2588u || first.width != 1) return 43;
+  if (!ofs_terminal_get_cell(layout_cells, 1, 1, &first) || first.codepoint != 0x2500u || first.width != 1) return 43;
+  int combined_count = ofs_terminal_get_cell_codepoints(layout_cells, 2, 0, codepoints, 16);
+  if (!ofs_terminal_get_cell(layout_cells, 2, 0, &first) || combined_count != 2 ||
+      codepoints[0] != 'A' || codepoints[1] != 0x0301u || first.width != 1) return 44;
+  if (!ofs_terminal_get_cell(layout_cells, 3, 0, &first) || first.codepoint != 0x1F642u || first.width != 2) return 45;
+  if (!ofs_terminal_get_cell(layout_cells, 3, 2, &first) || first.codepoint != 'C') return 45;
+  if (!ofs_terminal_get_cell(layout_cells, 4, 8, &first) || first.codepoint != 'Z') return 46;
+  ofs_terminal_destroy(layout_cells);
   const char *mouse_mode = "\x1b[?1000h";
   ofs_terminal_feed(t, mouse_mode, strlen(mouse_mode));
   if (ofs_terminal_mouse_mode(t) == 0 || !ofs_terminal_mouse_move(t, 1, 2, 0) || !ofs_terminal_mouse_button(t, 1, 1, 0)) return 14;

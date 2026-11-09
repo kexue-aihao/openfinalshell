@@ -10,6 +10,7 @@ public partial class App : Application
 {
     private MainWindow? window;
     private NativeStoreRecoveryWindow? recoveryWindow;
+    private TerminalLayoutFixtureWindow? terminalFixtureWindow;
     private readonly PlatformEnvironment environment;
     private readonly NativeInstanceCoordinator coordinator;
     public App()
@@ -32,6 +33,13 @@ public partial class App : Application
     {
         try
         {
+            if (Environment.GetEnvironmentVariable("OFS_NATIVE_TERMINAL_LAYOUT_FIXTURE") == "1")
+            {
+                LoadPlatformTheme();
+                terminalFixtureWindow = new TerminalLayoutFixtureWindow();
+                terminalFixtureWindow.Activate();
+                return;
+            }
             if (coordinator.Start() == NativeInstanceRole.Secondary)
             {
                 coordinator.RequestFocusAsync().GetAwaiter().GetResult();

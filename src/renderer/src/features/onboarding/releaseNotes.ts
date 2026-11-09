@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.45',
+    items: [
+      { type: 'fix', zh: '修复 WinUI3 原生终端中文宽字符、ANSI 背景徽标和风险色带错位：连续背景合并绘制、文本按样式运行绘制，宽字符在对应单元格内居中裁剪，并在字体、缩放和 DPI 变化时重新计算网格', en: 'Fix WinUI 3 native terminal misalignment for wide CJK text, ANSI badges and risk bars by merging background spans, drawing styled text runs, centering and clipping wide glyphs within their cells, and recalculating the grid after font, zoom and DPI changes' }
+    ]
+  },
+  {
     version: '0.30.44',
     items: [
       { type: 'feat', zh: '原生命令库首次启动提供 5 个分组、26 条常用运维命令；默认只读诊断命令可自动回车，安装与扫描命令默认等待审核', en: 'Seed the native command library with 5 groups and 26 common operations commands; read-only diagnostics auto-enter by default while install and scan commands wait for review' },

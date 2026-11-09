@@ -13,6 +13,7 @@ namespace OpenFinalShell.App.Controls;
 public sealed partial class NativeTerminalCanvas
 {
     private float cellWidth = 8, cellHeight = 18;
+    private double measuredDpi;
     private Color terminalBackground = Colors.Black, terminalForeground = Colors.Gainsboro, terminalCursor = Colors.White;
     private Color[]? ansiPalette;
     private JsonObject preferences = new();
@@ -71,8 +72,11 @@ public sealed partial class NativeTerminalCanvas
         textFormat.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
         textFormat.FontStyle = Windows.UI.Text.FontStyle.Normal;
         using var layout = new CanvasTextLayout(CanvasDevice.GetSharedDevice(), "M", textFormat, 1000, 1000);
-        cellWidth = Math.Max(1, (float)layout.LayoutBounds.Width);
+        var dpiScale = canvas.Dpi > 0 ? canvas.Dpi / 96d : 1d;
+        var measuredWidth = Math.Max(1d, layout.LayoutBounds.Width);
+        cellWidth = (float)(Math.Ceiling(measuredWidth * dpiScale - 0.001) / dpiScale);
         cellHeight = Math.Max(1, textFormat.FontSize * Math.Clamp(NativeSettings.ReadPath(preferences, "lineHeight", 1.2f), 1, 3));
+        measuredDpi = canvas.Dpi;
         if (parser != 0)
         {
             ofs_terminal_resize(parser, ScreenRows, ScreenColumns);
@@ -80,6 +84,10 @@ public sealed partial class NativeTerminalCanvas
             TerminalSizeChanged?.Invoke(lastColumns, lastRows);
         }
         canvas.Invalidate();
+    }
+    private void RefreshDpiMetricsIfNeeded()
+    {
+        if (canvas.Dpi > 0 && Math.Abs(canvas.Dpi - measuredDpi) > 0.1) UpdateFontMetrics();
     }
     private void Zoom(int delta) { fontZoom = Math.Clamp(fontZoom + delta, -6, 24); UpdateFontMetrics(); }
     private void SelectAll()
