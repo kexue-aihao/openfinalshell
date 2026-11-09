@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.46',
+    items: [
+      { type: 'fix', zh: '修复 WinUI3 原生终端 0.30.45 中 cell 宽度被向上取整、连续中文逐字布局造成的额外字距和文字割裂；恢复字体原始步进，合并连续窄字符与宽字符 run，并按终端单元格宽度对文本 run 做受限水平贴合', en: 'Fix extra spacing and fragmented text in the WinUI 3 native terminal introduced by rounded-up cells and per-glyph CJK layout in 0.30.45; restore the font’s natural advance, merge contiguous narrow and wide-character runs, and fit text runs to their terminal cell spans with bounded horizontal scaling' }
+    ]
+  },
+  {
     version: '0.30.45',
     items: [
       { type: 'fix', zh: '修复 WinUI3 原生终端中文宽字符、ANSI 背景徽标和风险色带错位：连续背景合并绘制、文本按样式运行绘制，宽字符在对应单元格内居中裁剪，并在字体、缩放和 DPI 变化时重新计算网格', en: 'Fix WinUI 3 native terminal misalignment for wide CJK text, ANSI badges and risk bars by merging background spans, drawing styled text runs, centering and clipping wide glyphs within their cells, and recalculating the grid after font, zoom and DPI changes' }

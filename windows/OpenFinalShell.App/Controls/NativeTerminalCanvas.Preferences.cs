@@ -72,9 +72,9 @@ public sealed partial class NativeTerminalCanvas
         textFormat.FontWeight = Microsoft.UI.Text.FontWeights.Normal;
         textFormat.FontStyle = Windows.UI.Text.FontStyle.Normal;
         using var layout = new CanvasTextLayout(CanvasDevice.GetSharedDevice(), "M", textFormat, 1000, 1000);
-        var dpiScale = canvas.Dpi > 0 ? canvas.Dpi / 96d : 1d;
-        var measuredWidth = Math.Max(1d, layout.LayoutBounds.Width);
-        cellWidth = (float)(Math.Ceiling(measuredWidth * dpiScale - 0.001) / dpiScale);
+        // Keep the font's natural advance for text layout. Pixel snapping is
+        // applied only to rendered rectangle boundaries, never to this metric.
+        cellWidth = Math.Max(1, (float)layout.LayoutBounds.Width);
         cellHeight = Math.Max(1, textFormat.FontSize * Math.Clamp(NativeSettings.ReadPath(preferences, "lineHeight", 1.2f), 1, 3));
         measuredDpi = canvas.Dpi;
         if (parser != 0)

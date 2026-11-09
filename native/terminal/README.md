@@ -17,8 +17,8 @@ host must preserve that grid rather than measuring each glyph independently:
 - adjacent cells with the same ANSI background are filled as one
   physical-pixel-aligned span;
 - single-cell text with the same foreground and style is drawn as one run;
-- wide CJK, emoji, and combining-character clusters are centered and clipped
-  within their reported `width * cellWidth` span;
+- contiguous wide CJK and emoji cells with the same style are drawn as one
+  run and fitted to their reported cell span with bounded horizontal scaling;
 - continuation cells expose `codepoint == 0xFFFFFFFF` and must not draw text
   again.
 

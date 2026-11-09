@@ -78,6 +78,27 @@ int main(void) {
   if (!ofs_terminal_get_cell(layout_cells, 3, 2, &first) || first.codepoint != 'C') return 45;
   if (!ofs_terminal_get_cell(layout_cells, 4, 8, &first) || first.codepoint != 'Z') return 46;
   ofs_terminal_destroy(layout_cells);
+  ofs_terminal *wide_run_cells = ofs_terminal_create(1, 16);
+  if (!wide_run_cells) return 47;
+  const char *wide_run_text = "低风险A";
+  if (ofs_terminal_feed(wide_run_cells, wide_run_text, strlen(wide_run_text)) != strlen(wide_run_text)) return 48;
+  if (!ofs_terminal_get_cell(wide_run_cells, 0, 0, &first) || first.codepoint != 0x4F4Eu || first.width != 2) return 49;
+  if (!ofs_terminal_get_cell(wide_run_cells, 0, 2, &first) || first.codepoint != 0x98CEu || first.width != 2) return 49;
+  if (!ofs_terminal_get_cell(wide_run_cells, 0, 4, &first) || first.codepoint != 0x9669u || first.width != 2) return 49;
+  if (!ofs_terminal_get_cell(wide_run_cells, 0, 6, &first) || first.codepoint != 'A') return 49;
+  ofs_terminal_destroy(wide_run_cells);
+  ofs_terminal *background_run_cells = ofs_terminal_create(1, 16);
+  if (!background_run_cells) return 50;
+  const char *background_run_text = "\x1b[42m解锁\x1b[0m";
+  if (ofs_terminal_feed(background_run_cells, background_run_text, strlen(background_run_text)) != strlen(background_run_text)) return 51;
+  ofs_terminal_cell background_first = {0}, background_continuation = {0}, background_second = {0};
+  if (!ofs_terminal_get_cell(background_run_cells, 0, 0, &background_first) || background_first.width != 2) return 52;
+  if (!ofs_terminal_get_cell(background_run_cells, 0, 1, &background_continuation) ||
+      background_continuation.codepoint != 0xFFFFFFFFu) return 52;
+  if (!ofs_terminal_get_cell(background_run_cells, 0, 2, &background_second) || background_second.width != 2) return 52;
+  if (background_first.bg_type != background_second.bg_type ||
+      background_first.bg_index != background_second.bg_index) return 53;
+  ofs_terminal_destroy(background_run_cells);
   const char *mouse_mode = "\x1b[?1000h";
   ofs_terminal_feed(t, mouse_mode, strlen(mouse_mode));
   if (ofs_terminal_mouse_mode(t) == 0 || !ofs_terminal_mouse_move(t, 1, 2, 0) || !ofs_terminal_mouse_button(t, 1, 1, 0)) return 14;

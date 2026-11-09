@@ -1,6 +1,7 @@
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using System.Diagnostics;
 using System.Numerics;
 using System.Text;
 using Windows.Foundation;
@@ -22,7 +23,7 @@ public sealed partial class NativeTerminalCanvas
         int CellCount,
         string Text,
         TerminalTextStyle Style,
-        bool Center);
+        bool Wide);
 
     private readonly record struct TerminalDecorationSpan(
         int StartColumn,
@@ -42,6 +43,8 @@ public sealed partial class NativeTerminalCanvas
     private readonly StringBuilder terminalTextRunBuffer = new();
     private NativeTerminalCell[] terminalRowCells = new NativeTerminalCell[1];
     private bool[] terminalRowCellValid = new bool[1];
+    private const float MinimumHorizontalTextScale = 0.75f;
+    private const float MaximumHorizontalTextScale = 1.25f;
 
     private double DrawingScale
     {
@@ -88,17 +91,20 @@ public sealed partial class NativeTerminalCanvas
         TerminalTextStyle? activeStyle = null;
         var activeStart = 0;
         var activeCells = 0;
+        var activeWide = false;
+        var coveredBackgroundColumn = 0;
 
         void FlushTextRun()
         {
             if (activeStyle is { } style && activeCells > 0 && terminalTextRunBuffer.Length > 0)
             {
                 terminalTextRuns.Add(new TerminalTextRun(
-                    activeStart, activeCells, terminalTextRunBuffer.ToString(), style, Center: false));
+                    activeStart, activeCells, terminalTextRunBuffer.ToString(), style, activeWide));
             }
             activeStyle = null;
             activeStart = 0;
             activeCells = 0;
+            activeWide = false;
             terminalTextRunBuffer.Clear();
         }
 
@@ -115,18 +121,32 @@ public sealed partial class NativeTerminalCanvas
                 : ResolveColor(cell.BgType, cell.BgR, cell.BgG, cell.BgB, cell.BgIndex, terminalBackground);
             if (ok != 0 && (cell.Attributes & 8) != 0)
                 background = ResolveColor(cell.FgType, cell.FgR, cell.FgG, cell.FgB, cell.FgIndex, terminalForeground);
-            AddPaintSpan(terminalBackgroundSpans, column, 1, background);
+            // libvterm records the continuation of a wide glyph as a separate
+            // cell with incomplete color data. Paint the wide origin over its
+            // full reported width so all CJK/emoji characters in one ANSI span
+            // remain one uninterrupted colored rectangle.
+            if (column >= coveredBackgroundColumn)
+            {
+                var backgroundCells = 1;
+                if (ok != 0 && cell.CodePoint != 0xFFFFFFFFu && cell.Width > 1)
+                {
+                    backgroundCells = Math.Clamp((int)cell.Width, 1, columns - column);
+                    coveredBackgroundColumn = column + backgroundCells;
+                }
+                AddPaintSpan(terminalBackgroundSpans, column, backgroundCells, background);
+            }
 
             if (IsSelected(line, column))
                 AddPaintSpan(terminalSelectionSpans, column, 1, Color.FromArgb(100, 70, 130, 220));
             if (SearchOverlayColor(line, column) is { } searchColor)
                 AddPaintSpan(terminalSearchSpans, column, 1, searchColor);
 
-            if (ok == 0 || cell.Width == 0 || cell.CodePoint == 0xFFFFFFFFu)
+            if (ok == 0 || cell.Width == 0)
             {
                 FlushTextRun();
                 continue;
             }
+            if (cell.CodePoint == 0xFFFFFFFFu) continue;
 
             var cellText = ReadCellText(line, column, scrollback, cell);
             if (string.IsNullOrEmpty(cellText) || cellText == " ")
@@ -149,21 +169,16 @@ public sealed partial class NativeTerminalCanvas
             if (style.Underline || style.Strike)
                 AddDecorationSpan(terminalDecorationSpans, column, span, style);
 
-            if (span > 1)
-            {
-                FlushTextRun();
-                terminalTextRuns.Add(new TerminalTextRun(column, span, cellText, style, Center: true));
-                continue;
-            }
-
-            if (activeStyle != style || activeStart + activeCells != column) FlushTextRun();
+            var wide = span > 1;
+            if (activeStyle != style || activeWide != wide || activeStart + activeCells != column) FlushTextRun();
             if (activeStyle is null)
             {
                 activeStyle = style;
                 activeStart = column;
+                activeWide = wide;
             }
             terminalTextRunBuffer.Append(cellText);
-            activeCells++;
+            activeCells += span;
         }
         FlushTextRun();
 
@@ -183,10 +198,28 @@ public sealed partial class NativeTerminalCanvas
                 CanvasDevice.GetSharedDevice(), run.Text, textFormat, (float)bounds.Width, (float)bounds.Height)
             {
                 WordWrapping = CanvasWordWrapping.NoWrap,
-                HorizontalAlignment = run.Center ? CanvasHorizontalAlignment.Center : CanvasHorizontalAlignment.Left
+                HorizontalAlignment = CanvasHorizontalAlignment.Left
             };
+            var naturalWidth = layout.LayoutBounds.Width;
+            var horizontalScale = ResolveHorizontalTextScale((float)bounds.Width, (float)naturalWidth);
+            var savedTransform = session.Transform;
             using var clip = session.CreateLayer(1f, bounds);
-            session.DrawTextLayout(layout, new Vector2((float)bounds.X, (float)bounds.Y), run.Style.Foreground);
+            try
+            {
+                if (Math.Abs(horizontalScale - 1f) > 0.0001f)
+                {
+                    session.Transform =
+                        Matrix3x2.CreateTranslation(-(float)bounds.X, -(float)bounds.Y) *
+                        Matrix3x2.CreateScale(horizontalScale, 1f) *
+                        Matrix3x2.CreateTranslation((float)bounds.X, (float)bounds.Y) *
+                        savedTransform;
+                }
+                session.DrawTextLayout(layout, new Vector2((float)bounds.X, (float)bounds.Y), run.Style.Foreground);
+            }
+            finally
+            {
+                session.Transform = savedTransform;
+            }
         }
 
         var stroke = (float)(1d / DrawingScale);
@@ -222,6 +255,22 @@ public sealed partial class NativeTerminalCanvas
 
     private static bool IsSearchResultColumn((int line, int column, int length) result, int line, int column) =>
         result.line == line && column >= result.column && column < result.column + result.length;
+
+    private static float ResolveHorizontalTextScale(float targetWidth, float naturalWidth)
+    {
+        if (!float.IsFinite(targetWidth) || !float.IsFinite(naturalWidth) ||
+            targetWidth <= 0 || naturalWidth <= 0.001f)
+            return 1f;
+        var scale = targetWidth / naturalWidth;
+        if (!float.IsFinite(scale)) return 1f;
+        if (scale < MinimumHorizontalTextScale || scale > MaximumHorizontalTextScale)
+        {
+            Debug.WriteLine(
+                $"Terminal text scale outside safe range: target={targetWidth}, natural={naturalWidth}, scale={scale}");
+            return 1f;
+        }
+        return scale;
+    }
 
     private static void AddPaintSpan(List<TerminalPaintSpan> spans, int start, int count, Color color)
     {
