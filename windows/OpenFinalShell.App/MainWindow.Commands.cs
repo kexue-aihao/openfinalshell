@@ -34,7 +34,7 @@ public sealed partial class MainWindow
         { ShowError(localization["native.commands.selectSession"]); return; }
         // History clicks refill only. No Enter or other terminal control bytes.
         var line = new string(command.Replace('\r', ' ').Replace('\n', ' ').Where(c => !char.IsControl(c)).ToArray());
-        terminal.Send(line); ActivatePage("connections"); terminal.Focus(FocusState.Programmatic);
+        terminal.Send(line);
     }
 
     private void CommandSnippetRightTapped(object sender, RightTappedRoutedEventArgs args)

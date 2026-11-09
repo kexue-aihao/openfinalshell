@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.47" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.48" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,
@@ -157,6 +157,8 @@ var terminalGreen = new OpenFinalShell.App.TerminalRgbColor(152, 195, 121);
 var terminalYellow = new OpenFinalShell.App.TerminalRgbColor(229, 192, 123);
 var terminalRed = new OpenFinalShell.App.TerminalRgbColor(224, 108, 117);
 var terminalBlack = new OpenFinalShell.App.TerminalRgbColor(0, 0, 0);
+var terminalWhite = new OpenFinalShell.App.TerminalRgbColor(255, 255, 255);
+var terminalExplicitRed = new OpenFinalShell.App.TerminalRgbColor(255, 80, 80);
 var adjustedGreen = OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
     terminalThemeForeground, terminalGreen, usesDefaultForeground: true);
 var adjustedYellow = OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
@@ -170,13 +172,31 @@ Check(OpenFinalShell.App.NativeTerminalTextContrast.ContrastRatio(adjustedGreen,
     && OpenFinalShell.App.NativeTerminalTextContrast.ContrastRatio(adjustedRed, terminalRed) >= 4.5,
     "Auto-contrast terminal foreground reaches the WCAG AA ratio");
 Check(OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
-        terminalThemeForeground, terminalGreen, usesDefaultForeground: false) == terminalThemeForeground,
-    "Explicit ANSI foreground is never replaced by auto-contrast");
+        terminalThemeForeground, terminalGreen, usesDefaultForeground: false) == terminalBlack,
+    "Explicit neutral ANSI foreground is corrected when contrast is insufficient");
+Check(OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
+        terminalWhite, terminalGreen, usesDefaultForeground: false) == terminalBlack,
+    "Explicit white ANSI foreground becomes black on a bright background");
+Check(OpenFinalShell.App.NativeTerminalTextContrast.Resolve(
+        terminalExplicitRed, terminalGreen, usesDefaultForeground: false) == terminalExplicitRed,
+    "Explicit saturated ANSI foreground colors are preserved");
 Check(OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(2, 1, reverse: false)
     && !OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(1, 2, reverse: false)
     && OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(1, 2, reverse: true)
     && !OpenFinalShell.App.NativeTerminalTextContrast.UsesDefaultForeground(1, 1, reverse: true),
     "Reverse video uses the actual foreground source for terminal auto-contrast");
+var wideEditorLayout = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.Resolve(1600, 900);
+var portraitEditorLayout = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.Resolve(360, 800);
+var compactEditorLayout = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.Resolve(320, 480);
+Check(wideEditorLayout.DialogWidth == 1120 && wideEditorLayout.EditorHeight == 500
+    && wideEditorLayout.Portrait == false,
+    "Command editor uses a wide layout on widescreen viewports");
+Check(portraitEditorLayout.DialogWidth == 336 && portraitEditorLayout.EditorHeight >= 320
+    && portraitEditorLayout.Portrait,
+    "Command editor keeps a usable writing area in portrait");
+Check(compactEditorLayout.DialogWidth >= 280 && compactEditorLayout.ContentHeight >= 260
+    && compactEditorLayout.EditorHeight >= 180 && compactEditorLayout.TargetsHeight >= 96,
+    "Command editor clamps compact viewports without collapsing controls");
 NativeStoreRecoveryTests.Run(root, Check);
 Check(!OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490))),
     "Unavailable high-contrast query falls back without failing startup");

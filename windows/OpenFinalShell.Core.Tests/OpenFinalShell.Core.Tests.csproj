@@ -4,4 +4,5 @@
  <ItemGroup><Compile Include="../OpenFinalShell.App/Controls/SftpTimestamp.cs" Link="SftpTimestamp.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/NativeAccessibilityGuard.cs" Link="NativeAccessibilityGuard.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/NativeTerminalTextContrast.cs" Link="NativeTerminalTextContrast.cs" /></ItemGroup>
+ <ItemGroup><Compile Include="../OpenFinalShell.App/NativeCommandEditorLayout.cs" Link="NativeCommandEditorLayout.cs" /></ItemGroup>
 </Project>

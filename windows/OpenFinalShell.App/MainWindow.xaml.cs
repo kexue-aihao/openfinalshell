@@ -1560,8 +1560,6 @@ public sealed partial class MainWindow : Window
                 if (sessionWorkspaces.TryGetValue(sessionId, out var workspace)) workspace.FollowExecutedShellCommands(command);
                 CommandViewModel.ReloadHistory();
             }
-            ActivatePage("connections");
-            terminal.Focus(FocusState.Programmatic);
             Status.Text = localization.Format("commandEditor.sent", ("count", "1"));
         }
         catch (Exception error) { ShowError(error); }
@@ -1647,23 +1645,22 @@ public sealed partial class MainWindow : Window
         {
             var ready = sessionsManager.List().Where(s => s.State == NativeSessionState.Ready && sessionTerminals.ContainsKey(s.SessionId)).ToArray();
             var viewport = Root.XamlRoot.Size;
-            var dialogWidth = Math.Min(960d, Math.Max(320d, viewport.Width - 48d));
-            var dialogContentHeight = Math.Max(180d, Math.Min(760d, Math.Min(viewport.Height * .78, viewport.Height - 180d)));
-            var editorHeight = Math.Clamp(viewport.Height * .36, 200d, 420d);
-            var targets = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = Math.Min(220d, Math.Max(120d, dialogContentHeight * .3)) };
+            var editorLayout = NativeCommandEditorLayoutPolicy.Resolve(viewport.Width, viewport.Height);
+            var targets = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = editorLayout.TargetsHeight };
             foreach (var session in ready) targets.Items.Add(new ListViewItem { Content = session.ProfileName, Tag = session.SessionId });
             var activeId = (Sessions.SelectedItem as TabViewItem)?.Tag?.ToString();
             if (targets.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Tag?.ToString() == activeId) is { } selected) targets.SelectedItems.Add(selected);
             var autoEnter = new ToggleSwitch { Header = localization["commandEditor.autoEnter"], IsOn = appendEnter };
             ToolTipService.SetToolTip(autoEnter, localization["commandEditor.autoEnterHint"]);
-            var commandInput = new TextBox { PlaceholderText = localization["commandEditor.placeholder"], AcceptsReturn = true, Height = editorHeight, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Text = initialCommand };
+            var commandInput = new TextBox { PlaceholderText = localization["commandEditor.placeholder"], AcceptsReturn = true, Height = editorLayout.EditorHeight, MinWidth = Math.Max(240, editorLayout.DialogWidth - 80), TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Text = initialCommand };
             ScrollViewer.SetVerticalScrollBarVisibility(commandInput, ScrollBarVisibility.Auto);
             var expand = new CheckBox { Content = localization["commandEditor.expandVars"], IsChecked = true };
             ToolTipService.SetToolTip(expand, localization["commandEditor.expandVarsHint"] + " {{host}} {{user}} {{port}}");
-            var dialog = new ContentDialog { Title = localization["commandEditor.title"], XamlRoot = Root.XamlRoot, Width = dialogWidth,
-                Content = new ScrollViewer { MaxHeight = dialogContentHeight, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } } },
+            var dialog = new ContentDialog { Title = localization["commandEditor.title"], XamlRoot = Root.XamlRoot, Width = editorLayout.DialogWidth, MinWidth = editorLayout.DialogWidth, MaxWidth = editorLayout.DialogWidth, MaxHeight = Math.Min(900, viewport.Height - 24),
+                Content = new ScrollViewer { MaxHeight = editorLayout.ContentHeight, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } } },
                 PrimaryButtonText = localization["commandEditor.send"], SecondaryButtonText = localization["commandEditor.saveAsSnippet"], CloseButtonText = localization["common.cancel"] };
-            dialog.Resources["ContentDialogMaxWidth"] = dialogWidth;
+            dialog.Resources["ContentDialogMinWidth"] = editorLayout.DialogWidth;
+            dialog.Resources["ContentDialogMaxWidth"] = editorLayout.DialogWidth;
             bool ValidCommand() => !string.IsNullOrWhiteSpace(commandInput.Text) && !commandInput.Text.Contains('\0') && commandInput.Text.Length <= 32768;
             void UpdateSend()
             {

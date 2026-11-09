@@ -16,10 +16,18 @@ internal static class NativeTerminalTextContrast
         TerminalRgbColor background,
         bool usesDefaultForeground)
     {
-        if (!usesDefaultForeground || ContrastRatio(foreground, background) >= MinimumContrastRatio)
+        if (ContrastRatio(foreground, background) >= MinimumContrastRatio ||
+            !usesDefaultForeground && !IsNeutral(foreground))
             return foreground;
 
         return ContrastRatio(Black, background) >= ContrastRatio(White, background) ? Black : White;
+    }
+
+    internal static bool IsNeutral(TerminalRgbColor color)
+    {
+        var minimum = Math.Min(color.R, Math.Min(color.G, color.B));
+        var maximum = Math.Max(color.R, Math.Max(color.G, color.B));
+        return maximum - minimum <= 24;
     }
 
     internal static double ContrastRatio(TerminalRgbColor first, TerminalRgbColor second)

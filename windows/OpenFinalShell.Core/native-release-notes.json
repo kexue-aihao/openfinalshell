@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.30.48",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复原生终端显式白字或浅灰字在明亮 ANSI 背景上仍难辨认的问题；中性前景自动按 WCAG 对比度转为黑/白，显式彩色前景保持不变",
+        "en": "Fix explicit white or light-gray text remaining hard to read on bright ANSI backgrounds in the native terminal by auto-correcting neutral foregrounds to black or white according to WCAG contrast while preserving explicit saturated colors"
+      },
+      {
+        "type": "fix",
+        "zh": "在命令库中执行命令后保持命令库页面，不再自动切回连接工作区",
+        "en": "Keep the command library open after executing a command instead of switching back to the connection workspace"
+      },
+      {
+        "type": "fix",
+        "zh": "命令编辑器改为响应式尺寸：宽屏使用更宽的编辑区域，竖屏与低高度窗口保持可用编辑高度并允许内容滚动",
+        "en": "Make the command editor responsive with a wider writing area on widescreen displays and a usable editor height with scrolling in portrait or short windows"
+      }
+    ]
+  },
+  {
     "version": "0.30.47",
     "items": [
       {
