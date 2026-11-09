@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.49',
+    items: [
+      { type: 'feat', zh: '命令编辑器支持拖动：按住标题区域可将对话框移动到合适位置，拖动范围限制在当前窗口可视区域内，宽屏和竖屏均可用', en: 'Make the command editor draggable: hold its title area to reposition the dialog within the visible application viewport on both widescreen and portrait layouts' }
+    ]
+  },
+  {
     version: '0.30.48',
     items: [
       { type: 'fix', zh: '修复原生终端显式白字或浅灰字在明亮 ANSI 背景上仍难辨认的问题；中性前景自动按 WCAG 对比度转为黑/白，显式彩色前景保持不变', en: 'Fix explicit white or light-gray text remaining hard to read on bright ANSI backgrounds in the native terminal by auto-correcting neutral foregrounds to black or white according to WCAG contrast while preserving explicit saturated colors' },

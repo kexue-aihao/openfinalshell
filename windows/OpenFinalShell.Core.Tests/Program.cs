@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.48" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.49" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,
@@ -197,6 +197,13 @@ Check(portraitEditorLayout.DialogWidth == 336 && portraitEditorLayout.EditorHeig
 Check(compactEditorLayout.DialogWidth >= 280 && compactEditorLayout.ContentHeight >= 260
     && compactEditorLayout.EditorHeight >= 180 && compactEditorLayout.TargetsHeight >= 96,
     "Command editor clamps compact viewports without collapsing controls");
+var centeredDrag = OpenFinalShell.App.NativeCommandEditorDragPolicy.Clamp(
+    40, -20, 1600, 900, 1120, 700);
+var boundedDrag = OpenFinalShell.App.NativeCommandEditorDragPolicy.Clamp(
+    10000, -10000, 1600, 900, 1120, 700);
+Check(centeredDrag == new OpenFinalShell.App.NativeCommandEditorOffset(40, -20)
+    && boundedDrag == new OpenFinalShell.App.NativeCommandEditorOffset(228, -88),
+    "Command editor dragging is clamped to the visible viewport");
 NativeStoreRecoveryTests.Run(root, Check);
 Check(!OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490))),
     "Unavailable high-contrast query falls back without failing startup");

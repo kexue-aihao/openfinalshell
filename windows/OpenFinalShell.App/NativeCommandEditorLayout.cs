@@ -22,3 +22,24 @@ internal static class NativeCommandEditorLayoutPolicy
         return new NativeCommandEditorLayout(dialogWidth, contentHeight, editorHeight, targetsHeight, portrait);
     }
 }
+
+internal readonly record struct NativeCommandEditorOffset(double X, double Y);
+
+internal static class NativeCommandEditorDragPolicy
+{
+    internal static NativeCommandEditorOffset Clamp(
+        double requestedX,
+        double requestedY,
+        double viewportWidth,
+        double viewportHeight,
+        double dialogWidth,
+        double dialogHeight,
+        double viewportMargin = 12d)
+    {
+        var maximumX = Math.Max(0, (viewportWidth - dialogWidth) / 2d - viewportMargin);
+        var maximumY = Math.Max(0, (viewportHeight - dialogHeight) / 2d - viewportMargin);
+        return new NativeCommandEditorOffset(
+            Math.Clamp(requestedX, -maximumX, maximumX),
+            Math.Clamp(requestedY, -maximumY, maximumY));
+    }
+}

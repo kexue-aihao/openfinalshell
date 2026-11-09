@@ -1656,11 +1656,74 @@ public sealed partial class MainWindow : Window
             ScrollViewer.SetVerticalScrollBarVisibility(commandInput, ScrollBarVisibility.Auto);
             var expand = new CheckBox { Content = localization["commandEditor.expandVars"], IsChecked = true };
             ToolTipService.SetToolTip(expand, localization["commandEditor.expandVarsHint"] + " {{host}} {{user}} {{port}}");
-            var dialog = new ContentDialog { Title = localization["commandEditor.title"], XamlRoot = Root.XamlRoot, Width = editorLayout.DialogWidth, MinWidth = editorLayout.DialogWidth, MaxWidth = editorLayout.DialogWidth, MaxHeight = Math.Min(900, viewport.Height - 24),
+            var titleText = new TextBlock
+            {
+                Text = localization["commandEditor.title"],
+                FontSize = 20,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var dragHandle = new FontIcon
+            {
+                Glyph = "\uE76F",
+                FontSize = 14,
+                Opacity = 0.7,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var titleBar = new Grid { Height = 36, Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0)) };
+            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            titleBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            titleBar.Children.Add(titleText);
+            Grid.SetColumn(dragHandle, 1);
+            titleBar.Children.Add(dragHandle);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(titleBar, localization["commandEditor.title"]);
+            var dialogTransform = new CompositeTransform();
+            var dialog = new ContentDialog { Title = titleBar, RenderTransform = dialogTransform, XamlRoot = Root.XamlRoot, Width = editorLayout.DialogWidth, MinWidth = editorLayout.DialogWidth, MaxWidth = editorLayout.DialogWidth, MaxHeight = Math.Min(900, viewport.Height - 24),
                 Content = new ScrollViewer { MaxHeight = editorLayout.ContentHeight, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } } },
                 PrimaryButtonText = localization["commandEditor.send"], SecondaryButtonText = localization["commandEditor.saveAsSnippet"], CloseButtonText = localization["common.cancel"] };
             dialog.Resources["ContentDialogMinWidth"] = editorLayout.DialogWidth;
             dialog.Resources["ContentDialogMaxWidth"] = editorLayout.DialogWidth;
+            var dragging = false;
+            var dragStart = new Windows.Foundation.Point();
+            var dragStartX = 0d;
+            var dragStartY = 0d;
+            titleBar.PointerPressed += (_, pointerArgs) =>
+            {
+                var point = pointerArgs.GetCurrentPoint(titleBar);
+                if (point.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse &&
+                    !point.Properties.IsLeftButtonPressed) return;
+                dragging = true;
+                dragStart = pointerArgs.GetCurrentPoint(Root).Position;
+                dragStartX = dialogTransform.TranslateX;
+                dragStartY = dialogTransform.TranslateY;
+                titleBar.CapturePointer(pointerArgs.Pointer);
+                pointerArgs.Handled = true;
+            };
+            titleBar.PointerMoved += (_, pointerArgs) =>
+            {
+                if (!dragging) return;
+                var point = pointerArgs.GetCurrentPoint(Root).Position;
+                var offset = NativeCommandEditorDragPolicy.Clamp(
+                    dragStartX + point.X - dragStart.X,
+                    dragStartY + point.Y - dragStart.Y,
+                    viewport.Width,
+                    viewport.Height,
+                    dialog.ActualWidth > 0 ? dialog.ActualWidth : editorLayout.DialogWidth,
+                    dialog.ActualHeight > 0 ? dialog.ActualHeight : editorLayout.ContentHeight);
+                dialogTransform.TranslateX = offset.X;
+                dialogTransform.TranslateY = offset.Y;
+                pointerArgs.Handled = true;
+            };
+            void EndTitleDrag(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs pointerArgs)
+            {
+                if (!dragging) return;
+                dragging = false;
+                titleBar.ReleasePointerCapture(pointerArgs.Pointer);
+                pointerArgs.Handled = true;
+            }
+            titleBar.PointerReleased += (_, pointerArgs) => EndTitleDrag(pointerArgs);
+            titleBar.PointerCanceled += (_, pointerArgs) => EndTitleDrag(pointerArgs);
+            titleBar.PointerCaptureLost += (_, _) => dragging = false;
             bool ValidCommand() => !string.IsNullOrWhiteSpace(commandInput.Text) && !commandInput.Text.Contains('\0') && commandInput.Text.Length <= 32768;
             void UpdateSend()
             {
