@@ -1,9 +1,9 @@
-﻿param(
+param(
     [Parameter(Mandatory)][string]$InstallerDirectory,
     [Parameter(Mandatory)][string]$OutputDirectory,
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$Repository,
-    [ValidateSet('preview','stable')][string]$Channel = 'preview',
+    [ValidateSet('preview','stable')][string]$Channel = 'stable',
     [string]$TagPrefix = 'v',
     [ValidateSet('x64','x86','arm64')][string[]]$Architectures = @('x64','x86','arm64')
 )
@@ -35,7 +35,7 @@ try {
     $tag = "$TagPrefix$Version"
     foreach ($architecture in $Architectures) {
         $displayArchitecture = if ($architecture -eq 'arm64') { 'ARM64' } else { $architecture }
-        $fileName = "OpenFinalShell-NativePreview-$Version-$displayArchitecture-Setup.exe"
+        $fileName = "OpenFinalShell-Native-$Version-$displayArchitecture-Setup.exe"
         $installerPath = Join-Path $InstallerDirectory $fileName
         if (!(Test-Path -LiteralPath $installerPath -PathType Leaf)) { throw "Native installer is missing: $installerPath" }
         $stream = [IO.File]::OpenRead($installerPath)
@@ -71,6 +71,11 @@ try {
             sha256 = $inventoryHash; signature = [Convert]::ToBase64String($inventorySignature)
             bytes = (Get-Item -LiteralPath $inventoryPath).Length
         }
+        # The one-time stable promotion must run NSIS so existing shortcuts,
+        # uninstall metadata and the uninstaller receive the new product name.
+        # Old clients already support installer-only feeds. Later releases keep
+        # using signed file-level updates.
+        if ($Version -eq '0.30.52') { $entry.Remove('incremental') }
         $json = $entry | ConvertTo-Json -Depth 8
         [IO.File]::WriteAllText($outputPath, "$json`n", [Text.UTF8Encoding]::new($false))
         Write-Output "Signed native update manifest: $outputPath"

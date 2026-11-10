@@ -468,7 +468,7 @@ export interface EventMap {
   'settings:changed': AppSettings
   /** 更新器状态（checking / available / downloading 进度 / downloaded / error） */
   'update:state': UpdateState
-  /** WinUI 原生预览版下载进度。 */
+  /** WinUI 原生版下载进度。 */
   'nativePreview:progress': { percent: number; received: number; total: number }
   /** 主进程 → 编辑器窗口：打开一个文件（见 editor:openFile / editor:ready 的排队约定） */
   'editor:open': EditorOpenRequest

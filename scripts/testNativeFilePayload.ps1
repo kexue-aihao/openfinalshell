@@ -13,7 +13,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $inputDirectory 'OpenFinalShell.App.exe'), 'fixture executable')
     [IO.File]::WriteAllText((Join-Path $inputDirectory 'UpdateHost/OpenFinalShell.UpdateHost.exe'), 'fixture helper')
     & (Join-Path $scriptDirectory 'New-NativeFilePayload.ps1') -InputDirectory $inputDirectory -OutputDirectory $outputDirectory -Version '1.2.3' -Repository 'fixture/project' -Architecture x64
-    [IO.File]::WriteAllText((Join-Path $outputDirectory 'OpenFinalShell-NativePreview-1.2.3-x64-Setup.exe'), 'fixture installer')
+    [IO.File]::WriteAllText((Join-Path $outputDirectory 'OpenFinalShell-Native-1.2.3-x64-Setup.exe'), 'fixture installer')
     & (Join-Path $scriptDirectory 'New-NativeUpdateManifests.ps1') -InstallerDirectory $outputDirectory -OutputDirectory $outputDirectory -Version '1.2.3' -Repository 'fixture/project' -Architectures x64
     $feed = Get-Content (Join-Path $outputDirectory 'native-update-x64.json') -Raw | ConvertFrom-Json
     $inventory = Get-Content (Join-Path $outputDirectory 'native-files-x64.json') -Raw | ConvertFrom-Json
@@ -33,5 +33,12 @@ try {
             if ($decoded.Length -ne $entry.size -or $hash -ne $entry.sha256) { throw 'Generated file range did not decode to the signed file.' }
         } finally { $decoded.Dispose(); $gzip.Dispose(); $segment.Dispose() }
     }
+    if ($feed.channel -ne 'stable' -or $inventory.channel -ne 'stable') { throw 'Native release channel must be stable.' }
+    & (Join-Path $scriptDirectory 'New-NativeFilePayload.ps1') -InputDirectory $inputDirectory -OutputDirectory $outputDirectory -Version '0.30.52' -Repository 'fixture/project' -Architecture x64
+    [IO.File]::WriteAllText((Join-Path $outputDirectory 'OpenFinalShell-Native-0.30.52-x64-Setup.exe'), 'stable installer')
+    & (Join-Path $scriptDirectory 'New-NativeUpdateManifests.ps1') -InstallerDirectory $outputDirectory -OutputDirectory $outputDirectory -Version '0.30.52' -Repository 'fixture/project' -Architectures x64
+    $promotionFeed = Get-Content (Join-Path $outputDirectory 'native-update-x64.json') -Raw | ConvertFrom-Json
+    if ($promotionFeed.incremental -or $promotionFeed.channel -ne 'stable' -or $promotionFeed.fileName -ne 'OpenFinalShell-Native-0.30.52-x64-Setup.exe') { throw 'Stable promotion must use the renamed full installer.' }
+    if (!$rsa.VerifyData([Text.Encoding]::UTF8.GetBytes("$($promotionFeed.version)`n$($promotionFeed.channel)`n$($promotionFeed.sha256)`n"), [Convert]::FromBase64String($promotionFeed.signature), [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)) { throw 'Promotion feed signature did not verify.' }
     Write-Output "PASS: signed legacy/incremental feeds and all $($inventory.files.Count) gzip file ranges verified."
 } finally { $rsa.Dispose(); Remove-Item Env:OFS_NATIVE_UPDATE_PRIVATE_KEY_B64 -ErrorAction SilentlyContinue }

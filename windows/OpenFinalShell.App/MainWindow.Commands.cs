@@ -8,6 +8,8 @@ namespace OpenFinalShell.App;
 
 public sealed partial class MainWindow
 {
+    private NativeCommandEditorWindow? commandEditorWindow;
+
     private void CommandSearchChanged(object sender, TextChangedEventArgs args)
     {
         CommandViewModel.Query = ((TextBox)sender).Text;

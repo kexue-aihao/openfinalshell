@@ -11,7 +11,7 @@
 5. 下载大小、SHA-256 和签名全部匹配后才进入 `Ready` 状态；启动安装器前会再次验证文件。
 6. 存在 SSH 会话、传输、活动转发、未保存编辑器或 RDP 会话时阻止安装。用户确认后才启动安装器。
 7. 用户确认后，安装器以 `/S /WAITPID=<旧进程ID>` 静默启动，持有旧进程句柄并在文件覆盖前等待其退出；安装成功后重新启动新版。
-8. 安装目录默认为 `C:\Program Files\OpenFinalShell Native Preview`，与 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 数据目录分离。覆盖安装和卸载不删除连接、凭据、known hosts、分组或转发规则。
+8. 新安装目录默认为 `C:\Program Files\OpenFinalShell Native`，旧安装沿用注册表记录的目录。数据目录仍为 `%LOCALAPPDATA%\OpenFinalShell.NativePreview`，保留兼容标识；覆盖安装和卸载不删除连接、凭据、known hosts、分组或转发规则。
 
 ## Feed 格式
 
@@ -54,7 +54,7 @@ Secret 内容是私钥 PEM 文件的无换行 Base64，不是 PEM 文本本身�
 - 发布版本化自包含应用并生成版本化 NSIS 安装器。
 - 对每个安装包计算摘要，验证私钥与固定公钥匹配，再生成签名清单。
 - 将安装包和清单作为独立 artifact 上传到合并后的同一 Release。
-- 清理旧桌面资产时保留 `OpenFinalShell-NativePreview-*` 和 `native-update-*.json`。
+- 清理旧桌面资产时保留 `OpenFinalShell-Native-*` 和 `native-update-*.json`。
 
 本地构建命令：
 
@@ -70,8 +70,8 @@ Secret 内容是私钥 PEM 文件的无换行 Base64，不是 PEM 文本本身�
 
 ## 当前边界
 
-- 更新只提供完整安装包，没有差分下载。
+- 从 0.30.39 起支持签名文件增量更新。0.30.52 为正式命名切换，feed 不提供 incremental 入口，使用一次完整安装更新以刷新快捷方式、卸载程序与系统应用名称；之后恢复增量入口。
 - 安装需要用户确认，不会静默关闭活动工作。
 - NSIS 安装器尚未做 Authenticode 代码签名；RSA 清单签名负责更新内容可信性，SmartScreen 发布者信誉仍需要后续证书接入。
-- 自动回滚、真实 GitHub Release 升级和普通用户/其他架构真机验收仍需发布候选版本验证。
-- 原生版仍保持 Preview 身份，Electron 仍是当前正式 Windows 客户端。
+- 文件增量更新包含替换失败回滚；普通用户及其他架构的真实安装升级验收仍需对应环境验证。
+- 从 0.30.52 起，WinUI 3 原生版使用 stable 清单正式发布，与 Electron 客户端并存。数据目录、DPAPI 熵、进程协调和安装注册键中的旧 NativePreview 标识保持不变，避免影响旧数据和覆盖升级。

@@ -1451,8 +1451,8 @@
     },
     "hostKeyTitle": "Confirm host key",
     "errors": {
-      "transportUnavailable": "This transport is not available in the native preview.",
-      "charsetUnavailable": "This terminal encoding is not available in the native preview.",
+      "transportUnavailable": "This transport is not available in the native edition.",
+      "charsetUnavailable": "This terminal encoding is not available in the native edition.",
       "privateKeyMissing": "The private key file is missing.",
       "agentUnavailable": "沒有可用的 SSH Agent，或無法連線到設定的 Agent。",
       "invalidProxy": "The proxy configuration is invalid.",
@@ -1515,7 +1515,7 @@
     }
   },
   "nativePreview": {
-    "title": "WinUI 3 原生預覽版",
+    "title": "WinUI 3 原生版",
     "description": "獨立的 Windows 原生用戶端，與目前 Electron 版並存。",
     "versionArchitecture": "最新版本 {{version}} · 架構 {{architecture}}",
     "currentVersion": "目前 Electron 版本 {{version}}",
@@ -1534,7 +1534,7 @@
     "instructionsButton": "遷移說明",
     "downloaded": "安裝程式已下載，並通過簽章清單及 SHA-256 驗證。",
     "downloadError": "下載或驗證失敗",
-    "confirmTitle": "遷移至 WinUI 3 原生預覽版",
+    "confirmTitle": "遷移至 WinUI 3 原生版",
     "confirmBody": "Electron 版會保留，不會被取代。原生版獨立安裝；連線資料需先加密匯出，再於原生版首次啟動後匯入。",
     "privacyNote": "匯出檔在本機建立並以你設定的密碼加密。檔案不會上傳；私鑰檔案本身不會複製，原生版只匯入既有私鑰路徑與參照。",
     "confirmOk": "了解並繼續",
@@ -1549,6 +1549,6 @@
     "installBody": "即將啟動已驗證的獨立安裝程式。它不會取代 Electron 版；安裝完成後可開啟原生版並匯入剛建立的檔案。",
     "installerStarted": "已啟動原生版安裝程式。",
     "instructionsTitle": "Electron → WinUI 3 遷移說明",
-    "instructionsBody": "先建立加密遷移檔並妥善保存密碼，再下載並安裝原生預覽版。首次啟動時選擇「從 Electron 匯入」，選取該檔案並輸入相同密碼。安裝和匯入不會刪除或改寫 Electron 版資料。原生資料目錄："
+    "instructionsBody": "先建立加密遷移檔並妥善保存密碼，再下載並安裝原生版。首次啟動時選擇「從 Electron 匯入」，選取該檔案並輸入相同密碼。安裝和匯入不會刪除或改寫 Electron 版資料。原生資料目錄："
   }
 }

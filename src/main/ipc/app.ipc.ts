@@ -22,7 +22,7 @@ const log = scopedLogger('app')
 let nativePreviewUpgrade: NativePreviewUpgradeService | null = null
 
 function nativePreviewUpgradeService(): NativePreviewUpgradeService {
-  if (process.platform !== 'win32') throw new Error('WinUI 3 native preview is available only on Windows.')
+  if (process.platform !== 'win32') throw new Error('WinUI 3 native edition is available only on Windows.')
   nativePreviewUpgrade ??= new NativePreviewUpgradeService({
     userDataDirectory: app.getPath('userData'),
     openPath: (path) => shell.openPath(path),

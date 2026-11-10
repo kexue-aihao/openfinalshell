@@ -52,6 +52,18 @@ public static class NativeUpdateServiceContractTests
             "Native update service checks, downloads, hashes and verifies a signed manifest");
         check(artifact != null && File.ReadAllBytes(artifact.Path).SequenceEqual(bytes), "Native update service preserves the verified installer bytes");
 
+        var stableManifest = (JsonObject)manifest.DeepClone();
+        stableManifest["version"] = "0.30.52";
+        stableManifest["channel"] = "stable";
+        stableManifest["fileName"] = $"OpenFinalShell-Native-0.30.52-{architecture}-Setup.exe";
+        stableManifest["signature"] = Convert.ToBase64String(signer.SignData(Encoding.UTF8.GetBytes($"0.30.52\nstable\n{digest}\n"), HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1));
+        using var stableClient = new HttpClient(new StaticUpdateHandler(manifestUri, downloadUri, Encoding.UTF8.GetBytes(stableManifest.ToJsonString()), bytes));
+        using var stableService = new NativeUpdateService(coordinator, "0.30.51", signer.ExportSubjectPublicKeyInfoPem(), manifestUri,
+            Path.Combine(root, "update-feed-stable-" + Guid.NewGuid().ToString("N")), stableClient);
+        var stableArtifact = await stableService.CheckAndDownloadAsync();
+        check(stableArtifact != null && stableService.State.Status == NativeUpdateStatus.Ready && File.ReadAllBytes(stableArtifact.Path).SequenceEqual(bytes),
+            "Preview clients accept the signed stable full installer with the new native product name");
+
         var badManifest = (JsonObject)manifest.DeepClone();
         badManifest["sha256"] = new string('0', 64);
         using var badClient = new HttpClient(new StaticUpdateHandler(manifestUri, downloadUri, Encoding.UTF8.GetBytes(badManifest.ToJsonString()), bytes));

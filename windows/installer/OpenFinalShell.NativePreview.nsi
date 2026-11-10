@@ -1,4 +1,4 @@
-﻿Unicode True
+Unicode True
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 
@@ -23,27 +23,27 @@ Var OFS_WAIT_PID
   !define OUT_DIR "."
 !endif
 
-Name "OpenFinalShell Native Preview"
-Caption "OpenFinalShell Native Preview ${ARCH}"
+Name "OpenFinalShell Native"
+Caption "OpenFinalShell Native ${ARCH}"
 BrandingText "OpenFinalShell"
-OutFile "${OUT_DIR}\OpenFinalShell-NativePreview-${VERSION}-${ARCH}-Setup.exe"
+OutFile "${OUT_DIR}\OpenFinalShell-Native-${VERSION}-${ARCH}-Setup.exe"
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey /LANG=2052 "ProductName" "OpenFinalShell Native Preview"
+VIAddVersionKey /LANG=2052 "ProductName" "OpenFinalShell Native"
 VIAddVersionKey /LANG=2052 "CompanyName" "openfinalshell contributors"
-VIAddVersionKey /LANG=2052 "FileDescription" "OpenFinalShell Native Preview installer"
+VIAddVersionKey /LANG=2052 "FileDescription" "OpenFinalShell Native installer"
 VIAddVersionKey /LANG=2052 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=2052 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Copyright © 2026 openfinalshell contributors"
-VIAddVersionKey /LANG=1033 "ProductName" "OpenFinalShell Native Preview"
+VIAddVersionKey /LANG=1033 "ProductName" "OpenFinalShell Native"
 VIAddVersionKey /LANG=1033 "CompanyName" "openfinalshell contributors"
-VIAddVersionKey /LANG=1033 "FileDescription" "OpenFinalShell Native Preview installer"
+VIAddVersionKey /LANG=1033 "FileDescription" "OpenFinalShell Native installer"
 VIAddVersionKey /LANG=1033 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=1033 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "Copyright © 2026 openfinalshell contributors"
-; Keep the native preview install alongside other machine-wide Windows apps.
+; Keep the native edition install alongside other machine-wide Windows apps.
 ; PROGRAMFILES64 resolves to C:\Program Files on 64-bit Windows for every
-; native preview architecture (x64, x86 and ARM64).
-InstallDir "$PROGRAMFILES64\OpenFinalShell Native Preview"
+; native edition architecture (x64, x86 and ARM64).
+InstallDir "$PROGRAMFILES64\OpenFinalShell Native"
 RequestExecutionLevel admin
 InstallDirRegKey HKCU "Software\OpenFinalShell.NativePreview" "InstallDir"
 SetCompressor /SOLID lzma
@@ -93,7 +93,7 @@ Section "Application"
   File /r "${INPUT_DIR}\*.*"
   WriteRegStr HKCU "Software\OpenFinalShell.NativePreview" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\OpenFinalShell.NativePreview" "Version" "${VERSION}"
-  WriteRegStr HKCU "${UNINSTALL_REG_KEY}" "DisplayName" "OpenFinalShell Native Preview"
+  WriteRegStr HKCU "${UNINSTALL_REG_KEY}" "DisplayName" "OpenFinalShell Native"
   WriteRegStr HKCU "${UNINSTALL_REG_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINSTALL_REG_KEY}" "Publisher" "openfinalshell contributors"
   WriteRegStr HKCU "${UNINSTALL_REG_KEY}" "InstallLocation" "$INSTDIR"
@@ -102,9 +102,13 @@ Section "Application"
   WriteRegStr HKCU "${UNINSTALL_REG_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINSTALL_REG_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINSTALL_REG_KEY}" "NoRepair" 1
-  CreateShortCut "$DESKTOP\OpenFinalShell Native Preview.lnk" "$INSTDIR\OpenFinalShell.App.exe"
-  CreateDirectory "$SMPROGRAMS\OpenFinalShell Native Preview"
-  CreateShortCut "$SMPROGRAMS\OpenFinalShell Native Preview\OpenFinalShell Native Preview.lnk" "$INSTDIR\OpenFinalShell.App.exe"
+  ; Remove only the legacy product shortcuts; keep its install/data identity.
+  Delete "$DESKTOP\OpenFinalShell Native Preview.lnk"
+  Delete "$SMPROGRAMS\OpenFinalShell Native Preview\OpenFinalShell Native Preview.lnk"
+  RMDir "$SMPROGRAMS\OpenFinalShell Native Preview"
+  CreateShortCut "$DESKTOP\OpenFinalShell Native.lnk" "$INSTDIR\OpenFinalShell.App.exe"
+  CreateDirectory "$SMPROGRAMS\OpenFinalShell Native"
+  CreateShortCut "$SMPROGRAMS\OpenFinalShell Native\OpenFinalShell Native.lnk" "$INSTDIR\OpenFinalShell.App.exe"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 SectionEnd
 
@@ -114,6 +118,9 @@ Section "Uninstall"
   Delete "$DESKTOP\OpenFinalShell Native Preview.lnk"
   Delete "$SMPROGRAMS\OpenFinalShell Native Preview\OpenFinalShell Native Preview.lnk"
   RMDir "$SMPROGRAMS\OpenFinalShell Native Preview"
+  Delete "$DESKTOP\OpenFinalShell Native.lnk"
+  Delete "$SMPROGRAMS\OpenFinalShell Native\OpenFinalShell Native.lnk"
+  RMDir "$SMPROGRAMS\OpenFinalShell Native"
   SetOutPath "$TEMP"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir /r "$INSTDIR"

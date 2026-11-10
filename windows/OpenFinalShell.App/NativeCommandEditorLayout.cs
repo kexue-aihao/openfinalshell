@@ -21,25 +21,37 @@ internal static class NativeCommandEditorLayoutPolicy
         var editorHeight = Math.Clamp(Math.Round(contentHeight - 250d), 180d, 520d);
         return new NativeCommandEditorLayout(dialogWidth, contentHeight, editorHeight, targetsHeight, portrait);
     }
-}
 
-internal readonly record struct NativeCommandEditorOffset(double X, double Y);
-
-internal static class NativeCommandEditorDragPolicy
-{
-    internal static NativeCommandEditorOffset Clamp(
-        double requestedX,
-        double requestedY,
-        double viewportWidth,
-        double viewportHeight,
-        double dialogWidth,
-        double dialogHeight,
-        double viewportMargin = 12d)
+    // Inputs and result are physical pixels. Leave room for window borders,
+    // the system caption and the taskbar, including on portrait/high-DPI screens.
+    internal static NativeCommandEditorWindowSize ResolveWindowSize(
+        int workWidth, int workHeight, double rasterScale, double uiZoom,
+        double? savedWidthDip = null, double? savedHeightDip = null)
     {
-        var maximumX = Math.Max(0, (viewportWidth - dialogWidth) / 2d - viewportMargin);
-        var maximumY = Math.Max(0, (viewportHeight - dialogHeight) / 2d - viewportMargin);
-        return new NativeCommandEditorOffset(
-            Math.Clamp(requestedX, -maximumX, maximumX),
-            Math.Clamp(requestedY, -maximumY, maximumY));
+        var dpi = double.IsFinite(rasterScale) && rasterScale > 0 ? rasterScale : 1d;
+        var zoom = double.IsFinite(uiZoom) && uiZoom > 0 ? uiZoom : 1d;
+        var availableWidth = Math.Max(1, workWidth - (int)Math.Ceiling(32 * dpi));
+        var availableHeight = Math.Max(1, workHeight - (int)Math.Ceiling(80 * dpi));
+
+        // Persist the actual client size in DIPs, not pixels, so a custom size
+        // remains familiar when the editor is reopened on another-DPI display.
+        if (savedWidthDip is > 0 && savedHeightDip is > 0
+            && double.IsFinite(savedWidthDip.Value) && double.IsFinite(savedHeightDip.Value))
+        {
+            var minWidth = Math.Min(availableWidth, (int)Math.Ceiling(320 * dpi));
+            var minHeight = Math.Min(availableHeight, (int)Math.Ceiling(280 * dpi));
+            var widthDip = Math.Clamp(savedWidthDip.Value, minWidth / dpi, availableWidth / dpi);
+            var heightDip = Math.Clamp(savedHeightDip.Value, minHeight / dpi, availableHeight / dpi);
+            return new NativeCommandEditorWindowSize(
+                Math.Clamp((int)Math.Round(widthDip * dpi), minWidth, availableWidth),
+                Math.Clamp((int)Math.Round(heightDip * dpi), minHeight, availableHeight));
+        }
+
+        var layout = Resolve(availableWidth / (dpi * zoom), availableHeight / (dpi * zoom));
+        return new NativeCommandEditorWindowSize(
+            Math.Clamp((int)Math.Round(layout.DialogWidth * dpi * zoom), 1, availableWidth),
+            Math.Clamp((int)Math.Round((layout.ContentHeight + 80) * dpi * zoom), 1, availableHeight));
     }
 }
+
+internal readonly record struct NativeCommandEditorWindowSize(int Width, int Height);

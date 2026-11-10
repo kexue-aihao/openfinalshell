@@ -17,11 +17,11 @@
     <SelfContained>true</SelfContained>
     <PublishTrimmed>false</PublishTrimmed>
     <EnableMsixTooling>false</EnableMsixTooling>
-    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.51</OpenFinalShellVersion>
+    <OpenFinalShellVersion Condition="'$(OpenFinalShellVersion)' == ''">0.30.52</OpenFinalShellVersion>
     <Version>$(OpenFinalShellVersion)</Version>
     <AssemblyVersion>$(OpenFinalShellVersion)</AssemblyVersion>
     <FileVersion>$(OpenFinalShellVersion)</FileVersion>
-    <ApplicationTitle>OpenFinalShell Native Preview</ApplicationTitle>
+    <ApplicationTitle>OpenFinalShell Native</ApplicationTitle>
     <ApplicationIcon>Assets\OpenFinalShell.ico</ApplicationIcon>
     <AssemblyName Condition="'$(NativeAcceptanceName)' != ''">$(NativeAcceptanceName)</AssemblyName>
     <RootNamespace>OpenFinalShell.App</RootNamespace>

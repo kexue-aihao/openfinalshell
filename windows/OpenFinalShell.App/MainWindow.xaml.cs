@@ -188,7 +188,7 @@ public sealed partial class MainWindow : Window
         Closed += MainWindowClosed;
         AppWindow.Closing += MainWindowClosing;
         ApplyPlatformResources();
-        Title = $"OpenFinalShell Native Preview · {environment.Profile}" + (Environment.GetEnvironmentVariable("OFS_NATIVE_TEST_MODE") == "1" ? " · isolated test" : "");
+        Title = $"OpenFinalShell Native · {environment.Profile}" + (Environment.GetEnvironmentVariable("OFS_NATIVE_TEST_MODE") == "1" ? " · isolated test" : "");
         ProfilesList.ItemsSource = connections.Profiles;
         connectionTree = new Controls.NativeConnectionTree(store, key => localization[key]);
         connectionTree.ActionRequested += ConnectionTreeAction;
@@ -375,6 +375,8 @@ public sealed partial class MainWindow : Window
         CommandMoveUp.Content = localization["native.groups.moveUp"];
         CommandMoveDown.Content = localization["native.groups.moveDown"];
         CommandGroupsHeading.Text = localization["native.group"];
+        CommandHistoryHeading.Text = localization["snippet.history"];
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandHistory, localization["snippet.history"]);
         ComposeCommandButton.Label = localization["commandEditor.title"];
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandGroupMoveUp, localization["native.group"] + " · " + localization["native.groups.moveUp"]);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandGroupMoveDown, localization["native.group"] + " · " + localization["native.groups.moveDown"]);
@@ -1641,124 +1643,30 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowCommandSendAsync(string initialCommand, bool appendEnter)
     {
+        if (commandEditorWindow is { } openEditor) { openEditor.Activate(); return; }
         try
         {
             var ready = sessionsManager.List().Where(s => s.State == NativeSessionState.Ready && sessionTerminals.ContainsKey(s.SessionId)).ToArray();
-            var viewport = Root.XamlRoot.Size;
-            var editorLayout = NativeCommandEditorLayoutPolicy.Resolve(viewport.Width, viewport.Height);
-            var targets = new ListView { SelectionMode = ListViewSelectionMode.Multiple, MaxHeight = editorLayout.TargetsHeight };
-            foreach (var session in ready) targets.Items.Add(new ListViewItem { Content = session.ProfileName, Tag = session.SessionId });
-            var activeId = (Sessions.SelectedItem as TabViewItem)?.Tag?.ToString();
-            if (targets.Items.OfType<ListViewItem>().FirstOrDefault(i => i.Tag?.ToString() == activeId) is { } selected) targets.SelectedItems.Add(selected);
-            var autoEnter = new ToggleSwitch { Header = localization["commandEditor.autoEnter"], IsOn = appendEnter };
-            ToolTipService.SetToolTip(autoEnter, localization["commandEditor.autoEnterHint"]);
-            var commandInput = new TextBox { PlaceholderText = localization["commandEditor.placeholder"], AcceptsReturn = true, Height = editorLayout.EditorHeight, MinWidth = Math.Max(240, editorLayout.DialogWidth - 80), TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), Text = initialCommand };
-            ScrollViewer.SetVerticalScrollBarVisibility(commandInput, ScrollBarVisibility.Auto);
-            var expand = new CheckBox { Content = localization["commandEditor.expandVars"], IsChecked = true };
-            ToolTipService.SetToolTip(expand, localization["commandEditor.expandVarsHint"] + " {{host}} {{user}} {{port}}");
-            var titleText = new TextBlock
+            var editor = new NativeCommandEditorWindow(this, store, settings, localization, ready,
+                SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()), initialCommand, appendEnter);
+            commandEditorWindow = editor;
+            NativeCommandEditorAction result;
+            try { result = await editor.ShowAsync(); }
+            finally { commandEditorWindow = null; }
+            if (result == NativeCommandEditorAction.SaveSnippet)
             {
-                Text = localization["commandEditor.title"],
-                FontSize = 20,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            var titleBar = new Grid
-            {
-                Height = 36,
-                Margin = new Thickness(0, 0, 0, 8),
-                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0))
-            };
-            titleBar.Children.Add(titleText);
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(titleBar, localization["commandEditor.title"]);
-            var editorBody = new ScrollViewer
-            {
-                MaxHeight = Math.Max(180, editorLayout.ContentHeight - 44),
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = new StackPanel { Spacing = 12, Children = { commandInput, new TextBlock { Text = localization["commandEditor.sendTo"] }, targets, expand, autoEnter } }
-            };
-            var editorContent = new Grid();
-            editorContent.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            editorContent.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            editorContent.Children.Add(titleBar);
-            Grid.SetRow(editorBody, 1);
-            editorContent.Children.Add(editorBody);
-            var dialog = new ContentDialog { XamlRoot = Root.XamlRoot, Width = editorLayout.DialogWidth, MinWidth = editorLayout.DialogWidth, MaxWidth = editorLayout.DialogWidth, MaxHeight = Math.Min(900, viewport.Height - 24),
-                Content = editorContent,
-                PrimaryButtonText = localization["commandEditor.send"], SecondaryButtonText = localization["commandEditor.saveAsSnippet"], CloseButtonText = localization["common.cancel"] };
-            dialog.Resources["ContentDialogMinWidth"] = editorLayout.DialogWidth;
-            dialog.Resources["ContentDialogMaxWidth"] = editorLayout.DialogWidth;
-            var dragging = false;
-            var dragStart = new Windows.Foundation.Point();
-            var dragStartX = 0d;
-            var dragStartY = 0d;
-            titleBar.PointerPressed += (_, pointerArgs) =>
-            {
-                var point = pointerArgs.GetCurrentPoint(titleBar);
-                if (point.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse &&
-                    !point.Properties.IsLeftButtonPressed) return;
-                dragging = true;
-                dragStart = pointerArgs.GetCurrentPoint(Root).Position;
-                dragStartX = dialog.Translation.X;
-                dragStartY = dialog.Translation.Y;
-                titleBar.CapturePointer(pointerArgs.Pointer);
-                pointerArgs.Handled = true;
-            };
-            titleBar.PointerMoved += (_, pointerArgs) =>
-            {
-                if (!dragging) return;
-                var point = pointerArgs.GetCurrentPoint(Root).Position;
-                var offset = NativeCommandEditorDragPolicy.Clamp(
-                    dragStartX + point.X - dragStart.X,
-                    dragStartY + point.Y - dragStart.Y,
-                    viewport.Width,
-                    viewport.Height,
-                    dialog.ActualWidth > 0 ? dialog.ActualWidth : editorLayout.DialogWidth,
-                    dialog.ActualHeight > 0 ? dialog.ActualHeight : editorLayout.ContentHeight);
-                dialog.Translation = new System.Numerics.Vector3((float)offset.X, (float)offset.Y, 0);
-                pointerArgs.Handled = true;
-            };
-            void EndTitleDrag(Microsoft.UI.Xaml.Input.PointerRoutedEventArgs pointerArgs)
-            {
-                if (!dragging) return;
-                dragging = false;
-                titleBar.ReleasePointerCapture(pointerArgs.Pointer);
-                pointerArgs.Handled = true;
-            }
-            titleBar.PointerReleased += (_, pointerArgs) => EndTitleDrag(pointerArgs);
-            titleBar.PointerCanceled += (_, pointerArgs) => EndTitleDrag(pointerArgs);
-            titleBar.PointerCaptureLost += (_, _) => dragging = false;
-            bool ValidCommand() => !string.IsNullOrWhiteSpace(commandInput.Text) && !commandInput.Text.Contains('\0') && commandInput.Text.Length <= 32768;
-            void UpdateSend()
-            {
-                dialog.IsPrimaryButtonEnabled = ValidCommand() && targets.SelectedItems.Count > 0;
-                dialog.IsSecondaryButtonEnabled = ValidCommand();
-            }
-            commandInput.TextChanged += (_, _) => UpdateSend(); targets.SelectionChanged += (_, _) => UpdateSend(); UpdateSend();
-            var keyboardSend = false;
-            var sendShortcut = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Enter, Modifiers = Windows.System.VirtualKeyModifiers.Control };
-            sendShortcut.Invoked += (_, eventArgs) =>
-            {
-                eventArgs.Handled = true;
-                if (!dialog.IsPrimaryButtonEnabled) return;
-                keyboardSend = true; dialog.Hide();
-            };
-            commandInput.KeyboardAccelerators.Add(sendShortcut);
-            var result = await dialog.ShowGatedAsync();
-            if (result == ContentDialogResult.Secondary)
-            {
-                await SaveComposedSnippetAsync(commandInput.Text, autoEnter.IsOn);
+                await SaveComposedSnippetAsync(editor.Command, editor.AppendEnter);
                 return;
             }
-            if (result != ContentDialogResult.Primary && !keyboardSend) return;
+            if (result != NativeCommandEditorAction.Send) return;
             var sent = 0;
-            foreach (var target in targets.SelectedItems.OfType<ListViewItem>())
+            foreach (var targetId in editor.TargetSessionIds)
             {
-                var session = sessionsManager.Get((string)target.Tag);
+                var session = sessionsManager.Get(targetId);
                 if (session.Snapshot.State != NativeSessionState.Ready) continue;
-                var command = expand.IsChecked == true ? NativeCommandLibrary.ExpandSnippet(commandInput.Text, session.Profile) : commandInput.Text;
-                session.Write(System.Text.Encoding.UTF8.GetBytes(command + (autoEnter.IsOn ? "\r" : "")));
-                if (autoEnter.IsOn)
+                var command = editor.ExpandVariables ? NativeCommandLibrary.ExpandSnippet(editor.Command, session.Profile) : editor.Command;
+                session.Write(System.Text.Encoding.UTF8.GetBytes(command + (editor.AppendEnter ? "\r" : "")));
+                if (editor.AppendEnter)
                 {
                     commandLibrary.AddHistory(session.SessionId, command);
                     if (sessionWorkspaces.TryGetValue(session.SessionId, out var workspace)) workspace.FollowExecutedShellCommands(command);
@@ -2578,6 +2486,7 @@ public sealed partial class MainWindow : Window
     private nint WindowHandle() => WindowNative.GetWindowHandle(this);
     private void MainWindowClosed(object sender, WindowEventArgs args)
     {
+        commandEditorWindow?.Close();
         if (accessibilitySubscribed && accessibilitySettings is { } accessibility)
             NativeAccessibilityGuard.TryUnregister(() => accessibility.HighContrastChanged -= AccessibilitySettings_HighContrastChanged);
         accessibilitySubscribed = false;

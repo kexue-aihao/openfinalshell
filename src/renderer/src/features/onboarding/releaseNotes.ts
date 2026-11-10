@@ -17,6 +17,15 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.52',
+    items: [
+      { type: 'feat', zh: 'WinUI 3 原生版正式发布：统一应用、安装器、快捷方式与迁移入口名称，保留原有数据和升级兼容性', en: 'Release the WinUI 3 native edition with consistent app, installer, shortcut and migration names while preserving existing data and upgrade compatibility' },
+      { type: 'fix', zh: '命令编辑器改为独立原生窗口，可拖动标题栏、调整宽高与最大化；自动记住自定义尺寸，重新打开时恢复', en: 'Use a separate native command editor window with title-bar dragging, resizing and maximization, remembering custom dimensions when reopened' },
+      { type: 'fix', zh: '恢复命令库中可见的命令历史标题，关闭编辑器后保持命令库页面', en: 'Restore the visible command history heading and keep the command library open after closing the editor' },
+      { type: 'feat', zh: '0.30.52 使用一次完整安装更新以同步系统应用名称和快捷方式，后续版本继续支持签名文件增量更新', en: 'Use a one-time full installer update for 0.30.52 to refresh Windows app registration and shortcuts; later releases continue to support signed file-level updates' }
+    ]
+  },
+  {
     version: '0.30.51',
     items: [
       { type: 'fix', zh: '移除命令编辑器标题旁的可见拖动方块，整条标题文字区域仍可直接拖动', en: 'Remove the visible drag-handle box beside the command editor title while keeping the whole title area draggable' },

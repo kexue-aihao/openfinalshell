@@ -58,15 +58,15 @@ export async function fetchNativePreviewResponse(
       current.port ||
       !TRUSTED_DOWNLOAD_HOSTS.has(current.hostname)
     ) {
-      throw new Error('Native preview download redirected to an untrusted host.')
+      throw new Error('Native download redirected to an untrusted host.')
     }
     const response = await fetcher(current, { ...init, redirect: 'manual' })
     if (![301, 302, 303, 307, 308].includes(response.status)) return response
     const location = response.headers.get('location')
-    if (!location) throw new Error('Native preview download redirect is missing its destination.')
+    if (!location) throw new Error('Native download redirect is missing its destination.')
     current = new URL(location, current)
   }
-  throw new Error('Native preview download used too many redirects.')
+  throw new Error('Native download used too many redirects.')
 }
 
 export function resolveNativePreviewArchitecture(host = machine()): NativePreviewArchitecture {
@@ -82,27 +82,28 @@ function validVersion(value: unknown): value is string {
 }
 
 export function verifyNativePreviewManifest(value: unknown, architecture: NativePreviewArchitecture): NativePreviewManifest {
-  if (!value || typeof value !== 'object') throw new Error('Native preview manifest is invalid.')
+  if (!value || typeof value !== 'object') throw new Error('Native manifest is invalid.')
   const manifest = value as Record<string, unknown>
-  if (manifest.schemaVersion !== 1 || !validVersion(manifest.version)) throw new Error('Native preview manifest schema or version is unsupported.')
-  if (manifest.channel !== 'preview' && manifest.channel !== 'stable') throw new Error('Native preview channel is invalid.')
-  if (manifest.architecture !== architecture) throw new Error(`Native preview package targets ${String(manifest.architecture)}, expected ${architecture}.`)
-  if (typeof manifest.fileName !== 'string' || basename(manifest.fileName) !== manifest.fileName || /[\\/]/.test(manifest.fileName)) throw new Error('Native preview package filename is unsafe.')
+  if (manifest.schemaVersion !== 1 || !validVersion(manifest.version)) throw new Error('Native manifest schema or version is unsupported.')
+  if (manifest.channel !== 'preview' && manifest.channel !== 'stable') throw new Error('Native channel is invalid.')
+  if (manifest.architecture !== architecture) throw new Error(`Native package targets ${String(manifest.architecture)}, expected ${architecture}.`)
+  if (typeof manifest.fileName !== 'string' || basename(manifest.fileName) !== manifest.fileName || /[\\/]/.test(manifest.fileName)) throw new Error('Native package filename is unsafe.')
   const displayArch = architecture === 'arm64' ? 'ARM64' : architecture
-  if (manifest.fileName !== `OpenFinalShell-NativePreview-${manifest.version}-${displayArch}-Setup.exe`) throw new Error('Native preview package filename does not match its version and architecture.')
-  if (typeof manifest.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(manifest.sha256)) throw new Error('Native preview package hash is invalid.')
-  if (typeof manifest.signature !== 'string' || manifest.signature.length > 4096) throw new Error('Native preview signature is invalid.')
-  if (!Number.isSafeInteger(manifest.bytes) || Number(manifest.bytes) <= 0 || Number(manifest.bytes) > PACKAGE_LIMIT) throw new Error('Native preview package size is invalid.')
-  if (typeof manifest.downloadUrl !== 'string') throw new Error('Native preview download URL is missing.')
+  const expectedNames = ['Native', 'NativePreview'].map(name => `OpenFinalShell-${name}-${manifest.version}-${displayArch}-Setup.exe`)
+  if (!expectedNames.includes(manifest.fileName)) throw new Error('Native package filename does not match its version and architecture.')
+  if (typeof manifest.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(manifest.sha256)) throw new Error('Native package hash is invalid.')
+  if (typeof manifest.signature !== 'string' || manifest.signature.length > 4096) throw new Error('Native signature is invalid.')
+  if (!Number.isSafeInteger(manifest.bytes) || Number(manifest.bytes) <= 0 || Number(manifest.bytes) > PACKAGE_LIMIT) throw new Error('Native package size is invalid.')
+  if (typeof manifest.downloadUrl !== 'string') throw new Error('Native download URL is missing.')
   const download = new URL(manifest.downloadUrl)
   const expectedPath = `/kexue-aihao/openfinalshell/releases/download/v${manifest.version}/${manifest.fileName}`
-  if (download.protocol !== 'https:' || download.hostname !== 'github.com' || download.pathname !== expectedPath || download.search || download.hash) throw new Error('Native preview download URL is not the expected GitHub release asset.')
+  if (download.protocol !== 'https:' || download.hostname !== 'github.com' || download.pathname !== expectedPath || download.search || download.hash) throw new Error('Native download URL is not the expected GitHub release asset.')
   const signature = Buffer.from(manifest.signature, 'base64')
   if (signature.length < 128 || !verifySignature('sha256', Buffer.from(`${manifest.version}\n${manifest.channel}\n${manifest.sha256.toLowerCase()}\n`), createPublicKey(PEM), signature)) {
-    throw new Error('Native preview manifest signature verification failed.')
+    throw new Error('Native manifest signature verification failed.')
   }
   if (manifest.notesUrl !== undefined && (typeof manifest.notesUrl !== 'string' || !/^https:\/\/github\.com\/kexue-aihao\/openfinalshell\/releases\/tag\//.test(manifest.notesUrl))) {
-    throw new Error('Native preview release notes URL is invalid.')
+    throw new Error('Native release notes URL is invalid.')
   }
   return manifest as unknown as NativePreviewManifest
 }
@@ -155,7 +156,7 @@ export class NativePreviewUpgradeService {
   }
 
   async download(): Promise<{ path: string; version: string; architecture: NativePreviewArchitecture; bytes: number; sha256: string }> {
-    if (this.busy) throw new Error('A native preview download is already in progress.')
+    if (this.busy) throw new Error('A native edition download is already in progress.')
     this.busy = true
     try {
       const manifest = await this.getManifest()
@@ -174,9 +175,9 @@ export class NativePreviewUpgradeService {
       let handle: Awaited<ReturnType<typeof open>> | undefined
       try {
         const response = await fetchNativePreviewResponse(this.fetcher, manifest.downloadUrl)
-        if (!response.ok || !response.body) throw new Error(`Native preview download failed (HTTP ${response.status}).`)
+        if (!response.ok || !response.body) throw new Error(`Native download failed (HTTP ${response.status}).`)
         const contentLength = Number(response.headers.get('content-length') ?? 0)
-        if (contentLength > PACKAGE_LIMIT || (contentLength > 0 && contentLength !== manifest.bytes)) throw new Error('Native preview package size does not match its signed manifest.')
+        if (contentLength > PACKAGE_LIMIT || (contentLength > 0 && contentLength !== manifest.bytes)) throw new Error('Native package size does not match its signed manifest.')
         handle = await open(partial, 'wx')
         const hash = createHash('sha256')
         let received = 0
@@ -184,7 +185,7 @@ export class NativePreviewUpgradeService {
         for await (const chunkValue of response.body as unknown as AsyncIterable<Uint8Array>) {
           const chunk = Buffer.from(chunkValue)
           received += chunk.length
-          if (received > manifest.bytes || received > PACKAGE_LIMIT) throw new Error('Native preview package exceeded its signed size.')
+          if (received > manifest.bytes || received > PACKAGE_LIMIT) throw new Error('Native package exceeded its signed size.')
           hash.update(chunk)
           await handle.writeFile(chunk)
           const percent = Math.floor(received * 100 / manifest.bytes)
@@ -193,7 +194,7 @@ export class NativePreviewUpgradeService {
         await handle.sync()
         await handle.close(); handle = undefined
         const actualHash = hash.digest('hex')
-        if (received !== manifest.bytes || actualHash !== manifest.sha256.toLowerCase()) throw new Error('Native preview package hash or size verification failed.')
+        if (received !== manifest.bytes || actualHash !== manifest.sha256.toLowerCase()) throw new Error('Native package hash or size verification failed.')
         await rm(destination, { force: true })
         await rename(partial, destination)
         this.verified = { manifest, path: destination }
@@ -208,12 +209,12 @@ export class NativePreviewUpgradeService {
   }
 
   async launchInstaller(): Promise<void> {
-    if (!this.verified) throw new Error('Download and verify the native preview installer first.')
+    if (!this.verified) throw new Error('Download and verify the native edition installer first.')
     const { manifest, path } = this.verified
     const info = await stat(path)
     if (info.size !== manifest.bytes || await this.hashFile(path) !== manifest.sha256.toLowerCase()) {
       this.verified = null
-      throw new Error('The downloaded native preview installer changed; download it again.')
+      throw new Error('The downloaded native edition installer changed; download it again.')
     }
     const error = await this.open(path)
     if (error) throw new Error(error)
@@ -221,18 +222,18 @@ export class NativePreviewUpgradeService {
 
   async openInstalled(): Promise<void> {
     const installed = await this.installedPath()
-    if (!installed?.path) throw new Error('Native preview is not installed yet.')
+    if (!installed?.path) throw new Error('Native is not installed yet.')
     const error = await this.open(installed.path)
     if (error) throw new Error(error)
   }
 
   private async getManifest(): Promise<NativePreviewManifest> {
     const response = await fetchNativePreviewResponse(this.fetcher, this.manifestUrl, { cache: 'no-store' })
-    if (!response.ok) throw new Error(`Native preview update feed is unavailable (HTTP ${response.status}).`)
+    if (!response.ok) throw new Error(`Native update feed is unavailable (HTTP ${response.status}).`)
     const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.length > MANIFEST_LIMIT) throw new Error('Native preview update manifest is too large.')
+    if (bytes.length > MANIFEST_LIMIT) throw new Error('Native update manifest is too large.')
     let parsed: unknown
-    try { parsed = JSON.parse(bytes.toString('utf8')) } catch { throw new Error('Native preview update manifest is not valid JSON.') }
+    try { parsed = JSON.parse(bytes.toString('utf8')) } catch { throw new Error('Native update manifest is not valid JSON.') }
     return verifyNativePreviewManifest(parsed, this.architecture)
   }
 
@@ -247,6 +248,7 @@ export class NativePreviewUpgradeService {
     const candidates = registeredPath
       ? [registeredPath]
       : [
+          programFiles ? join(programFiles, 'OpenFinalShell Native') : '',
           programFiles ? join(programFiles, 'OpenFinalShell Native Preview') : '',
           process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'OpenFinalShell Native Preview') : ''
         ]
@@ -282,7 +284,7 @@ export class NativePreviewUpgradeService {
   }
 
   private async open(path: string): Promise<string> {
-    if (!this.openPath) throw new Error('Launching the native preview is unavailable in this environment.')
+    if (!this.openPath) throw new Error('Launching the native edition is unavailable in this environment.')
     return this.openPath(path)
   }
 }

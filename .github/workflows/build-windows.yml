@@ -449,7 +449,7 @@ jobs:
         with:
           name: native-windows-${{ matrix.arch }}
           path: |
-            build/native-installer/OpenFinalShell-NativePreview-*-Setup.exe
+            build/native-installer/OpenFinalShell-Native-*-Setup.exe
             build/native-installer/native-update-*.json
             build/native-installer/native-files-*.json
             build/native-installer/native-files-*.ofsdata
@@ -476,9 +476,9 @@ jobs:
           cd dist
           ls -l
           count() { find . -maxdepth 1 -type f -name "$1" | wc -l; }
-          electron_exes=$(find . -maxdepth 1 -type f -name '*.exe' ! -name 'OpenFinalShell-NativePreview-*-Setup.exe' | wc -l)
+          electron_exes=$(find . -maxdepth 1 -type f -name '*.exe' ! -name 'OpenFinalShell-Native-*-Setup.exe' | wc -l)
           [ "$electron_exes" -eq 6 ] || { echo "::error::期望 6 个 Electron exe，实际 $electron_exes"; exit 1; }
-          [ "$(count 'OpenFinalShell-NativePreview-*-Setup.exe')" -eq 3 ] || { echo "::error::期望 3 个原生安装器"; exit 1; }
+          [ "$(count 'OpenFinalShell-Native-*-Setup.exe')" -eq 3 ] || { echo "::error::期望 3 个原生安装器"; exit 1; }
           for arch in x64 x86 arm64; do
             test -f "native-update-$arch.json" || { echo "::error::缺少原生 $arch 更新清单"; exit 1; }
             test -f "native-files-$arch.json" || exit 1
@@ -521,14 +521,14 @@ jobs:
           | `*-portable-x64.exe` | 64 位免安装 |
           | `*-portable-ia32.exe` | 32 位（x86）免安装 |
           | `*-portable-arm64.exe` | Windows ARM64 免安装 |
-          | `OpenFinalShell-NativePreview-<version>-<arch>-Setup.exe` | WinUI3 原生预览版（x64/x86/ARM64） |
+          | `OpenFinalShell-Native-<version>-<arch>-Setup.exe` | WinUI3 原生版（x64/x86/ARM64） |
           | `*-android-*.apk` | Android APK（按 ABI 提供，含 universal 版） |
           | `*-android.aab` | Android App Bundle（用于应用商店发布） |
           | `SHA256SUMS-android.txt` | Android APK/AAB 校验和 |
 
-          Electron Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`；WinUI3 原生预览版需要管理员权限，默认装到 `C:\Program Files\OpenFinalShell Native Preview`，两者均可改安装目录。
+          Electron Windows 安装版免管理员权限，默认装到 `%LOCALAPPDATA%`；WinUI3 原生版需要管理员权限，默认装到 `C:\Program Files\OpenFinalShell Native`，两者均可改安装目录。
 
-          原生预览版从 v0.30.39 起支持签名文件增量更新：复用本机未变化文件，只请求 `.ofsdata` 中变化文件的字节范围；旧客户端需要一次完整升级来获得新更新器。覆盖安装和卸载保留 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 中的连接与凭据数据。
+          原生版从 v0.30.39 起支持签名文件增量更新：复用本机未变化文件，只请求 `.ofsdata` 中变化文件的字节范围；旧客户端需要一次完整升级来获得新更新器。覆盖安装和卸载保留 `%LOCALAPPDATA%\OpenFinalShell.NativePreview` 中的连接与凭据数据。
 
           > `latest-*.yml` 与 `*.blockmap` 是更新检查元数据，不用手工下载。
           > 其中 blockmap 让下一版只下载变化的部分，所以历史版本的这两个文件不会删。
@@ -576,7 +576,7 @@ jobs:
             while IFS= read -r asset; do
               case "$asset" in
                 # 原生 WinUI 安装包和签名清单由 build-native 原子产出，清理桌面资产时保留。
-                OpenFinalShell-NativePreview-*|native-update-*.json) ;;
+                OpenFinalShell-Native-*|native-update-*.json) ;;
                 *.exe|*.exe.blockmap|latest-*.yml|SHA256SUMS.txt)
                   gh release delete-asset "$GITHUB_REF_NAME" "$asset" --repo "$GITHUB_REPOSITORY" --yes
                   ;;

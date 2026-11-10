@@ -1294,8 +1294,8 @@
     },
     "hostKeyTitle": "确认主机密钥",
     "errors": {
-      "transportUnavailable": "原生预览版暂不支持此传输协议。",
-      "charsetUnavailable": "原生预览版暂不支持此终端编码。",
+      "transportUnavailable": "原生版暂不支持此传输协议。",
+      "charsetUnavailable": "原生版暂不支持此终端编码。",
       "privateKeyMissing": "私钥文件不存在。",
       "agentUnavailable": "没有可用的 SSH Agent，或无法连接到配置的 Agent。",
       "invalidProxy": "代理配置无效。",
@@ -1511,7 +1511,7 @@
     }
   },
   "nativePreview": {
-    "title": "WinUI 3 原生预览版",
+    "title": "WinUI 3 原生版",
     "description": "独立的 Windows 原生客户端，与当前 Electron 版并存。",
     "versionArchitecture": "最新版本 {{version}} · 架构 {{architecture}}",
     "currentVersion": "当前 Electron 版本 {{version}}",
@@ -1530,7 +1530,7 @@
     "instructionsButton": "迁移说明",
     "downloaded": "安装包已下载，并通过签名清单及 SHA-256 校验。",
     "downloadError": "下载或验证失败",
-    "confirmTitle": "迁移到 WinUI 3 原生预览版",
+    "confirmTitle": "迁移到 WinUI 3 原生版",
     "confirmBody": "Electron 版会保留，不会被替换。原生版独立安装；连接数据需先加密导出，再在原生版首次启动后导入。",
     "privacyNote": "导出文件在本机生成并由你设置的口令加密。文件不会上传；私钥文件本身不会复制，原生版只导入已有私钥路径和引用。",
     "confirmOk": "了解并继续",
@@ -1545,6 +1545,6 @@
     "installBody": "即将启动已验证的独立安装程序。它不会替换 Electron 版；安装完成后可打开原生版并导入刚才创建的文件。",
     "installerStarted": "已启动原生版安装程序。",
     "instructionsTitle": "Electron → WinUI 3 迁移说明",
-    "instructionsBody": "先创建加密迁移文件并妥善保存口令，再下载并安装原生预览版。首次启动时选择“从 Electron 导入”，选中该文件并输入同一口令。安装和导入不会删除或改写 Electron 版数据。原生数据目录："
+    "instructionsBody": "先创建加密迁移文件并妥善保存口令，再下载并安装原生版。首次启动时选择“从 Electron 导入”，选中该文件并输入同一口令。安装和导入不会删除或改写 Electron 版数据。原生数据目录："
   }
 }

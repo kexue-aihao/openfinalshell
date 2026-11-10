@@ -1451,8 +1451,8 @@
     },
     "hostKeyTitle": "Confirm host key",
     "errors": {
-      "transportUnavailable": "This transport is not available in the native preview.",
-      "charsetUnavailable": "This terminal encoding is not available in the native preview.",
+      "transportUnavailable": "This transport is not available in the native edition.",
+      "charsetUnavailable": "This terminal encoding is not available in the native edition.",
       "privateKeyMissing": "The private key file is missing.",
       "agentUnavailable": "SSH Agent が見つからないか、設定された Agent に接続できません。",
       "invalidProxy": "The proxy configuration is invalid.",
@@ -1515,7 +1515,7 @@
     }
   },
   "nativePreview": {
-    "title": "WinUI 3 Native Preview",
+    "title": "WinUI 3 Native",
     "description": "A separate native Windows client that can run alongside the Electron app.",
     "versionArchitecture": "Latest {{version}} · {{architecture}}",
     "currentVersion": "現在の Electron バージョン {{version}}",
@@ -1534,8 +1534,8 @@
     "instructionsButton": "Migration instructions",
     "downloaded": "Installer downloaded and verified against the signed manifest and SHA-256.",
     "downloadError": "Download or verification failed",
-    "confirmTitle": "Move to the WinUI 3 native preview",
-    "confirmBody": "The Electron app stays installed and is not replaced. The native preview installs separately; export your data first and import it after the native app starts.",
+    "confirmTitle": "Move to the WinUI 3 native edition",
+    "confirmBody": "The Electron app stays installed and is not replaced. The native edition installs separately; export your data first and import it after the native app starts.",
     "privacyNote": "The export is created locally and encrypted with your passphrase. It is not uploaded. Private-key files are not copied; the native app imports only their existing paths and references.",
     "confirmOk": "Understood, continue",
     "exportTitle": "Create an encrypted migration file",
@@ -1549,6 +1549,6 @@
     "installBody": "This opens the verified standalone installer. It does not replace Electron. After installation, open the native app and import the encrypted file.",
     "installerStarted": "The native installer was started.",
     "instructionsTitle": "Electron → WinUI 3 migration",
-    "instructionsBody": "Create an encrypted export and keep its passphrase, then download and install the native preview. On first launch choose “Import from Electron”, select the file, and enter the same passphrase. Installing or importing does not remove or rewrite Electron data. Native data directory:"
+    "instructionsBody": "Create an encrypted export and keep its passphrase, then download and install the native edition. On first launch choose “Import from Electron”, select the file, and enter the same passphrase. Installing or importing does not remove or rewrite Electron data. Native data directory:"
   }
 }

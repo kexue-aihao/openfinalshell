@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         Root.PreviewKeyDown += WorkbenchKeyDown;
     }
 
-    private bool HasWorkbenchPopup() => connectionDrawerOpen || activeOverlay != null || Root.XamlRoot == null || VisualTreeHelper.GetOpenPopupsForXamlRoot(Root.XamlRoot).Count > 0;
+    private bool HasWorkbenchPopup() => commandEditorWindow != null || connectionDrawerOpen || activeOverlay != null || Root.XamlRoot == null || VisualTreeHelper.GetOpenPopupsForXamlRoot(Root.XamlRoot).Count > 0;
     private static bool KeyDown(VirtualKey key) => Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     private void WorkbenchKeyDown(object sender, KeyRoutedEventArgs args)
     {

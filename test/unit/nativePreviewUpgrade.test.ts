@@ -10,6 +10,17 @@ import {
 } from '../../src/main/services/nativePreviewUpgrade'
 
 describe('native preview upgrade', () => {
+  it.each(['Native', 'NativePreview'])('validates %s package names before checking the signature', (product) => {
+    const fileName = `OpenFinalShell-${product}-0.30.52-x64-Setup.exe`
+    const manifest = {
+      schemaVersion: 1, version: '0.30.52', channel: 'stable', architecture: 'x64', fileName,
+      downloadUrl: `https://github.com/kexue-aihao/openfinalshell/releases/download/v0.30.52/${fileName}`,
+      sha256: '0'.repeat(64), signature: 'AA==', bytes: 100
+    }
+    expect(() => verifyNativePreviewManifest(manifest, 'x64')).toThrow(/signature verification failed/i)
+    expect(() => verifyNativePreviewManifest({ ...manifest, fileName: fileName.replace('x64', 'x86') }, 'x64')).toThrow(/filename does not match/i)
+    expect(() => verifyNativePreviewManifest({ ...manifest, downloadUrl: 'https://example.invalid/setup.exe' }, 'x64')).toThrow(/expected GitHub release asset/i)
+  })
   it.each([
     ['AMD64', 'x64'],
     ['x86', 'x86'],

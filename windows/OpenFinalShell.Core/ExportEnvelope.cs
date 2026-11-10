@@ -161,7 +161,7 @@ public static class ExportEnvelope
             using var aes = new AesGcm(keyBytes, 16); aes.Encrypt(iv, bytes, cipher, tag);
             return Encoding.UTF8.GetBytes(new JsonObject {
                 ["app"] = "openfinalshell", ["formatVersion"] = 2, ["appVersion"] = "native-preview", ["exportedAt"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                ["includesSecrets"] = includeSecrets, ["note"] = "Encrypted native preview export",
+                ["includesSecrets"] = includeSecrets, ["note"] = "Encrypted native edition export",
                 ["enc"] = new JsonObject { ["kdf"] = "scrypt", ["n"] = 32768, ["salt"] = Convert.ToBase64String(salt), ["iv"] = Convert.ToBase64String(iv), ["tag"] = Convert.ToBase64String(tag), ["cipher"] = Convert.ToBase64String(cipher) }
             }.ToJsonString());
         }

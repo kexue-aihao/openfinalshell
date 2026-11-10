@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)][string]$Version,
     [Parameter(Mandatory)][string]$Repository,
     [ValidateSet('x64','x86','arm64')][string]$Architecture,
-    [ValidateSet('preview','stable')][string]$Channel = 'preview'
+    [ValidateSet('preview','stable')][string]$Channel = 'stable'
 )
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^\d+\.\d+\.\d+$' -or $Repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid release identity.' }

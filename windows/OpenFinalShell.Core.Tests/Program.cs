@@ -67,7 +67,7 @@ await NativeFileUpdateTests.RunAsync(Check, root);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
-Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.51" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
+Check(NativeReleaseNotes.All.Count > 0 && NativeReleaseNotes.All[0].Version == "0.30.52" && NativeReleaseNotes.All[0].Items.Count >= 1, "Native release notes embed the current Electron changelog");
 Check(NativeStartupNotice.ClassifyLaunch(null, "1.2.3") is { Kind: NativeStartupNoticeKind.Fresh, FromVersion: null, ToVersion: "1.2.3" }
     && NativeStartupNotice.ClassifyLaunch("1.2.2", "1.2.3") is { Kind: NativeStartupNoticeKind.Update, FromVersion: "1.2.2" }
     && NativeStartupNotice.ClassifyLaunch("1.2.3", "1.2.3").Kind == NativeStartupNoticeKind.None,
@@ -197,13 +197,28 @@ Check(portraitEditorLayout.DialogWidth == 336 && portraitEditorLayout.EditorHeig
 Check(compactEditorLayout.DialogWidth >= 280 && compactEditorLayout.ContentHeight >= 260
     && compactEditorLayout.EditorHeight >= 180 && compactEditorLayout.TargetsHeight >= 96,
     "Command editor clamps compact viewports without collapsing controls");
-var centeredDrag = OpenFinalShell.App.NativeCommandEditorDragPolicy.Clamp(
-    40, -20, 1600, 900, 1120, 700);
-var boundedDrag = OpenFinalShell.App.NativeCommandEditorDragPolicy.Clamp(
-    10000, -10000, 1600, 900, 1120, 700);
-Check(centeredDrag == new OpenFinalShell.App.NativeCommandEditorOffset(40, -20)
-    && boundedDrag == new OpenFinalShell.App.NativeCommandEditorOffset(228, -88),
-    "Command editor dragging is clamped to the visible viewport");
+var editorWindowSize = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.ResolveWindowSize(1920, 1080, 1, 1);
+Check(editorWindowSize.Width == 1120 && editorWindowSize.Height == 840,
+    "Command editor uses a separate wide window sized for the monitor work area");
+foreach (var (workWidth, workHeight, dpi, zoom) in new[] { (1080, 1920, 1.25, 1d), (1200, 800, 1.5, 1.25), (640, 480, 2d, 2d) })
+{
+    var size = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.ResolveWindowSize(workWidth, workHeight, dpi, zoom);
+    Check(size.Width > 0 && size.Width <= workWidth - Math.Ceiling(32 * dpi)
+        && size.Height > 0 && size.Height <= workHeight - Math.Ceiling(80 * dpi),
+        "Command editor client fits portrait, DPI and UI zoom without covering the taskbar");
+}
+var savedEditorWindowSize = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.ResolveWindowSize(
+    3000, 2000, 1.5, 1, savedWidthDip: 960, savedHeightDip: 720);
+Check(savedEditorWindowSize.Width == 1440 && savedEditorWindowSize.Height == 1080,
+    "Command editor restores a custom DIP size across DPI changes");
+var clampedEditorWindowSize = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.ResolveWindowSize(
+    900, 700, 1.5, 1, savedWidthDip: 2400, savedHeightDip: 1600);
+Check(clampedEditorWindowSize.Width == 852 && clampedEditorWindowSize.Height == 580,
+    "Command editor clamps remembered custom size to the current monitor work area");
+var invalidSavedEditorWindowSize = OpenFinalShell.App.NativeCommandEditorLayoutPolicy.ResolveWindowSize(
+    1920, 1080, 1, 1, savedWidthDip: double.NaN, savedHeightDip: -10);
+Check(invalidSavedEditorWindowSize == editorWindowSize,
+    "Command editor ignores invalid persisted custom sizes and uses its default layout");
 NativeStoreRecoveryTests.Run(root, Check);
 Check(!OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => throw new System.Runtime.InteropServices.COMException("unavailable", unchecked((int)0x80070490))),
     "Unavailable high-contrast query falls back without failing startup");
