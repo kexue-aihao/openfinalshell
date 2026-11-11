@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.53',
+    items: [
+      { type: 'fix', zh: '命令库侧栏改用命令行终端图标；修复原生终端在 fish、PowerShell 等以 > 结束的提示符下执行 cd 时，SFTP 文件面板不跟随切换目录的问题', en: 'Use a terminal icon for the command library and fix SFTP not following cd commands entered under prompts ending in >, including common fish and PowerShell styles' }
+    ]
+  },
+  {
     version: '0.30.52',
     items: [
       { type: 'feat', zh: 'WinUI 3 原生版正式发布：统一应用、安装器、快捷方式与迁移入口名称，保留原有数据和升级兼容性', en: 'Release the WinUI 3 native edition with consistent app, installer, shortcut and migration names while preserving existing data and upgrade compatibility' },

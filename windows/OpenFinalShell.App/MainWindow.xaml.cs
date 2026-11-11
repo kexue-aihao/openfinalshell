@@ -18,7 +18,7 @@ public sealed partial class MainWindow : Window
     private static readonly IReadOnlyDictionary<string, string> ActivityIconGlyphs = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["connections"] = "\uE774",
-        ["commands"] = "\uE943",
+        ["commands"] = "\uE756",
         ["forwards"] = "\uE8AB",
         ["transfers"] = "\uE896",
         ["ai"] = "\uE99A",

@@ -15,6 +15,10 @@ public static partial class NativeCommandHistoryCapture
         var command = line[cut..].Trim();
         return command.Length is > 0 and <= 2000 ? command : null;
     }
-    [GeneratedRegex("[$#%] ", RegexOptions.CultureInvariant)] private static partial Regex PromptEnd();
+    // Common remote shells use $, # or %; fish and PowerShell style prompts
+    // commonly end in >. These are still deliberately prompt markers rather
+    // than a general input capture, so secrets typed at password prompts are
+    // never reconstructed from terminal keystrokes.
+    [GeneratedRegex("[$#%>❯➜»] ", RegexOptions.CultureInvariant)] private static partial Regex PromptEnd();
     [GeneratedRegex("pass(word|phrase)|密码|口令|secret|token", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)] private static partial Regex SecretPrompt();
 }

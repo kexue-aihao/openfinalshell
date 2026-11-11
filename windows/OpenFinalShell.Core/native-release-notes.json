@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.53",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "命令库侧栏改用命令行终端图标；修复原生终端在 fish、PowerShell 等以 > 结束的提示符下执行 cd 时，SFTP 文件面板不跟随切换目录的问题",
+        "en": "Use a terminal icon for the command library and fix SFTP not following cd commands entered under prompts ending in >, including common fish and PowerShell styles"
+      }
+    ]
+  },
+  {
     "version": "0.30.52",
     "items": [
       {

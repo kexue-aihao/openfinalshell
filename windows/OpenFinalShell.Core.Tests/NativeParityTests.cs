@@ -64,6 +64,9 @@ public static class NativeParityTests
             check(decoded.Text == pair.Item2 && decoded.Lossless, $"Editor {pair.Item1} round-trips its supported characters");
         }
         check(NativeCommandHistoryCapture.ExtractEchoed("test@fixture:~$ cd /etc/completed") == "cd /etc/completed", "Terminal history derives the submitted command from remote echo, including shell completion");
+        check(NativeCommandHistoryCapture.ExtractEchoed("user@fixture ~/project> cd ../logs") == "cd ../logs"
+            && NativeCommandHistoryCapture.ExtractEchoed("PS C:\\work> cd /tmp") == "cd /tmp",
+            "Terminal command capture recognizes common fish and PowerShell prompt markers so SFTP can follow typed cd commands");
         check(NativeCommandHistoryCapture.ExtractEchoed("test@fixture:~$ ") == null && NativeCommandHistoryCapture.ExtractEchoed("Password: hidden-input") == null && NativeCommandHistoryCapture.ExtractEchoed("[sudo] password for test$ secret") == null, "Non-echoed input and credential prompts never become command history");
         check(NativeCommandHistoryCapture.ExtractEchoed("test$ vim", true) == null && NativeCommandHistoryCapture.ExtractEchoed("unknown prompt command") == null && NativeCommandHistoryCapture.ExtractEchoed("test$ " + new string('x', 2001)) == null, "History ignores alternate-screen, unrecognized and oversized lines");
         check(NativeCommandHistoryCapture.ExtractEchoed("test$ echo a > b.txt") == "echo a > b.txt" && NativeCommandHistoryCapture.ExtractEchoed("test$ echo 中文🙂") == "echo 中文🙂", "Echo capture preserves redirections and Unicode without recording keystrokes");
