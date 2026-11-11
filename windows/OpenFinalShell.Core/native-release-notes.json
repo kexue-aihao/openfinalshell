@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.55",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "命令库侧栏终端图标移除独立黑色底块，使用与其他侧栏图标一致的底色和前景色",
+        "en": "Remove the terminal icon’s separate black tile and use the same background and foreground treatment as other sidebar icons"
+      }
+    ]
+  },
+  {
     "version": "0.30.54",
     "items": [
       {

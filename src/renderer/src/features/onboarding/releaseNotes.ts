@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.55',
+    items: [
+      { type: 'fix', zh: '命令库侧栏终端图标移除独立黑色底块，使用与其他侧栏图标一致的底色和前景色', en: 'Remove the terminal icon’s separate black tile and use the same background and foreground treatment as other sidebar icons' }
+    ]
+  },
+  {
     version: '0.30.54',
     items: [
       { type: 'fix', zh: '命令库侧栏改用黑底白色命令行终端图标；完善 Electron 与 WinUI 3 更新流程的检查、下载、增量应用和校验进度反馈', en: 'Use a black terminal icon with a white prompt for the command library, and improve update progress feedback for checking, downloading, incremental application and verification in Electron and WinUI 3' }
