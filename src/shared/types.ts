@@ -1343,6 +1343,7 @@ export type UpdateStatus =
   | 'available'
   | 'downloading'
   | 'downloaded'
+  | 'installing'
   | 'none'
   | 'error'
   | 'unsupported'

@@ -299,6 +299,40 @@ body {
   flex-wrap: wrap;
 }
 
+.ofs-update-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ofs-update-progress {
+  max-width: 320px;
+}
+
+.ofs-update-progress .ant-progress-bg {
+  transition: none;
+}
+
+.ofs-update-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ofs-update-progress .ant-progress-bg::before,
+  .ofs-update-activity .ant-spin,
+  .ofs-update-activity .ant-spin-dot-holder,
+  .ofs-update-activity .ant-spin-dot-spin,
+  .ofs-update-activity .ant-spin-dot-item {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 /* 下拉框底部的「新建…」入口（代理与私钥两处共用） */
 .ofs-select-footer {
   padding: 6px 12px;

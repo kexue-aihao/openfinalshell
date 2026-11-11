@@ -89,24 +89,81 @@ public static class NativeFileUpdate
     public static async Task StageAsync(NativeFileInventory inventory, string installed, string staging, HttpClient client, Action<int>? progress, CancellationToken cancellation)
     {
         long total = inventory.Files.Sum(file => file.Size), done = 0;
+        var lastPercent = -1;
+        void Report(long currentFileBytes, long currentFileSize)
+        {
+            if (progress == null) return;
+            var processed = done + Math.Min(currentFileBytes, Math.Max(0, currentFileSize - 1));
+            var percent = total == 0 ? 100 : (int)Math.Clamp(processed * 100 / total, 0, 99);
+            if (percent == lastPercent) return;
+            lastPercent = percent;
+            progress(percent);
+        }
+
         foreach (var entry in inventory.Files)
         {
             cancellation.ThrowIfCancellationRequested();
             var destination = SafePath(staging, entry.Path);
             var source = SafePath(installed, entry.Path);
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            if (!Matches(destination, entry))
+            if (File.Exists(destination) && await MatchesAsync(destination, entry, cancellation).ConfigureAwait(false))
             {
-                if (Matches(source, entry)) File.Copy(source, destination, true);
-                else await DownloadFileAsync(entry, new Uri(inventory.DataUrl), destination, client, cancellation).ConfigureAwait(false);
-                if (!Matches(destination, entry)) throw new CryptographicException($"Updated file failed verification: {entry.Path}");
+                // Already staged and hash-verified.
+            }
+            else
+            {
+                if (File.Exists(source) && await MatchesAsync(source, entry, cancellation).ConfigureAwait(false))
+                    await CopyFileAsync(source, destination, entry.Size, bytes => Report(bytes, entry.Size), cancellation).ConfigureAwait(false);
+                else
+                    await DownloadFileAsync(entry, new Uri(inventory.DataUrl), destination, client, cancellation,
+                        bytes => Report(bytes, entry.Size)).ConfigureAwait(false);
+                if (!await MatchesAsync(destination, entry, cancellation).ConfigureAwait(false))
+                    throw new CryptographicException($"Updated file failed verification: {entry.Path}");
             }
             done += entry.Size;
-            progress?.Invoke(total == 0 ? 100 : (int)(100 * done / total));
+            if (progress != null)
+            {
+                var percent = total == 0 ? 100 : (int)Math.Clamp(done * 100 / total, 0, 100);
+                if (percent != lastPercent) { lastPercent = percent; progress(percent); }
+            }
         }
     }
 
-    private static async Task DownloadFileAsync(NativeFileEntry entry, Uri uri, string destination, HttpClient client, CancellationToken cancellation)
+    private static async Task<bool> MatchesAsync(string path, NativeFileEntry entry, CancellationToken cancellation)
+    {
+        if (!File.Exists(path) || new FileInfo(path).Length != entry.Size) return false;
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[128 * 1024];
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, cancellation).ConfigureAwait(false);
+            if (read == 0) break;
+            hash.AppendData(buffer.AsSpan(0, read));
+        }
+        var actual = Convert.ToHexString(hash.GetHashAndReset());
+        return actual.Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static async Task CopyFileAsync(string source, string destination, long expectedSize, Action<long>? progress, CancellationToken cancellation)
+    {
+        await using var input = new FileStream(source, FileMode.Open, FileAccess.Read, FileShare.Read, 128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        await using var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        var buffer = new byte[128 * 1024];
+        long copied = 0;
+        while (true)
+        {
+            var read = await input.ReadAsync(buffer, cancellation).ConfigureAwait(false);
+            if (read == 0) break;
+            copied += read;
+            if (copied > expectedSize) throw new InvalidDataException("A local update file exceeds its signed size.");
+            await output.WriteAsync(buffer.AsMemory(0, read), cancellation).ConfigureAwait(false);
+            progress?.Invoke(copied);
+        }
+        if (copied != expectedSize) throw new InvalidDataException("A local update file has a different signed size.");
+    }
+
+    private static async Task DownloadFileAsync(NativeFileEntry entry, Uri uri, string destination, HttpClient client, CancellationToken cancellation, Action<long>? progress = null)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Range = new RangeHeaderValue(entry.Offset, entry.Offset + entry.Length - 1);
@@ -131,6 +188,7 @@ public static class NativeFileUpdate
                     written += read;
                     if (written > entry.Size) throw new InvalidDataException("Decompressed update file exceeds its signed size.");
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellation).ConfigureAwait(false);
+                    progress?.Invoke(written);
                 }
                 if (written != entry.Size) throw new InvalidDataException("Truncated update file.");
             }

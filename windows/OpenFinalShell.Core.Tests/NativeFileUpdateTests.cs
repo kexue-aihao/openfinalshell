@@ -22,7 +22,8 @@ internal static class NativeFileUpdateTests
             ["OpenFinalShell.App.exe"] = "new application",
             ["UpdateHost/OpenFinalShell.UpdateHost.exe"] = "unchanged helper",
             ["shared.dll"] = "unchanged runtime",
-            ["Assets/new.txt"] = "新内容🙂"
+            ["Assets/new.txt"] = "新内容🙂",
+            ["large.bin"] = new string('x', 512 * 1024)
         };
         using var payload = new MemoryStream();
         var entries = new List<NativeFileEntry>();
@@ -62,12 +63,22 @@ internal static class NativeFileUpdateTests
         using (var service = new NativeUpdateService(new NativeUpdateCoordinator(sessions, transfers, forwards, key, test), "1.2.2", key,
             new Uri("http://127.0.0.1/feed"), Path.Combine(test, "download"), serviceClient, installed))
         {
+            var states = new List<NativeUpdateSnapshot>();
+            service.StateChanged += states.Add;
             var artifact = await service.CheckAndDownloadAsync();
             check(artifact?.StagingDirectory != null && service.State.Status == NativeUpdateStatus.Ready && serviceHandler.Requests == 2,
                 "Update service selects the signed incremental inventory and never requests the full installer");
+            var applyingIndex = states.FindIndex(state => state.Status == NativeUpdateStatus.Applying);
+            check(applyingIndex >= 0 && states.Take(applyingIndex).All(state => state.Status != NativeUpdateStatus.Ready)
+                && states[^1].Status == NativeUpdateStatus.Ready && states.Any(state => state.Status == NativeUpdateStatus.Verifying),
+                "Incremental updates report applying and verification phases without a false ready state between stages");
         }
         using var handler = new Ranges(payload.ToArray()); using var client = new HttpClient(handler);
-        await NativeFileUpdate.StageAsync(verified, installed, staging, client, null, CancellationToken.None);
+        var stageProgress = new List<int>();
+        await NativeFileUpdate.StageAsync(verified, installed, staging, client, stageProgress.Add, CancellationToken.None);
+        check(stageProgress.Count > 4 && stageProgress[^1] == 100 && stageProgress.All(value => value is >= 0 and <= 100)
+            && stageProgress.SequenceEqual(stageProgress.OrderBy(value => value)),
+            "Incremental staging reports monotonic byte-level progress through final verification");
         check(handler.Requests == 2, "Incremental updater downloads only the two changed/new files, reusing two local files");
         check(handler.Bytes < payload.Length, "Incremental transfer is smaller than the full payload");
         NativeFileUpdate.VerifyStaged(verified, staging);

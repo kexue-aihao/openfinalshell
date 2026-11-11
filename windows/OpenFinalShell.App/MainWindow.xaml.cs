@@ -18,7 +18,6 @@ public sealed partial class MainWindow : Window
     private static readonly IReadOnlyDictionary<string, string> ActivityIconGlyphs = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["connections"] = "\uE774",
-        ["commands"] = "\uE756",
         ["forwards"] = "\uE8AB",
         ["transfers"] = "\uE896",
         ["ai"] = "\uE99A",
@@ -481,7 +480,6 @@ public sealed partial class MainWindow : Window
     private void ApplyActivityIcons()
     {
         ConnectionsIcon.Glyph = ActivityIconGlyphs["connections"];
-        CommandsIcon.Glyph = ActivityIconGlyphs["commands"];
         ForwardIcon.Glyph = ActivityIconGlyphs["forwards"];
         TransfersIcon.Glyph = ActivityIconGlyphs["transfers"];
         AiIcon.Glyph = ActivityIconGlyphs["ai"];
@@ -2361,12 +2359,14 @@ public sealed partial class MainWindow : Window
     private void ApplyUpdateState(NativeUpdateSnapshot state)
     {
         UpdateCurrentLabel.Text = localization.Format("native.update.current", ("version", updateService.CurrentVersion));
-        UpdateProgress.Visibility = state.Status is NativeUpdateStatus.Checking or NativeUpdateStatus.Downloading or NativeUpdateStatus.Ready
+        var updateInProgress = state.Status is NativeUpdateStatus.Checking or NativeUpdateStatus.Downloading or NativeUpdateStatus.Applying or NativeUpdateStatus.Verifying;
+        UpdateProgress.Visibility = updateInProgress || state.Status == NativeUpdateStatus.Ready
             ? Visibility.Visible
             : Visibility.Collapsed;
         UpdateProgress.Value = state.ProgressPercent;
-        UpdateProgress.IsIndeterminate = state.Status == NativeUpdateStatus.Checking || (state.Status == NativeUpdateStatus.Downloading && state.ProgressPercent == 0);
-        var updateAnimating = state.Status is NativeUpdateStatus.Checking or NativeUpdateStatus.Downloading;
+        UpdateProgress.IsIndeterminate = state.Status is NativeUpdateStatus.Checking or NativeUpdateStatus.Verifying
+            || (state.Status == NativeUpdateStatus.Downloading && state.ProgressPercent == 0);
+        var updateAnimating = updateInProgress;
         UpdateProgressRing.IsActive = updateAnimating;
         UpdateProgressRing.Visibility = updateAnimating ? Visibility.Visible : Visibility.Collapsed;
         AboutUpdateProgressRing.IsActive = updateAnimating;
@@ -2378,14 +2378,17 @@ public sealed partial class MainWindow : Window
             NativeUpdateStatus.UpToDate => localization["native.update.upToDate"],
             NativeUpdateStatus.Available => localization.Format("native.update.available", ("version", state.AvailableVersion ?? "")),
             NativeUpdateStatus.Downloading => localization.Format("native.update.downloading", ("version", state.AvailableVersion ?? ""), ("percent", state.ProgressPercent.ToString())),
+            NativeUpdateStatus.Applying => localization.Format("native.update.applying", ("percent", state.ProgressPercent.ToString())),
+            NativeUpdateStatus.Verifying => localization["native.update.verifying"],
             NativeUpdateStatus.Ready => localization.Format("native.update.ready", ("version", state.AvailableVersion ?? "")),
             NativeUpdateStatus.Failed => localization.Format("native.update.failed", ("detail", state.Error ?? "")),
             _ => localization["native.update.idle"]
         };
         RefreshAboutUpdateStatus();
-        CheckUpdatesButton.IsEnabled = !updateCheckRunning && state.Status is not (NativeUpdateStatus.Checking or NativeUpdateStatus.Downloading);
-        DownloadUpdateButton.IsEnabled = !updateCheckRunning && updateService.Available != null && updateService.DownloadedArtifact == null;
-        InstallUpdateButton.IsEnabled = !updateCheckRunning && updateService.DownloadedArtifact is { } artifact && File.Exists(artifact.Path);
+        CheckUpdatesButton.IsEnabled = !updateCheckRunning && !updateInProgress;
+        DownloadUpdateButton.IsEnabled = !updateCheckRunning && !updateInProgress && updateService.Available != null && updateService.DownloadedArtifact == null;
+        InstallUpdateButton.IsEnabled = !updateCheckRunning && !updateInProgress && updateService.DownloadedArtifact is { } artifact && File.Exists(artifact.Path);
+        AboutCheckUpdatesButton.IsEnabled = !updateCheckRunning && !updateInProgress;
         var notes = updateService.Available?.NotesUri;
         UpdateReleaseNotesButton.Visibility = notes == null ? Visibility.Collapsed : Visibility.Visible;
         UpdateReleaseNotesButton.NavigateUri = notes;
@@ -2439,10 +2442,16 @@ public sealed partial class MainWindow : Window
     private void ShowUpdateActivityAnimation(string text)
     {
         UpdateStatusText.Text = text;
+        UpdateProgress.Visibility = Visibility.Visible;
+        UpdateProgress.IsIndeterminate = true;
         UpdateProgressRing.IsActive = true;
         UpdateProgressRing.Visibility = Visibility.Visible;
         AboutUpdateProgressRing.IsActive = true;
         AboutUpdateProgressRing.Visibility = Visibility.Visible;
+        CheckUpdatesButton.IsEnabled = false;
+        DownloadUpdateButton.IsEnabled = false;
+        InstallUpdateButton.IsEnabled = false;
+        AboutCheckUpdatesButton.IsEnabled = false;
         RefreshAboutUpdateStatus();
     }
 

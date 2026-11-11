@@ -9,7 +9,7 @@ using System.Text.Json.Nodes;
 
 namespace OpenFinalShell.Core;
 
-public enum NativeUpdateStatus { Idle, Checking, UpToDate, Available, Downloading, Ready, Failed }
+public enum NativeUpdateStatus { Idle, Checking, UpToDate, Available, Downloading, Applying, Verifying, Ready, Failed }
 
 public sealed record NativeUpdateSnapshot(
     NativeUpdateStatus Status,
@@ -159,7 +159,7 @@ public sealed partial class NativeUpdateService : IDisposable
         return manifest;
     }
 
-    private async Task<NativeUpdateArtifact> DownloadCoreAsync(NativeUpdateManifest manifest, CancellationToken cancellation)
+    private async Task<NativeUpdateArtifact> DownloadCoreAsync(NativeUpdateManifest manifest, CancellationToken cancellation, bool publishReady = true)
     {
         if (manifest.Incremental != null) return await StageIncrementalAsync(manifest, cancellation).ConfigureAwait(false);
         Directory.CreateDirectory(downloadDirectory);
@@ -169,7 +169,14 @@ public sealed partial class NativeUpdateService : IDisposable
         if (File.Exists(destination) && new FileInfo(destination).Length == manifest.Bytes)
         {
             var existing = ToArtifact(manifest, destination);
-            try { coordinator.VerifyArtifact(existing); DownloadedArtifact = existing; Publish(new(NativeUpdateStatus.Ready, CurrentVersion, manifest.Version, 100)); return existing; }
+            try
+            {
+                Publish(new(NativeUpdateStatus.Verifying, CurrentVersion, manifest.Version, 100));
+                coordinator.VerifyArtifact(existing);
+                DownloadedArtifact = existing;
+                if (publishReady) Publish(new(NativeUpdateStatus.Ready, CurrentVersion, manifest.Version, 100));
+                return existing;
+            }
             catch { try { File.Delete(destination); } catch { } }
         }
 
@@ -200,6 +207,7 @@ public sealed partial class NativeUpdateService : IDisposable
             await output.FlushAsync(cancellation).ConfigureAwait(false);
             if (total != manifest.Bytes) throw new InvalidDataException($"Native update size mismatch ({total}/{manifest.Bytes} bytes).");
             await output.DisposeAsync().ConfigureAwait(false);
+            Publish(new(NativeUpdateStatus.Verifying, CurrentVersion, manifest.Version, 100));
             var actual = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
             var expected = Encoding.ASCII.GetBytes(manifest.Sha256.ToLowerInvariant());
             if (!CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(actual), expected)) throw new CryptographicException("Native update hash verification failed.");
@@ -207,7 +215,7 @@ public sealed partial class NativeUpdateService : IDisposable
             var artifact = ToArtifact(manifest, destination);
             coordinator.VerifyArtifact(artifact);
             DownloadedArtifact = artifact;
-            Publish(new(NativeUpdateStatus.Ready, CurrentVersion, manifest.Version, 100));
+            if (publishReady) Publish(new(NativeUpdateStatus.Ready, CurrentVersion, manifest.Version, 100));
             return artifact;
         }
         catch

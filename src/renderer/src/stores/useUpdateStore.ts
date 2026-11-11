@@ -37,6 +37,7 @@ export const useUpdateStore = create<UpdateStore>((set) => ({
       set((s) => ({ state: s.state ? { ...s.state, status: 'error', error: r.error } : s.state }))
       return false
     }
+    set((s) => ({ state: s.state ? { ...s.state, status: 'installing', error: undefined } : s.state }))
     return true
   },
 
