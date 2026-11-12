@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Automation.Peers;
+using OpenFinalShell.Core;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -40,6 +41,10 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
     private const int SciSetReadOnly = 2171;
     private const int SciSetText = 2181;
     private const int SciGetText = 2182;
+    private const int SciGetTextRangeFull = 2039;
+    private const int SciClearAll = 2004;
+    private const int SciSetUndoCollection = 2012;
+    private const int SciAppendText = 2282;
     private const int SciSetSavePoint = 2014;
     private const int SciEmptyUndoBuffer = 2175;
     private const int SciSetWrapMode = 2268;
@@ -60,6 +65,14 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate nint SubclassProcedure(nint hwnd, uint message, nuint wParam, nint lParam, nuint subclassId, nuint referenceData);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeTextRangeFull
+    {
+        public nint Start;
+        public nint End;
+        public nint Text;
+    }
 
     private static readonly object LibraryGate = new();
     private static nint scintillaModule;
@@ -93,6 +106,40 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
             pendingText = value ?? string.Empty;
             if (editorWindow == 0) return;
             WriteText(pendingText);
+        }
+    }
+
+    public async Task<string> ReadTextAsync()
+    {
+        if (editorWindow == 0) return pendingText;
+        var length = Math.Max(0, checked((int)Send(SciGetLength)));
+        if (length == 0) return string.Empty;
+
+        // Scintilla belongs to the UI thread. Read bounded ranges and yield
+        // between them so large documents do not monopolize the message loop.
+        const int chunkSize = 256 * 1024;
+        using var buffer = new MemoryStream(length);
+        var rangePointer = Marshal.AllocHGlobal(Marshal.SizeOf<NativeTextRangeFull>());
+        var textPointer = Marshal.AllocHGlobal(chunkSize + 1);
+        try
+        {
+            for (var start = 0; start < length;)
+            {
+                var count = Math.Min(chunkSize, length - start);
+                Marshal.StructureToPtr(new NativeTextRangeFull { Start = start, End = start + count, Text = textPointer }, rangePointer, false);
+                Send(SciGetTextRangeFull, 0, rangePointer);
+                var bytes = new byte[count];
+                Marshal.Copy(textPointer, bytes, 0, count);
+                buffer.Write(bytes);
+                start += count;
+                if (start < length) await Task.Yield();
+            }
+            return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, checked((int)buffer.Length));
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(textPointer);
+            Marshal.FreeHGlobal(rangePointer);
         }
     }
 
@@ -142,13 +189,57 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
     public void SetDocument(string path, string text)
     {
         pendingPath = path ?? string.Empty;
-        LexerLanguage = ResolveLexer(pendingPath, text);
+        LexerLanguage = NativeEditorLanguage.Resolve(pendingPath, text);
         pendingText = text ?? string.Empty;
         if (editorWindow != 0)
         {
             SetLexer(LexerLanguage);
             WriteText(pendingText);
         }
+    }
+
+    public async Task SetDocumentAsync(string path, string text)
+    {
+        pendingPath = path ?? string.Empty;
+        pendingText = text ?? string.Empty;
+        LexerLanguage = NativeEditorLanguage.Resolve(pendingPath, pendingText);
+        if (editorWindow == 0) return;
+
+        var wasReadOnly = readOnly;
+        IsReadOnly = true;
+        try
+        {
+            var bytes = await Task.Run(() => Encoding.UTF8.GetBytes(pendingText));
+            SetLexer(LexerLanguage);
+            Send(SciSetUndoCollection, 0);
+            IsReadOnly = false;
+            Send(SciClearAll);
+            IsReadOnly = true;
+            const int chunkSize = 256 * 1024;
+            var pointer = Marshal.AllocHGlobal(chunkSize);
+            try
+            {
+                for (var offset = 0; offset < bytes.Length; offset += chunkSize)
+                {
+                    var count = Math.Min(chunkSize, bytes.Length - offset);
+                    Marshal.Copy(bytes, offset, pointer, count);
+                    IsReadOnly = false;
+                    Send(SciAppendText, (nuint)count, pointer);
+                    IsReadOnly = true;
+                    if (offset + count < bytes.Length) await Task.Yield();
+                }
+            }
+            finally { Marshal.FreeHGlobal(pointer); }
+        }
+        finally
+        {
+            Send(SciSetUndoCollection, 1);
+            Send(SciEmptyUndoBuffer);
+            Send(SciSetSavePoint);
+            IsReadOnly = wasReadOnly;
+        }
+        lastModified = false;
+        DocumentChanged?.Invoke();
     }
 
     public bool Find(string query, bool backwards = false, bool matchCase = false, bool wholeWord = false, bool regex = false)
@@ -276,7 +367,7 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
         }
         finally { Marshal.FreeHGlobal(fontPointer); }
 
-        Send(SciStyleSetSize, StyleDefault, 14);
+        Send(SciStyleSetSize, StyleDefault, 12);
         Send(SciStyleSetFore, StyleDefault, 0x00202020);
         Send(SciStyleSetBack, StyleDefault, 0x00FFFFFF);
         Send(SciStyleClearAll);
@@ -293,7 +384,17 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
         nint lexer = 0;
         if (!string.Equals(language, "plain", StringComparison.Ordinal))
         {
-            lexer = createLexer?.Invoke(language) ?? 0;
+            var lexillaName = language switch
+            {
+                "html" => "hypertext",
+                "javascript" or "typescript" => "escript",
+                "nginx" => "conf",
+                "php" => "phpscript",
+                "dockerfile" => "bash",
+                "csharp" or "java" or "go" => "cpp",
+                _ => language
+            };
+            lexer = createLexer?.Invoke(lexillaName) ?? 0;
             if (lexer == 0) LexerLanguage = "plain";
         }
         Send(SciSetILexer, 0, lexer);
@@ -422,45 +523,6 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
 
     private nint Send(int message, int wParam, nint lParam = 0) =>
         SendMessageW(editorWindow, (uint)message, unchecked((nuint)wParam), lParam);
-
-    private static string ResolveLexer(string path, string text)
-    {
-        var name = Path.GetFileName(path.Replace('\\', '/')).ToLowerInvariant();
-        if (name is "dockerfile" or "containerfile" || name.StartsWith("dockerfile.", StringComparison.Ordinal)) return "dockerfile";
-        if (name is ".bashrc" or ".bash_profile" or ".bash_logout" or ".bash_aliases" or ".profile" or ".zshrc" or ".zprofile" or ".zshenv" or ".kshrc" or "crontab") return "bash";
-        if (name is "nginx.conf") return "nginx";
-        if (name is "sshd_config" or "ssh_config" or "my.cnf" or "php.ini" or "redis.conf" or "supervisord.conf" or "httpd.conf" or "smb.conf" or "resolv.conf" or "sysctl.conf" or "limits.conf" or "logrotate.conf" or "fstab" or "hosts" or "hostname" or "gitconfig" or ".gitconfig" or ".npmrc" or ".editorconfig" or ".inputrc" or ".env") return "props";
-        var extension = Path.GetExtension(name).TrimStart('.');
-        var lexer = extension switch
-        {
-            "json" or "jsonc" or "json5" => "json",
-            "yaml" or "yml" => "yaml",
-            "sh" or "bash" or "zsh" or "ksh" => "bash",
-            "conf" or "cnf" or "cfg" or "ini" or "properties" or "service" or "socket" or "timer" or "target" or "mount" or "desktop" or "repo" or "list" => "props",
-            "toml" => "toml",
-            "diff" or "patch" => "diff",
-            "lua" => "lua",
-            "pl" or "pm" => "perl",
-            "py" or "pyw" => "python",
-            "js" or "mjs" or "cjs" or "ts" or "mts" or "cts" or "jsx" or "tsx" => "javascript",
-            "xml" or "xsl" or "xsd" or "plist" or "svg" or "rss" => "xml",
-            "html" or "htm" => "html",
-            "sql" => "sql",
-            "css" or "scss" or "less" => "css",
-            _ => "plain"
-        };
-        if (lexer != "plain") return lexer;
-        var firstLine = text.Split('\n', 2)[0];
-        if (firstLine.StartsWith("#!", StringComparison.Ordinal))
-        {
-            if (firstLine.Contains("python", StringComparison.OrdinalIgnoreCase)) return "python";
-            if (firstLine.Contains("perl", StringComparison.OrdinalIgnoreCase)) return "perl";
-            if (firstLine.Contains("node", StringComparison.OrdinalIgnoreCase)) return "javascript";
-            if (firstLine.Contains("lua", StringComparison.OrdinalIgnoreCase)) return "lua";
-            if (firstLine.Contains("bash", StringComparison.OrdinalIgnoreCase) || firstLine.Contains("/sh", StringComparison.OrdinalIgnoreCase)) return "bash";
-        }
-        return "plain";
-    }
 
     private static void EnsureLibrariesLoaded()
     {

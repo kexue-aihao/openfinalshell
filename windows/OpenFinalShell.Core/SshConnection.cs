@@ -203,6 +203,34 @@ public sealed class SshConnection : IDisposable
         finally { sftpGate.Release(); }
     }
 
+    public async Task<RemoteEntry?> ResolveEntryAsync(string path, CancellationToken token)
+    {
+        await sftpGate.WaitAsync(token);
+        try
+        {
+            var client = await GetSftp(token);
+            var sessionProperty = typeof(SftpClient).GetProperty("SftpSession", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (sessionProperty?.GetValue(client) is not { } session) throw new NotSupportedException("The SFTP transport cannot resolve remote file metadata safely.");
+            var strictMethod = session.GetType().GetMethod("RequestRealPathAsync", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null, types: [typeof(string), typeof(bool), typeof(CancellationToken)], modifiers: null);
+            if (strictMethod?.Invoke(session, [path.StartsWith('/') ? path : client.WorkingDirectory.TrimEnd('/') + "/" + path, false, token])
+                is not Task<KeyValuePair<string, SftpFileAttributes>[]> request)
+                throw new NotSupportedException("The SFTP transport cannot resolve remote file metadata safely.");
+            var entries = await request.ConfigureAwait(false);
+            if (entries is not { Length: > 0 } || string.IsNullOrEmpty(entries[0].Key)) return null;
+            var (resolvedPath, attributes) = entries[0];
+            var name = resolvedPath.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty;
+            if (name.Length == 0) return null;
+            var type = attributes.IsDirectory ? NativeRemoteEntryType.Directory
+                : attributes.IsSymbolicLink ? NativeRemoteEntryType.Symlink
+                : attributes.IsRegularFile ? NativeRemoteEntryType.File
+                : NativeRemoteEntryType.Other;
+            return new(name, resolvedPath, attributes.Size, attributes.IsDirectory, attributes.LastWriteTime,
+                type, PermissionMode(attributes), checked((int)attributes.UserId), checked((int)attributes.GroupId), attributes.IsSymbolicLink);
+        }
+        finally { sftpGate.Release(); }
+    }
+
     private static async Task<string> ResolvePathAsync(SftpClient client, string path, CancellationToken token, bool requireExisting)
     {
         // Use the SFTP REALPATH request rather than local string
@@ -324,8 +352,7 @@ public sealed class SshConnection : IDisposable
             var client = await GetSftp(token);
             try
             {
-                if (!client.Exists(path)) return null;
-                var item = client.Get(path);
+                var item = await Task.Run(() => client.Get(path), token).ConfigureAwait(false);
                 return string.IsNullOrEmpty(item.Name) ? null : ToRemoteEntry(item);
             }
             catch (Renci.SshNet.Common.SftpPathNotFoundException) { return null; }
@@ -351,7 +378,7 @@ public sealed class SshConnection : IDisposable
         await sftpGate.WaitAsync(token);
         try
         {
-            await using var source = (await GetSftp(token)).OpenRead(path);
+            await using var source = await (await GetSftp(token)).OpenAsync(path, FileMode.Open, FileAccess.Read, token).ConfigureAwait(false);
             if (source.CanSeek && source.Length > maxBytes)
                 throw new InvalidOperationException($"Remote file exceeds the {maxBytes} byte read limit.");
             using var buffer = new MemoryStream(source.CanSeek ? (int)Math.Min(Math.Min(source.Length, maxBytes), 64 * 1024) : 0);
@@ -370,7 +397,7 @@ public sealed class SshConnection : IDisposable
     }
 
     /// <summary>Uses POSIX atomic replacement when available; backup/rename fallback requires caller consent.</summary>
-    public async Task WriteFileAtomicAsync(string path, byte[] bytes, bool overwrite, CancellationToken token, bool allowNonAtomic = false, byte[]? expectedHash = null)
+    public async Task WriteFileAtomicAsync(string path, byte[] bytes, bool overwrite, CancellationToken token, bool allowNonAtomic = false, byte[]? expectedHash = null, Action<long>? progress = null)
     {
         await sftpGate.WaitAsync(token);
         try
@@ -396,7 +423,15 @@ public sealed class SshConnection : IDisposable
                     temporaryCreated = true;
                     // Restrict permissions before placing any file contents in the temporary file.
                     client.ChangePermissions(temporary, ToSshPermissionDigits(originalMode ?? 384));
-                    await destination.WriteAsync(bytes, token);
+                    progress?.Invoke(0);
+                    const int chunkSize = 128 * 1024;
+                    for (var offset = 0; offset < bytes.Length; offset += chunkSize)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        var length = Math.Min(chunkSize, bytes.Length - offset);
+                        await destination.WriteAsync(bytes.AsMemory(offset, length), token);
+                        progress?.Invoke(offset + length);
+                    }
                     await destination.FlushAsync(token);
                 }
                 if (expectedHash != null)

@@ -33,9 +33,11 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
     public async Task NavigateAsync(string path, CancellationToken token = default)
     {
         var request = Interlocked.Increment(ref navigationRequest);
-        await navigationGate.WaitAsync(token);
+        var entered = false;
         try
         {
+            await navigationGate.WaitAsync(token);
+            entered = true;
             if (request != Volatile.Read(ref navigationRequest)) return;
             IsBusy = true;
             var normalized = NormalizePath(path);
@@ -49,7 +51,11 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception error) { if (request == Volatile.Read(ref navigationRequest)) Status = error.Message; throw; }
-        finally { IsBusy = false; navigationGate.Release(); }
+        finally
+        {
+            if (request == Volatile.Read(ref navigationRequest)) IsBusy = false;
+            if (entered) navigationGate.Release();
+        }
     }
 
     public Task RefreshAsync(CancellationToken token = default) => NavigateAsync(CurrentPath, token);

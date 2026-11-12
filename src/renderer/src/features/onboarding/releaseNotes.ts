@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.56',
+    items: [
+      { type: 'fix', zh: '修复在终端切换目录后 SFTP 文件面板跟随迟缓的问题，并缩短右键打开远程文件的等待时间', en: 'Fix delayed SFTP navigation after terminal directory changes and reduce the wait when opening remote files from the context menu' },
+      { type: 'feat', zh: '优化 WinUI 3 原生文件编辑器的大文件载入、编辑和保存响应；保存时显示实际上传进度，并改进字体大小与文件格式识别', en: 'Improve large-file loading, editing and saving responsiveness in the WinUI 3 native editor; show upload progress while saving and improve font sizing and file format detection' }
+    ]
+  },
+  {
     version: '0.30.55',
     items: [
       { type: 'fix', zh: '命令库侧栏终端图标移除独立黑色底块，使用与其他侧栏图标一致的底色和前景色', en: 'Remove the terminal icon’s separate black tile and use the same background and foreground treatment as other sidebar icons' }

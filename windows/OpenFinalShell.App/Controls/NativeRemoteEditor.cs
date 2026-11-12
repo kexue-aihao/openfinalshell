@@ -21,6 +21,8 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
     private readonly TextBlock statusPath = new() { TextTrimming = TextTrimming.CharacterEllipsis, IsTextSelectionEnabled = true };
     private readonly TextBlock statusMeta = new() { TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly Button save = new();
+    private readonly ProgressRing saveProgressRing = new() { Width = 16, Height = 16, IsActive = false, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
+    private readonly ProgressBar saveProgressBar = new() { Width = 112, Height = 4, Minimum = 0, Maximum = 100, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center };
     private readonly Button reload = new();
     private readonly Button find = new();
     private readonly TextBox search = new() { Width = 220, PlaceholderText = "Find" };
@@ -31,9 +33,11 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
     private readonly TextBox replacement = new() { Width = 180 };
     private readonly CheckBox matchCase = new() { Content = "Aa" }, wholeWord = new() { Content = "ab" }, regex = new() { Content = ".*" };
     private readonly TextBlock caret = new();
+    private readonly ComboBox languageChoice = new() { MinWidth = 108, Height = 32 };
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer caretTimer;
     private NativeRemoteFileView? view;
     private bool loading;
+    private bool saveInProgress;
     private bool sessionAvailable = true;
     private readonly ComboBox encodingChoice = new() { MinWidth = 120 };
     private bool synchronizingEncoding;
@@ -47,8 +51,8 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
     public void SetSessionAvailable(bool available)
     {
         sessionAvailable = available;
-        save.IsEnabled = available && editor.IsAvailable && view?.Lossless == true && HasUnsavedChanges;
-        reload.IsEnabled = available && view != null;
+        save.IsEnabled = available && !saveInProgress && editor.IsAvailable && view?.Lossless == true && HasUnsavedChanges;
+        reload.IsEnabled = available && !saveInProgress && view != null;
         if (!available)
             status.Text = Format("editor.sessionDead", ("origin", session.Profile.Name));
         else
@@ -66,6 +70,8 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
         editor.Configure(settings ?? NativeSettings.Defaults);
         AutomationProperties.SetName(editor, text("native.editor.automationName"));
         ConfigureIconButton(save, text("native.editor.save"), "\uE74E");
+        AutomationProperties.SetName(saveProgressRing, text("native.editor.save"));
+        AutomationProperties.SetName(saveProgressBar, text("native.editor.save"));
         ConfigureIconButton(reload, text("native.editor.reload"), "\uE72C");
         ConfigureIconButton(find, text("native.editor.find"), "\uE721");
         ConfigureIconButton(findNext, text("native.editor.findNext"), "\uE70D");
@@ -88,6 +94,8 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
         editor.InitializationFailed += error => status.Text = Format("native.editor.nativeUnavailable", ("detail", error.Message));
         var primaryToolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         primaryToolbar.Children.Add(save);
+        primaryToolbar.Children.Add(saveProgressRing);
+        primaryToolbar.Children.Add(saveProgressBar);
         primaryToolbar.Children.Add(reload);
         primaryToolbar.Children.Add(find);
         var go = new Button();
@@ -106,9 +114,17 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
         primaryToolbar.Children.Add(go);
         primaryToolbar.Children.Add(fold);
         primaryToolbar.Children.Add(unfold);
-        var language = new ComboBox { MinWidth = 108, PlaceholderText = text("native.editor.language"), Height = 32 };
-        language.ItemsSource = new[] { "plain", "bash", "props", "json", "yaml", "toml", "python", "javascript", "html", "xml", "css", "sql", "lua", "perl", "diff", "dockerfile", "nginx" };
-        language.SelectionChanged += (_, _) => { if (language.SelectedItem is string value) { editor.SetLanguage(value); UpdateDirtyState(); } };
+        var language = languageChoice;
+        language.PlaceholderText = text("native.editor.language");
+        language.ItemsSource = new[] { "plain", "bash", "props", "json", "yaml", "toml", "python", "javascript", "typescript", "coffeescript", "csharp", "java", "go", "html", "xml", "css", "sql", "lua", "perl", "php", "powershell", "markdown", "makefile", "cmake", "dart", "fsharp", "rust", "nim", "nix", "zig", "d", "r", "batch", "diff", "dockerfile", "nginx" };
+        language.SelectionChanged += (_, _) =>
+        {
+            if (language.SelectedItem is string value && value != editor.LexerLanguage)
+            {
+                editor.SetLanguage(value);
+                UpdateDirtyState();
+            }
+        };
         var optionsToolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         optionsToolbar.Children.Add(language);
         var wrap = new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton { Content = text("native.editor.wrap"), Style = Application.Current.Resources["EditorToolbarToggleStyle"] as Style };
@@ -204,12 +220,13 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
         string? loadError = null;
         try
         {
-            var loaded = await service.ViewAsync(session, path, encoding ?? requestedEncoding, cancellation);
+            var loaded = await Task.Run(() => service.ViewAsync(session, path, encoding ?? requestedEncoding, cancellation), cancellation);
             view = loaded;
             requestedEncoding = encoding ?? requestedEncoding;
             SynchronizeEncoding();
             editor.IsReadOnly = !loaded.Lossless;
-            editor.SetDocument(loaded.ResolvedPath, loaded.Text);
+            await editor.SetDocumentAsync(loaded.ResolvedPath, loaded.Text);
+            languageChoice.SelectedItem = editor.LexerLanguage;
             status.Text = NativeScintillaTextSurface.RuntimeFilesPresent
                 ? FormatStatus(loaded)
                 : Format("native.editor.nativeUnavailable", ("detail", "Scintilla.dll or Lexilla.dll is missing for this architecture."));
@@ -245,68 +262,132 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
 
     public async Task<bool> SaveAsync(bool overwriteRemoteChanges = false, bool allowShrink = false, bool allowNonAtomic = false)
     {
-        if (!sessionAvailable || view == null) return false;
+        if (!sessionAvailable || view == null || saveInProgress) return false;
         if (!editor.IsAvailable)
         {
             status.Text = Format("native.editor.nativeUnavailable", ("detail", "The native editor window could not be initialized."));
             return false;
         }
+        var saveView = view;
+        var wasReadOnly = editor.IsReadOnly;
+        saveInProgress = true;
+        saveProgressBar.Visibility = Visibility.Collapsed;
+        saveProgressRing.Visibility = Visibility.Visible;
+        saveProgressRing.IsActive = true;
+        save.IsEnabled = false;
+        reload.IsEnabled = false;
+        encodingChoice.IsEnabled = false;
+        editor.IsReadOnly = true;
         try
         {
-            var editedText = editor.Text;
-            var result = await service.SaveAsync(session, view.RequestedPath, editedText, view.Encoding, view.NewLine, view.HasBom, overwriteRemoteChanges, allowShrink, allowNonAtomic: allowNonAtomic);
-            if (result.Kind == NativeRemoteSaveKind.Conflict && !overwriteRemoteChanges)
+            // Let WinUI paint the saving indicator before the native document snapshot.
+            await Task.Yield();
+            var editedText = await editor.ReadTextAsync();
+            var dispatcher = coordinateRoot.DispatcherQueue;
+            Action<NativeRemoteEditorService.SaveProgress> reportProgress = progress =>
+                dispatcher.TryEnqueue(() => UpdateSaveProgress(progress));
+            while (true)
             {
-                var dialog = new ContentDialog
+                var result = await Task.Run(
+                    () => service.SaveAsync(session, saveView.RequestedPath, editedText, saveView.Encoding, saveView.NewLine,
+                        saveView.HasBom, overwriteRemoteChanges, allowShrink, allowNonAtomic: allowNonAtomic, progress: reportProgress));
+                if (result.Kind == NativeRemoteSaveKind.Conflict && !overwriteRemoteChanges)
                 {
-                    Title = text("native.editor.remoteChangedTitle"),
-                    Content = text("native.editor.remoteChanged"),
-                    PrimaryButtonText = text("native.editor.overwrite"),
-                    CloseButtonText = text("native.common.cancel"),
-                    XamlRoot = DialogRoot
-                };
-                if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return false;
-                return await SaveAsync(true, allowShrink, allowNonAtomic);
-            }
-            if (result.Kind == NativeRemoteSaveKind.Shrink && !allowShrink)
-            {
-                var dialog = new ContentDialog
+                    PauseSaveProgress();
+                    var dialog = new ContentDialog
+                    {
+                        Title = text("native.editor.remoteChangedTitle"),
+                        Content = text("native.editor.remoteChanged"),
+                        PrimaryButtonText = text("native.editor.overwrite"),
+                        CloseButtonText = text("native.common.cancel"),
+                        XamlRoot = DialogRoot
+                    };
+                    if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return false;
+                    overwriteRemoteChanges = true;
+                    ResumeSaveProgress();
+                    continue;
+                }
+                if (result.Kind == NativeRemoteSaveKind.Shrink && !allowShrink)
                 {
-                    Title = text("native.editor.shrinkTitle"),
-                    Content = text("native.editor.shrinkMessage"),
-                    PrimaryButtonText = text("native.editor.allowShrink"),
-                    CloseButtonText = text("native.common.cancel"),
-                    XamlRoot = DialogRoot
-                };
-                if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return false;
-                return await SaveAsync(overwriteRemoteChanges, true, allowNonAtomic);
-            }
-            if (result.Kind == NativeRemoteSaveKind.NonAtomic && !allowNonAtomic)
-            {
-                var dialog = new ContentDialog
+                    PauseSaveProgress();
+                    var dialog = new ContentDialog
+                    {
+                        Title = text("native.editor.shrinkTitle"),
+                        Content = text("native.editor.shrinkMessage"),
+                        PrimaryButtonText = text("native.editor.allowShrink"),
+                        CloseButtonText = text("native.common.cancel"),
+                        XamlRoot = DialogRoot
+                    };
+                    if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return false;
+                    allowShrink = true;
+                    ResumeSaveProgress();
+                    continue;
+                }
+                if (result.Kind == NativeRemoteSaveKind.NonAtomic && !allowNonAtomic)
                 {
-                    Title = text("editor.nonAtomicTitle"), Content = new TextBlock { Text = text("editor.nonAtomicDesc"), TextWrapping = TextWrapping.Wrap },
-                    PrimaryButtonText = text("editor.nonAtomicOk"), CloseButtonText = text("native.common.cancel"), XamlRoot = DialogRoot
-                };
-                if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return false;
-                return await SaveAsync(overwriteRemoteChanges, allowShrink, true);
+                    PauseSaveProgress();
+                    var dialog = new ContentDialog
+                    {
+                        Title = text("editor.nonAtomicTitle"), Content = new TextBlock { Text = text("editor.nonAtomicDesc"), TextWrapping = TextWrapping.Wrap },
+                        PrimaryButtonText = text("editor.nonAtomicOk"), CloseButtonText = text("native.common.cancel"), XamlRoot = DialogRoot
+                    };
+                    if (await dialog.ShowGatedAsync() != ContentDialogResult.Primary) return false;
+                    allowNonAtomic = true;
+                    ResumeSaveProgress();
+                    continue;
+                }
+                if (result.Kind != NativeRemoteSaveKind.Saved)
+                {
+                    status.Text = result.Message is { } message ? (message.StartsWith("native.", StringComparison.Ordinal) ? text(message) : message) : text("native.editor.saveFailed");
+                    return false;
+                }
+                editor.SetSavePoint();
+                view = saveView with { Text = editedText, Bytes = result.Bytes, Modified = DateTime.UtcNow, MixedNewLines = false };
+                status.Text = text("native.editor.saved");
+                UpdateDirtyState();
+                return true;
             }
-            if (result.Kind != NativeRemoteSaveKind.Saved)
-            {
-                status.Text = result.Message is { } message ? (message.StartsWith("native.", StringComparison.Ordinal) ? text(message) : message) : text("native.editor.saveFailed");
-                return false;
-            }
-            editor.SetSavePoint();
-            view = view with { Text = editedText, Bytes = result.Bytes, Modified = DateTime.UtcNow, MixedNewLines = false };
-            status.Text = text("native.editor.saved");
-            UpdateDirtyState();
-            return true;
         }
         catch (Exception error)
         {
             status.Text = error.Message.StartsWith("native.", StringComparison.Ordinal) ? text(error.Message) : error.Message;
             return false;
         }
+        finally
+        {
+            editor.IsReadOnly = wasReadOnly;
+            saveInProgress = false;
+            saveProgressRing.IsActive = false;
+            saveProgressRing.Visibility = Visibility.Collapsed;
+            saveProgressBar.Visibility = Visibility.Collapsed;
+            encodingChoice.IsEnabled = true;
+            UpdateDirtyState();
+        }
+    }
+
+    private void UpdateSaveProgress(NativeRemoteEditorService.SaveProgress progress)
+    {
+        if (!saveInProgress) return;
+        saveProgressBar.IsIndeterminate = false;
+        saveProgressBar.Visibility = Visibility.Visible;
+        saveProgressBar.Value = progress.TotalBytes <= 0
+            ? 100
+            : Math.Clamp(progress.BytesWritten * 100d / progress.TotalBytes, 0, 100);
+    }
+
+    private void PauseSaveProgress()
+    {
+        saveProgressRing.IsActive = false;
+        saveProgressRing.Visibility = Visibility.Collapsed;
+        saveProgressBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void ResumeSaveProgress()
+    {
+        saveProgressBar.Value = 0;
+        saveProgressBar.IsIndeterminate = true;
+        saveProgressRing.Visibility = Visibility.Visible;
+        saveProgressRing.IsActive = true;
     }
 
     public async Task<bool> ConfirmCloseAsync()
@@ -349,8 +430,8 @@ public sealed class NativeRemoteEditor : UserControl, IDisposable
     {
         if (loading || view == null) return;
         UpdateStatusParts(view);
-        save.IsEnabled = sessionAvailable && editor.IsAvailable && view.Lossless && HasUnsavedChanges;
-        reload.IsEnabled = sessionAvailable;
+        save.IsEnabled = sessionAvailable && !saveInProgress && editor.IsAvailable && view.Lossless && HasUnsavedChanges;
+        reload.IsEnabled = sessionAvailable && !saveInProgress;
         if (!sessionAvailable)
         {
             status.Text = Format("editor.sessionDead", ("origin", session.Profile.Name));

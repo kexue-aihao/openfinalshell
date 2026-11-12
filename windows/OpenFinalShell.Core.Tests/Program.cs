@@ -64,6 +64,7 @@ void Check(bool condition, string name) { if (!condition) throw new Exception(na
 void Reject(Action action, string name) { try { action(); } catch { Check(true, name); return; } throw new Exception(name); }
 async Task RejectAsync(Func<Task> action, string name) { try { await action(); } catch { Check(true, name); return; } throw new Exception(name); }
 await NativeFileUpdateTests.RunAsync(Check, root);
+NativeEditorLanguageTests.Run(Check);
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");

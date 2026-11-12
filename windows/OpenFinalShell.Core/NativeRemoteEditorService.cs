@@ -11,13 +11,14 @@ namespace OpenFinalShell.Core;
 public sealed class NativeRemoteEditorService
 {
     public const int MaximumEditableBytes = 8 * 1024 * 1024;
+    public readonly record struct SaveProgress(long BytesWritten, long TotalBytes);
     private sealed record Baseline(string ResolvedPath, byte[] Hash, long Length, DateTime Modified, bool Lossless);
     private readonly ConcurrentDictionary<string, Baseline> baselines = new(StringComparer.Ordinal);
 
     public async Task<NativeRemoteFileView> ViewAsync(NativeSession session, string path, NativeTextEncoding? requestedEncoding = null, CancellationToken cancellation = default)
     {
-        var resolved = await session.RealPathAsync(path, cancellation, requireExisting: true);
-        var entry = await session.TryGetAsync(resolved, cancellation) ?? throw new FileNotFoundException("Remote file not found.", path);
+        var entry = await session.ResolveEntryAsync(path, cancellation) ?? throw new FileNotFoundException("Remote file not found.", path);
+        var resolved = entry.Path;
         if (entry.Type != NativeRemoteEntryType.File) throw new InvalidOperationException("The remote entry is not a text file.");
         EnsureSizeAllowed(entry.Size);
         var bytes = await session.ReadFileAsync(resolved, cancellation, MaximumEditableBytes);
@@ -42,7 +43,8 @@ public sealed class NativeRemoteEditorService
         bool overwriteRemoteChanges,
         bool allowShrink,
         CancellationToken cancellation = default,
-        bool allowNonAtomic = false)
+        bool allowNonAtomic = false,
+        Action<SaveProgress>? progress = null)
     {
         if (!baselines.TryGetValue(Key(session.SessionId, path), out var baseline))
             throw new InvalidOperationException("Remote editor baseline is unavailable; reopen the file.");
@@ -67,7 +69,11 @@ public sealed class NativeRemoteEditorService
 
         if (!string.Equals(resolved, await session.RealPathAsync(path, cancellation, requireExisting: true), StringComparison.Ordinal))
             throw new IOException("native.editor.targetChanged");
-        try { await session.WriteFileAtomicAsync(resolved, bytes, true, cancellation, allowNonAtomic, currentHash); }
+        try
+        {
+            await session.WriteFileAtomicAsync(resolved, bytes, true, cancellation, allowNonAtomic, currentHash,
+                bytesWritten => progress?.Invoke(new(bytesWritten, bytes.LongLength)));
+        }
         catch (NativeNonAtomicSaveRequiredException)
         { return new(NativeRemoteSaveKind.NonAtomic, bytes.LongLength, current.Mode); }
         catch (NativeRemoteFileChangedException)

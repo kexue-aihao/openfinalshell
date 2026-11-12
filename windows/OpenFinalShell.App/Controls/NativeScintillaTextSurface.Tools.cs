@@ -87,16 +87,28 @@ public sealed partial class NativeScintillaTextSurface
         switch (LexerLanguage)
         {
             case "python": Style(1, commentColor); Style(3, literalColor); Style(4, literalColor); Style(5, keywordColor); Style(6, literalColor); Style(7, literalColor); Style(12, commentColor); break;
-            case "javascript": case "cpp": case "css": case "sql": Style(1, commentColor); Style(2, commentColor); Style(3, commentColor); Style(5, keywordColor); Style(6, literalColor); Style(7, literalColor); break;
-            case "bash": Style(2, commentColor); Style(4, keywordColor); Style(5, literalColor); Style(6, literalColor); break;
-            case "props": Style(1, commentColor); Style(2, keywordColor); Style(3, keywordColor); Style(4, literalColor); break;
+            case "javascript": case "typescript": case "cpp": case "csharp": case "java": case "go": case "css": case "sql":
+                Style(1, commentColor); Style(2, commentColor); Style(3, commentColor); Style(5, keywordColor); Style(6, literalColor); Style(7, literalColor); break;
+            case "html": case "xml":
+                Style(1, keywordColor); Style(2, keywordColor); Style(3, keywordColor); Style(4, keywordColor); Style(5, literalColor); Style(6, literalColor); Style(7, literalColor); Style(9, commentColor); Style(10, literalColor); break;
+            case "bash": case "dockerfile": Style(2, commentColor); Style(4, keywordColor); Style(5, literalColor); Style(6, literalColor); break;
+            case "props": case "nginx": Style(1, commentColor); Style(2, keywordColor); Style(3, keywordColor); Style(4, literalColor); break;
+            case "php": Style(1, commentColor); Style(2, commentColor); Style(3, commentColor); Style(4, literalColor); Style(5, keywordColor); Style(6, literalColor); Style(7, literalColor); break;
             case "json": Style(2, literalColor); Style(4, keywordColor); Style(6, commentColor); Style(7, commentColor); Style(11, keywordColor); break;
             case "yaml": Style(1, commentColor); Style(2, keywordColor); Style(3, keywordColor); Style(4, literalColor); break;
+            case "markdown": Style(1, keywordColor); Style(2, keywordColor); Style(3, keywordColor); Style(7, keywordColor); Style(8, keywordColor); Style(9, literalColor); Style(10, literalColor); Style(14, commentColor); Style(17, literalColor); Style(18, literalColor); break;
         }
         var keywords = LexerLanguage switch
         {
             "python" => "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield",
-            "javascript" => "async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof let new null of return static super switch this throw true try typeof undefined var void while with yield",
+            "javascript" or "typescript" => "async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof let new null of return static super switch this throw true try typeof undefined var void while with yield",
+            "cpp" => "alignas alignof and asm auto bool break case catch char class const constexpr continue decltype default delete do double else enum explicit export extern false float for friend goto if inline int long namespace new noexcept not nullptr operator or private protected public register return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while xor",
+            "csharp" => "abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile while",
+            "java" => "abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for if implements import instanceof int interface long native new null package private protected public return short static strictfp super switch synchronized this throw throws transient try void volatile while",
+            "go" => "break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64 rune string uint uint8 uint16 uint32 uint64 uintptr true false nil",
+            "php" => "abstract and array as break callable case catch class clone const continue declare default die do echo else elseif empty enddeclare endfor endforeach endif endswitch endwhile eval exit extends final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new or print private protected public require require_once return static switch throw trait try unset use var while xor yield",
+            "powershell" => "begin break catch class continue data do dynamicparam else elseif end endfor endfunction endif endprocess endregion endswitch endwhile enum exit filter finally for foreach from function if in inline input process return switch throw trap try until using var while workflow",
+            "dockerfile" => "ADD ARG CMD COPY ENTRYPOINT ENV EXPOSE FROM HEALTHCHECK LABEL MAINTAINER ONBUILD RUN SHELL STOPSIGNAL USER VOLUME WORKDIR",
             "bash" => "if then else elif fi case esac for while do done function in select until time export local return",
             "sql" => "select from where insert into update delete create table alter drop join left right on group order by having limit union distinct null as and or not values set begin commit rollback",
             _ => ""

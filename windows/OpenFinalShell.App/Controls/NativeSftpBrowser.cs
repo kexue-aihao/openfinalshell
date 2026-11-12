@@ -50,11 +50,11 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
     private bool sortSelected;
     private readonly ToggleSwitch hidden = new();
     private bool configuring;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer followTimer;
     private CancellationTokenSource? followCancellation;
     private string? pendingFollowPath;
     private string? reportedDirectory, followingDirectory;
-    private string? homeDirectory;
+    private string? homeDirectory, shellDirectory;
+    private long shellCommandVersion;
     private bool followActive, disposed;
 
     public NativeSftpBrowser(NativeSession session, NativeTransferQueue transfers, Func<nint> windowHandle, Func<string, string> text, Action<string>? openFile = null, NativeSettings? settings = null)
@@ -64,8 +64,6 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         preferences = settings ?? NativeSettings.Defaults;
         fastDeleteLocalization.SetLanguage(preferences.Language);
         viewModel = new SftpBrowserViewModel(session);
-        followTimer = DispatcherQueue.CreateTimer(); followTimer.Interval = TimeSpan.FromMilliseconds(200); followTimer.IsRepeating = false;
-        followTimer.Tick += async (_, _) => await FollowPendingDirectoryAsync();
         browseLabel = text("native.sftp.refresh"); uploadLabel = text("native.sftp.upload"); downloadLabel = text("native.sftp.download");
         newFolderLabel = text("native.sftp.newFolder"); deleteLabel = text("native.sftp.delete");
         back.Content = text("sftp.back"); forward.Content = text("sftp.forward"); up.Content = text("native.sftp.up"); refresh.Content = browseLabel; upload.Content = uploadLabel; uploadFolder.Content = text("native.sftp.uploadFolder"); download.Content = downloadLabel;
@@ -268,16 +266,17 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         preferences = settings; configuring = true; hidden.IsOn = settings.SftpShowHiddenFiles; configuring = false;
         fastDeleteLocalization.SetLanguage(settings.Language);
         viewModel.ConfigureView(hidden.IsOn, sortField, sortDescending);
-        if (!preferences.Get("sftp.followTerminalCd", true)) { pendingFollowPath = null; followTimer.Stop(); followCancellation?.Cancel(); }
+        if (!preferences.Get("sftp.followTerminalCd", true)) { pendingFollowPath = null; followCancellation?.Cancel(); }
         else { if (!previouslyFollowing) pendingFollowPath = reportedDirectory; ScheduleFollow(); }
     }
 
     public void FollowRemoteDirectory(string directory)
     {
         if (disposed) return;
-        reportedDirectory = directory;
+        shellCommandVersion++;
+        reportedDirectory = shellDirectory = SftpBrowserViewModel.NormalizePath(directory);
         if (!preferences.Get("sftp.followTerminalCd", true)) return;
-        pendingFollowPath = directory;
+        pendingFollowPath = shellDirectory;
         followCancellation?.Cancel();
         ScheduleFollow();
     }
@@ -286,69 +285,91 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
     {
         var target = NativeShellPathSync.ParseCdTarget(command);
         if (target == null) return;
+        var commandVersion = ++shellCommandVersion;
         if (target == "~" || target.StartsWith("~/", StringComparison.Ordinal))
         {
-            _ = FollowHomeCommandAsync(target);
+            _ = FollowHomeCommandAsync(target, commandVersion);
             return;
         }
-        var resolved = NativeShellPathSync.ApplyCd(viewModel.CurrentPath, target, homeDirectory);
-        if (resolved != null) FollowRemoteDirectory(resolved);
+        var cwd = pendingFollowPath ?? followingDirectory ?? shellDirectory ?? viewModel.CurrentPath;
+        var resolved = NativeShellPathSync.ApplyCd(cwd, target, homeDirectory);
+        if (resolved != null) FollowShellDirectory(resolved);
     }
 
-    private async Task FollowHomeCommandAsync(string target)
+    private void FollowShellDirectory(string directory)
+    {
+        if (disposed) return;
+        shellDirectory = SftpBrowserViewModel.NormalizePath(directory);
+        if (!preferences.Get("sftp.followTerminalCd", true)) return;
+        pendingFollowPath = shellDirectory;
+        followCancellation?.Cancel();
+        ScheduleFollow();
+    }
+
+    private async Task FollowHomeCommandAsync(string target, long commandVersion)
     {
         try
         {
             homeDirectory ??= await session.RealPathAsync(".", CancellationToken.None);
-            var resolved = NativeShellPathSync.ApplyCd(viewModel.CurrentPath, target, homeDirectory);
-            if (resolved != null) FollowRemoteDirectory(resolved);
+            if (commandVersion != shellCommandVersion) return;
+            var cwd = pendingFollowPath ?? followingDirectory ?? shellDirectory ?? viewModel.CurrentPath;
+            var resolved = NativeShellPathSync.ApplyCd(cwd, target, homeDirectory);
+            if (resolved != null) FollowShellDirectory(resolved);
         }
         catch (Exception error) { System.Diagnostics.Debug.WriteLine($"Could not resolve shell home directory: {error.Message}"); }
     }
     public void SetFollowActive(bool active)
     {
         followActive = active;
-        if (!active) { if (followCancellation != null) pendingFollowPath ??= followingDirectory; followTimer.Stop(); followCancellation?.Cancel(); }
+        if (!active) { if (followCancellation != null) pendingFollowPath ??= followingDirectory; followCancellation?.Cancel(); }
         else ScheduleFollow();
     }
     public void ResetRemoteDirectory()
     {
-        reportedDirectory = pendingFollowPath = null; followTimer.Stop(); followCancellation?.Cancel();
+        reportedDirectory = pendingFollowPath = shellDirectory = null; shellCommandVersion++; followCancellation?.Cancel();
     }
     private void ScheduleFollow()
     {
         if (disposed || !followActive || !initialized || pendingFollowPath == null || !preferences.Get("sftp.followTerminalCd", true)) return;
-        followTimer.Stop(); followTimer.Start();
+        _ = FollowPendingDirectoryAsync();
     }
     private async Task FollowPendingDirectoryAsync()
     {
         if (disposed || !followActive || pendingFollowPath is not { } target || !preferences.Get("sftp.followTerminalCd", true)) return;
         if (session.Snapshot.State != NativeSessionState.Ready) { pendingFollowPath = null; return; }
-        if (viewModel.IsBusy || followCancellation != null) { ScheduleFollow(); return; }
         pendingFollowPath = null;
-        if (target == viewModel.CurrentPath) return;
-        using var cancellation = new CancellationTokenSource(); followCancellation = cancellation;
+        if (target == viewModel.CurrentPath) { path.Text = viewModel.CurrentPath; return; }
+        path.Text = target;
+        var cancellation = new CancellationTokenSource(); followCancellation = cancellation;
         followingDirectory = target;
         try
         {
-            var resolved = await session.RealPathAsync(target, cancellation.Token, requireExisting: true);
-            var entry = await session.TryGetAsync(resolved, cancellation.Token);
-            if (entry?.IsDirectory != true) throw new IOException(text("native.validationFailed"));
-            await viewModel.NavigateAsync(resolved, cancellation.Token);
-            navigationHistory.Push(resolved);
+            // The list request validates the directory itself. Avoid serial
+            // REALPATH and stat calls before listing, so terminal cd reaches
+            // the visible file list with one SFTP round trip.
+            await viewModel.NavigateAsync(target, cancellation.Token);
+            navigationHistory.Push(viewModel.CurrentPath);
             UpdateHistoryControls();
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error)
         {
-            if (!disposed && followActive && !cancellation.IsCancellationRequested)
+            if (!disposed && followActive && !cancellation.IsCancellationRequested && ReferenceEquals(followCancellation, cancellation))
+            {
+                path.Text = viewModel.CurrentPath;
                 status.Text = text("sftp.followFailed").Replace("{{path}}", target, StringComparison.Ordinal).Replace("{{reason}}", error.Message, StringComparison.Ordinal);
+            }
         }
-        finally { followCancellation = null; followingDirectory = null; ScheduleFollow(); }
+        finally
+        {
+            if (ReferenceEquals(followCancellation, cancellation)) { followCancellation = null; followingDirectory = null; }
+            cancellation.Dispose();
+            ScheduleFollow();
+        }
     }
     public void Dispose()
     {
-        disposed = true; followTimer.Stop(); pendingFollowPath = null; followCancellation?.Cancel();
+        disposed = true; pendingFollowPath = null; shellCommandVersion++; followCancellation?.Cancel();
     }
     private static RemoteEntry? EntryAt(DependencyObject? source)
     {
