@@ -11,6 +11,37 @@ $downloads = @(
     @{ Name = 'lexilla554.zip'; Sha256 = '5E0A21356E4E2F19D6A38ECD1C8172D5A2B7B4542940568B023386080DB90FE0'; Uri = 'https://www.scintilla.org/lexilla554.zip' }
 )
 
+function Get-PinnedDownload {
+    param(
+        [Parameter(Mandatory)] [string] $Uri,
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $Sha256
+    )
+
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        try {
+            if (Test-Path -LiteralPath $Path) {
+                Remove-Item -LiteralPath $Path -Force
+            }
+            Write-Output "Downloading $Uri (attempt $attempt/4)"
+            Invoke-WebRequest -Uri $Uri -OutFile $Path -MaximumRedirection 10 `
+                -ConnectionTimeoutSeconds 30 -OperationTimeoutSeconds 300 `
+                -MaximumRetryCount 3 -RetryIntervalSec 3
+            $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+            if ($actual -ne $Sha256) {
+                throw "Checksum mismatch: expected $Sha256, got $actual"
+            }
+            return
+        }
+        catch {
+            if ($attempt -eq 4) { throw }
+            $delay = [Math]::Min(30, 3 * $attempt)
+            Write-Warning "Download failed ($($_.Exception.Message)); retrying in ${delay}s"
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
+
 foreach ($download in $downloads) {
     $path = Join-Path $dependencyRoot $download.Name
     $valid = $false
@@ -18,9 +49,7 @@ foreach ($download in $downloads) {
         $valid = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -eq $download.Sha256
     }
     if (-not $valid) {
-        Invoke-WebRequest -Uri $download.Uri -OutFile $path -MaximumRedirection 10
-        $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
-        if ($actual -ne $download.Sha256) { throw "Checksum mismatch for $($download.Name): $actual" }
+        Get-PinnedDownload -Uri $download.Uri -Path $path -Sha256 $download.Sha256
     }
 }
 
