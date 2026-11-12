@@ -218,15 +218,13 @@ public sealed class SshConnection : IDisposable
                 throw new NotSupportedException("The SFTP transport cannot resolve remote file metadata safely.");
             var entries = await request.ConfigureAwait(false);
             if (entries is not { Length: > 0 } || string.IsNullOrEmpty(entries[0].Key)) return null;
-            var (resolvedPath, attributes) = entries[0];
-            var name = resolvedPath.TrimEnd('/').Split('/').LastOrDefault() ?? string.Empty;
-            if (name.Length == 0) return null;
-            var type = attributes.IsDirectory ? NativeRemoteEntryType.Directory
-                : attributes.IsSymbolicLink ? NativeRemoteEntryType.Symlink
-                : attributes.IsRegularFile ? NativeRemoteEntryType.File
-                : NativeRemoteEntryType.Other;
-            return new(name, resolvedPath, attributes.Size, attributes.IsDirectory, attributes.LastWriteTime,
-                type, PermissionMode(attributes), checked((int)attributes.UserId), checked((int)attributes.GroupId), attributes.IsSymbolicLink);
+            var resolvedPath = entries[0].Key;
+            // REALPATH replies are allowed to omit file type attributes. Some
+            // SFTP servers do exactly that, which made ordinary files appear
+            // as NativeRemoteEntryType.Other and prevented the editor opening
+            // them. Stat the canonical target to get authoritative metadata.
+            var item = await Task.Run(() => client.Get(resolvedPath), token).ConfigureAwait(false);
+            return string.IsNullOrEmpty(item.Name) ? null : ToRemoteEntry(item) with { Path = resolvedPath };
         }
         finally { sftpGate.Release(); }
     }

@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.57",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复部分 SFTP 服务器误报文件类型，导致 WinUI 3 原生编辑器无法加载远程文本文件的问题",
+        "en": "Fix remote text files failing to load in the WinUI 3 native editor when some SFTP servers report incomplete file type metadata"
+      }
+    ]
+  },
+  {
     "version": "0.30.56",
     "items": [
       {

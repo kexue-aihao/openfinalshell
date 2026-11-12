@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.57',
+    items: [
+      { type: 'fix', zh: '修复部分 SFTP 服务器误报文件类型，导致 WinUI 3 原生编辑器无法加载远程文本文件的问题', en: 'Fix remote text files failing to load in the WinUI 3 native editor when some SFTP servers report incomplete file type metadata' }
+    ]
+  },
+  {
     version: '0.30.56',
     items: [
       { type: 'fix', zh: '修复在终端切换目录后 SFTP 文件面板跟随迟缓的问题，并缩短右键打开远程文件的等待时间', en: 'Fix delayed SFTP navigation after terminal directory changes and reduce the wait when opening remote files from the context menu' },
