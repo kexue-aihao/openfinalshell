@@ -290,7 +290,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
         ToolTipService.SetToolTip(tab, remotePath);
     }
 
-    private async void TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
+    private void TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         if (args.Tab.Tag is not string key || !documents.TryGetValue(key, out var document)) return;
         if (!await document.Editor.ConfirmCloseAsync()) return;
@@ -301,7 +301,7 @@ internal sealed class NativeEditorWindowHost : IDisposable
             content!.Content = selectedDocument.Editor;
         else content!.Content = null;
         if (documents.Count == 0) CloseAfterConfirmation();
-    }
+    }, error => Failed?.Invoke(error.Message));
 
     private async void WindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {

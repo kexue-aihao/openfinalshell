@@ -16,6 +16,7 @@ public sealed class NativeChatLine(string role, string content) : INotifyPropert
     private Microsoft.UI.Xaml.Media.Imaging.BitmapImage? previewImage;
     public string Role { get; } = role;
     private string? imageDataUrl;
+    private bool isStreaming;
     public string? ImageDataUrl
     {
         get => imageDataUrl;
@@ -23,6 +24,16 @@ public sealed class NativeChatLine(string role, string content) : INotifyPropert
     }
     public Microsoft.UI.Xaml.Media.Imaging.BitmapImage? PreviewImage { get => previewImage; private set { previewImage = value; PropertyChanged?.Invoke(this, new(nameof(PreviewImage))); } }
     public string Content { get => content; set { if (content == value) return; content = value; PropertyChanged?.Invoke(this, new(nameof(Content))); PropertyChanged?.Invoke(this, new(nameof(Summary))); } }
+    public bool IsStreaming
+    {
+        get => isStreaming;
+        set
+        {
+            if (isStreaming == value) return;
+            isStreaming = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsStreaming)));
+        }
+    }
     public string Summary => $"{Role}: {Content}";
     private async Task LoadPreviewAsync(string dataUrl)
     {
@@ -141,15 +152,25 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
         var totalLength = Messages.Sum(item => item.Content.Length) + input.Length;
         if (totalLength > 32768) throw new InvalidOperationException("Conversation exceeds the native input limit.");
         var user = new NativeChatLine("user", input) { ImageDataUrl = imageDataUrl };
-        Messages.Add(user); var assistant = new NativeChatLine("assistant", ""); Messages.Add(assistant);
+        Messages.Add(user); var assistant = new NativeChatLine("assistant", "") { IsStreaming = true }; Messages.Add(assistant);
         var history = Messages.Where(item => item.Content.Length > 0 || item.ImageDataUrl != null)
             .Select(item => new AiChatMessage(item.Role, item.Content, item.ImageDataUrl == null ? null : (IReadOnlyList<AiImageAttachment>)new[] { new AiImageAttachment(item.ImageDataUrl) })).ToArray();
         requestCancellation = new CancellationTokenSource(); IsRunning = true; Status = "Receiving response…";
+        System.Text.StringBuilder? streamedResponse = null;
         try
         {
             if (StreamResponses)
             {
-                await foreach (var delta in service.StreamChatAsync(provider.Id, history, requestCancellation.Token)) assistant.Content += delta;
+                var response = streamedResponse = new System.Text.StringBuilder();
+                var flushClock = System.Diagnostics.Stopwatch.StartNew();
+                await foreach (var delta in service.StreamChatAsync(provider.Id, history, requestCancellation.Token))
+                {
+                    response.Append(delta);
+                    if (flushClock.ElapsedMilliseconds < 100) continue;
+                    assistant.Content = response.ToString();
+                    flushClock.Restart();
+                }
+                assistant.Content = response.ToString();
             }
             else
             {
@@ -159,7 +180,15 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (OperationCanceledException) { Status = "Request canceled."; }
         catch (Exception error) { assistant.Content = string.IsNullOrEmpty(assistant.Content) ? error.Message : assistant.Content + "\n\n" + error.Message; Status = "Request failed."; }
-        finally { requestCancellation?.Dispose(); requestCancellation = null; IsRunning = false; }
+        finally
+        {
+            if (streamedResponse is { Length: > 0 } && streamedResponse.Length > assistant.Content.Length)
+                assistant.Content = streamedResponse.ToString();
+            assistant.IsStreaming = false;
+            requestCancellation?.Dispose();
+            requestCancellation = null;
+            IsRunning = false;
+        }
     }
 
     public Task<AiImageCapabilityResult> TestImageCapabilityAsync(Uri baseUrl, string model, string? token, CancellationToken cancellation = default) =>

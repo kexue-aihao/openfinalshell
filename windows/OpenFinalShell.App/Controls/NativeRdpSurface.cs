@@ -10,6 +10,7 @@ using Windows.Foundation;
 using Windows.Graphics.DirectX;
 using Microsoft.UI.Input;
 using System.Collections.Generic;
+using OpenFinalShell.App;
 
 namespace OpenFinalShell.App.Controls;
 
@@ -28,6 +29,13 @@ public sealed class NativeRdpSurface : UserControl, IDisposable
     private uint renderedHeight;
     private CancellationTokenSource? resizeCancellation;
     private readonly object queueGate = new();
+    private int invalidationScheduled;
+    private int pointerScheduled;
+    private int pendingPointerVersion;
+    private int sentPointerVersion;
+    private uint pendingPointerX;
+    private uint pendingPointerY;
+    private uint pendingPointerButtons;
     private bool disposed;
     private readonly RdpSessionViewModel session;
 
@@ -65,7 +73,13 @@ public sealed class NativeRdpSurface : UserControl, IDisposable
                 }
                 else pendingFrames.Enqueue(new(frame.CanvasWidth, frame.CanvasHeight, patches));
             }
-            canvas.DispatcherQueue.TryEnqueue(canvas.Invalidate);
+            if (Interlocked.Exchange(ref invalidationScheduled, 1) == 0 &&
+                !canvas.DispatcherQueue.TryEnqueue(() =>
+                {
+                    Volatile.Write(ref invalidationScheduled, 0);
+                    canvas.Invalidate();
+                }))
+                Volatile.Write(ref invalidationScheduled, 0);
         }
         catch (Exception error)
         {
@@ -121,16 +135,57 @@ public sealed class NativeRdpSurface : UserControl, IDisposable
     private uint PointerButtons(PointerPointProperties properties) =>
         (properties.IsLeftButtonPressed ? 1u : 0u) | (properties.IsRightButtonPressed ? 2u : 0u) | (properties.IsMiddleButtonPressed ? 4u : 0u);
 
-    private async void HandlePointerPressed(object sender, PointerRoutedEventArgs args) { canvas.Focus(FocusState.Pointer); canvas.CapturePointer(args.Pointer); await SendPointerAsync(args); }
-    private async void HandlePointerReleased(object sender, PointerRoutedEventArgs args) { await SendPointerAsync(args); canvas.ReleasePointerCapture(args.Pointer); }
-    private async void HandlePointerMoved(object sender, PointerRoutedEventArgs args) { await SendPointerAsync(args); }
-    private async void HandlePointerWheelChanged(object sender, PointerRoutedEventArgs args)
+    private void HandlePointerPressed(object sender, PointerRoutedEventArgs args) => UiTaskRunner.Run(async () =>
+    {
+        canvas.Focus(FocusState.Pointer);
+        canvas.CapturePointer(args.Pointer);
+        await FlushPointerMoveAsync();
+        await SendPointerAsync(args);
+    }, ReportInteractionError);
+    private void HandlePointerReleased(object sender, PointerRoutedEventArgs args) => UiTaskRunner.Run(async () =>
+    {
+        await FlushPointerMoveAsync();
+        await SendPointerAsync(args);
+        canvas.ReleasePointerCapture(args.Pointer);
+    }, ReportInteractionError);
+    private void HandlePointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        var point = args.GetCurrentPoint(canvas);
+        pendingPointerX = ToPixel(point.Position.X);
+        pendingPointerY = ToPixel(point.Position.Y);
+        pendingPointerButtons = PointerButtons(point.Properties);
+        Interlocked.Increment(ref pendingPointerVersion);
+        SchedulePointerFlush();
+    }
+    private void SchedulePointerFlush()
+    {
+        if (disposed || Interlocked.Exchange(ref pointerScheduled, 1) != 0) return;
+        UiTaskRunner.Run(async () =>
+        {
+            try { await FlushPointerMoveAsync(); }
+            finally
+            {
+                Volatile.Write(ref pointerScheduled, 0);
+                if (Volatile.Read(ref sentPointerVersion) != Volatile.Read(ref pendingPointerVersion))
+                    SchedulePointerFlush();
+            }
+        }, ReportInteractionError);
+    }
+    private async Task FlushPointerMoveAsync()
+    {
+        if (disposed) return;
+        var version = Volatile.Read(ref pendingPointerVersion);
+        if (version == Volatile.Read(ref sentPointerVersion)) return;
+        await session.PointerAsync(pendingPointerX, pendingPointerY, pendingPointerButtons);
+        Volatile.Write(ref sentPointerVersion, version);
+    }
+    private void HandlePointerWheelChanged(object sender, PointerRoutedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         var point = args.GetCurrentPoint(canvas); var position = point.Position;
         var delta = point.Properties.MouseWheelDelta;
         await session.PointerAsync(ToPixel(position.X), ToPixel(position.Y), PointerButtons(point.Properties), 0, delta);
         args.Handled = true;
-    }
+    }, ReportInteractionError);
 
     private async Task SendPointerAsync(PointerRoutedEventArgs args)
     {
@@ -140,23 +195,26 @@ public sealed class NativeRdpSurface : UserControl, IDisposable
 
     private uint ToPixel(double value) => (uint)Math.Clamp(value * (XamlRoot?.RasterizationScale ?? 1), 0, 8192);
 
-    private async void HandleKeyDown(object sender, KeyRoutedEventArgs args)
+    private void HandleKeyDown(object sender, KeyRoutedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         if (TryScanCode(args.Key, out var scan, out var extended)) { await session.KeyAsync(scan, true, extended); args.Handled = true; }
-    }
+    }, ReportInteractionError);
 
-    private async void HandleKeyUp(object sender, KeyRoutedEventArgs args)
+    private void HandleKeyUp(object sender, KeyRoutedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         if (TryScanCode(args.Key, out var scan, out var extended)) { await session.KeyAsync(scan, false, extended); args.Handled = true; }
-    }
+    }, ReportInteractionError);
 
-    private async void HandleCharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs args)
+    private void HandleCharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         if (char.IsControl(args.Character)) return;
         await session.KeyAsync(0, true, false, args.Character);
         await session.KeyAsync(0, false, false, args.Character);
         args.Handled = true;
-    }
+    }, ReportInteractionError);
+
+    private void ReportInteractionError(Exception error) =>
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(this, $"RDP input error: {error.Message}");
 
     private static bool TryScanCode(Windows.System.VirtualKey key, out uint scan, out bool extended)
     {

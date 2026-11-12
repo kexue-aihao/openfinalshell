@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -11,18 +10,27 @@ public sealed class TransferQueueViewModel : INotifyPropertyChanged, IDisposable
     private readonly NativeTransferQueue queue;
     private readonly Localization localization;
     private readonly SynchronizationContext? context = SynchronizationContext.Current;
+    private readonly Dictionary<string, NativeTransferTask> taskState = new(StringComparer.Ordinal);
     private DateTime rateSampleAt = DateTime.UtcNow;
     private long rateSampleUploadBytes;
     private long rateSampleDownloadBytes;
     private long uploadBytesPerSecond;
     private long downloadBytesPerSecond;
-    public ObservableCollection<NativeTransferTask> Tasks { get; } = [];
+    private readonly object pendingGate = new();
+    private readonly Dictionary<string, NativeTransferTask> pendingUpdates = new(StringComparer.Ordinal);
+    private readonly HashSet<string> pendingRemovals = new(StringComparer.Ordinal);
+    private readonly CancellationTokenSource pendingCancellation = new();
+    private int flushScheduled;
+    private bool disposed;
+    public BulkObservableCollection<NativeTransferTask> Tasks { get; } = [];
+    public event Action? QueueChanged;
 
     public TransferQueueViewModel(NativeTransferQueue queue, Localization localization)
     {
         this.queue = queue;
         this.localization = localization;
-        foreach (var task in queue.List()) Tasks.Add(task);
+        foreach (var task in queue.List()) taskState[task.Id] = task;
+        Tasks.ReplaceAll(taskState.Values);
         SampleTransferRates(DateTime.UtcNow);
         queue.Changed += OnChanged;
         queue.Removed += OnRemoved;
@@ -65,24 +73,95 @@ public sealed class TransferQueueViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnChanged(NativeTransferTask task)
     {
-        if (context != null && SynchronizationContext.Current != context) { context.Post(_ => OnChanged(task), null); return; }
-        var index = Tasks.ToList().FindIndex(x => x.Id == task.Id);
-        if (index < 0) Tasks.Add(task); else Tasks[index] = task;
-        SampleTransferRates(DateTime.UtcNow);
-        OnPropertyChanged(nameof(Tasks));
-        OnPropertyChanged(nameof(UnfinishedCount));
-        OnPropertyChanged(nameof(SummaryText));
+        if (disposed) return;
+        lock (pendingGate) pendingUpdates[task.Id] = task;
+        ScheduleFlush();
     }
 
     private void OnRemoved(string id)
     {
-        if (context != null && SynchronizationContext.Current != context) { context.Post(_ => OnRemoved(id), null); return; }
-        var item = Tasks.FirstOrDefault(x => x.Id == id);
-        if (item != null) Tasks.Remove(item);
-        SampleTransferRates(DateTime.UtcNow);
-        OnPropertyChanged(nameof(Tasks));
-        OnPropertyChanged(nameof(UnfinishedCount));
-        OnPropertyChanged(nameof(SummaryText));
+        if (disposed) return;
+        lock (pendingGate)
+        {
+            pendingRemovals.Add(id);
+            pendingUpdates.Remove(id);
+        }
+        ScheduleFlush();
+    }
+
+    private void ScheduleFlush()
+    {
+        if (disposed || Interlocked.Exchange(ref flushScheduled, 1) != 0) return;
+        _ = FlushAfterDelayAsync();
+    }
+
+    private async Task FlushAfterDelayAsync()
+    {
+        try
+        {
+            await Task.Delay(50, pendingCancellation.Token).ConfigureAwait(false);
+            if (context != null) context.Post(_ => FlushPending(), null);
+            else FlushPending();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void FlushPending()
+    {
+        if (disposed) return;
+        KeyValuePair<string, NativeTransferTask>[] updates;
+        string[] removals;
+        lock (pendingGate)
+        {
+            updates = pendingUpdates.ToArray();
+            removals = pendingRemovals.ToArray();
+            pendingUpdates.Clear();
+            pendingRemovals.Clear();
+        }
+        foreach (var (id, task) in updates) taskState[id] = task;
+        foreach (var id in removals) taskState.Remove(id);
+        if (updates.Length + removals.Length > 16)
+        {
+            Tasks.ReplaceAll(taskState.Values);
+        }
+        else
+        {
+            foreach (var (_, task) in updates)
+            {
+                var index = -1;
+                for (var itemIndex = 0; itemIndex < Tasks.Count; itemIndex++)
+                {
+                    if (!string.Equals(Tasks[itemIndex].Id, task.Id, StringComparison.Ordinal)) continue;
+                    index = itemIndex;
+                    break;
+                }
+                if (index < 0) Tasks.Add(task);
+                else Tasks[index] = task;
+            }
+            foreach (var id in removals)
+            {
+                var item = Tasks.FirstOrDefault(candidate => string.Equals(candidate.Id, id, StringComparison.Ordinal));
+                if (item != null) Tasks.Remove(item);
+            }
+        }
+        try
+        {
+            SampleTransferRates(DateTime.UtcNow);
+            OnPropertyChanged(nameof(Tasks));
+            OnPropertyChanged(nameof(UnfinishedCount));
+            OnPropertyChanged(nameof(SummaryText));
+            QueueChanged?.Invoke();
+        }
+        finally
+        {
+            Volatile.Write(ref flushScheduled, 0);
+            lock (pendingGate)
+            {
+                if (pendingUpdates.Count > 0 || pendingRemovals.Count > 0) ScheduleFlush();
+            }
+        }
     }
 
     public void RefreshSummary()
@@ -106,23 +185,14 @@ public sealed class TransferQueueViewModel : INotifyPropertyChanged, IDisposable
             rateSampleAt = now;
             return;
         }
-        if (elapsed >= 0.25)
-        {
-            uploadBytesPerSecond = leaves.Any(task => task.Direction == NativeTransferDirection.Upload && task.State == NativeTransferState.Running)
-                ? (long)((uploadBytes - rateSampleUploadBytes) / elapsed) : 0;
-            downloadBytesPerSecond = leaves.Any(task => task.Direction == NativeTransferDirection.Download && task.State == NativeTransferState.Running)
-                ? (long)((downloadBytes - rateSampleDownloadBytes) / elapsed) : 0;
-            rateSampleUploadBytes = uploadBytes;
-            rateSampleDownloadBytes = downloadBytes;
-            rateSampleAt = now;
-        }
-        else if (elapsed >= 1.5)
-        {
-            uploadBytesPerSecond = downloadBytesPerSecond = 0;
-            rateSampleUploadBytes = uploadBytes;
-            rateSampleDownloadBytes = downloadBytes;
-            rateSampleAt = now;
-        }
+        if (elapsed < 0.25) return;
+        uploadBytesPerSecond = leaves.Any(task => task.Direction == NativeTransferDirection.Upload && task.State == NativeTransferState.Running)
+            ? (long)((uploadBytes - rateSampleUploadBytes) / elapsed) : 0;
+        downloadBytesPerSecond = leaves.Any(task => task.Direction == NativeTransferDirection.Download && task.State == NativeTransferState.Running)
+            ? (long)((downloadBytes - rateSampleDownloadBytes) / elapsed) : 0;
+        rateSampleUploadBytes = uploadBytes;
+        rateSampleDownloadBytes = downloadBytes;
+        rateSampleAt = now;
     }
 
     private static string FormatBytes(long bytes)
@@ -158,5 +228,13 @@ public sealed class TransferQueueViewModel : INotifyPropertyChanged, IDisposable
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new(name));
-    public void Dispose() { queue.Changed -= OnChanged; queue.Removed -= OnRemoved; }
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        pendingCancellation.Cancel();
+        queue.Changed -= OnChanged;
+        queue.Removed -= OnRemoved;
+        pendingCancellation.Dispose();
+    }
 }

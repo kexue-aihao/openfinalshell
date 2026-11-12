@@ -5,6 +5,7 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using OpenFinalShell.App.ViewModels;
 
 if (Environment.GetEnvironmentVariable("OFS_UPDATE_PROCESS_FIXTURE") is { Length: > 0 } processFixture)
 {
@@ -97,6 +98,30 @@ Check(!NativeSftpDropTarget.Resolve(false, true, false, "/home/test", null).Acce
 Check(NativeSftpDropTarget.Resolve(true, true, false, "/home/test", sftpDropDirectory with { Path = "relative/logs" }) is { Accepted: true, Directory: "/home/test", IsDirectoryRow: false }
     && !NativeSftpDropTarget.Resolve(true, true, false, "/home/../private", null).Accepted,
     "SFTP drop target rejects non-canonical remote paths and unsafe current directories");
+var bulkEntries = new BulkObservableCollection<string>();
+var bulkChangeCount = 0;
+bulkEntries.CollectionChanged += (_, args) => { if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) bulkChangeCount++; };
+bulkEntries.ReplaceAll(Enumerable.Range(0, 5000).Select(index => $"entry-{index}"));
+Check(bulkEntries.Count == 5000 && bulkChangeCount == 1,
+    "Bulk SFTP replacement publishes one reset notification for 5000 entries");
+var transferBurstDirectory = Path.Combine(root, $"transfer-burst-{Guid.NewGuid():N}");
+var previousSynchronizationContext = SynchronizationContext.Current;
+SynchronizationContext.SetSynchronizationContext(null);
+using (var transferStore = new NativeStore(transferBurstDirectory, new DpapiProtector()))
+using (var transferSessions = new NativeSessionManager(transferStore))
+using (var transferQueue = new NativeTransferQueue(transferSessions))
+using (var transferViewModel = new TransferQueueViewModel(transferQueue, new Localization()))
+{
+    var transferNotifications = 0;
+    transferViewModel.QueueChanged += () => Interlocked.Increment(ref transferNotifications);
+    for (var index = 0; index < 5000; index++)
+        transferQueue.EnqueueSkipped("burst", NativeTransferDirection.Upload,
+            $"/source/{index}", $"/target/{index}", "skipped");
+    await Task.Delay(250);
+    Check(transferViewModel.Tasks.Count == 5000 && transferNotifications is > 0 and <= 5,
+        "Transfer progress burst is coalesced into bounded UI notifications");
+}
+SynchronizationContext.SetSynchronizationContext(previousSynchronizationContext);
 var sftpHistory = new NativeSftpNavigationHistory();
 Check(sftpHistory.Push("/home/test") && sftpHistory.Push("/home/test/logs") && sftpHistory.CanGoBack
     && sftpHistory.BackTarget == "/home/test" && !sftpHistory.CanGoForward,

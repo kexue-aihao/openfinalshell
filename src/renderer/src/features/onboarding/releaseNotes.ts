@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.58',
+    items: [
+      { type: 'feat', zh: '优化 WinUI 3 原生工作台启动、终端高吞吐、搜索、大目录 SFTP、批量传输、AI 流式响应和 RDP 刷新调度；加入原生批量快照、可取消搜索与 UI 事件合并，减少卡顿和假死', en: 'Optimize WinUI 3 startup, high-throughput terminal output, search, large SFTP directories, batch transfers, AI streaming and RDP refresh scheduling with native snapshots, cancellable search and coalesced UI updates to reduce stalls and apparent freezes' },
+      { type: 'feat', zh: '为 WinUI 3 覆盖层、连接抽屉、侧栏、工具条和拖放反馈加入克制动效，并遵循系统减少动画与高对比度设置', en: 'Add restrained native motion to WinUI 3 overlays, the connection drawer, sidebars, toolbars and drop feedback while respecting reduced-motion and high-contrast settings' },
+      { type: 'fix', zh: '修复语言切换重复订阅 LAN Sync、窗口和分栏调整重复访问数据库、关闭时后台资源未完整释放等稳定性问题', en: 'Fix duplicate LAN Sync subscriptions after language changes, repeated database access during window and pane resizing, and incomplete background-resource cleanup during shutdown' }
+    ]
+  },
+  {
     version: '0.30.57',
     items: [
       { type: 'fix', zh: '修复部分 SFTP 服务器误报文件类型，导致 WinUI 3 原生编辑器无法加载远程文本文件的问题', en: 'Fix remote text files failing to load in the WinUI 3 native editor when some SFTP servers report incomplete file type metadata' }

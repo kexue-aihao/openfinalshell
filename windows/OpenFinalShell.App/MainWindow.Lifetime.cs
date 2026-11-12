@@ -9,12 +9,11 @@ public sealed partial class MainWindow
     private bool confirmedWindowClose, closeDialogOpen;
     private async void MainWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
+        App.TraceStartup($"MainWindow closing requested confirmed={confirmedWindowClose} dialog={closeDialogOpen}");
         if (confirmedWindowClose) return;
-        if (closeDialogOpen) { args.Cancel = true; return; }
-        var activity = CurrentUpdateActivity(updateCoordinator.Activity());
-        if (!activity.HasActivity && !editorWindowHost.HasDocuments) return;
         args.Cancel = true;
         if (closeDialogOpen) return;
+        var activity = CurrentUpdateActivity(updateCoordinator.Activity());
         closeDialogOpen = true;
         try
         {
@@ -29,10 +28,12 @@ public sealed partial class MainWindow
             foreach (var workspace in sessionWorkspaces.Values.ToArray()) if (!await workspace.ConfirmCloseAsync()) return;
             foreach (var editor in sessionContents.Values.OfType<Controls.NativeRemoteEditor>().ToArray()) if (!await editor.ConfirmCloseAsync()) return;
             editorWindowHost.CloseAfterConfirmation();
-            confirmedWindowClose = true; Close();
+            await ShutdownAsync();
+            confirmedWindowClose = true;
+            Close();
         }
         catch (Exception error) { ShowError(error); }
-        finally { closeDialogOpen = false; }
+        finally { if (!confirmedWindowClose) closeDialogOpen = false; }
     }
     private async Task<bool> ConfirmSessionCloseAsync(string id, string title)
     {

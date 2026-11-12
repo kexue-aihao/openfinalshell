@@ -15,7 +15,7 @@ public sealed record NativeInstanceChange(string Entity, long Revision, string S
 /// activation and then exit instead of opening another writer to the database.
 /// </summary>
 [SupportedOSPlatform("windows")]
-public sealed class NativeInstanceCoordinator : IDisposable
+public sealed class NativeInstanceCoordinator : IDisposable, IAsyncDisposable
 {
     private readonly string root;
     private readonly string pipeName;
@@ -25,6 +25,7 @@ public sealed class NativeInstanceCoordinator : IDisposable
     private string? auth;
     private Task? serverLoop;
     private bool primary;
+    private int disposed;
     public event Action? FocusRequested;
     public event Action<NativeInstanceChange>? ConfigurationChanged;
     public string InstanceId => instanceId;
@@ -135,7 +136,46 @@ public sealed class NativeInstanceCoordinator : IDisposable
     }
     public void Dispose()
     {
-        cancellation.Cancel(); try { serverLoop?.Wait(500); } catch { } if (primary) try { mutex?.ReleaseMutex(); } catch { } mutex?.Dispose(); cancellation.Dispose();
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        cancellation.Cancel();
+        ReleaseMutex();
+        var loop = serverLoop;
+        if (loop == null || loop.IsCompleted)
+        {
+            cancellation.Dispose();
+            return;
+        }
+        _ = loop.ContinueWith(_ => cancellation.Dispose(), CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        cancellation.Cancel();
+        ReleaseMutex();
+        try
+        {
+            if (serverLoop != null) await serverLoop.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The named-pipe loop is cooperative and may already have exited.
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private void ReleaseMutex()
+    {
+        if (primary)
+        {
+            try { mutex?.ReleaseMutex(); } catch { }
+        }
+        mutex?.Dispose();
+        mutex = null;
     }
     private sealed record NativePipeRequest(string Kind, string? Source, string? Auth, string? Entity, long Revision);
     private sealed record NativePipeResponse(string Kind);

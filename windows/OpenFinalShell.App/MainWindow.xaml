@@ -125,7 +125,8 @@
 
       <Thumb x:Name="ContextSidebarSplitter" Grid.Column="2" DragDelta="SidebarResize" DragCompleted="SidebarResizeCompleted" Background="{ThemeResource CardStrokeColorDefaultBrush}" AutomationProperties.Name="Resize navigation sidebar"/>
 
-     <Grid x:Name="SettingsOverlay" Grid.Column="0" Grid.ColumnSpan="4" Visibility="Collapsed" Background="#66000000" AutomationProperties.Name="Settings overlay">
+     <Grid x:Name="SettingsOverlay" Grid.Column="0" Grid.ColumnSpan="4" Visibility="Collapsed" Background="Transparent" AutomationProperties.Name="Settings overlay">
+      <Grid x:Name="SettingsScrim" Background="#66000000"/>
       <Grid x:Name="SettingsSurface" Width="860" Height="616" Padding="0" Background="{ThemeResource WorkspaceBackgroundBrush}" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" CornerRadius="{ThemeResource CardCornerRadius}" HorizontalAlignment="Center" VerticalAlignment="Center" KeyDown="SettingsSurfaceKeyDown">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
       <Grid ColumnSpacing="12" Padding="20,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="SettingsHeading" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="CloseSettingsButton" Grid.Column="1" Content="×" Click="CloseOverlay" AutomationProperties.Name="Close settings"/></Grid>
@@ -178,7 +179,8 @@
 
      </Grid>
 
-     <Grid x:Name="AiPage" Grid.Column="0" Grid.ColumnSpan="4" Visibility="Collapsed" Background="#66000000" AutomationProperties.Name="AI assistant overlay">
+     <Grid x:Name="AiPage" Grid.Column="0" Grid.ColumnSpan="4" Visibility="Collapsed" Background="Transparent" AutomationProperties.Name="AI assistant overlay">
+      <Grid x:Name="AiScrim" Background="#66000000"/>
       <Grid x:Name="AiSurface" Width="820" Height="640" HorizontalAlignment="Center" VerticalAlignment="Center" Background="{ThemeResource WorkspaceBackgroundBrush}" Padding="20" RowSpacing="12" CornerRadius="{ThemeResource CardCornerRadius}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" KeyDown="SettingsSurfaceKeyDown">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="AiHeading" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/><Button x:Name="CloseAiButton" Grid.Column="1" Content="×" Click="CloseOverlay"/></Grid>

@@ -11,10 +11,12 @@ public partial class App : Application
     private MainWindow? window;
     private NativeStoreRecoveryWindow? recoveryWindow;
     private TerminalLayoutFixtureWindow? terminalFixtureWindow;
+    private StartupWindow? startupWindow;
     private readonly PlatformEnvironment environment;
     private readonly NativeInstanceCoordinator coordinator;
     public App()
     {
+        TraceStartup("App constructor entered");
         if (Environment.GetEnvironmentVariable("OFS_NATIVE_TEST_MODE") == "1")
         {
             var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(NativeStore.DefaultDirectory)))[..12];
@@ -26,11 +28,13 @@ public partial class App : Application
             InitializeComponent();
             environment = PlatformEnvironment.Detect();
             coordinator = new NativeInstanceCoordinator(NativeStore.DefaultDirectory);
+            TraceStartup("App services constructed");
         }
         catch (Exception error) { WriteStartupError(error); throw; }
     }
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
+        TraceStartup("OnLaunched entered");
         try
         {
             if (Environment.GetEnvironmentVariable("OFS_NATIVE_TERMINAL_LAYOUT_FIXTURE") == "1")
@@ -42,25 +46,41 @@ public partial class App : Application
             }
             if (coordinator.Start() == NativeInstanceRole.Secondary)
             {
-                coordinator.RequestFocusAsync().GetAwaiter().GetResult();
-                Environment.Exit(0);
+                TraceStartup("Secondary instance requested primary focus");
+                await coordinator.RequestFocusAsync();
+                await coordinator.DisposeAsync();
+                Exit();
                 return;
             }
             // Theme dictionaries are loaded after the application resource root
             // is ready. The shell uses explicit fallback colors during markup
             // construction, so a missing material resource cannot block startup.
             LoadPlatformTheme();
-            var validation = NativeStoreRecovery.ValidateDirectory(NativeStore.DefaultDirectory, new DpapiProtector());
+            TraceStartup("Platform theme loaded");
+            startupWindow = new StartupWindow(NativeSettings.DefaultLanguage);
+            startupWindow.Activate();
+            // Let the shell paint before the integrity check and encrypted-record
+            // validation run on a worker thread.
+            await Task.Yield();
+            var validation = await Task.Run(() =>
+                NativeStoreRecovery.ValidateDirectory(NativeStore.DefaultDirectory, new DpapiProtector()));
+            TraceStartup($"Store validation completed valid={validation.IsValid}");
             if (!validation.IsValid)
             {
-                ShowRecoveryWindow(validation);
+                await ShowRecoveryWindowAsync(validation);
                 return;
             }
             LaunchMainWindow();
+            startupWindow?.Close();
+            startupWindow = null;
+            TraceStartup("Main window launched");
         }
         catch (Exception error)
         {
+            TraceStartup($"Startup failed: {error}");
             WriteStartupError(error);
+            startupWindow?.Close();
+            startupWindow = null;
             throw;
         }
     }
@@ -71,14 +91,18 @@ public partial class App : Application
         var mainWindow = window;
         coordinator.FocusRequested += () => mainWindow.DispatcherQueue.TryEnqueue(() => mainWindow.Activate());
         coordinator.ConfigurationChanged += change => mainWindow.DispatcherQueue.TryEnqueue(() => mainWindow.ApplyExternalConfiguration(change));
-        mainWindow.Closed += (_, _) => coordinator.Dispose();
         mainWindow.Activate();
     }
 
-    private void ShowRecoveryWindow(NativeStoreValidation validation)
+    private async Task ShowRecoveryWindowAsync(NativeStoreValidation validation)
     {
         var localization = new Localization();
-        var snapshots = NativeStoreRecovery.FindValidSnapshots(NativeStore.DefaultDirectory, new DpapiProtector());
+        startupWindow ??= new StartupWindow(NativeSettings.DefaultLanguage);
+        startupWindow.SetStatus(localization["native.recovery.title"]);
+        startupWindow.Activate();
+        await Task.Yield();
+        var snapshots = await Task.Run(() =>
+            NativeStoreRecovery.FindValidSnapshots(NativeStore.DefaultDirectory, new DpapiProtector()));
         var recovery = new NativeStoreRecoveryWindow(localization, validation, snapshots);
         recoveryWindow = recovery;
         var transitioning = false;
@@ -88,24 +112,33 @@ public partial class App : Application
         {
             coordinator.FocusRequested -= focusRecovery;
             recoveryWindow = null;
-            if (!transitioning) coordinator.Dispose();
+            if (!transitioning) UiTaskRunner.Run(() => coordinator.DisposeAsync().AsTask());
         };
-        recovery.RestoreRequested += path => CompleteRecovery(recovery, () => transitioning = true,
-            () => NativeStoreRecovery.RestoreSnapshot(NativeStore.DefaultDirectory, path, new DpapiProtector()), startingFresh: false);
-        recovery.StartFreshRequested += () => CompleteRecovery(recovery, () => transitioning = true,
-            () => NativeStoreRecovery.StartFreshProfile(NativeStore.DefaultDirectory, new DpapiProtector()), startingFresh: true);
+        recovery.RestoreRequested += path => UiTaskRunner.Run(async () =>
+        {
+            await CompleteRecoveryAsync(recovery, () => transitioning = true,
+                () => NativeStoreRecovery.RestoreSnapshot(NativeStore.DefaultDirectory, path, new DpapiProtector()), startingFresh: false);
+        }, error => recovery.ShowFailure(false));
+        recovery.StartFreshRequested += () => UiTaskRunner.Run(async () =>
+        {
+            await CompleteRecoveryAsync(recovery, () => transitioning = true,
+                () => NativeStoreRecovery.StartFreshProfile(NativeStore.DefaultDirectory, new DpapiProtector()), startingFresh: true);
+        }, error => recovery.ShowFailure(true));
         recovery.ExitRequested += () =>
         {
             recovery.Close();
             Exit();
         };
         recovery.Activate();
+        startupWindow.Close();
+        startupWindow = null;
 
-        void CompleteRecovery(NativeStoreRecoveryWindow owner, Action transitioning, Func<string?> operation, bool startingFresh)
+        async Task CompleteRecoveryAsync(NativeStoreRecoveryWindow owner, Action transitioning,
+            Func<string?> operation, bool startingFresh)
         {
             try
             {
-                _ = operation();
+                await Task.Run(operation);
                 transitioning();
                 owner.Close();
                 LaunchMainWindow();
@@ -145,6 +178,21 @@ public partial class App : Application
         var path = Path.Combine(NativeStore.DefaultDirectory, "startup-error.log");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.AppendAllText(path, $"{DateTimeOffset.UtcNow:O}\n{error}\n");
+    }
+
+    internal static void TraceStartup(string message)
+    {
+        if (Environment.GetEnvironmentVariable("OFS_NATIVE_DIAGNOSTICS") != "1") return;
+        try
+        {
+            var directory = NativeStore.DefaultDirectory;
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(Path.Combine(directory, "startup-trace.log"),
+                $"{DateTimeOffset.UtcNow:O} {message}\n");
+        }
+        catch
+        {
+        }
     }
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);

@@ -3,6 +3,7 @@ using Microsoft.Graphics.Canvas.Text;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using OpenFinalShell.Core;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -12,9 +13,26 @@ namespace OpenFinalShell.App.Controls;
 
 public sealed partial class NativeTerminalCanvas
 {
+    private static readonly Lazy<JsonObject> TerminalThemes = new(() =>
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Assets", "TerminalThemes.json");
+            return File.Exists(path) && JsonNode.Parse(File.ReadAllText(path)) is JsonObject themes
+                ? themes
+                : new JsonObject();
+        }
+        catch
+        {
+            return new JsonObject();
+        }
+    });
     private float cellWidth = 8, cellHeight = 18;
     private double measuredDpi;
     private Color terminalBackground = Colors.Black, terminalForeground = Colors.Gainsboro, terminalCursor = Colors.White;
+    private readonly SolidColorBrush terminalBackgroundBrush = new(Colors.Black);
+    private readonly SolidColorBrush terminalForegroundBrush = new(Colors.Gainsboro);
+    private readonly SolidColorBrush terminalCursorBrush = new(Colors.White);
     private Color[]? ansiPalette;
     private JsonObject preferences = new();
     private Func<string, string> localize = key => key;
@@ -23,20 +41,30 @@ public sealed partial class NativeTerminalCanvas
     private int fontZoom;
     private bool pastePromptOpen;
     private int appliedScrollbackLimit = -1;
+    private NativeSettings? lastConfiguredSettings;
+    private ElementTheme lastConfiguredTheme;
+    private double lastInputX = double.NaN, lastInputY = double.NaN;
+    private double lastInputWidth = double.NaN, lastInputHeight = double.NaN;
+    private double lastCursorX = double.NaN, lastCursorY = double.NaN;
+    private double lastCursorWidth = double.NaN, lastCursorHeight = double.NaN;
+    private string lastInputFont = string.Empty;
+    private double lastInputFontSize = double.NaN;
     public event Action? HistoryRequested;
     private int ScreenColumns => Math.Max(1, (int)((ActualWidth - 16) / cellWidth));
     private int ScreenRows => Math.Max(1, (int)((ActualHeight - 8) / cellHeight));
 
     public void Configure(NativeSettings settings, Func<string, string> text)
     {
+        if (ReferenceEquals(lastConfiguredSettings, settings) && lastConfiguredTheme == ActualTheme) return;
+        lastConfiguredSettings = settings;
+        lastConfiguredTheme = ActualTheme;
         localize = text;
         preferences = settings.Data["terminal"] as JsonObject ?? new();
         textFormat.FontFamily = NativeSettings.ReadPath(preferences, "fontFamily", "Cascadia Mono");
         UpdateFontMetrics();
         var themeId = NativeSettings.ReadPath(preferences, "themeId", "auto");
         if (themeId == "auto") themeId = settings.ThemeMode == "light" || settings.ThemeMode == "system" && ActualTheme == ElementTheme.Light ? "github-light" : "one-dark";
-        var themesPath = Path.Combine(AppContext.BaseDirectory, "Assets", "TerminalThemes.json");
-        if (File.Exists(themesPath) && JsonNode.Parse(File.ReadAllText(themesPath))?[themeId]?["theme"] is JsonObject theme)
+        if (TerminalThemes.Value[themeId]?["theme"] is JsonObject theme)
         {
             terminalBackground = ParseColor(theme["background"]?.GetValue<string>(), terminalBackground);
             terminalForeground = ParseColor(theme["foreground"]?.GetValue<string>(), terminalForeground);
@@ -44,6 +72,11 @@ public sealed partial class NativeTerminalCanvas
             ansiPalette = new[] { "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite" }
                 .Select(key => ParseColor(theme[key]?.GetValue<string>(), terminalForeground)).ToArray();
         }
+        terminalBackgroundBrush.Color = terminalBackground;
+        terminalForegroundBrush.Color = terminalForeground;
+        terminalCursorBrush.Color = terminalCursor;
+        textInput.Background = terminalBackgroundBrush;
+        textInput.Foreground = terminalForegroundBrush;
         canvas.ClearColor = terminalBackground;
         if (parser != 0) ApplyScrollbackLimit();
         blinkTimer ??= DispatcherQueue.CreateTimer();
@@ -54,8 +87,43 @@ public sealed partial class NativeTerminalCanvas
     }
     private void BlinkCursor(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
     {
-        if (!IsLoaded || Visibility != Visibility.Visible) return;
-        cursorOn = !cursorOn; canvas.Invalidate();
+        if (!terminalActive || !IsLoaded || Visibility != Visibility.Visible) return;
+        cursorOn = !cursorOn;
+        PositionCursorVisual();
+    }
+    private void UpdateTerminalOverlays()
+    {
+        PositionTextInput();
+        PositionCursorVisual();
+    }
+    private void PositionCursorVisual()
+    {
+        if (!terminalActive || parser == 0 || scrollOffset > 0 || !cursorOn || composing ||
+            textInput.FocusState == FocusState.Unfocused)
+        {
+            cursorVisual.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var cursorRow = ofs_terminal_cursor_row(parser);
+        var cursorColumn = ofs_terminal_cursor_col(parser);
+        if (cursorRow < 0 || cursorColumn < 0 || cursorRow >= ScreenRows || cursorColumn >= ScreenColumns)
+        {
+            cursorVisual.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var bounds = CellSpanRect(cursorRow, cursorColumn, 1);
+        var style = NativeSettings.ReadPath(preferences, "cursorStyle", "bar");
+        var x = bounds.X;
+        var y = bounds.Y;
+        var width = style == "block" ? bounds.Width : 2;
+        var height = style == "underline" ? 2 : bounds.Height;
+        if (style == "underline") y = bounds.Bottom - height;
+        if (Math.Abs(lastCursorX - x) > .01) { cursorVisual.Margin = new Thickness(x, cursorVisual.Margin.Top, 0, 0); lastCursorX = x; }
+        if (Math.Abs(lastCursorY - y) > .01) { cursorVisual.Margin = new Thickness(cursorVisual.Margin.Left, y, 0, 0); lastCursorY = y; }
+        if (Math.Abs(lastCursorWidth - width) > .01) { cursorVisual.Width = width; lastCursorWidth = width; }
+        if (Math.Abs(lastCursorHeight - height) > .01) { cursorVisual.Height = height; lastCursorHeight = height; }
+        cursorVisual.Background = terminalCursorBrush;
+        cursorVisual.Visibility = Visibility.Visible;
     }
     private static Color ParseColor(string? value, Color fallback) => value is { Length: 7 } && value[0] == '#' && uint.TryParse(value.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb)
         ? Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb) : fallback;
@@ -99,7 +167,8 @@ public sealed partial class NativeTerminalCanvas
     {
         if (parser == 0) return;
         ofs_terminal_clear(parser); scrollOffset = 0; ClearSelection();
-        searchResults.Clear(); submittedAt = null; canvas.Invalidate(); UpdateAccessibleText();
+        searchResults.Clear(); searchByLine.Clear(); searchGeneration++; submittedAt = null;
+        canvas.Invalidate(); UpdateAccessibleText();
     }
     private void ShowContextMenu(Windows.Foundation.Point position)
     {

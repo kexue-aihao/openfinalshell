@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" />
     <Compile Include="../OpenFinalShell.App/ViewModels/SftpBrowserViewModel.cs" Link="Acceptance/SftpBrowserViewModel.cs" />
+    <Compile Include="../OpenFinalShell.App/ViewModels/BulkObservableCollection.cs" Link="Acceptance/BulkObservableCollection.cs" />
   </ItemGroup>
 </Project>

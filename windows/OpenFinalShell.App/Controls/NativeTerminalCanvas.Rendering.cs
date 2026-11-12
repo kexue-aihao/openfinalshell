@@ -41,8 +41,6 @@ public sealed partial class NativeTerminalCanvas
     private readonly List<TerminalTextRun> terminalTextRuns = [];
     private readonly List<TerminalDecorationSpan> terminalDecorationSpans = [];
     private readonly StringBuilder terminalTextRunBuffer = new();
-    private NativeTerminalCell[] terminalRowCells = new NativeTerminalCell[1];
-    private bool[] terminalRowCellValid = new bool[1];
     private const float MinimumHorizontalTextScale = 0.75f;
     private const float MaximumHorizontalTextScale = 1.25f;
 
@@ -71,16 +69,8 @@ public sealed partial class NativeTerminalCanvas
         return new Rect(left, top, Math.Max(minimum, right - left), Math.Max(minimum, bottom - top));
     }
 
-    private void EnsureTerminalRowBuffers(int columns)
-    {
-        if (terminalRowCells.Length >= columns) return;
-        terminalRowCells = new NativeTerminalCell[columns];
-        terminalRowCellValid = new bool[columns];
-    }
-
     private void RenderTerminalRow(CanvasDrawingSession session, int row, int line, int scrollback, int columns)
     {
-        EnsureTerminalRowBuffers(columns);
         terminalBackgroundSpans.Clear();
         terminalSelectionSpans.Clear();
         terminalSearchSpans.Clear();
@@ -110,16 +100,14 @@ public sealed partial class NativeTerminalCanvas
 
         for (var column = 0; column < columns; column++)
         {
-            var ok = line < scrollback
-                ? ofs_terminal_get_scrollback_cell(parser, line, column, out terminalRowCells[column])
-                : ofs_terminal_get_cell(parser, line - scrollback, column, out terminalRowCells[column]);
-            terminalRowCellValid[column] = ok != 0;
-            var cell = terminalRowCells[column];
+            var snapshot = visibleSnapshot[row * visibleSnapshotWidth + column];
+            var ok = snapshot.Valid != 0;
+            var cell = snapshot.Cell;
 
-            var background = ok == 0
+            var background = !ok
                 ? terminalBackground
                 : ResolveColor(cell.BgType, cell.BgR, cell.BgG, cell.BgB, cell.BgIndex, terminalBackground);
-            if (ok != 0 && (cell.Attributes & 8) != 0)
+            if (ok && (cell.Attributes & 8) != 0)
                 background = ResolveColor(cell.FgType, cell.FgR, cell.FgG, cell.FgB, cell.FgIndex, terminalForeground);
             // libvterm records the continuation of a wide glyph as a separate
             // cell with incomplete color data. Paint the wide origin over its
@@ -128,7 +116,7 @@ public sealed partial class NativeTerminalCanvas
             if (column >= coveredBackgroundColumn)
             {
                 var backgroundCells = 1;
-                if (ok != 0 && cell.CodePoint != 0xFFFFFFFFu && cell.Width > 1)
+                if (ok && cell.CodePoint != 0xFFFFFFFFu && cell.Width > 1)
                 {
                     backgroundCells = Math.Clamp((int)cell.Width, 1, columns - column);
                     coveredBackgroundColumn = column + backgroundCells;
@@ -141,14 +129,14 @@ public sealed partial class NativeTerminalCanvas
             if (SearchOverlayColor(line, column) is { } searchColor)
                 AddPaintSpan(terminalSearchSpans, column, 1, searchColor);
 
-            if (ok == 0 || cell.Width == 0)
+            if (!ok || cell.Width == 0)
             {
                 FlushTextRun();
                 continue;
             }
             if (cell.CodePoint == 0xFFFFFFFFu) continue;
 
-            var cellText = ReadCellText(line, column, scrollback, cell);
+            var cellText = ReadSnapshotText(snapshot);
             if (string.IsNullOrEmpty(cellText) || cellText == " ")
             {
                 FlushTextRun();
@@ -249,13 +237,15 @@ public sealed partial class NativeTerminalCanvas
 
     private Color? SearchOverlayColor(int line, int column)
     {
-        if (searchResults.Count == 0) return null;
-        if (searchIndex >= 0 && searchIndex < searchResults.Count &&
-            IsSearchResultColumn(searchResults[searchIndex], line, column))
-            return Color.FromArgb(190, 255, 170, 0);
-        foreach (var result in searchResults)
-            if (IsSearchResultColumn(result, line, column))
-                return Color.FromArgb(100, 255, 210, 0);
+        if (!searchByLine.TryGetValue(line, out var ranges)) return null;
+        var current = searchIndex >= 0 && searchIndex < searchResults.Count ? searchResults[searchIndex] : default;
+        foreach (var range in ranges)
+        {
+            if (column < range.column || column >= range.column + range.length) continue;
+            return line == current.line && column >= current.column && column < current.column + current.length
+                ? Color.FromArgb(190, 255, 170, 0)
+                : Color.FromArgb(100, 255, 210, 0);
+        }
         return null;
     }
 

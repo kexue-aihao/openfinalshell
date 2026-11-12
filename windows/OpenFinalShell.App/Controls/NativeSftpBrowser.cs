@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Input;
 using WinRT.Interop;
 using Windows.Foundation;
+using OpenFinalShell.App;
 
 namespace OpenFinalShell.App.Controls;
 
@@ -56,6 +57,8 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
     private string? homeDirectory, shellDirectory;
     private long shellCommandVersion;
     private bool followActive, disposed;
+    private int dropMotionVersion;
+    private bool dropOverlayShown;
 
     public NativeSftpBrowser(NativeSession session, NativeTransferQueue transfers, Func<nint> windowHandle, Func<string, string> text, Action<string>? openFile = null, NativeSettings? settings = null)
     {
@@ -678,26 +681,45 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         args.AcceptedOperation = DataPackageOperation.None;
         args.Handled = true;
-        if (disposed || viewModel.IsBusy) { dropOverlay.Visibility = Visibility.Collapsed; return; }
+        if (disposed || viewModel.IsBusy) { SetDropOverlay(false); return; }
         var targetEntry = EntryAt(args.OriginalSource as DependencyObject);
         var resolved = NativeSftpDropTarget.Resolve(true, session.Snapshot.State == NativeSessionState.Ready, viewModel.IsBusy, viewModel.CurrentPath, targetEntry);
-        if (!resolved.Accepted) { dropOverlay.Visibility = Visibility.Collapsed; return; }
+        if (!resolved.Accepted) { SetDropOverlay(false); return; }
         dropHint.Text = text("sftp.dropToUpload").Replace("{{dir}}", resolved.Directory, StringComparison.Ordinal);
-        dropOverlay.Visibility = Visibility.Visible;
+        SetDropOverlay(true);
         args.AcceptedOperation = DataPackageOperation.Copy;
+    }
+
+    private void SetDropOverlay(bool visible)
+    {
+        if (dropOverlayShown == visible) return;
+        dropOverlayShown = visible;
+        var version = Interlocked.Increment(ref dropMotionVersion);
+        dropOverlay.IsHitTestVisible = false;
+        if (visible)
+        {
+            dropOverlay.Visibility = Visibility.Visible;
+            UiTaskRunner.Run(() => NativeUiMotion.FadeInAsync(dropOverlay));
+            return;
+        }
+        UiTaskRunner.Run(async () =>
+        {
+            await NativeUiMotion.AnimateOutAsync(dropOverlay, null, NativeMotionKind.Fade);
+            if (version == Volatile.Read(ref dropMotionVersion)) dropOverlay.Visibility = Visibility.Collapsed;
+        });
     }
 
     private void EntriesDragLeave(object sender, DragEventArgs args)
     {
         var position = args.GetPosition(entries);
         if (position.X < 0 || position.Y < 0 || position.X > entries.ActualWidth || position.Y > entries.ActualHeight)
-            dropOverlay.Visibility = Visibility.Collapsed;
+            SetDropOverlay(false);
     }
 
     private async Task DropFilesAsync(DragEventArgs args)
     {
         args.Handled = true;
-        dropOverlay.Visibility = Visibility.Collapsed;
+        SetDropOverlay(false);
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return;
         var targetEntry = EntryAt(args.OriginalSource as DependencyObject);
         var resolved = NativeSftpDropTarget.Resolve(true, session.Snapshot.State == NativeSessionState.Ready, viewModel.IsBusy, viewModel.CurrentPath, targetEntry);

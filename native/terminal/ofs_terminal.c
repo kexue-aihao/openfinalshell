@@ -167,6 +167,44 @@ int ofs_terminal_get_scrollback_codepoints(ofs_terminal *t, int line, int col, u
   int index = (t->scrollback_start + line) % t->scrollback_capacity;
   return copy_codepoints(&t->scrollback[(size_t)index * (size_t)t->cols + (size_t)col], codepoints, capacity);
 }
+static void copy_snapshot_cell(const VTermScreenCell *source, ofs_terminal_snapshot_cell *target) {
+  if (!source || !target) return;
+  memset(target, 0, sizeof(*target));
+  target->valid = 1;
+  copy_cell(source, &target->cell);
+  target->codepoint_count = (uint8_t)copy_codepoints(source, target->codepoints,
+    OFS_TERMINAL_MAX_CELL_CODEPOINTS);
+}
+int ofs_terminal_copy_screen(ofs_terminal *t, ofs_terminal_snapshot_cell *cells, size_t capacity) {
+  if (!t || !cells) return 0;
+  size_t count = (size_t)t->rows * (size_t)t->cols;
+  if (capacity < count) return 0;
+  for (int row = 0; row < t->rows; row++) {
+    for (int col = 0; col < t->cols; col++) {
+      VTermScreenCell cell;
+      VTermPos pos = { row, col };
+      ofs_terminal_snapshot_cell *target = cells + (size_t)row * (size_t)t->cols + (size_t)col;
+      if (vterm_screen_get_cell(t->screen, pos, &cell)) copy_snapshot_cell(&cell, target);
+      else memset(target, 0, sizeof(*target));
+    }
+  }
+  return (int)count;
+}
+int ofs_terminal_copy_scrollback(ofs_terminal *t, int first_line, int line_count,
+    ofs_terminal_snapshot_cell *cells, size_t capacity) {
+  if (!t || !cells || first_line < 0 || line_count < 0 || first_line > t->scrollback_count ||
+      line_count > t->scrollback_count - first_line || !t->scrollback) return 0;
+  size_t count = (size_t)line_count * (size_t)t->cols;
+  if (capacity < count) return 0;
+  for (int line = 0; line < line_count; line++) {
+    int index = (t->scrollback_start + first_line + line) % t->scrollback_capacity;
+    for (int col = 0; col < t->cols; col++) {
+      copy_snapshot_cell(&t->scrollback[(size_t)index * (size_t)t->cols + (size_t)col],
+        cells + (size_t)line * (size_t)t->cols + (size_t)col);
+    }
+  }
+  return (int)count;
+}
 int ofs_terminal_alt_screen(ofs_terminal *t) { return t ? t->alt_screen : 0; }
 int ofs_terminal_mouse_mode(ofs_terminal *t) { return t ? t->mouse_mode : 0; }
 int ofs_terminal_bracketed_paste(ofs_terminal *t) {

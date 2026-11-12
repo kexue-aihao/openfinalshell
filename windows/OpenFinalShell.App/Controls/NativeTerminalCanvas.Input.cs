@@ -29,7 +29,7 @@ public sealed partial class NativeTerminalCanvas
     {
         surface.Children.Add(textInput);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(textInput, "Native terminal input");
-        textInput.TextCompositionStarted += (_, _) => { composing = true; textInput.Opacity = 1; PositionTextInput(); };
+        textInput.TextCompositionStarted += (_, _) => { composing = true; textInput.Opacity = 1; PositionTextInput(); PositionCursorVisual(); };
         textInput.TextCompositionChanged += (_, _) => PositionTextInput();
         textInput.TextCompositionEnded += (_, _) =>
         {
@@ -50,9 +50,9 @@ public sealed partial class NativeTerminalCanvas
             // An interrupted composition must never execute remote input.
             ClearTextInputBuffer();
             composing = false; textInput.Opacity = 0;
-            canvas.Invalidate();
+            PositionCursorVisual();
         };
-        textInput.GotFocus += (_, _) => { cursorOn = true; canvas.Invalidate(); };
+        textInput.GotFocus += (_, _) => { cursorOn = true; PositionCursorVisual(); };
         GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
     }
     private void FocusTextInput(FocusState state)
@@ -74,12 +74,30 @@ public sealed partial class NativeTerminalCanvas
         var x = 8d; var y = 4d;
         if (parser != 0)
         { x += Math.Max(0, ofs_terminal_cursor_col(parser)) * cellWidth; y += Math.Max(0, ofs_terminal_cursor_row(parser)) * cellHeight; }
-        textInput.Margin = new(Math.Clamp(x, 0, Math.Max(0, ActualWidth - 20)), Math.Clamp(y, 0, Math.Max(0, ActualHeight - cellHeight)), 0, 0);
+        x = Math.Clamp(x, 0, Math.Max(0, ActualWidth - 20));
+        y = Math.Clamp(y, 0, Math.Max(0, ActualHeight - cellHeight));
+        if (Math.Abs(lastInputX - x) > .01 || Math.Abs(lastInputY - y) > .01)
+        {
+            textInput.Margin = new Thickness(x, y, 0, 0);
+            lastInputX = x; lastInputY = y;
+        }
         // Keep the TSF client focusable without placing an invisible editor
         // over the terminal's selectable text. Expand only for IME composition.
-        textInput.Width = composing ? Math.Max(20, Math.Min(320, ActualWidth - textInput.Margin.Left)) : 1;
-        textInput.Height = Math.Max(20, cellHeight + 4);
-        textInput.FontFamily = new FontFamily(textFormat.FontFamily); textInput.FontSize = textFormat.FontSize;
-        textInput.Foreground = new SolidColorBrush(terminalForeground); textInput.Background = new SolidColorBrush(terminalBackground);
+        var width = composing ? Math.Max(20, Math.Min(320, ActualWidth - x)) : 1;
+        var height = Math.Max(20, cellHeight + 4);
+        if (Math.Abs(lastInputWidth - width) > .01) { textInput.Width = width; lastInputWidth = width; }
+        if (Math.Abs(lastInputHeight - height) > .01) { textInput.Height = height; lastInputHeight = height; }
+        if (!string.Equals(lastInputFont, textFormat.FontFamily, StringComparison.Ordinal))
+        {
+            textInput.FontFamily = new FontFamily(textFormat.FontFamily);
+            lastInputFont = textFormat.FontFamily;
+        }
+        if (Math.Abs(lastInputFontSize - textFormat.FontSize) > .01)
+        {
+            textInput.FontSize = textFormat.FontSize;
+            lastInputFontSize = textFormat.FontSize;
+        }
+        textInput.Foreground = terminalForegroundBrush;
+        textInput.Background = terminalBackgroundBrush;
     }
 }

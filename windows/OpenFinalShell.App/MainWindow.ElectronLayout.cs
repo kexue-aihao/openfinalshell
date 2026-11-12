@@ -132,6 +132,7 @@ public sealed partial class MainWindow
 
     private void ShowSettingsSection(string section)
     {
+        var previous = selectedSettingsSection;
         selectedSettingsSection = section;
         void Show(UIElement element, string key) => element.Visibility = section == key ? Visibility.Visible : Visibility.Collapsed;
         Show(SettingsGeneralControls, "general");
@@ -143,6 +144,20 @@ public sealed partial class MainWindow
         if (PreferencesHost.Content is NativePreferencesPanel preferences) preferences.ShowSection(section);
         SettingsPage.ChangeView(null, 0, null, true);
         UpdateSettingsSelection(section);
+        if (previous != section)
+        {
+            FrameworkElement target = section switch
+            {
+                "appearance" => SettingsAppearanceControls,
+                "ai" => SettingsAiControls,
+                "savedRef" => SettingsSavedRefControls,
+                "security" => SettingsSecurityControls,
+                "shortcuts" => SettingsShortcutControls,
+                "terminal" or "sftp" => PreferencesHost,
+                _ => SettingsGeneralControls
+            };
+            UiTaskRunner.Run(() => NativeUiMotion.FadeInAsync(target));
+        }
     }
 
     private void UpdateSettingsSelection(string section)
@@ -164,7 +179,7 @@ public sealed partial class MainWindow
         SettingsNavigationColumn.Width = new GridLength(Body.ActualWidth < 760 ? 136 : 168);
         AiSurface.Width = Math.Max(0, Math.Min(820, Body.ActualWidth - 32));
         AiSurface.Height = Math.Max(0, Math.Min(640, Body.ActualHeight - 32));
-        var modal = connectionDrawerOpen || SettingsOverlay.Visibility == Visibility.Visible || AiPage.Visibility == Visibility.Visible;
+        var modal = connectionDrawerOpen || activeOverlay != null;
         MainWorkspace.IsHitTestVisible = ContextSidebar.IsHitTestVisible = ActivityRail.IsHitTestVisible = !modal;
         Sessions.IsEnabled = !modal;
         if (SettingsOverlay.Visibility == Visibility.Visible)
@@ -175,7 +190,8 @@ public sealed partial class MainWindow
     {
         if (connectionDrawerOpen) return false;
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var shade = new Grid { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(102, 0, 0, 0)) };
+        var shade = new Grid();
+        var scrim = new Grid { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(102, 0, 0, 0)) };
         var surface = new Grid { HorizontalAlignment = HorizontalAlignment.Right, Background = Application.Current.Resources["WorkspaceBackgroundBrush"] as Brush,
             TabFocusNavigation = KeyboardNavigationMode.Cycle };
         surface.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -189,7 +205,7 @@ public sealed partial class MainWindow
         cancel.Click += (_, _) => completion.TrySetResult(false); save.Click += (_, _) => completion.TrySetResult(true);
         header.Children.Add(heading); header.Children.Add(cancel); header.Children.Add(save); Grid.SetColumn(cancel, 1); Grid.SetColumn(save, 2);
         surface.Children.Add(header); surface.Children.Add(content); Grid.SetRow(content, 1);
-        shade.Children.Add(surface); Grid.SetColumnSpan(shade, 4);
+        shade.Children.Add(scrim); shade.Children.Add(surface); Grid.SetColumnSpan(shade, 4);
         AutomationProperties.SetName(surface, title); AutomationProperties.SetAutomationId(surface, "ConnectionDrawer");
         surface.KeyDown += (_, args) => { if (args.Key == Windows.System.VirtualKey.Escape) { completion.TrySetResult(false); args.Handled = true; } };
         void Resize(object? sender, SizeChangedEventArgs args) => surface.Width = Math.Max(0, Math.Min(520, Body.ActualWidth));
@@ -198,11 +214,17 @@ public sealed partial class MainWindow
         connectionDrawerOpen = true;
         surface.Loaded += (_, _) => initialFocus.Focus(FocusState.Programmatic);
         Body.Children.Add(shade); UpdateOverlayLayout();
+        UiTaskRunner.Run(() => NativeUiMotion.AnimateInAsync(surface, scrim, NativeMotionKind.DrawerRight));
         try { return await completion.Task; }
         finally
         {
-            Body.SizeChanged -= Resize; Body.Children.Remove(shade); connectionDrawerOpen = false; UpdateOverlayLayout();
+            Body.SizeChanged -= Resize;
+            connectionDrawerOpen = false;
+            UpdateOverlayLayout();
             Sessions.Focus(FocusState.Programmatic);
+            shade.IsHitTestVisible = false;
+            await NativeUiMotion.AnimateOutAsync(surface, scrim, NativeMotionKind.DrawerRight);
+            Body.Children.Remove(shade);
         }
     }
 

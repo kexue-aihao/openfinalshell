@@ -21,6 +21,15 @@ namespace OpenFinalShell.App.Controls;
 public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 {
     private readonly CanvasControl canvas = new();
+    private readonly Border cursorVisual = new()
+    {
+        Width = 2,
+        Height = 1,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Top,
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed
+    };
     private readonly TextBlock accessibleScreen = new()
     {
         Width = 1, Height = 1, Opacity = 0.01, IsHitTestVisible = false,
@@ -34,6 +43,12 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private readonly byte[] generatedOutputBuffer = new byte[64 * 1024];
     private readonly Stopwatch automationUpdateClock = Stopwatch.StartNew();
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? accessibilityTimer;
+    private NativeTerminalSnapshotCell[] visibleSnapshot = new NativeTerminalSnapshotCell[1];
+    private NativeTerminalSnapshotCell[] screenSnapshot = new NativeTerminalSnapshotCell[1];
+    private NativeTerminalSnapshotCell[] scrollbackSnapshot = new NativeTerminalSnapshotCell[1];
+    private int visibleSnapshotWidth;
+    private int visibleSnapshotFirstLine;
+    private int visibleSnapshotLineCount;
     private int scrollOffset;
     private (int line, int column)? selectionStart;
     private (int line, int column)? selectionEnd;
@@ -42,7 +57,13 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private bool selecting;
     private string searchTerm = string.Empty;
     private readonly List<(int line, int column, int length)> searchResults = [];
+    private readonly Dictionary<int, List<(int column, int length)>> searchByLine = [];
     private int searchIndex = -1;
+    private int searchGeneration;
+    private readonly object inactiveOutputGate = new();
+    private readonly Queue<PendingOutput> inactiveOutput = new();
+    private bool terminalActive = true;
+    private bool inactiveDrainRunning;
     private char? pendingHighSurrogate;
     private bool mouseTracking;
     private int activeMouseButton = 1;
@@ -69,6 +90,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         var surface = new Grid();
         surface.Children.Add(canvas);
+        surface.Children.Add(cursorVisual);
         surface.Children.Add(accessibleScreen);
         InitializeTextInput(surface);
         Content = surface;
@@ -97,6 +119,9 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private void EnsureParser()
     {
         if (parser != 0) return;
+#if DEBUG
+        Debug.Assert(Marshal.SizeOf<NativeTerminalSnapshotCell>() == 56);
+#endif
         // A shell may emit its first bytes before this canvas has entered the
         // visual tree. Start at the same size requested from SSH, then resize
         // when WinUI reports its actual layout so early output is not clipped
@@ -110,9 +135,18 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 
     public void Dispose()
     {
+        lock (inactiveOutputGate)
+        {
+            while (inactiveOutput.TryDequeue(out var pending))
+            {
+                pending.Completion.TrySetException(new ObjectDisposedException(nameof(NativeTerminalCanvas)));
+                pending.CancellationRegistration.Dispose();
+            }
+        }
         blinkTimer?.Stop();
         accessibilityTimer?.Stop();
         accessibilityTimer = null;
+        cursorVisual.Visibility = Visibility.Collapsed;
         ReleaseParser();
     }
     private void ReleaseParser()
@@ -126,20 +160,103 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     public Task EnqueueOutputAsync(byte[] bytes, CancellationToken cancellation = default)
     {
         if (bytes.Length == 0) return Task.CompletedTask;
+        lock (inactiveOutputGate)
+        {
+            if (!terminalActive || inactiveDrainRunning || inactiveOutput.Count > 0)
+            {
+                var delayed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var registration = cancellation.Register(() => delayed.TrySetCanceled(cancellation));
+                inactiveOutput.Enqueue(new PendingOutput(bytes, cancellation, delayed, registration));
+                return delayed.Task;
+            }
+        }
+        return EnqueueActiveOutputAsync(bytes, cancellation);
+    }
+
+    public void SetActive(bool active)
+    {
+        lock (inactiveOutputGate)
+        {
+            terminalActive = active;
+            if (!active)
+            {
+                cursorVisual.Visibility = Visibility.Collapsed;
+                return;
+            }
+        }
+        _ = DrainInactiveOutputAsync();
+    }
+
+    private Task EnqueueActiveOutputAsync(byte[] bytes, CancellationToken cancellation)
+    {
         if (DispatcherQueue.HasThreadAccess)
         {
-            Feed(bytes);
-            return Task.CompletedTask;
+            return FeedBatchedAsync(bytes, cancellation);
         }
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var registration = cancellation.Register(() => completion.TrySetCanceled(cancellation));
         _ = completion.Task.ContinueWith(_ => registration.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        if (!DispatcherQueue.TryEnqueue(() =>
+        if (!DispatcherQueue.TryEnqueue(async () =>
         {
-            try { Feed(bytes); completion.TrySetResult(); }
+            try { await FeedBatchedAsync(bytes, cancellation); completion.TrySetResult(); }
+            catch (OperationCanceledException) { completion.TrySetCanceled(cancellation); }
             catch (Exception error) { completion.TrySetException(error); }
         })) completion.TrySetException(new InvalidOperationException("Terminal dispatcher is not available."));
         return completion.Task;
+    }
+
+    private async Task DrainInactiveOutputAsync()
+    {
+        lock (inactiveOutputGate)
+        {
+            if (inactiveDrainRunning || !terminalActive) return;
+            inactiveDrainRunning = true;
+        }
+        try
+        {
+            while (true)
+            {
+                PendingOutput pending;
+                lock (inactiveOutputGate)
+                {
+                    if (!terminalActive || !inactiveOutput.TryDequeue(out pending!)) break;
+                }
+                try
+                {
+                    await EnqueueActiveOutputAsync(pending.Bytes, pending.Cancellation);
+                    pending.Completion.TrySetResult();
+                }
+                catch (OperationCanceledException) { pending.Completion.TrySetCanceled(pending.Cancellation); }
+                catch (Exception error) { pending.Completion.TrySetException(error); }
+                finally { pending.CancellationRegistration.Dispose(); }
+            }
+        }
+        finally
+        {
+            lock (inactiveOutputGate) inactiveDrainRunning = false;
+            lock (inactiveOutputGate)
+            {
+                if (terminalActive && inactiveOutput.Count > 0) _ = DrainInactiveOutputAsync();
+            }
+        }
+    }
+
+    private async Task FeedBatchedAsync(byte[] bytes, CancellationToken cancellation)
+    {
+        const int sliceSize = 8 * 1024;
+        var clock = Stopwatch.StartNew();
+        for (var offset = 0; offset < bytes.Length;)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var count = Math.Min(sliceSize, bytes.Length - offset);
+            Feed(bytes.AsSpan(offset, count).ToArray());
+            offset += count;
+            if (offset < bytes.Length && clock.ElapsedMilliseconds >= 6)
+            {
+                clock.Restart();
+                await Task.Yield();
+            }
+        }
     }
 
     private void DrawTerminal(CanvasControl sender, CanvasDrawEventArgs args)
@@ -147,35 +264,75 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         EnsureParser();
         if (parser == 0) return;
         RefreshDpiMetricsIfNeeded();
-        PositionTextInput();
         var columns = ScreenColumns;
         var rows = ScreenRows;
         var screenRows = rows;
         var scrollback = CurrentScrollbackLines;
         var totalLines = scrollback + screenRows;
         var firstLine = Math.Max(0, totalLines - rows - scrollOffset);
+        RefreshVisibleSnapshot(scrollback);
         for (var row = 0; row < rows; row++)
         {
             var line = firstLine + row;
             RenderTerminalRow(args.DrawingSession, row, line, scrollback, columns);
         }
-        if (scrollOffset > 0 || !cursorOn || composing || textInput.FocusState == FocusState.Unfocused) return;
-        var cursorRow = ofs_terminal_cursor_row(parser); var cursorCol = ofs_terminal_cursor_col(parser);
-        if (cursorRow >= 0 && cursorCol >= 0 && cursorCol < columns && cursorRow < rows)
+        UpdateTerminalOverlays();
+    }
+
+    private void RefreshVisibleSnapshot(int scrollback)
+    {
+        var rows = ScreenRows;
+        var columns = ScreenColumns;
+        EnsureSnapshotCapacity(ref visibleSnapshot, rows * columns);
+        EnsureSnapshotCapacity(ref screenSnapshot, rows * columns);
+        if (ofs_terminal_copy_screen(parser, screenSnapshot, (nuint)screenSnapshot.Length) == 0) return;
+
+        var firstLine = Math.Max(0, scrollback - scrollOffset);
+        var scrollbackLines = Math.Min(rows, Math.Max(0, scrollback - firstLine));
+        if (scrollbackLines > 0)
         {
-            var bounds = CellSpanRect(cursorRow, cursorCol, 1);
-            var x = (float)bounds.X; var y = (float)bounds.Y;
-            switch (NativeSettings.ReadPath(preferences, "cursorStyle", "bar"))
-            {
-                case "block": args.DrawingSession.DrawRectangle(bounds, terminalCursor, (float)(1d / DrawingScale)); break;
-                case "underline":
-                    args.DrawingSession.FillRectangle(new Rect(bounds.X, bounds.Bottom - 2, bounds.Width, 2), terminalCursor);
-                    break;
-                default:
-                    args.DrawingSession.FillRectangle(new Rect(bounds.X, bounds.Y, 2, bounds.Height), terminalCursor);
-                    break;
-            }
+            var count = scrollbackLines * columns;
+            EnsureSnapshotCapacity(ref scrollbackSnapshot, count);
+            if (ofs_terminal_copy_scrollback(parser, firstLine, scrollbackLines,
+                    scrollbackSnapshot, (nuint)scrollbackSnapshot.Length) == count)
+                Array.Copy(scrollbackSnapshot, 0, visibleSnapshot, 0, count);
+            else
+                scrollbackLines = 0;
         }
+        var remaining = rows - scrollbackLines;
+        if (remaining > 0)
+            Array.Copy(screenSnapshot, 0, visibleSnapshot, scrollbackLines * columns, remaining * columns);
+        visibleSnapshotWidth = columns;
+        visibleSnapshotFirstLine = firstLine;
+        visibleSnapshotLineCount = rows;
+    }
+
+    private static void EnsureSnapshotCapacity(ref NativeTerminalSnapshotCell[] buffer, int count)
+    {
+        count = Math.Max(1, count);
+        if (buffer.Length < count) buffer = new NativeTerminalSnapshotCell[count];
+    }
+
+    private string ReadSnapshotText(NativeTerminalSnapshotCell snapshot)
+    {
+        if (snapshot.Valid == 0 || snapshot.CodepointCount == 0) return string.Empty;
+        var result = new StringBuilder(snapshot.CodepointCount);
+        for (var index = 0; index < snapshot.CodepointCount; index++)
+            result.Append(ToSafeText(snapshot.CodepointAt(index)));
+        return result.ToString();
+    }
+
+    private bool TryReadLogicalCell(int line, int column, out NativeTerminalSnapshotCell cell)
+    {
+        var offset = line - visibleSnapshotFirstLine;
+        if (offset >= 0 && offset < visibleSnapshotLineCount && column >= 0 &&
+            column < visibleSnapshotWidth && visibleSnapshot.Length >= visibleSnapshotWidth * visibleSnapshotLineCount)
+        {
+            cell = visibleSnapshot[offset * visibleSnapshotWidth + column];
+            return cell.Valid != 0;
+        }
+        cell = default;
+        return false;
     }
 
     private Windows.UI.Color ResolveColor(byte type, byte r, byte g, byte b, byte index, Windows.UI.Color fallback)
@@ -537,6 +694,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private string ReadSelection()
     {
         if (parser == 0 || selectionStart is not { } start || selectionEnd is not { } end) return string.Empty;
+        RefreshVisibleSnapshot(CurrentScrollbackLines);
         var first = start.line < end.line || start.line == end.line && start.column <= end.column ? start : end;
         var last = first.line == start.line && first.column == start.column ? end : start;
         var rows = ScreenRows;
@@ -548,7 +706,14 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             var to = line == last.line ? last.column : Math.Max(0, ScreenColumns - 1);
             for (var column = from; column <= to; column++)
             {
-                var ok = line < scrollback ? ofs_terminal_get_scrollback_cell(parser, line, column, out var cell) : ofs_terminal_get_cell(parser, line - scrollback, column, out cell);
+                if (TryReadLogicalCell(line, column, out var snapshot))
+                {
+                    result.Append(ReadSnapshotText(snapshot));
+                    continue;
+                }
+                var ok = line < scrollback
+                    ? ofs_terminal_get_scrollback_cell(parser, line, column, out var cell)
+                    : ofs_terminal_get_cell(parser, line - scrollback, column, out cell);
                 if (ok != 0) result.Append(ReadCellText(line, column, scrollback, cell));
             }
             if (line != last.line) result.AppendLine();
@@ -556,52 +721,105 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         return result.ToString();
     }
 
-    public int Search(string value) => Search(value, caseSensitive: false, regex: false);
-
-    /// <summary>Matches Electron's case/regex options and retains every match on each line.</summary>
-    public int Search(string value, bool caseSensitive, bool regex)
+    /// <summary>Scans the terminal in bounded UI-thread slices so typing remains responsive.</summary>
+    public async Task<int> SearchAsync(string value, bool caseSensitive, bool regex,
+        CancellationToken cancellation = default)
     {
-        searchTerm = value ?? string.Empty; searchResults.Clear();
+        var generation = ++searchGeneration;
+        searchTerm = value ?? string.Empty;
+        searchResults.Clear();
+        searchByLine.Clear();
         searchIndex = -1;
-        if (parser == 0 || string.IsNullOrEmpty(searchTerm)) { SearchCompleted?.Invoke(0); return 0; }
-        var rows = ScreenRows;
-        var columns = ScreenColumns;
-        var scrollback = CurrentScrollbackLines;
-        var total = scrollback + rows;
-        for (var line = 0; line < total; line++)
+        if (parser == 0 || string.IsNullOrEmpty(searchTerm))
         {
-            var builder = new StringBuilder();
-            var columnsByCharacter = new List<int>();
-            for (var column = 0; column < columns; column++)
-            {
-                var ok = line < scrollback ? ofs_terminal_get_scrollback_cell(parser, line, column, out var cell) : ofs_terminal_get_cell(parser, line - scrollback, column, out cell);
-                var text = ok != 0 ? ReadCellText(line, column, scrollback, cell) : " ";
-                if (ok != 0 && string.IsNullOrEmpty(text) && cell.Width != 0) text = " ";
-                builder.Append(text);
-                for (var characterIndex = 0; characterIndex < text.Length; characterIndex++) columnsByCharacter.Add(column);
-            }
-            var lineText = builder.ToString();
-            foreach (var match in NativeTerminalSearch.Find(lineText, searchTerm, caseSensitive, regex))
-            {
-                AddSearchResult(line, match.Index, match.Length, columnsByCharacter, scrollback);
-            }
+            SearchCompleted?.Invoke(0);
+            return 0;
         }
-        if (searchResults.Count > 0) { searchIndex = 0; ScrollSearchResultIntoView(); }
-        canvas.Invalidate(); SearchCompleted?.Invoke(searchResults.Count); return searchResults.Count;
+        try
+        {
+            var columns = ScreenColumns;
+            var rows = ScreenRows;
+            var scrollback = CurrentScrollbackLines;
+            const int batchLines = 512;
+            for (var firstLine = 0; firstLine < scrollback; firstLine += batchLines)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                if (generation != searchGeneration) return 0;
+                var lineCount = Math.Min(batchLines, scrollback - firstLine);
+                EnsureSnapshotCapacity(ref scrollbackSnapshot, lineCount * columns);
+                if (ofs_terminal_copy_scrollback(parser, firstLine, lineCount,
+                        scrollbackSnapshot, (nuint)scrollbackSnapshot.Length) != lineCount * columns)
+                    break;
+                ScanSnapshotBatch(scrollbackSnapshot, firstLine, lineCount, columns, caseSensitive, regex);
+                await Task.Yield();
+            }
+
+            cancellation.ThrowIfCancellationRequested();
+            if (generation != searchGeneration) return 0;
+            EnsureSnapshotCapacity(ref screenSnapshot, rows * columns);
+            if (ofs_terminal_copy_screen(parser, screenSnapshot, (nuint)screenSnapshot.Length) == rows * columns)
+                ScanSnapshotBatch(screenSnapshot, scrollback, rows, columns, caseSensitive, regex);
+            if (searchResults.Count > 0)
+            {
+                searchIndex = 0;
+                ScrollSearchResultIntoView();
+            }
+            canvas.Invalidate();
+            SearchCompleted?.Invoke(searchResults.Count);
+            return searchResults.Count;
+        }
+        catch (OperationCanceledException)
+        {
+            if (generation == searchGeneration)
+            {
+                searchResults.Clear();
+                searchByLine.Clear();
+                searchIndex = -1;
+                canvas.Invalidate();
+            }
+            throw;
+        }
     }
 
-    private void AddSearchResult(int line, int matchIndex, int matchLength, IReadOnlyList<int> columnsByCharacter, int scrollback)
+    private void ScanSnapshotBatch(NativeTerminalSnapshotCell[] cells, int firstLine, int lineCount,
+        int columns, bool caseSensitive, bool regex)
+    {
+        for (var lineOffset = 0; lineOffset < lineCount; lineOffset++)
+        {
+            var builder = new StringBuilder(columns);
+            var columnsByCharacter = new List<int>(columns);
+            var endWidths = new List<int>(columns);
+            for (var column = 0; column < columns; column++)
+            {
+                var snapshot = cells[lineOffset * columns + column];
+                var text = snapshot.Valid != 0 ? ReadSnapshotText(snapshot) : " ";
+                if (snapshot.Valid != 0 && text.Length == 0 && snapshot.Cell.Width != 0) text = " ";
+                builder.Append(text);
+                for (var characterIndex = 0; characterIndex < text.Length; characterIndex++)
+                {
+                    columnsByCharacter.Add(column);
+                    endWidths.Add(Math.Max(1, (int)snapshot.Cell.Width));
+                }
+            }
+            var line = firstLine + lineOffset;
+            var lineText = builder.ToString();
+            foreach (var match in NativeTerminalSearch.Find(lineText, searchTerm, caseSensitive, regex))
+                AddSearchResult(line, match.Index, match.Length, columnsByCharacter, endWidths);
+        }
+    }
+
+    private void AddSearchResult(int line, int matchIndex, int matchLength,
+        IReadOnlyList<int> columnsByCharacter, IReadOnlyList<int> endWidths)
     {
         if (matchIndex < 0 || matchIndex >= columnsByCharacter.Count || matchLength <= 0) return;
         var startColumn = columnsByCharacter[matchIndex];
         var endIndex = Math.Min(columnsByCharacter.Count - 1, matchIndex + matchLength - 1);
         var endColumn = columnsByCharacter[endIndex];
-        if (line < scrollback)
-        {
-            if (ofs_terminal_get_scrollback_cell(parser, line, endColumn, out var endCell) != 0) endColumn += Math.Max(1, (int)endCell.Width);
-        }
-        else if (ofs_terminal_get_cell(parser, line - scrollback, endColumn, out var endCell) != 0) endColumn += Math.Max(1, (int)endCell.Width);
+        endColumn += Math.Max(1, endWidths[endIndex]);
         searchResults.Add((line, startColumn, Math.Max(1, endColumn - startColumn)));
+        if (!searchByLine.TryGetValue(line, out var ranges))
+            searchByLine[line] = ranges = [];
+        ranges.Add((startColumn, Math.Max(1, endColumn - startColumn)));
     }
 
     public int SearchNext() => MoveSearch(1);
@@ -678,10 +896,17 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             {
                 if (newline > 0) { var prefix = bytes.AsSpan(0, newline).ToArray(); ofs_terminal_feed(parser, prefix, (nuint)prefix.Length); }
                 var row = ofs_terminal_cursor_row(parser); var line = new StringBuilder();
-                for (var col = 0; col < Math.Max(1, lastColumns); col++)
+                var columns = Math.Max(1, lastColumns);
+                var screenRows = Math.Max(1, lastRows);
+                EnsureSnapshotCapacity(ref screenSnapshot, screenRows * columns);
+                if (row >= 0 && row < screenRows &&
+                    ofs_terminal_copy_screen(parser, screenSnapshot, (nuint)screenSnapshot.Length) == screenRows * columns)
                 {
-                    if (ofs_terminal_get_cell(parser, row, col, out var cell) == 0) continue;
-                    line.Append(cell.CodePoint == 0 ? " " : ReadCellText(CurrentScrollbackLines + row, col, CurrentScrollbackLines, cell));
+                    for (var col = 0; col < columns; col++)
+                    {
+                        var snapshot = screenSnapshot[row * columns + col];
+                        line.Append(snapshot.Valid == 0 || snapshot.Cell.CodePoint == 0 ? " " : ReadSnapshotText(snapshot));
+                    }
                 }
                 submittedAt = null;
                 if (NativeCommandHistoryCapture.ExtractEchoed(line.ToString(), ofs_terminal_alt_screen(parser) != 0) is { } command) CommandEntered?.Invoke(command);
@@ -710,16 +935,17 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         automationUpdateClock.Restart();
         var rows = ScreenRows;
         var cols = ScreenColumns;
-        var scrollback = CurrentScrollbackLines;
         var result = new StringBuilder(Math.Min(rows * cols, 16_384));
+        EnsureSnapshotCapacity(ref screenSnapshot, rows * cols);
+        if (ofs_terminal_copy_screen(parser, screenSnapshot, (nuint)screenSnapshot.Length) != rows * cols) return;
         for (var row = 0; row < rows; row++)
         {
             if (row > 0) result.AppendLine();
             for (var col = 0; col < cols; col++)
             {
-                var line = scrollback + row;
-                if (ofs_terminal_get_cell(parser, row, col, out var cell) == 0) continue;
-                result.Append(ReadCellText(line, col, scrollback, cell));
+                var snapshot = screenSnapshot[row * cols + col];
+                if (snapshot.Valid == 0) continue;
+                result.Append(ReadSnapshotText(snapshot));
             }
         }
         accessibleScreen.Text = result.ToString().TrimEnd();
@@ -748,6 +974,8 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_scrollback_lines(nint terminal);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_get_scrollback_cell(nint terminal, int line, int col, out NativeTerminalCell cell);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_get_scrollback_codepoints(nint terminal, int line, int col, [Out] uint[] codepoints, int capacity);
+    [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_copy_screen(nint terminal, [Out] NativeTerminalSnapshotCell[] cells, nuint capacity);
+    [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_copy_scrollback(nint terminal, int firstLine, int lineCount, [Out] NativeTerminalSnapshotCell[] cells, nuint capacity);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_key(nint terminal, int key, int modifiers);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_unichar(nint terminal, uint codepoint, int modifiers);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_paste_utf8(nint terminal, byte[] bytes, nuint length);
@@ -758,6 +986,9 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_mouse_button(nint terminal, int button, int pressed, int modifiers);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern nuint ofs_terminal_read_output(nint terminal, [Out] byte[] buffer, nuint capacity);
     [DllImport("ofs-terminal.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int ofs_terminal_take_output_error(nint terminal);
+
+    private sealed record PendingOutput(byte[] Bytes, CancellationToken Cancellation,
+        TaskCompletionSource Completion, CancellationTokenRegistration CancellationRegistration);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeTerminalCell
@@ -775,5 +1006,36 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         public byte BgIndex;
         public ushort Attributes;
         public byte Width;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeTerminalSnapshotCell
+    {
+        public NativeTerminalCell Cell;
+        public byte CodepointCount;
+        public byte Valid;
+        public byte Reserved0;
+        public byte Reserved1;
+        public uint Codepoint0;
+        public uint Codepoint1;
+        public uint Codepoint2;
+        public uint Codepoint3;
+        public uint Codepoint4;
+        public uint Codepoint5;
+        public uint Codepoint6;
+        public uint Codepoint7;
+
+        public readonly uint CodepointAt(int index) => index switch
+        {
+            0 => Codepoint0,
+            1 => Codepoint1,
+            2 => Codepoint2,
+            3 => Codepoint3,
+            4 => Codepoint4,
+            5 => Codepoint5,
+            6 => Codepoint6,
+            7 => Codepoint7,
+            _ => 0
+        };
     }
 }

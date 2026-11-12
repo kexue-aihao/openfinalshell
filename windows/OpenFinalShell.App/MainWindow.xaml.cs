@@ -121,21 +121,29 @@ public sealed partial class MainWindow : Window
     private bool loadingSettings;
     private string activeActivity = "connections";
     private string? activeOverlay;
+    private int overlayMotionVersion;
     private bool responsiveSidebarCollapsed;
     private bool responsiveSidebarOpen;
+    private bool workspaceLayoutPreferencesLoaded;
+    private bool workspaceSidebarCollapsed;
+    private double workspaceSidebarWidth = 300;
     private bool forwardDialogActive;
     private readonly NativeUpdateCoordinator updateCoordinator;
     private readonly NativeUpdateService updateService;
     private readonly CancellationTokenSource updateCancellation = new();
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? updateTimer;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? transferSummaryTimer;
+    private UiResponsivenessMonitor? responsivenessMonitor;
     private bool updateCheckRunning;
     private bool initialUpdateCheckStarted;
+    private bool shutdownStarted;
 
     public MainWindow(PlatformEnvironment environment, NativeInstanceCoordinator? coordinator = null)
     {
+        App.TraceStartup("MainWindow constructor entered");
         this.environment = environment; this.coordinator = coordinator;
         store = new NativeStore(NativeStore.DefaultDirectory, new DpapiProtector());
+        LoadWorkspaceLayoutPreferences();
         if (store.Find("nativeWorkspace", "nativeWorkspace")?["parityDataVersion"]?.GetValue<int>() != 1)
         {
             store.Backup("parity-v1");
@@ -159,6 +167,7 @@ public sealed partial class MainWindow : Window
         forwardViewModel = new ForwardViewModel(forwardManager, key => localization[key]);
         lanSyncService = new NativeLanSyncService(store);
         lanSyncViewModel = new NativeLanSyncViewModel(lanSyncService);
+        lanSyncViewModel.PropertyChanged += LanSyncChanged;
         transferQueue = new NativeTransferQueue(sessionsManager,
             () => settings.Get("sftp.packedTransfer", false), key => localization[key], localization);
         transferViewModel = new TransferQueueViewModel(transferQueue, localization);
@@ -168,6 +177,8 @@ public sealed partial class MainWindow : Window
         updateService.StateChanged += OnUpdateStateChanged;
         sessionsManager.StateChanged += OnSessionStateChanged;
         InitializeComponent();
+        if (Environment.GetEnvironmentVariable("OFS_NATIVE_DIAGNOSTICS") == "1")
+            responsivenessMonitor = new UiResponsivenessMonitor(DispatcherQueue);
         InitializeElectronLayout();
         try
         {
@@ -197,7 +208,7 @@ public sealed partial class MainWindow : Window
         activeActivity = store.Find("nativeWorkspace", "nativeWorkspace")?["activeSidebar"]?.GetValue<string>() is { } savedActivity &&
             savedActivity is "connections" or "commands" or "forwards" or "transfers" ? savedActivity : "connections";
         TransferList.ItemsSource = transferViewModel.Tasks;
-        transferViewModel.PropertyChanged += (_, _) => DispatcherQueue.TryEnqueue(UpdateTransferControls);
+        transferViewModel.QueueChanged += TransferQueueChanged;
         transferSummaryTimer = DispatcherQueue.CreateTimer();
         transferSummaryTimer.Interval = TimeSpan.FromSeconds(1);
         transferSummaryTimer.Tick += (_, _) => transferViewModel.RefreshSummary();
@@ -225,6 +236,7 @@ public sealed partial class MainWindow : Window
         Root.Loaded += OnRootLoaded;
         ActivatePage(activeActivity);
         UpdateWorkbenchLayout();
+        App.TraceStartup("MainWindow constructor completed");
     }
 
     private void ApplyPlatformResources()
@@ -289,7 +301,7 @@ public sealed partial class MainWindow : Window
         // Keep the first-run shortcut available until any portable entity has
         // been imported or created, including keys/proxies/trust and snippets.
         var hasNativeData = new[] { "profiles", "groups", "forwards", "proxies", "privateKeys", "knownHosts", "snippetGroups", "snippets", "aiProfiles" }
-            .Any(kind => store.List(kind).Count > 0);
+            .Any(kind => store.Count(kind) > 0);
         MigrationImportButton.Visibility = hasNativeData ? Visibility.Collapsed : Visibility.Visible;
         WelcomeImportButton.Visibility = hasNativeData ? Visibility.Collapsed : Visibility.Visible;
         ExportButton.Label = localization["native.common.export"];
@@ -399,7 +411,6 @@ public sealed partial class MainWindow : Window
         LanSyncPort.Header = localization["native.lansync.port"];
         ApplyLanSyncButton.Content = localization["native.lansync.apply"];
         RejectLanSyncButton.Content = localization["native.lansync.reject"];
-        lanSyncViewModel.PropertyChanged += LanSyncChanged;
         UpdateLanSyncUi();
     }
 
@@ -423,7 +434,6 @@ public sealed partial class MainWindow : Window
                 ApplyAppearance();
                 UpdateAiAssistantControls();
                 transferQueue.ConfigureLimits(settings.Get("sftp.maxConcurrentGlobal", 4), settings.Get("sftp.maxConcurrentPerSession", 2));
-                foreach (var workspace in sessionWorkspaces.Values) workspace.Configure(settings);
                 if (patch.ContainsKey("connection")) LoadProfiles();
                 Status.Text = localization["native.common.saved"];
             }
@@ -519,18 +529,29 @@ public sealed partial class MainWindow : Window
         CommandsPage.Visibility = tag == "commands" ? Visibility.Visible : Visibility.Collapsed;
         ForwardPage.Visibility = tag == "forwards" ? Visibility.Visible : Visibility.Collapsed;
         TransfersPage.Visibility = tag == "transfers" ? Visibility.Visible : Visibility.Collapsed;
+        var activeSidebarPage = tag switch
+        {
+            "commands" => (FrameworkElement)CommandsPage,
+            "forwards" => ForwardPage,
+            "transfers" => TransfersPage,
+            _ => ConnectionSidebarPage
+        };
         if (!same)
         {
             if (responsiveSidebarCollapsed) responsiveSidebarOpen = true;
-            else store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["sidebarCollapsed"] = false });
+            else
+            {
+                workspaceSidebarCollapsed = false;
+                store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["sidebarCollapsed"] = false });
+            }
         }
         else if (toggle)
         {
             if (responsiveSidebarCollapsed) responsiveSidebarOpen = !responsiveSidebarOpen;
             else
             {
-                var currentlyCollapsed = store.Find("nativeWorkspace", "nativeWorkspace")?["sidebarCollapsed"]?.GetValue<bool>() ?? false;
-                store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["sidebarCollapsed"] = !currentlyCollapsed });
+                workspaceSidebarCollapsed = !workspaceSidebarCollapsed;
+                store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["sidebarCollapsed"] = workspaceSidebarCollapsed });
             }
         }
         store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["activeSidebar"] = tag });
@@ -538,6 +559,7 @@ public sealed partial class MainWindow : Window
         UpdateOverlayLayout();
         UpdateWorkbenchLayout();
         ShowSelectedSessionContent();
+        UiTaskRunner.Run(() => NativeUiMotion.FadeInAsync(activeSidebarPage), ShowError);
     }
 
     private void ConfigureActivityHeading()
@@ -624,6 +646,11 @@ public sealed partial class MainWindow : Window
         UpdateOverlayLayout();
         if (previousOverlay != activeOverlay)
         {
+            Interlocked.Increment(ref overlayMotionVersion);
+            if (activeOverlay == "ai")
+                UiTaskRunner.Run(() => NativeUiMotion.AnimateInAsync(AiSurface, AiScrim, NativeMotionKind.Overlay), ShowError);
+            else if (activeOverlay is "settings" or "lansync" or "about")
+                UiTaskRunner.Run(() => NativeUiMotion.AnimateInAsync(SettingsSurface, SettingsScrim, NativeMotionKind.Overlay), ShowError);
             if (activeOverlay == "ai") AiInput.Focus(FocusState.Programmatic);
             else CloseSettingsButton.Focus(FocusState.Programmatic);
         }
@@ -637,21 +664,36 @@ public sealed partial class MainWindow : Window
 
     private void CloseOverlayCore()
     {
+        var previousOverlay = activeOverlay;
+        var motionVersion = Interlocked.Increment(ref overlayMotionVersion);
         activeOverlay = null;
-        SettingsOverlay.Visibility = Visibility.Collapsed;
+        FrameworkElement? surface = previousOverlay == "ai" ? AiSurface : SettingsSurface;
+        Grid? host = previousOverlay == "ai" ? AiPage : SettingsOverlay;
+        Grid? scrim = previousOverlay == "ai" ? AiScrim : SettingsScrim;
+        host.IsHitTestVisible = false;
         AboutPage.Visibility = Visibility.Collapsed;
-        AiPage.Visibility = Visibility.Collapsed;
         UpdateActivityMarkers();
         UpdateOverlayLayout();
         ShowSelectedSessionContent();
+        Sessions.Focus(FocusState.Programmatic);
+        UiTaskRunner.Run(async () =>
+        {
+            await NativeUiMotion.AnimateOutAsync(surface, scrim, NativeMotionKind.Overlay);
+            if (motionVersion == Volatile.Read(ref overlayMotionVersion) && activeOverlay == null)
+            {
+                SettingsOverlay.Visibility = Visibility.Collapsed;
+                AiPage.Visibility = Visibility.Collapsed;
+                SettingsOverlay.IsHitTestVisible = true;
+                AiPage.IsHitTestVisible = true;
+            }
+        }, ShowError);
     }
 
-    private async void NewConnection(object sender, RoutedEventArgs args)
-    {
-        await ShowConnectionEditorAsync(null);
-    }
+    private void NewConnection(object sender, RoutedEventArgs args) =>
+        UiTaskRunner.Run(() => ShowConnectionEditorAsync(null), ShowError);
 
-    private async void EditConnection(object sender, RoutedEventArgs args) => await ShowConnectionEditorAsync(connections.Selected);
+    private void EditConnection(object sender, RoutedEventArgs args) =>
+        UiTaskRunner.Run(() => ShowConnectionEditorAsync(connections.Selected), ShowError);
 
     private async Task ShowConnectionEditorAsync(ConnectionProfile? existing)
     {
@@ -1067,27 +1109,54 @@ public sealed partial class MainWindow : Window
         var previous = new Button { Content = localization["terminal.searchPrev"] };
         var next = new Button { Content = localization["terminal.searchNext"] };
         var count = 0;
-        void UpdateResult()
+        CancellationTokenSource? searchCancellation = null;
+        var searchRevision = 0;
+
+        async Task RunSearchAsync()
         {
-            count = terminal.Search(query.Text, caseSensitive.IsChecked == true, regex.IsChecked == true);
-            result.Text = count > 0 ? $"1/{count}" : string.IsNullOrEmpty(query.Text) ? "" : "0/0";
+            var revision = Interlocked.Increment(ref searchRevision);
+            var cancellation = new CancellationTokenSource();
+            var previousCancellation = Interlocked.Exchange(ref searchCancellation, cancellation);
+            previousCancellation?.Cancel();
+            previousCancellation?.Dispose();
+            result.Text = "…";
+            previous.IsEnabled = next.IsEnabled = false;
+            try
+            {
+                await Task.Delay(150, cancellation.Token);
+                count = await terminal.SearchAsync(query.Text, caseSensitive.IsChecked == true,
+                    regex.IsChecked == true, cancellation.Token);
+                if (revision != Volatile.Read(ref searchRevision)) return;
+                result.Text = count > 0 ? $"1/{count}" : string.IsNullOrEmpty(query.Text) ? "" : "0/0";
+                previous.IsEnabled = next.IsEnabled = count > 0;
+            }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+            {
+            }
+            finally
+            {
+                Interlocked.CompareExchange(ref searchCancellation, null, cancellation);
+                cancellation.Dispose();
+            }
         }
-        query.TextChanged += (_, _) => UpdateResult();
-        caseSensitive.Checked += (_, _) => UpdateResult();
-        caseSensitive.Unchecked += (_, _) => UpdateResult();
-        regex.Checked += (_, _) => UpdateResult();
-        regex.Unchecked += (_, _) => UpdateResult();
+        void ScheduleSearch() => UiTaskRunner.Run(RunSearchAsync, ShowError);
+        query.TextChanged += (_, _) => ScheduleSearch();
+        caseSensitive.Checked += (_, _) => ScheduleSearch();
+        caseSensitive.Unchecked += (_, _) => ScheduleSearch();
+        regex.Checked += (_, _) => ScheduleSearch();
+        regex.Unchecked += (_, _) => ScheduleSearch();
         query.KeyDown += (_, args) =>
         {
             if (args.Key != Windows.System.VirtualKey.Enter) return;
+            if (count == 0) return;
             var index = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)
                 ? terminal.SearchPrevious()
                 : terminal.SearchNext();
             result.Text = count > 0 ? $"{index}/{count}" : "0/0";
             args.Handled = true;
         };
-        previous.Click += (_, _) => { var index = terminal.SearchPrevious(); result.Text = count > 0 ? $"{index}/{count}" : "0/0"; };
-        next.Click += (_, _) => { var index = terminal.SearchNext(); result.Text = count > 0 ? $"{index}/{count}" : "0/0"; };
+        previous.Click += (_, _) => { if (count <= 0) return; var index = terminal.SearchPrevious(); result.Text = $"{index}/{count}"; };
+        next.Click += (_, _) => { if (count <= 0) return; var index = terminal.SearchNext(); result.Text = $"{index}/{count}"; };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { previous, next, result, caseSensitive, regex } };
         var content = new StackPanel { Spacing = 8, Children = { query, actions } };
         var dialog = new ContentDialog
@@ -1096,7 +1165,12 @@ public sealed partial class MainWindow : Window
             PrimaryButtonText = localization["common.close"],
             XamlRoot = Root.XamlRoot
         };
-        dialog.Opened += (_, _) => { query.Focus(FocusState.Programmatic); UpdateResult(); };
+        dialog.Opened += (_, _) => { query.Focus(FocusState.Programmatic); ScheduleSearch(); };
+        dialog.Closed += (_, _) =>
+        {
+            Interlocked.Exchange(ref searchCancellation, null)?.Cancel();
+            Interlocked.Increment(ref searchRevision);
+        };
         await dialog.ShowGatedAsync();
     }
 
@@ -1301,13 +1375,19 @@ public sealed partial class MainWindow : Window
         // the selected session. Keep its monitor collector and shell-directory
         // follower active while the session remains selected; only a different
         // session or an explicit close should deactivate it.
+        var selectedId = (Sessions.SelectedItem as TabViewItem)?.Tag?.ToString();
+        var selectedSessionId = SessionIdForTag(selectedId);
         foreach (var (id, workspace) in sessionWorkspaces)
-            workspace.SetActive((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString() == id);
+            workspace.SetActive(selectedSessionId == id);
         WelcomePage.Visibility = Sessions.TabItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SessionContent.Content = Sessions.SelectedItem is TabViewItem tab &&
             tab.Tag?.ToString() is { } tag && sessionContents.TryGetValue(tag, out var content)
                 ? content
                 : null;
+        if (selectedSessionId != null && sessionTerminals.TryGetValue(selectedSessionId, out var terminal))
+            terminal.Configure(settings, key => localization[key]);
+        if (selectedSessionId != null && sessionWorkspaces.TryGetValue(selectedSessionId, out var selectedWorkspace))
+            selectedWorkspace.Configure(settings);
     }
     private void RemoveSessionTab(TabViewItem tab)
     {
@@ -1677,11 +1757,11 @@ public sealed partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
-    private async void ClearCommandHistory(object sender, RoutedEventArgs args)
+    private void ClearCommandHistory(object sender, RoutedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         var dialog = new ContentDialog { Title = localization["native.commands.clearHistory"], Content = localization["native.commands.clearConfirm"], PrimaryButtonText = localization["native.common.delete"], CloseButtonText = localization["native.common.cancel"], XamlRoot = Root.XamlRoot };
         if (await dialog.ShowGatedAsync() == ContentDialogResult.Primary) CommandViewModel.ClearHistory();
-    }
+    }, ShowError);
 
     private void AiProviderChanged(object sender, SelectionChangedEventArgs args)
     {
@@ -1951,7 +2031,7 @@ public sealed partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
-    private async void SelectAiImage(object sender, RoutedEventArgs args)
+    private void SelectAiImage(object sender, RoutedEventArgs args) => UiTaskRunner.Run(async () =>
     {
         var picker = new FileOpenPicker();
         foreach (var extension in new[] { ".png", ".jpg", ".jpeg", ".webp", ".gif" }) picker.FileTypeFilter.Add(extension);
@@ -1961,7 +2041,7 @@ public sealed partial class MainWindow : Window
         selectedAiImagePath = file.Path;
         AiImageButton.Content = $"{localization["native.ai.image"]}: {file.Name}";
         UpdateAiAssistantControls();
-    }
+    }, ShowError);
 
     private async void TestAiCapability(object sender, RoutedEventArgs args)
     {
@@ -2026,6 +2106,11 @@ public sealed partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
     private void TransferSelectionChanged(object sender, SelectionChangedEventArgs args) => UpdateTransferControls();
+    private void TransferQueueChanged()
+    {
+        if (DispatcherQueue.HasThreadAccess) UpdateTransferControls();
+        else DispatcherQueue.TryEnqueue(UpdateTransferControls);
+    }
     private void UpdateTransferControls()
     {
         TransferSummary.Text = transferViewModel.SummaryText;
@@ -2305,10 +2390,12 @@ public sealed partial class MainWindow : Window
             await CheckForUpdatesAsync(automatic: true);
             updateTimer = DispatcherQueue.CreateTimer();
             updateTimer.Interval = TimeSpan.FromHours(6);
-            updateTimer.Tick += async (_, _) => await CheckForUpdatesAsync(automatic: true);
+            updateTimer.Tick += (_, _) =>
+                UiTaskRunner.Run(() => CheckForUpdatesAsync(automatic: true), ShowError);
             updateTimer.Start();
         }
         catch (OperationCanceledException) when (updateCancellation.IsCancellationRequested) { }
+        catch (Exception error) { ShowError(error); }
     }
 
     private async void CheckForUpdates(object sender, RoutedEventArgs args) => await CheckForUpdatesAsync(automatic: false);
@@ -2423,8 +2510,7 @@ public sealed partial class MainWindow : Window
             editorWindowHost.SetUpdateBusy(true);
             await updateService.InstallAsync(userConfirmed: true);
             editorWindowHost.CloseAfterConfirmation();
-            foreach (var rdp in rdpSessions.Values.ToArray()) await rdp.DisposeAsync();
-            rdpSessions.Clear();
+            await ShutdownAsync();
             confirmedWindowClose = true;
             Close();
             Application.Current.Exit();
@@ -2435,7 +2521,7 @@ public sealed partial class MainWindow : Window
             if (!confirmedWindowClose) { EnableWindowForUpdate(WindowHandle(), true); editorWindowHost.SetUpdateBusy(false); }
             closeDialogOpen = false;
             updateCheckRunning = false;
-            ApplyUpdateState(updateService.State);
+            if (!confirmedWindowClose) ApplyUpdateState(updateService.State);
         }
     }
 
@@ -2495,36 +2581,80 @@ public sealed partial class MainWindow : Window
     private nint WindowHandle() => WindowNative.GetWindowHandle(this);
     private void MainWindowClosed(object sender, WindowEventArgs args)
     {
-        commandEditorWindow?.Close();
+        App.TraceStartup("MainWindow closed event");
+        if (!shutdownStarted)
+            UiTaskRunner.Run(ShutdownAsync, WriteStartupError);
+    }
+
+    private async Task ShutdownAsync()
+    {
+        if (shutdownStarted) return;
+        shutdownStarted = true;
+        App.TraceStartup("MainWindow shutdown started");
+        static void Attempt(Action action)
+        {
+            try { action(); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine($"Shutdown cleanup failed: {error}"); }
+        }
+        lanSyncViewModel.PropertyChanged -= LanSyncChanged;
+        Attempt(() => commandEditorWindow?.Close());
         if (accessibilitySubscribed && accessibilitySettings is { } accessibility)
             NativeAccessibilityGuard.TryUnregister(() => accessibility.HighContrastChanged -= AccessibilitySettings_HighContrastChanged);
         accessibilitySubscribed = false;
-        editorWindowHost.Dispose();
+        Attempt(editorWindowHost.Dispose);
         windowBoundsSaveTimer?.Stop();
         SaveWindowBounds();
         AppWindow.Changed -= OnAppWindowChanged;
         updateTimer?.Stop();
         transferSummaryTimer?.Stop();
+        responsivenessMonitor?.Dispose();
+        transferViewModel.QueueChanged -= TransferQueueChanged;
         updateCancellation.Cancel();
         updateService.StateChanged -= OnUpdateStateChanged;
-        updateService.Dispose();
+        Attempt(updateService.Dispose);
         updateCancellation.Dispose();
         foreach (var content in sessionContents.Values)
         {
-            if (content is Controls.NativeRemoteEditor editor) editor.Dispose();
-            if (content is Controls.NativeMonitorPanel monitor) monitor.Dispose();
-            if (content is Controls.NativePortTrafficPanel traffic) traffic.Dispose();
-            if (content is Controls.NativeSftpBrowser files) files.Dispose();
+            if (content is Controls.NativeRemoteEditor editor) Attempt(editor.Dispose);
+            if (content is Controls.NativeMonitorPanel monitor) Attempt(monitor.Dispose);
+            if (content is Controls.NativePortTrafficPanel traffic) Attempt(traffic.Dispose);
+            if (content is Controls.NativeSftpBrowser files) Attempt(files.Dispose);
         }
-        foreach (var workspace in sessionWorkspaces.Values) workspace.Dispose();
+        foreach (var workspace in sessionWorkspaces.Values) Attempt(workspace.Dispose);
         sessionWorkspaces.Clear(); sessionContents.Clear(); sessionProfiles.Clear();
-        foreach (var terminal in sessionTerminals.Values) terminal.Dispose();
+        foreach (var terminal in sessionTerminals.Values) Attempt(terminal.Dispose);
         sessionOutputSinks.Clear(); sessionTerminals.Clear();
-        aiViewModel.Dispose(); lanSyncViewModel.Dispose(); lanSyncService.Dispose(); forwardViewModel.Dispose(); forwardManager.Dispose(); transferViewModel.Dispose(); transferQueue.Dispose(); sessionsManager.Dispose(); store.Dispose();
-        foreach (var rdp in rdpSessions.Values) _ = rdp.DisposeAsync();
+        foreach (var rdp in rdpSessions.Values)
+        {
+            try { await rdp.DisposeAsync(); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine($"RDP shutdown failed: {error}"); }
+        }
         rdpSessions.Clear();
-        foreach (var surface in rdpSurfaces.Values) surface.Dispose();
+        foreach (var surface in rdpSurfaces.Values) Attempt(surface.Dispose);
         rdpSurfaces.Clear();
+        Attempt(aiViewModel.Dispose); Attempt(lanSyncViewModel.Dispose); Attempt(lanSyncService.Dispose);
+        Attempt(forwardViewModel.Dispose); Attempt(forwardManager.Dispose); Attempt(transferViewModel.Dispose);
+        Attempt(transferQueue.Dispose); Attempt(sessionsManager.Dispose); Attempt(store.Dispose);
+        if (coordinator != null)
+        {
+            try { await coordinator.DisposeAsync(); }
+            catch (Exception error) { WriteStartupError(error); }
+        }
+        App.TraceStartup("MainWindow shutdown completed");
+    }
+
+    private static void WriteStartupError(Exception error)
+    {
+        try
+        {
+            var directory = NativeStore.DefaultDirectory;
+            Directory.CreateDirectory(directory);
+            File.AppendAllText(Path.Combine(directory, "startup-error.log"),
+                $"{DateTimeOffset.UtcNow:O}\nShutdown cleanup failed:\n{error}\n");
+        }
+        catch
+        {
+        }
     }
 
     private void AccessibilitySettings_HighContrastChanged(Windows.UI.ViewManagement.AccessibilitySettings sender, object args)

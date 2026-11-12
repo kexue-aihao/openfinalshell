@@ -18,6 +18,14 @@ typedef struct {
   uint16_t attrs;
   uint8_t width;
 } ofs_terminal_cell;
+#define OFS_TERMINAL_MAX_CELL_CODEPOINTS 8
+typedef struct {
+  ofs_terminal_cell cell;
+  uint8_t codepoint_count;
+  uint8_t valid;
+  uint8_t reserved[2];
+  uint32_t codepoints[OFS_TERMINAL_MAX_CELL_CODEPOINTS];
+} ofs_terminal_snapshot_cell;
 OFS_API ofs_terminal *ofs_terminal_create(int rows, int cols);
 OFS_API void ofs_terminal_destroy(ofs_terminal *terminal);
 OFS_API size_t ofs_terminal_feed(ofs_terminal *terminal, const char *bytes, size_t length);
@@ -32,6 +40,10 @@ OFS_API int ofs_terminal_get_cell_codepoints(ofs_terminal *terminal, int row, in
 OFS_API int ofs_terminal_scrollback_lines(ofs_terminal *terminal);
 OFS_API int ofs_terminal_get_scrollback_cell(ofs_terminal *terminal, int line, int col, ofs_terminal_cell *cell);
 OFS_API int ofs_terminal_get_scrollback_codepoints(ofs_terminal *terminal, int line, int col, uint32_t *codepoints, int capacity);
+/* Batch read-only snapshots keep WinUI rendering and search out of per-cell interop. */
+OFS_API int ofs_terminal_copy_screen(ofs_terminal *terminal, ofs_terminal_snapshot_cell *cells, size_t capacity);
+OFS_API int ofs_terminal_copy_scrollback(ofs_terminal *terminal, int first_line, int line_count,
+  ofs_terminal_snapshot_cell *cells, size_t capacity);
 OFS_API int ofs_terminal_alt_screen(ofs_terminal *terminal);
 OFS_API int ofs_terminal_mouse_mode(ofs_terminal *terminal);
 OFS_API int ofs_terminal_bracketed_paste(ofs_terminal *terminal);

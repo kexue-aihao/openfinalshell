@@ -53,7 +53,8 @@ public sealed class NativeAiMessageView : UserControl, IDisposable
 
     private void MessageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
-        if (args.PropertyName is nameof(NativeChatLine.Content) or nameof(NativeChatLine.PreviewImage))
+        if (args.PropertyName is nameof(NativeChatLine.Content) or nameof(NativeChatLine.PreviewImage)
+            or nameof(NativeChatLine.IsStreaming))
         {
             refreshTimer.Stop();
             refreshTimer.Start();
@@ -73,6 +74,11 @@ public sealed class NativeAiMessageView : UserControl, IDisposable
         if (message.PreviewImage is { } image)
             content.Children.Add(new Image { Source = image, MaxHeight = 180, MaxWidth = 320, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform });
         if (!isAssistant)
+        {
+            if (message.Content.Length > 0) content.Children.Add(Prose(message.Content));
+            return;
+        }
+        if (message.IsStreaming)
         {
             if (message.Content.Length > 0) content.Children.Add(Prose(message.Content));
             return;

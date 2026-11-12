@@ -135,6 +135,28 @@ int main(void) {
   ofs_terminal_clear(history);
   if (ofs_terminal_scrollback_lines(history) != 0 || ofs_terminal_cursor_row(history) != 0) return 33;
   ofs_terminal_destroy(history);
+  ofs_terminal *snapshot = ofs_terminal_create(2, 8);
+  if (!snapshot) return 54;
+  const char *snapshot_text = "\x1b[31mA\xCC\x81\x1b[0m欢";
+  if (ofs_terminal_feed(snapshot, snapshot_text, strlen(snapshot_text)) != strlen(snapshot_text)) return 55;
+  ofs_terminal_snapshot_cell screen_cells[16] = {0};
+  if (ofs_terminal_copy_screen(snapshot, screen_cells, 15) != 0) return 56;
+  if (ofs_terminal_copy_screen(snapshot, screen_cells, 16) != 16) return 57;
+  if (screen_cells[0].cell.codepoint != 'A' || screen_cells[0].codepoint_count != 2 ||
+      screen_cells[0].codepoints[1] != 0x0301u || screen_cells[0].cell.fg_type != 1) return 58;
+  const char *snapshot_lines = "\r\nline1\r\nline2\r\nline3";
+  if (ofs_terminal_feed(snapshot, snapshot_lines, strlen(snapshot_lines)) != strlen(snapshot_lines)) return 59;
+  if (ofs_terminal_scrollback_lines(snapshot) < 2) return 59;
+  ofs_terminal_snapshot_cell scrollback_cells[16] = {0};
+  if (ofs_terminal_copy_scrollback(snapshot, 0, 2, scrollback_cells, 10) != 0) return 60;
+  if (ofs_terminal_copy_scrollback(snapshot, 0, 2, scrollback_cells, 16) != 16) return 61;
+  ofs_terminal_cell expected_scrollback = {0};
+  if (!ofs_terminal_get_scrollback_cell(snapshot, 0, 0, &expected_scrollback) ||
+      scrollback_cells[0].cell.codepoint != expected_scrollback.codepoint ||
+      scrollback_cells[0].cell.width != expected_scrollback.width) return 62;
+  if (ofs_terminal_copy_scrollback(snapshot, ofs_terminal_scrollback_lines(snapshot), 1,
+      scrollback_cells, 16) != 0) return 63;
+  ofs_terminal_destroy(snapshot);
   printf("terminal probe passed; cursor=%d,%d; bytes=%zu\n", ofs_terminal_cursor_row(t), ofs_terminal_cursor_col(t), n);
   ofs_terminal_destroy(t); return 0;
 }

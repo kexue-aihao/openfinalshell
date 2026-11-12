@@ -21,8 +21,9 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
     private bool descending;
     private readonly SemaphoreSlim navigationGate = new(1, 1);
     private long navigationRequest;
+    private int viewGeneration;
 
-    public ObservableCollection<RemoteEntry> Entries { get; } = [];
+    public BulkObservableCollection<RemoteEntry> Entries { get; } = [];
     public string CurrentPath { get => currentPath; private set { if (currentPath == value) return; currentPath = value; OnPropertyChanged(); } }
     public string Status { get => status; private set { if (status == value) return; status = value; OnPropertyChanged(); } }
     public bool IsBusy { get => busy; private set { if (busy == value) return; busy = value; OnPropertyChanged(); } }
@@ -45,7 +46,7 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
             token.ThrowIfCancellationRequested();
             if (request != Volatile.Read(ref navigationRequest)) return;
             allEntries = values;
-            ApplyView();
+            await ApplyViewAsync(token);
             CurrentPath = normalized;
             Status = $"{normalized} · {values.Count}";
         }
@@ -61,13 +62,30 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
     public Task RefreshAsync(CancellationToken token = default) => NavigateAsync(CurrentPath, token);
     public void ConfigureView(bool hidden, string order, bool reverse)
     {
-        showHidden = hidden; sort = order; descending = reverse; ApplyView();
+        showHidden = hidden; sort = order; descending = reverse;
+        _ = ApplyViewGuardedAsync();
     }
-    private void ApplyView()
+    private async Task ApplyViewGuardedAsync()
     {
-        var visible = allEntries.Where(e => showHidden || !e.Name.StartsWith('.'));
-        Entries.Clear();
-        foreach (var entry in NativeSftpSort.Apply(visible, sort, descending)) Entries.Add(entry);
+        try { await ApplyViewAsync(); }
+        catch (Exception error) { Status = error.Message; }
+    }
+    private async Task ApplyViewAsync(CancellationToken cancellation = default)
+    {
+        var generation = Interlocked.Increment(ref viewGeneration);
+        var source = allEntries;
+        var hidden = showHidden;
+        var order = sort;
+        var reverse = descending;
+        var values = await Task.Run(() =>
+        {
+            cancellation.ThrowIfCancellationRequested();
+            var visible = source.Where(entry => hidden || !entry.Name.StartsWith('.'));
+            return NativeSftpSort.Apply(visible, order, reverse);
+        }, cancellation);
+        cancellation.ThrowIfCancellationRequested();
+        if (generation != Volatile.Read(ref viewGeneration)) return;
+        Entries.ReplaceAll(values);
     }
     public Task GoUpAsync(CancellationToken token = default) => NavigateAsync(ParentPath(CurrentPath), token);
 

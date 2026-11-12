@@ -193,7 +193,30 @@ public sealed class NativeStore : IDisposable
             return result;
         }
     }
-    public JsonObject? Find(string kind, string id) => List(kind).FirstOrDefault(v => (v["id"] ?? v["key"])?.GetValue<string>() == id);
+    public JsonObject? Find(string kind, string id)
+    {
+        lock (gate)
+        {
+            using var cmd = Command("SELECT payload,revision FROM entities WHERE kind=$kind AND id=$id");
+            cmd.Parameters.AddWithValue("$kind", kind);
+            cmd.Parameters.AddWithValue("$id", StorageId(kind, id));
+            using var rows = cmd.ExecuteReader();
+            if (!rows.Read()) return null;
+            var value = Open((byte[])rows[0]);
+            value["_revision"] = rows.GetInt64(1);
+            return value;
+        }
+    }
+
+    public long Count(string kind)
+    {
+        lock (gate)
+        {
+            using var cmd = Command("SELECT COUNT(*) FROM entities WHERE kind=$kind");
+            cmd.Parameters.AddWithValue("$kind", kind);
+            return Convert.ToInt64(cmd.ExecuteScalar());
+        }
+    }
 
     /// <summary>Returns human-readable entities that refer to a saved key/proxy.</summary>
     public IReadOnlyList<EntityReference> FindReferences(string referenceId)

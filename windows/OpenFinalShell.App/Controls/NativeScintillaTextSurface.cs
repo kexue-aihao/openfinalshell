@@ -92,6 +92,7 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
     private bool readOnly;
     private (int X, int Y, int Width, int Height)? lastBounds;
     private bool editorVisible;
+    private int layoutUpdateScheduled;
 
     public event Action? DocumentChanged;
     public event Action? SaveRequested;
@@ -313,7 +314,18 @@ public sealed partial class NativeScintillaTextSurface : UserControl, IDisposabl
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs args) => UpdateBounds();
-    private void OnRootLayoutUpdated(object? sender, object args) => UpdateBounds();
+    private void OnRootLayoutUpdated(object? sender, object args)
+    {
+        if (disposed || Interlocked.Exchange(ref layoutUpdateScheduled, 1) != 0) return;
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            Volatile.Write(ref layoutUpdateScheduled, 0);
+            UpdateBounds();
+        }))
+        {
+            Volatile.Write(ref layoutUpdateScheduled, 0);
+        }
+    }
 
     private void CreateEditorWindow()
     {

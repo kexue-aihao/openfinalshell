@@ -25,7 +25,18 @@ public sealed partial class MainWindow
         var maximum = Math.Min(460, Body.ActualWidth - 48 - 6 - 236);
         var minimum = Math.Min(220, maximum);
         var width = Math.Clamp(ContextSidebarColumn.Width.Value, minimum, maximum);
+        workspaceSidebarWidth = width;
+        workspaceSidebarCollapsed = false;
         store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["sidebarWidth"] = width });
+    }
+
+    private void LoadWorkspaceLayoutPreferences()
+    {
+        if (workspaceLayoutPreferencesLoaded) return;
+        var workspace = store.Find("nativeWorkspace", "nativeWorkspace");
+        workspaceSidebarCollapsed = workspace?["sidebarCollapsed"]?.GetValue<bool>() ?? false;
+        workspaceSidebarWidth = workspace?["sidebarWidth"]?.GetValue<double>() ?? 300;
+        workspaceLayoutPreferencesLoaded = true;
     }
     private void ApplyAppearance()
     {
@@ -33,8 +44,11 @@ public sealed partial class MainWindow
         ApplyShellPalette();
         ApplyAccentResources(settings.Accent);
         ApplyWindowBackdrop();
-        foreach (var terminal in sessionTerminals.Values) terminal.Configure(settings, key => localization[key]);
-        foreach (var workspace in sessionWorkspaces.Values) workspace.Configure(settings);
+        var activeId = SessionIdForTag((Sessions.SelectedItem as Microsoft.UI.Xaml.Controls.TabViewItem)?.Tag?.ToString());
+        if (activeId != null && sessionTerminals.TryGetValue(activeId, out var activeTerminal))
+            activeTerminal.Configure(settings, key => localization[key]);
+        if (activeId != null && sessionWorkspaces.TryGetValue(activeId, out var activeWorkspace))
+            activeWorkspace.Configure(settings);
         editorWindowHost.Configure(settings);
         ApplyUiZoom();
         UpdateTitleBarLayout();
@@ -135,8 +149,7 @@ public sealed partial class MainWindow
         const double minimumSidebarWidth = 180;
         var maximumSidebarWidth = Body.ActualWidth - activityRailWidth - splitterWidth - minimumWorkspaceWidth;
         responsiveSidebarCollapsed = maximumSidebarWidth < minimumSidebarWidth;
-        var savedCollapsed = store.Find("nativeWorkspace", "nativeWorkspace")?["sidebarCollapsed"]?.GetValue<bool>() ?? false;
-        var savedWidth = store.Find("nativeWorkspace", "nativeWorkspace")?["sidebarWidth"]?.GetValue<double>() ?? 300;
+        LoadWorkspaceLayoutPreferences();
 
         if (responsiveSidebarCollapsed)
         {
@@ -154,10 +167,10 @@ public sealed partial class MainWindow
         Grid.SetColumnSpan(ContextSidebar, 1);
         ContextSidebar.ClearValue(FrameworkElement.WidthProperty);
         ContextSidebar.HorizontalAlignment = HorizontalAlignment.Stretch;
-        var collapsed = savedCollapsed;
+        var collapsed = workspaceSidebarCollapsed;
         var sidebarMaximum = Math.Min(460, maximumSidebarWidth);
         var sidebarMinimum = Math.Min(220, sidebarMaximum);
-        ContextSidebarColumn.Width = new GridLength(collapsed ? 0 : Math.Clamp(savedWidth, sidebarMinimum, sidebarMaximum));
+        ContextSidebarColumn.Width = new GridLength(collapsed ? 0 : Math.Clamp(workspaceSidebarWidth, sidebarMinimum, sidebarMaximum));
         ContextSidebarSplitterColumn.Width = new GridLength(collapsed ? 0 : splitterWidth);
         ContextSidebar.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         ContextSidebarSplitter.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
