@@ -404,6 +404,7 @@
     "placeholderHint": "プレースホルダー (アクティブなセッションの値に置換されます):"
   },
   "commandEditor": {
+    "options": "オプション",
     "title": "コマンドエディター",
     "openHint": "コマンドエディター: 一度きりの (複数行) コマンドを作成して送信します",
     "placeholder": "送信するコマンドを入力してください — 複数行でも構いません。\nCtrl+Enter で送信します。\n\n例:\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

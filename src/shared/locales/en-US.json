@@ -400,6 +400,7 @@
     "placeholderHint": "Placeholders (replaced with the active session):"
   },
   "commandEditor": {
+    "options": "Options",
     "title": "Command editor",
     "openHint": "Command editor: compose a one-off (multi-line) command and send it",
     "placeholder": "Write the command to send — multiple lines are fine.\nCtrl+Enter sends.\n\nFor example:\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

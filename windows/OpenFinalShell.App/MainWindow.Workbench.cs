@@ -151,6 +151,14 @@ public sealed partial class MainWindow
         responsiveSidebarCollapsed = maximumSidebarWidth < minimumSidebarWidth;
         LoadWorkspaceLayoutPreferences();
 
+        if (activeActivity == "commands")
+        {
+            ContextSidebarColumn.Width = new GridLength(0);
+            ContextSidebarSplitterColumn.Width = new GridLength(0);
+            ContextSidebarSplitter.Visibility = ContextSidebar.Visibility = Visibility.Collapsed;
+            return;
+        }
+
         if (responsiveSidebarCollapsed)
         {
             ContextSidebarColumn.Width = new GridLength(0);

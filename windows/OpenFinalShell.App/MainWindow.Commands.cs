@@ -9,6 +9,80 @@ namespace OpenFinalShell.App;
 public sealed partial class MainWindow
 {
     private NativeCommandEditorWindow? commandEditorWindow;
+    private Controls.NativeSessionWorkspace? commandLibraryWorkspace;
+    private readonly ContentControl commandLibraryHomeHost = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+    private Controls.NativeCommandComposer standaloneCommandComposer = null!;
+    private Controls.NativeCommandComposer ActiveCommandComposer => (SessionContent.Content as Controls.NativeSessionWorkspace)?.Composer ?? standaloneCommandComposer;
+
+    private void InitializeCommandDock()
+    {
+        CommandLibraryHome.Content = null;
+        commandLibraryHomeHost.Content = CommandsPage;
+        standaloneCommandComposer = CreateCommandComposer(null);
+        CommandLibraryHome.Content = Controls.NativeSessionWorkspace.CreateCommandDock(commandLibraryHomeHost, standaloneCommandComposer, store);
+    }
+    private Controls.NativeCommandComposer CreateCommandComposer(string? sessionId) => new(key => localization[key],
+        (command, enter, expand, all) => SendComposedToSession(sessionId, command, enter, expand, all),
+        () => commandLibrary.ListHistory(sessionId),
+        (command, enter) => UiTaskRunner.Run(() => SaveComposedSnippetAsync(command, enter), ShowError),
+        (command, enter) => UiTaskRunner.Run(() => ShowCommandSendWindowAsync(command, enter), ShowError));
+
+    private void AttachCommandLibrary()
+    {
+        if (CommandLibraryHome == null || CommandsPage == null) return;
+        var workspace = SessionContent.Content as Controls.NativeSessionWorkspace;
+        if (!ReferenceEquals(workspace, commandLibraryWorkspace))
+        {
+            commandLibraryWorkspace?.SetCommandLibrary(null);
+            commandLibraryHomeHost.Content = null;
+            commandLibraryWorkspace = workspace;
+            if (workspace != null) workspace.SetCommandLibrary(CommandsPage);
+            else commandLibraryHomeHost.Content = CommandsPage;
+            CommandViewModel.ReloadHistory(SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()));
+        }
+        var showHome = workspace == null && activeActivity == "commands";
+        CommandLibraryHome.Visibility = showHome ? Visibility.Visible : Visibility.Collapsed;
+        SessionContent.Visibility = showHome ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ToggleCommandSearch(object sender, RoutedEventArgs args)
+    {
+        CommandSearch.Visibility = CommandSearch.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        if (CommandSearch.Visibility == Visibility.Visible) CommandSearch.Focus(FocusState.Programmatic);
+        else CommandSearch.Text = "";
+    }
+    private void CommandLibrarySizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (SnippetSendToLabel != null) SnippetSendToLabel.Visibility = args.NewSize.Width < 260 ? Visibility.Collapsed : Visibility.Visible;
+    }
+    private async void EditCommandFromTile(object sender, RoutedEventArgs args)
+    {
+        if (sender is not Button { Tag: NativeSnippet snippet }) return;
+        SelectCommandSnippet(snippet);
+        await EditSnippetAsync(snippet, false);
+    }
+    private bool SendComposedToSession(string? sessionId, string command, bool appendEnter, bool expandVariables, bool allSessions = false)
+    {
+        try
+        {
+            var ready = sessionsManager.List().Where(s => s.State == NativeSessionState.Ready && sessionTerminals.ContainsKey(s.SessionId));
+            var targets = ready.Where(s => allSessions || s.SessionId == sessionId).ToArray();
+            if (targets.Length == 0) { ShowError(localization["native.commands.selectSession"]); return false; }
+            foreach (var target in targets)
+            {
+                var session = sessionsManager.Get(target.SessionId);
+                var expanded = expandVariables ? NativeCommandLibrary.ExpandSnippet(command, session.Profile) : command;
+                session.Write(System.Text.Encoding.UTF8.GetBytes(expanded + (appendEnter ? "\r" : "")));
+                if (!appendEnter) continue;
+                commandLibrary.AddHistory(target.SessionId, expanded);
+                if (sessionWorkspaces.TryGetValue(target.SessionId, out var workspace)) workspace.FollowExecutedShellCommands(expanded);
+            }
+            CommandViewModel.ReloadHistory(sessionId);
+            Status.Text = localization.Format("commandEditor.sent", ("count", targets.Length.ToString()));
+            return true;
+        }
+        catch (Exception error) { ShowError(error); return false; }
+    }
 
     private void CommandSearchChanged(object sender, TextChangedEventArgs args)
     {
@@ -29,16 +103,6 @@ public sealed partial class MainWindow
         try { CommandViewModel.MoveSnippet(direction); CommandSnippets.SelectedItem = CommandViewModel.SelectedSnippet; }
         catch (Exception error) { ShowError(error); }
     }
-    private void RefillCommandHistory(object sender, ItemClickEventArgs args)
-    {
-        if (args.ClickedItem is not string command) return;
-        if ((Sessions.SelectedItem as TabViewItem)?.Tag is not string id || !sessionTerminals.TryGetValue(id, out var terminal))
-        { ShowError(localization["native.commands.selectSession"]); return; }
-        // History clicks refill only. No Enter or other terminal control bytes.
-        var line = new string(command.Replace('\r', ' ').Replace('\n', ' ').Where(c => !char.IsControl(c)).ToArray());
-        terminal.Send(line);
-    }
-
     private void CommandSnippetRightTapped(object sender, RightTappedRoutedEventArgs args)
     {
         args.Handled = true;

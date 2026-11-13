@@ -358,7 +358,7 @@ async Task TestForwardBridgeEndToEndAsync()
     var oldNavigation = navigation.NavigateAsync("/alpha");
     var newNavigation = navigation.NavigateAsync("/beta");
     await Task.WhenAll(oldNavigation, newNavigation);
-    Check(navigation.CurrentPath == "/beta" && navigation.Entries.Single().Name == "beta.txt" && pathsPublished.SequenceEqual(new[] { "/beta" }),
+    Check(navigation.CurrentPath == "/beta" && navigation.Entries.Single().Name == "beta.txt" && navigation.HasLoadedDirectory && navigation.DirectoryEntries.Single().Name == "beta.txt" && pathsPublished.SequenceEqual(new[] { "/beta" }),
         "SFTP navigation keeps the latest requested directory and never publishes a stale in-flight listing");
     var navigationStatus = navigation.Status;
     using (var navigationCancellation = new CancellationTokenSource())
@@ -367,10 +367,10 @@ async Task TestForwardBridgeEndToEndAsync()
         navigationCancellation.Cancel();
         try { await canceledNavigation; Check(false, "Canceled SFTP navigation is interrupted"); }
         catch (OperationCanceledException)
-        { Check(navigation.CurrentPath == "/beta" && !navigation.IsBusy && navigation.Status == navigationStatus, "Canceled SFTP navigation preserves the last directory and clears its busy state without a stale error"); }
+        { Check(navigation.CurrentPath == "/beta" && navigation.DirectoryEntries.Single().Name == "beta.txt" && !navigation.IsBusy && navigation.Status == navigationStatus, "Canceled SFTP navigation preserves the committed directory snapshot and clears its busy state without a stale error"); }
     }
     await navigation.NavigateAsync("/alpha");
-    Check(navigation.CurrentPath == "/alpha" && navigation.Entries.Single().Name == "alpha.txt", "SFTP navigation recovers after cancellation without dropping the next request");
+    Check(navigation.CurrentPath == "/alpha" && navigation.Entries.Single().Name == "alpha.txt" && navigation.DirectoryEntries.Single().Name == "alpha.txt", "SFTP navigation recovers after cancellation without dropping the next request");
     var directoryReports = new NativeTerminalDirectoryTracker();
     var directoryReceived = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
     void ReceiveDirectory(byte[] bytes) { if (directoryReports.Feed(bytes) is { } directory) directoryReceived.TrySetResult(directory); }

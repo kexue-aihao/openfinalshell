@@ -1,5 +1,30 @@
 [
   {
+    "version": "0.30.60",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "重新调整 WinUI 3 原生工作区：监控恢复到右侧，底部通过“文件 / 命令”标签切换；命令库采用紧凑的自动换行排版，右侧提供大面积命令编辑器，并支持拖动调整宽度",
+        "en": "Rework the WinUI 3 native workspace with monitoring restored to the right and Files / Commands tabs at the bottom; use a compact wrapping command library alongside a large editor with adjustable pane widths"
+      },
+      {
+        "type": "feat",
+        "zh": "命令库和编辑器分别支持发送到当前或所有 SSH 会话，提供快捷命令齿轮编辑入口；每个会话保留独立草稿，并与终端底部快捷输入同步",
+        "en": "Give the command library and editor independent current-session or all-session send controls, add gear buttons for editing snippets, and preserve per-session drafts shared with the terminal quick input"
+      },
+      {
+        "type": "feat",
+        "zh": "SFTP 文件页新增左侧目录树与右侧文件表格，按需展开子目录并复用首次目录列表，支持目录选择联动和隐藏目录过滤",
+        "en": "Add a directory tree beside the SFTP file table, lazily expand child folders while reusing the initial listing, and synchronize navigation and hidden-folder filtering"
+      },
+      {
+        "type": "fix",
+        "zh": "修复底部面板未撑满造成的留白、窄窗口发送按钮裁切，以及取消目录加载后目录树快照错位的问题",
+        "en": "Fix unused space below the bottom pane, clipped send controls in narrow windows, and directory-tree snapshots becoming inconsistent after navigation cancellation"
+      }
+    ]
+  },
+  {
     "version": "0.30.59",
     "items": [
       {

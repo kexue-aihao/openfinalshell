@@ -404,6 +404,7 @@
     "placeholderHint": "Platzhalter (durch die aktive Sitzung ersetzt):"
   },
   "commandEditor": {
+    "options": "Optionen",
     "title": "Befehlseditor",
     "openHint": "Befehlseditor: einen einmaligen (mehrzeiligen) Befehl verfassen und senden",
     "placeholder": "Schreibe den zu sendenden Befehl — mehrere Zeilen sind in Ordnung.\nCtrl+Enter sendet.\n\nZum Beispiel:\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

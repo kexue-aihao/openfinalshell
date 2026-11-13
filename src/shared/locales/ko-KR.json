@@ -404,6 +404,7 @@
     "placeholderHint": "플레이스홀더(활성 세션 값으로 대체됨):"
   },
   "commandEditor": {
+    "options": "옵션",
     "title": "명령 편집기",
     "openHint": "명령 편집기: 일회성(여러 줄) 명령을 작성해 전송합니다",
     "placeholder": "전송할 명령을 작성하세요 — 여러 줄도 가능합니다.\nCtrl+Enter로 전송합니다.\n\n예:\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

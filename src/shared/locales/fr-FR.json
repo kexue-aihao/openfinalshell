@@ -404,6 +404,7 @@
     "placeholderHint": "Espaces réservés (remplacés par les valeurs de la session active) :"
   },
   "commandEditor": {
+    "options": "Options",
     "title": "Éditeur de commandes",
     "openHint": "Éditeur de commandes : composez une commande ponctuelle (multiligne) et envoyez-la",
     "placeholder": "Écrivez la commande à envoyer — plusieurs lignes sont acceptées.\nCtrl+Entrée pour envoyer.\n\nPar exemple :\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

@@ -400,6 +400,7 @@
     "placeholderHint": "可用占位符（发送时替换为当前会话信息）："
   },
   "commandEditor": {
+    "options": "选项",
     "title": "命令编辑器",
     "openHint": "命令编辑器：临时拼一段（多行）命令发到会话",
     "placeholder": "在这里写要发送的命令，可以是多行。\nCtrl+Enter 发送。\n\n例：\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

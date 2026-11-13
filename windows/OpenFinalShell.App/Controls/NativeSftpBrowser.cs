@@ -16,7 +16,7 @@ using OpenFinalShell.App;
 namespace OpenFinalShell.App.Controls;
 
 /// <summary>Native SFTP browser backed by the same session as its terminal tab.</summary>
-public sealed class NativeSftpBrowser : UserControl, IDisposable
+public sealed partial class NativeSftpBrowser : UserControl, IDisposable
 {
     private sealed record LocalUploadItem(string Path, string Name, bool IsDirectory);
     private sealed record UploadBatchResult(int Queued, int Skipped, bool Canceled = false);
@@ -35,7 +35,6 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
     private readonly TextBlock status = new() { TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly ProgressRing loading = new() { Width = 14, Height = 14, IsActive = false, Visibility = Visibility.Collapsed };
     private readonly Button back = new(), forward = new(), up = new(), refresh = new(), upload = new(), uploadFolder = new(), download = new(), newFolder = new(), newFile = new(), rename = new(), chmod = new(), delete = new();
-    private readonly StackPanel breadcrumbs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     private readonly NativeSftpNavigationHistory navigationHistory = new();
     private Border dropOverlay = null!;
     private TextBlock dropHint = null!;
@@ -87,6 +86,11 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         chmod.Click += async (_, _) => await ChmodAsync();
         delete.Click += async (_, _) => await DeleteAsync();
         entries.ItemsSource = viewModel.Entries;
+        entries.FontSize = 12;
+        entries.ItemContainerStyle = new Style(typeof(ListViewItem))
+        {
+            Setters = { new Setter(Control.MinHeightProperty, 24d), new Setter(Control.PaddingProperty, new Thickness(0)), new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Stretch) }
+        };
         entries.ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load("<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Grid MinWidth=\"1000\" Padding=\"8,4\" ColumnSpacing=\"12\"><Grid.ColumnDefinitions><ColumnDefinition Width=\"2.4*\"/><ColumnDefinition Width=\"0.7*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"1.1*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"0.9*\"/><ColumnDefinition Width=\"260\"/></Grid.ColumnDefinitions><TextBlock Text=\"{Binding Name}\" TextTrimming=\"CharacterEllipsis\"/><TextBlock Grid.Column=\"1\" Text=\"{Binding Type}\" Opacity=\"0.65\" TextTrimming=\"CharacterEllipsis\"/><TextBlock Grid.Column=\"2\" Text=\"{Binding Size}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"3\" Text=\"{Binding Mode}\" Opacity=\"0.65\" HorizontalAlignment=\"Center\"/><TextBlock Grid.Column=\"4\" Text=\"{Binding OwnerId}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"5\" Text=\"{Binding GroupId}\" Opacity=\"0.65\" HorizontalAlignment=\"Right\"/><TextBlock Grid.Column=\"6\"  Opacity=\"0.65\" TextTrimming=\"CharacterEllipsis\"/></Grid></DataTemplate>");
         entries.ContainerContentChanging += UpdateEntryPresentation;
         entries.IsItemClickEnabled = false;
@@ -126,7 +130,6 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             if (args.PropertyName == nameof(SftpBrowserViewModel.CurrentPath))
             {
                 path.Text = viewModel.CurrentPath;
-                UpdateBreadcrumbs();
                 UpdateHistoryControls();
             }
             if (args.PropertyName == nameof(SftpBrowserViewModel.Status)) status.Text = viewModel.Status;
@@ -134,7 +137,7 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             {
                 SetLoading(viewModel.IsBusy);
                 UpdateHistoryControls();
-                if (!viewModel.IsBusy) ScheduleFollow();
+                if (!viewModel.IsBusy) { SynchronizeDirectoryTree(); ScheduleFollow(); }
             }
         };
         UpdateHistoryControls();
@@ -150,7 +153,7 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         hidden.MinWidth = 0;
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(hidden, text("sftp.showHidden"));
         void UpdateView() { if (!configuring) viewModel.ConfigureView(hidden.IsOn, sortField, sortDescending); }
-        hidden.Toggled += (_, _) => UpdateView();
+        hidden.Toggled += (_, _) => { UpdateView(); RefreshDirectoryTreeFilter(); };
         Configure(preferences);
         void Icon(Button button, string glyph)
         {
@@ -166,8 +169,11 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         Icon(upload, "\uE898"); Icon(uploadFolder, "\uE8B7"); Icon(download, "\uE896");
         Icon(newFolder, "\uE8F4"); Icon(newFile, "\uE8A5"); Icon(rename, "\uE8AC"); Icon(chmod, "\uE72E"); Icon(delete, "\uE74D");
         var navigation = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { back, forward, up, refresh } };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { upload, uploadFolder, download, newFolder, newFile, rename, chmod, delete } };
-        var toolbar = new Grid { Padding = new Thickness(8, 4, 8, 4), ColumnSpacing = 4, RowSpacing = 4 };
+        var viewOptions = new Button { Content = text("sftp.showHidden"), Flyout = new Flyout { Content = hidden } };
+        Icon(viewOptions, "\uE713");
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Children = { upload, uploadFolder, download, newFolder, newFile, rename, chmod, delete, viewOptions } };
+        path.MinHeight = path.Height = 28; path.Padding = new Thickness(6, 2, 6, 2);
+        var toolbar = new Grid { Padding = new Thickness(4, 2, 4, 2), ColumnSpacing = 4, RowSpacing = 2 };
         toolbar.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         toolbar.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
         toolbar.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
@@ -180,12 +186,6 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             Grid.SetColumn(actions, narrow ? 0 : 2); Grid.SetRow(actions, narrow ? 1 : 0); Grid.SetColumnSpan(actions, narrow ? 3 : 1);
             Grid.SetColumnSpan(path, narrow ? 2 : 1);
         };
-        UpdateBreadcrumbs();
-        var breadcrumbScroller = new ScrollViewer { Content = breadcrumbs, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled };
-        var breadcrumbRow = new Grid { Padding = new Thickness(8, 0, 8, 0), ColumnSpacing = 8 };
-        breadcrumbRow.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        breadcrumbRow.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        breadcrumbRow.Children.Add(breadcrumbScroller); breadcrumbRow.Children.Add(hidden); Grid.SetColumn(hidden, 1);
         var header = new Grid { MinWidth = 1000, ColumnSpacing = 12, Padding = new Thickness(8, 4, 8, 4), Background = Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out var headerBrush) && headerBrush is Brush fill ? fill : null };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2.4, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(.7, GridUnitType.Star) });
@@ -237,13 +237,19 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             Padding = new Thickness(8, 2, 8, 4),
             Children = { loading, status }
         };
+        var fileTable = new Grid
+        {
+            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) } },
+            Children = { headerScroller, entriesHost }
+        };
+        Grid.SetRow(entriesHost, 1);
+        var directoryPane = CreateDirectoryPane(fileTable);
         Content = new Grid
         {
-            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }, new RowDefinition { Height = GridLength.Auto } },
-            Children = { toolbar, breadcrumbRow, headerScroller, entriesHost, statusBar }
+            RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }, new RowDefinition { Height = GridLength.Auto } },
+            Children = { toolbar, directoryPane, statusBar }
         };
-        Grid.SetRow(breadcrumbRow, 1);
-        Grid.SetRow(headerScroller, 2); Grid.SetRow(entriesHost, 3); Grid.SetRow(statusBar, 4);
+        Grid.SetRow(directoryPane, 1); Grid.SetRow(statusBar, 2);
         Loaded += async (_, _) =>
         {
             if (initialized) return;
@@ -399,26 +405,12 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
     public void Dispose()
     {
         disposed = true; pendingFollowPath = null; shellCommandVersion++; followCancellation?.Cancel();
+        directoryTreeCancellation.Cancel(); directoryTreeCancellation.Dispose();
     }
     private static RemoteEntry? EntryAt(DependencyObject? source)
     {
         while (source != null) { if (source is FrameworkElement { DataContext: RemoteEntry entry }) return entry; source = VisualTreeHelper.GetParent(source); }
         return null;
-    }
-
-    private void UpdateBreadcrumbs()
-    {
-        breadcrumbs.Children.Clear();
-        var current = SftpBrowserViewModel.NormalizePath(viewModel.CurrentPath);
-        var segments = current.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        AddBreadcrumb("/", "/", segments.Length == 0);
-        var accumulated = string.Empty;
-        foreach (var segment in segments)
-        {
-            accumulated += "/" + segment;
-            breadcrumbs.Children.Add(new TextBlock { Text = "/", Opacity = .65, VerticalAlignment = VerticalAlignment.Center });
-            AddBreadcrumb(segment, accumulated, string.Equals(accumulated, current, StringComparison.Ordinal));
-        }
     }
 
     private void AddSortableHeader(Grid header, string field, string label, int column, bool right = false)
@@ -461,19 +453,6 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
         Grid.SetColumn(cell, column); header.Children.Add(cell);
     }
 
-    private void AddBreadcrumb(string label, string target, bool current)
-    {
-        var button = new Button
-        {
-            Content = label,
-            Padding = new Thickness(6, 2, 6, 2),
-            IsEnabled = !current,
-            Tag = target
-        };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, target == "/" ? "/" : target);
-        button.Click += async (_, _) => await NavigateAsync((string)button.Tag);
-        breadcrumbs.Children.Add(button);
-    }
     private async Task OpenEntryAsync(RemoteEntry item, bool forceEditor = false)
     {
         if (item.IsDirectory) await NavigateAsync(item.Path);

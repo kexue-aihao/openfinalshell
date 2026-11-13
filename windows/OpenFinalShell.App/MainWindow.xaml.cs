@@ -177,6 +177,7 @@ public sealed partial class MainWindow : Window
         updateService.StateChanged += OnUpdateStateChanged;
         sessionsManager.StateChanged += OnSessionStateChanged;
         InitializeComponent();
+        InitializeCommandDock();
         if (Environment.GetEnvironmentVariable("OFS_NATIVE_DIAGNOSTICS") == "1")
             responsivenessMonitor = new UiResponsivenessMonitor(DispatcherQueue);
         InitializeElectronLayout();
@@ -370,29 +371,32 @@ public sealed partial class MainWindow : Window
         RefreshAiMessageViews();
         UpdateAiProviderActions();
         UpdateAiAssistantControls();
-        NewGroupButton.Label = localization["native.commands.newGroup"];
-        EditGroupButton.Label = localization["native.common.edit"];
-        DeleteGroupButton.Label = localization["native.common.delete"];
-        NewSnippetButton.Label = localization["native.commands.new"];
-        EditSnippetButton.Label = localization["native.common.edit"];
-        DuplicateSnippetButton.Label = localization["native.common.duplicate"];
-        DeleteSnippetButton.Label = localization["native.common.delete"];
-        SendSnippetButton.Label = localization["native.commands.send"];
-        ClearHistoryButton.Label = localization["native.commands.clearHistory"];
-        FindDuplicateCommandsButton.Label = localization["native.commands.findDuplicates"];
-        ToolTipService.SetToolTip(FindDuplicateCommandsButton, localization["native.commands.findDuplicates"]);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(FindDuplicateCommandsButton, localization["native.commands.findDuplicates"]);
-        CommandSearch.PlaceholderText = localization["native.workbench.search"];
-        CommandMoveUp.Content = localization["native.groups.moveUp"];
-        CommandMoveDown.Content = localization["native.groups.moveDown"];
-        CommandGroupsHeading.Text = localization["native.group"];
-        CommandHistoryHeading.Text = localization["snippet.history"];
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandHistory, localization["snippet.history"]);
-        ComposeCommandButton.Label = localization["commandEditor.title"];
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandGroupMoveUp, localization["native.group"] + " · " + localization["native.groups.moveUp"]);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandGroupMoveDown, localization["native.group"] + " · " + localization["native.groups.moveDown"]);
-        ToolTipService.SetToolTip(CommandGroupMoveUp, localization["native.groups.moveUp"]);
-        ToolTipService.SetToolTip(CommandGroupMoveDown, localization["native.groups.moveDown"]);
+        NewGroupButton.Text = localization["native.commands.newGroup"];
+        EditGroupButton.Text = localization["native.common.edit"];
+        DeleteGroupButton.Text = localization["native.common.delete"];
+        NewSnippetButton.Text = localization["native.commands.new"];
+        EditSnippetButton.Text = localization["native.common.edit"];
+        DuplicateSnippetButton.Text = localization["native.common.duplicate"];
+        DeleteSnippetButton.Text = localization["native.common.delete"];
+        SendSnippetButton.Content = localization["commandEditor.send"];
+        ClearHistoryButton.Text = localization["native.commands.clearHistory"];
+        FindDuplicateCommandsButton.Text = localization["native.commands.findDuplicates"];
+        CommandSearch.PlaceholderText = localization["native.commands.search"];
+        CommandMoveUp.Text = localization["native.groups.moveUp"];
+        CommandMoveDown.Text = localization["native.groups.moveDown"];
+        CommandGroupMoveUp.Text = localization["native.group"] + " · " + localization["native.groups.moveUp"];
+        CommandGroupMoveDown.Text = localization["native.group"] + " · " + localization["native.groups.moveDown"];
+        SnippetSendToLabel.Text = localization["commandEditor.sendTo"];
+        var snippetTarget = SnippetTargets.SelectedIndex;
+        SnippetTargets.Items.Clear();
+        SnippetTargets.Items.Add(localization["commandEditor.targetCurrent"]);
+        SnippetTargets.Items.Add(localization["commandEditor.targetAll"]);
+        SnippetTargets.SelectedIndex = Math.Max(0, snippetTarget);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SnippetTargets, SnippetSendToLabel.Text);
+        ToolTipService.SetToolTip(CommandSearchToggle, localization["native.commands.search"]);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandSearchToggle, localization["native.commands.search"]);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandLibraryMenu, localization["native.workbench.commands"]);
+        standaloneCommandComposer?.ConfigureLabels();
         NewForwardButton.Label = localization["native.forward.new"];
         EditForwardButton.Label = localization["native.common.edit"];
         DeleteForwardButton.Label = localization["native.common.delete"];
@@ -526,7 +530,6 @@ public sealed partial class MainWindow : Window
         SettingsOverlay.Visibility = Visibility.Collapsed;
         AiPage.Visibility = Visibility.Collapsed;
         ConnectionSidebarPage.Visibility = tag == "connections" ? Visibility.Visible : Visibility.Collapsed;
-        CommandsPage.Visibility = tag == "commands" ? Visibility.Visible : Visibility.Collapsed;
         ForwardPage.Visibility = tag == "forwards" ? Visibility.Visible : Visibility.Collapsed;
         TransfersPage.Visibility = tag == "transfers" ? Visibility.Visible : Visibility.Collapsed;
         var activeSidebarPage = tag switch
@@ -536,7 +539,7 @@ public sealed partial class MainWindow : Window
             "transfers" => TransfersPage,
             _ => ConnectionSidebarPage
         };
-        if (!same)
+        if (tag != "commands" && !same)
         {
             if (responsiveSidebarCollapsed) responsiveSidebarOpen = true;
             else
@@ -545,7 +548,7 @@ public sealed partial class MainWindow : Window
                 store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["sidebarCollapsed"] = false });
             }
         }
-        else if (toggle)
+        else if (tag != "commands" && toggle)
         {
             if (responsiveSidebarCollapsed) responsiveSidebarOpen = !responsiveSidebarOpen;
             else
@@ -559,6 +562,8 @@ public sealed partial class MainWindow : Window
         UpdateOverlayLayout();
         UpdateWorkbenchLayout();
         ShowSelectedSessionContent();
+        if (tag == "commands" && SessionContent.Content is Controls.NativeSessionWorkspace workspace)
+            workspace.ToggleCommands(forceOpen: !toggle);
         UiTaskRunner.Run(() => NativeUiMotion.FadeInAsync(activeSidebarPage), ShowError);
     }
 
@@ -578,7 +583,8 @@ public sealed partial class MainWindow : Window
     {
         var overlay = activeOverlay;
         var connectionsSelected = overlay == null && activeActivity == "connections";
-        var commandsSelected = overlay == null && activeActivity == "commands";
+        var commandsSelected = overlay == null && (SessionContent.Content is Controls.NativeSessionWorkspace workspace
+            ? workspace.CommandsVisible : activeActivity == "commands");
         var forwardsSelected = overlay == null && activeActivity == "forwards";
         var transfersSelected = overlay == null && activeActivity == "transfers";
         var aiSelected = overlay == "ai";
@@ -1060,10 +1066,14 @@ public sealed partial class MainWindow : Window
         disconnect.Click += async (_, _) => { if (sessionTabs.TryGetValue(sessionId, out var closing)) await CloseSessionTabAsync(closing); }; Tool(disconnect, "\uE8CD");
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Children = { openSftp, openMonitor, search, history, openPortTraffic, clear, disconnect } };
         var session = sessionsManager.Get(sessionId);
+        var composer = CreateCommandComposer(sessionId);
+        composer.ReturnToTerminal += () => terminal.Focus(FocusState.Programmatic);
         var content = new Controls.NativeSessionWorkspace(terminal, toolbar, store,
             () => new Controls.NativeSftpBrowser(session, transferQueue, WindowHandle, key => localization[key], path => OpenRemoteEditorTab(sessionId, profile.Name, path), settings),
             () => new Controls.NativeMonitorPanel(session, settings.MonitorIntervalMs, key => localization[key]),
-            path => new Controls.NativeRemoteEditor(session, remoteEditorService, key => localization[key], WindowHandle(), Root, settings, HandleNativeEditorShortcut) { Tag = path });
+            path => new Controls.NativeRemoteEditor(session, remoteEditorService, key => localization[key], WindowHandle(), Root, settings, HandleNativeEditorShortcut) { Tag = path },
+            key => localization[key], composer);
+        content.BottomPaneChanged += UpdateActivityMarkers;
         sessionWorkspaces[sessionId] = content;
         if (settings.Data["sftp"]?["autoOpenOnConnect"]?.GetValue<bool>() ?? true)
         {
@@ -1078,6 +1088,7 @@ public sealed partial class MainWindow : Window
         sessionTabs[sessionId] = tab;
         sessionProfiles[sessionId] = profile;
         AddSessionTab(tab, content);
+        if (activeActivity == "commands") content.ToggleCommands(true);
         if (profile.Data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true)
             content.ToggleMonitor(true);
         RefreshAiTargets();
@@ -1387,15 +1398,18 @@ public sealed partial class MainWindow : Window
         var selectedSessionId = SessionIdForTag(selectedId);
         foreach (var (id, workspace) in sessionWorkspaces)
             workspace.SetActive(selectedSessionId == id);
-        WelcomePage.Visibility = Sessions.TabItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SessionContent.Content = Sessions.SelectedItem is TabViewItem tab &&
             tab.Tag?.ToString() is { } tag && sessionContents.TryGetValue(tag, out var content)
                 ? content
                 : null;
+        AttachCommandLibrary();
+        WelcomePage.Visibility = Sessions.TabItems.Count == 0 && CommandLibraryHome.Visibility != Visibility.Visible
+            ? Visibility.Visible : Visibility.Collapsed;
         if (selectedSessionId != null && sessionTerminals.TryGetValue(selectedSessionId, out var terminal))
             terminal.Configure(settings, key => localization[key]);
         if (selectedSessionId != null && sessionWorkspaces.TryGetValue(selectedSessionId, out var selectedWorkspace))
             selectedWorkspace.Configure(settings);
+        UpdateActivityMarkers();
     }
     private void RemoveSessionTab(TabViewItem tab)
     {
@@ -1628,29 +1642,8 @@ public sealed partial class MainWindow : Window
     private void CommandSnippetClicked(object sender, ItemClickEventArgs args)
     {
         if (args.ClickedItem is not NativeSnippet snippet) return;
-        CommandViewModel.SelectedSnippet = snippet;
-        var sessionId = SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString());
-        if (sessionId == null || !sessionTerminals.TryGetValue(sessionId, out var terminal))
-        {
-            ShowError(localization["native.commands.selectSession"]);
-            return;
-        }
-        try
-        {
-            var session = sessionsManager.Get(sessionId);
-            if (session.Snapshot.State != NativeSessionState.Ready) { ShowError(localization["native.commands.selectSession"]); return; }
-            var profile = sessionProfiles.TryGetValue(sessionId, out var selectedProfile) ? selectedProfile : session.Profile;
-            var command = NativeCommandLibrary.ExpandSnippet(snippet.Command, profile);
-            session.Write(System.Text.Encoding.UTF8.GetBytes(command + (snippet.AutoEnter ? "\r" : "")));
-            if (snippet.AutoEnter)
-            {
-                commandLibrary.AddHistory(sessionId, command);
-                if (sessionWorkspaces.TryGetValue(sessionId, out var workspace)) workspace.FollowExecutedShellCommands(command);
-                CommandViewModel.ReloadHistory();
-            }
-            Status.Text = localization.Format("commandEditor.sent", ("count", "1"));
-        }
-        catch (Exception error) { ShowError(error); }
+        SelectCommandSnippet(snippet);
+        ActiveCommandComposer.Edit(snippet.Command, snippet.AutoEnter);
     }
 
     private async Task<string?> PromptTextAsync(string title, string initial = "", string? header = null)
@@ -1718,16 +1711,26 @@ public sealed partial class MainWindow : Window
         catch (Exception error) { ShowError(error); }
     }
 
-    private async void SendSelectedSnippet(object sender, RoutedEventArgs args)
+    private void SendSelectedSnippet(object sender, RoutedEventArgs args)
     {
-        var snippet = CommandViewModel.SelectedSnippet;
-        if (snippet == null) return;
-        await ShowCommandSendAsync(snippet.Command, snippet.AutoEnter);
+        if (CommandViewModel.SelectedSnippet is not { } snippet) return;
+        SendComposedToSession(SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()),
+            snippet.Command, snippet.AutoEnter, true, SnippetTargets.SelectedIndex == 1);
     }
 
-    private async void ComposeCommand(object sender, RoutedEventArgs args) => await ShowCommandSendAsync("", false);
+    private Task ShowCommandSendAsync(string initialCommand, bool appendEnter)
+    {
+        if (SessionContent.Content is Controls.NativeSessionWorkspace workspace)
+        {
+            workspace.ToggleCommands(true);
+            workspace.Composer.Edit(string.IsNullOrEmpty(initialCommand) ? null : initialCommand, appendEnter);
+            return Task.CompletedTask;
+        }
+        standaloneCommandComposer.Edit(string.IsNullOrEmpty(initialCommand) ? null : initialCommand, appendEnter);
+        return Task.CompletedTask;
+    }
 
-    private async Task ShowCommandSendAsync(string initialCommand, bool appendEnter)
+    private async Task ShowCommandSendWindowAsync(string initialCommand, bool appendEnter)
     {
         if (commandEditorWindow is { } openEditor) { openEditor.Activate(); return; }
         try

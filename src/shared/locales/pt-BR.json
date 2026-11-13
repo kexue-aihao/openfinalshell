@@ -404,6 +404,7 @@
     "placeholderHint": "Placeholders (substituídos pela sessão ativa):"
   },
   "commandEditor": {
+    "options": "Opções",
     "title": "Editor de comandos",
     "openHint": "Editor de comandos: componha um comando avulso (multi-linha) e envie",
     "placeholder": "Escreva o comando a enviar — várias linhas são permitidas.\nCtrl+Enter envia.\n\nPor exemplo:\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",

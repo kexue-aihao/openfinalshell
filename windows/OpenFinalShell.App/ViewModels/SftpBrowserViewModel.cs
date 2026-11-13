@@ -16,6 +16,7 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
     private string status = string.Empty;
     private bool busy;
     private IReadOnlyList<RemoteEntry> allEntries = [];
+    private IReadOnlyList<RemoteEntry> loadedDirectoryEntries = [];
     private bool showHidden;
     private string sort = "name";
     private bool descending;
@@ -24,6 +25,8 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
     private int viewGeneration;
 
     public BulkObservableCollection<RemoteEntry> Entries { get; } = [];
+    public IReadOnlyList<RemoteEntry> DirectoryEntries => loadedDirectoryEntries;
+    public bool HasLoadedDirectory { get; private set; }
     public string CurrentPath { get => currentPath; private set { if (currentPath == value) return; currentPath = value; OnPropertyChanged(); } }
     public string Status { get => status; private set { if (status == value) return; status = value; OnPropertyChanged(); } }
     public bool IsBusy { get => busy; private set { if (busy == value) return; busy = value; OnPropertyChanged(); } }
@@ -48,6 +51,8 @@ public sealed class SftpBrowserViewModel : INotifyPropertyChanged
             allEntries = values;
             await ApplyViewAsync(token);
             CurrentPath = normalized;
+            loadedDirectoryEntries = values;
+            HasLoadedDirectory = true;
             Status = $"{normalized} · {values.Count}";
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }

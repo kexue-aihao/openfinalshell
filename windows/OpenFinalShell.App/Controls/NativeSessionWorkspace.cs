@@ -16,6 +16,11 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     private readonly RowDefinition editorRow = new() { Height = new(0) };
     private readonly ColumnDefinition monitorColumn = new() { Width = new(0) };
     private readonly ContentControl files = new() { Visibility = Visibility.Collapsed, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+    private readonly ContentControl commands = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+    private readonly TabView bottomTabs = new() { IsAddTabButtonVisible = false, TabWidthMode = TabViewWidthMode.SizeToContent, Padding = new Thickness(0), VerticalAlignment = VerticalAlignment.Stretch, Visibility = Visibility.Collapsed };
+    private readonly TabViewItem filesTab = new() { IsClosable = false, MinHeight = 32 };
+    private readonly TabViewItem commandsTab = new() { IsClosable = false, MinHeight = 32 };
+    private readonly Func<string, string> text;
     private readonly ContentControl monitoring = new() { Visibility = Visibility.Collapsed, HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly ContentControl editorContent = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly TabView editorTabs = new() { IsAddTabButtonVisible = false, TabWidthMode = TabViewWidthMode.SizeToContent, Padding = new Thickness(4, 3, 4, 0) };
@@ -37,22 +42,31 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     private bool toolsShown;
     private NativeSettings? lastConfiguredSettings;
     public IEnumerable<NativeRemoteEditor> Editors => documents.Values.Select(item => item.Editor);
+    public event Action? BottomPaneChanged;
+    public bool CommandsVisible => bottomTabs.Visibility == Visibility.Visible && ReferenceEquals(bottomTabs.SelectedItem, commandsTab);
+    public NativeCommandComposer Composer { get; }
 
     public NativeSessionWorkspace(NativeTerminalCanvas terminal, FrameworkElement toolbar, NativeStore store,
-        Func<NativeSftpBrowser> createFiles, Func<NativeMonitorPanel> createMonitor, Func<string, NativeRemoteEditor> createEditor)
+        Func<NativeSftpBrowser> createFiles, Func<NativeMonitorPanel> createMonitor, Func<string, NativeRemoteEditor> createEditor,
+        Func<string, string> text, NativeCommandComposer composer)
     {
+        this.text = text; Composer = composer;
         this.store = store; this.createFiles = createFiles; this.createMonitor = createMonitor; this.createEditor = createEditor;
         var workspacePreferences = store.Find("nativeWorkspace", "nativeWorkspace");
         filesHeightWeight = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "filesHeight", 200), 60, 1800);
         editorHeightWeight = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "editorHeight", 280), 60, 1800);
-        monitorWidth = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "monitorWidth", 230), 190, 600);
+        monitorWidth = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "monitorWidth", 300), 220, 600);
         this.terminal = terminal; terminal.RemoteDirectoryChanged += FollowRemoteDirectory;
         main.RowDefinitions.Add(new() { Height = new(0) });
         main.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star), MinHeight = 100 });
         main.RowDefinitions.Add(new() { Height = GridLength.Auto }); main.RowDefinitions.Add(filesRow);
         main.RowDefinitions.Add(new() { Height = GridLength.Auto }); main.RowDefinitions.Add(editorRow);
         var terminalHost = new Grid();
+        terminalHost.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
+        terminalHost.RowDefinitions.Add(new() { Height = GridLength.Auto });
         terminalHost.Children.Add(terminal);
+        var quickInput = composer.CreateQuickInput(() => ToggleCommands(true));
+        terminalHost.Children.Add(quickInput); Grid.SetRow(quickInput, 1);
         var tools = new Border
         {
             Child = toolbar, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
@@ -91,7 +105,11 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         };
         main.Children.Add(terminalHost); Grid.SetRow(terminalHost, 1);
         main.Children.Add(filesSplitter); Grid.SetRow(filesSplitter, 2);
-        main.Children.Add(files); Grid.SetRow(files, 3);
+        filesTab.Header = text("native.sftp.files"); filesTab.Content = files;
+        commandsTab.Header = text("native.commands.command"); commandsTab.Content = CreateCommandDock(commands, composer, store);
+        bottomTabs.TabItems.Add(filesTab); bottomTabs.TabItems.Add(commandsTab);
+        bottomTabs.SelectionChanged += (_, _) => UpdateBottomPane();
+        main.Children.Add(bottomTabs); Grid.SetRow(bottomTabs, 3);
         editors.RowDefinitions.Add(new() { Height = GridLength.Auto }); editors.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
         editors.Children.Add(editorTabs); editors.Children.Add(editorContent); Grid.SetRow(editorContent, 1);
         main.Children.Add(editorSplitter); Grid.SetRow(editorSplitter, 4); main.Children.Add(editors); Grid.SetRow(editors, 5);
@@ -103,15 +121,15 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
             documents.Remove(path); editorTabs.TabItems.Remove(item.Tab); item.Editor.Dispose();
             if (documents.Count == 0) { editors.Visibility = editorSplitter.Visibility = Visibility.Collapsed; editorRow.Height = new(0); }
         };
-        root.ColumnDefinitions.Add(monitorColumn);
-        root.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         root.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star), MinWidth = 236 });
-        root.Children.Add(monitoring);
+        root.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(monitorColumn);
+        root.Children.Add(main);
         root.Children.Add(monitorSplitter); Grid.SetColumn(monitorSplitter, 1);
-        root.Children.Add(main); Grid.SetColumn(main, 2);
+        root.Children.Add(monitoring); Grid.SetColumn(monitoring, 2);
         filesSplitter.DragDelta += (_, args) =>
         {
-            filesHeightWeight = ResizePaneWeight(files.ActualHeight - args.VerticalChange);
+            filesHeightWeight = ResizePaneWeight(bottomTabs.ActualHeight - args.VerticalChange);
             UpdatePaneSizes();
         };
         filesSplitter.DragCompleted += (_, _) => SaveSize("filesHeight", filesHeightWeight);
@@ -123,8 +141,8 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         editorSplitter.DragCompleted += (_, _) => SaveSize("editorHeight", editorHeightWeight);
         monitorSplitter.DragDelta += (_, args) =>
         {
-            monitorWidth = Math.Clamp(monitoring.ActualWidth + args.HorizontalChange, 190,
-                Math.Max(190, ActualWidth * .45));
+            monitorWidth = Math.Clamp(monitoring.ActualWidth - args.HorizontalChange, 220,
+                Math.Max(220, ActualWidth * .45));
             monitorColumn.Width = new GridLength(monitorWidth);
         };
         monitorSplitter.DragCompleted += (_, _) => SaveSize("monitorWidth", monitorWidth);
@@ -135,6 +153,28 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     {
         try { store.Patch("nativeWorkspace", "nativeWorkspace", new() { [key] = value }); }
         catch (Exception error) { System.Diagnostics.Debug.WriteLine($"Could not save native pane size: {error.Message}"); }
+    }
+    internal static Grid CreateCommandDock(UIElement library, NativeCommandComposer composer, NativeStore store)
+    {
+        var fraction = Math.Clamp(NativeSettings.ReadPath(store.Find("nativeWorkspace", "nativeWorkspace"), "commandLibraryFraction", .32), .2, .65);
+        var dock = new Grid();
+        var libraryColumn = new ColumnDefinition { Width = new(fraction, GridUnitType.Star), MinWidth = 180 };
+        var editorColumn = new ColumnDefinition { Width = new(1 - fraction, GridUnitType.Star), MinWidth = 220 };
+        dock.ColumnDefinitions.Add(libraryColumn); dock.ColumnDefinitions.Add(new() { Width = new(6) }); dock.ColumnDefinitions.Add(editorColumn);
+        var splitter = new Thumb { Width = 6, Background = Application.Current.Resources["CardStrokeColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush };
+        dock.Children.Add(library); dock.Children.Add(splitter); Grid.SetColumn(splitter, 1);
+        dock.Children.Add(composer); Grid.SetColumn(composer, 2);
+        splitter.DragDelta += (_, args) =>
+        {
+            fraction = Math.Clamp((libraryColumn.ActualWidth + args.HorizontalChange) / Math.Max(1, dock.ActualWidth - 6), .2, .65);
+            libraryColumn.Width = new(fraction, GridUnitType.Star); editorColumn.Width = new(1 - fraction, GridUnitType.Star);
+        };
+        splitter.DragCompleted += (_, _) =>
+        {
+            try { store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["commandLibraryFraction"] = fraction }); }
+            catch (Exception error) { System.Diagnostics.Debug.WriteLine($"Could not save command pane size: {error.Message}"); }
+        };
+        return dock;
     }
     private double ResizePaneWeight(double height)
     {
@@ -148,23 +188,37 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         // Reserve usable space for editor chrome and a few lines of text.
         // Proportions alone can leave only a scrollbar when search is open.
         var available = Math.Max(0, ActualHeight - 60);
-        filesRow.MinHeight = files.Visibility == Visibility.Visible ? Math.Min(110, available * .25) : 0;
+        filesRow.MinHeight = bottomTabs.Visibility == Visibility.Visible ? Math.Min(160, available * .3) : 0;
         editorRow.MinHeight = editors.Visibility == Visibility.Visible ? Math.Min(240, available * .55) : 0;
         main.RowDefinitions[1].Height = new(3, GridUnitType.Star);
-        filesRow.Height = files.Visibility == Visibility.Visible ? new(filesHeightWeight / 100, GridUnitType.Star) : new(0);
+        filesRow.Height = bottomTabs.Visibility == Visibility.Visible ? new(filesHeightWeight / 100, GridUnitType.Star) : new(0);
         editorRow.Height = editors.Visibility == Visibility.Visible ? new(editorHeightWeight / 100, GridUnitType.Star) : new(0);
     }
     public void ToggleFiles(bool forceOpen = false)
     {
-        var show = forceOpen || files.Visibility != Visibility.Visible;
+        ToggleBottomPane(filesTab, forceOpen);
+    }
+    public void ToggleCommands(bool forceOpen = false) => ToggleBottomPane(commandsTab, forceOpen);
+    public void SetCommandLibrary(UIElement? library) => commands.Content = library;
+    private void ToggleBottomPane(TabViewItem tab, bool forceOpen)
+    {
+        var show = forceOpen || bottomTabs.Visibility != Visibility.Visible || !ReferenceEquals(bottomTabs.SelectedItem, tab);
+        bottomTabs.Visibility = filesSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        bottomTabs.SelectedItem = tab;
+        UpdateBottomPane();
+    }
+    private void UpdateBottomPane()
+    {
+        var show = bottomTabs.Visibility == Visibility.Visible && ReferenceEquals(bottomTabs.SelectedItem, filesTab);
         if (show && files.Content == null) files.Content = createFiles();
-        files.Visibility = filesSplitter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        files.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         UpdatePaneSizes();
         if (files.Content is NativeSftpBrowser browser)
         {
             browser.SetFollowActive(workspaceActive && show);
             if (show && terminal.RemoteDirectory is { } directory) browser.FollowRemoteDirectory(directory);
         }
+        BottomPaneChanged?.Invoke();
     }
     public void ToggleMonitor(bool forceOpen = false)
     {
@@ -187,6 +241,8 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     }
     public void Configure(NativeSettings settings)
     {
+        filesTab.Header = text("native.sftp.files"); commandsTab.Header = text("native.commands.command");
+        Composer.ConfigureLabels();
         if (ReferenceEquals(lastConfiguredSettings, settings)) return;
         lastConfiguredSettings = settings;
         foreach (var editor in Editors) editor.Configure(settings);
@@ -215,6 +271,7 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
     }
     public void Dispose()
     {
+        commands.Content = null;
         terminal.RemoteDirectoryChanged -= FollowRemoteDirectory;
         if (files.Content is NativeSftpBrowser browser) browser.Dispose();
         foreach (var editor in Editors) editor.Dispose(); documents.Clear();

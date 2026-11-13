@@ -404,6 +404,7 @@
     "placeholderHint": "預留位置（會以作用中的工作階段替換）："
   },
   "commandEditor": {
+    "options": "選項",
     "title": "命令編輯器",
     "openHint": "命令編輯器：撰寫一次性的（多行）命令並傳送",
     "placeholder": "撰寫要傳送的命令 — 可以有多行。\nCtrl+Enter 傳送。\n\n例如：\nsystemctl status nginx\ntail -n 50 /var/log/nginx/error.log",
