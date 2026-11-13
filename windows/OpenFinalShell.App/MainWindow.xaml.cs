@@ -1090,6 +1090,28 @@ public sealed partial class MainWindow : Window
         if (profile.Data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true)
             content.ToggleMonitor(true);
         RefreshAiTargets();
+        FocusTerminalWhenReady(tab, content, terminal);
+    }
+
+    private void FocusTerminalWhenReady(TabViewItem tab, Controls.NativeSessionWorkspace workspace,
+        Controls.NativeTerminalCanvas terminal)
+    {
+        RoutedEventHandler? loadedHandler = null;
+        void QueueFocus()
+        {
+            if (loadedHandler != null) terminal.Loaded -= loadedHandler;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (ReferenceEquals(Sessions.SelectedItem, tab) &&
+                    ReferenceEquals(SessionContent.Content, workspace) &&
+                    activeActivity == "commands" && activeOverlay == null)
+                    terminal.FocusTerminalInput();
+            });
+        }
+
+        loadedHandler = (_, _) => QueueFocus();
+        if (terminal.IsLoaded) QueueFocus();
+        else terminal.Loaded += loadedHandler;
     }
 
     private void RecordSuccessfulConnection(string profileId)

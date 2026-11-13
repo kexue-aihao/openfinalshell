@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.64',
+    items: [
+      { type: 'fix', zh: '修复 SSH 连接成功后终端未自动获得输入焦点、导致光标不显示的问题', en: 'Focus the native terminal input after a new SSH session loads so its blinking cursor is visible immediately' }
+    ]
+  },
+  {
     version: '0.30.63',
     items: [
       { type: 'fix', zh: '隐藏左侧活动栏中独立的命令库入口，保留会话底部“命令”标签访问命令库', en: 'Hide the standalone command-library entry in the left activity bar while keeping the command library available from the session’s bottom Commands tab' }

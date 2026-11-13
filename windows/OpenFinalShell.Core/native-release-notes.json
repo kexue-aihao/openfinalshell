@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.64",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复 SSH 连接成功后终端未自动获得输入焦点、导致光标不显示的问题",
+        "en": "Focus the native terminal input after a new SSH session loads so its blinking cursor is visible immediately"
+      }
+    ]
+  },
+  {
     "version": "0.30.63",
     "items": [
       {

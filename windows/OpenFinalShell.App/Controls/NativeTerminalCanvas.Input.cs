@@ -60,6 +60,7 @@ public sealed partial class NativeTerminalCanvas
         PositionTextInput();
         textInput.Focus(state);
     }
+    public void FocusTerminalInput() => FocusTextInput(FocusState.Programmatic);
     private void CommitTextInput()
     {
         if (composing || clearingInput || textInput.Text.Length == 0) return;
