@@ -206,8 +206,22 @@ public sealed partial class MainWindow : Window
         connectionTree.Failed += ShowError;
         connectionTree.Changed += LoadProfiles;
         ConnectionTreeHost.Content = connectionTree;
-        activeActivity = store.Find("nativeWorkspace", "nativeWorkspace")?["activeSidebar"]?.GetValue<string>() is { } savedActivity &&
-            savedActivity is "connections" or "commands" or "forwards" or "transfers" ? savedActivity : "connections";
+        var savedActivity = store.Find("nativeWorkspace", "nativeWorkspace")?["activeSidebar"]?.GetValue<string>();
+        // v0.30.61–v0.30.64 forced Commands open after SSH connected and
+        // persisted that temporary navigation. Clear it once on upgrade so
+        // later manual Commands-page selections remain persistent.
+        const string activityMigrationKey = "workspace-activity-commands-autopen-v03065";
+        if (store.ReadMetaText(activityMigrationKey) != "done")
+        {
+            if (savedActivity == "commands")
+            {
+                savedActivity = "connections";
+                store.Patch("nativeWorkspace", "nativeWorkspace", new() { ["activeSidebar"] = savedActivity });
+            }
+            store.ReplaceMetaTextAndReadPrevious(activityMigrationKey, "done");
+        }
+        activeActivity = savedActivity is "connections" or "commands" or "forwards" or "transfers"
+            ? savedActivity : "connections";
         TransferList.ItemsSource = transferViewModel.Tasks;
         transferViewModel.QueueChanged += TransferQueueChanged;
         transferSummaryTimer = DispatcherQueue.CreateTimer();
@@ -1086,7 +1100,6 @@ public sealed partial class MainWindow : Window
         sessionTabs[sessionId] = tab;
         sessionProfiles[sessionId] = profile;
         AddSessionTab(tab, content);
-        SelectActivity("commands", false);
         if (profile.Data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true)
             content.ToggleMonitor(true);
         RefreshAiTargets();
@@ -1104,7 +1117,7 @@ public sealed partial class MainWindow : Window
             {
                 if (ReferenceEquals(Sessions.SelectedItem, tab) &&
                     ReferenceEquals(SessionContent.Content, workspace) &&
-                    activeActivity == "commands" && activeOverlay == null)
+                    activeOverlay == null)
                     terminal.FocusTerminalInput();
             });
         }

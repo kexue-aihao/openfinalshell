@@ -90,9 +90,11 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         var surface = new Grid();
         surface.Children.Add(canvas);
-        surface.Children.Add(cursorVisual);
         surface.Children.Add(accessibleScreen);
         InitializeTextInput(surface);
+        // Keep the custom terminal cursor above the invisible TSF TextBox;
+        // the focused input client can otherwise paint over the cursor cell.
+        surface.Children.Add(cursorVisual);
         Content = surface;
         canvas.ClearColor = Colors.Black;
         canvas.Draw += DrawTerminal;

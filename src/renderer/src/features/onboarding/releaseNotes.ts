@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.65',
+    items: [
+      { type: 'fix', zh: '修复终端输入光标被输入控件遮挡的问题；SSH 连接后保持当前页面，不再自动展开命令库和命令编辑器', en: 'Keep the terminal cursor visible above its input client, and stop switching to and opening the command library and editor after SSH connects' }
+    ]
+  },
+  {
     version: '0.30.64',
     items: [
       { type: 'fix', zh: '修复 SSH 连接成功后终端未自动获得输入焦点、导致光标不显示的问题', en: 'Focus the native terminal input after a new SSH session loads so its blinking cursor is visible immediately' }
