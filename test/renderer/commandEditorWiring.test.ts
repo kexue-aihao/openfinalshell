@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createInstance } from 'i18next'
 import en from '@/i18n/en-US'
 import zh from '@/i18n/zh-CN'
 import { blockAfter, flat, read, stripComments } from '../sourceGuard'
@@ -92,6 +93,9 @@ describe('文案', () => {
     'sendTo',
     'targetCurrent',
     'targetAll',
+    'targetSelected',
+    'targetSelectionHint',
+    'noSessions',
     'sent',
     'autoEnter',
     'autoEnterHint',
@@ -113,14 +117,30 @@ describe('文案', () => {
    * （snippet.placeholderHint 就是这么做的）——
    * 写进翻译串的话，提示语里那三个占位符名会当场消失，而没人会因此报 bug。
    */
-  it('commandEditor 的文案里没有 {{…}} 字面量（只有 sent 用真插值 count）', () => {
-    for (const [key, value] of Object.entries(zh.translation.commandEditor)) {
-      if (key === 'sent') continue
-      expect(String(value), `zh commandEditor.${key} 里有插值花括号`).not.toMatch(/\{\{/)
+  it('只有发送结果与已选会话数量使用 count 插值，其他文案不含 {{…}} 字面量', () => {
+    for (const [language, resource] of Object.entries({ zh, en })) {
+      for (const [key, value] of Object.entries(resource.translation.commandEditor)) {
+        const variables = String(value).match(/\{\{.*?\}\}/g) ?? []
+        if (key === 'sent' || key === 'targetSelected') {
+          expect(variables, `${language} commandEditor.${key} 的插值变量`).toEqual(['{{count}}'])
+        } else {
+          expect(String(value), `${language} commandEditor.${key} 里有插值花括号`).not.toMatch(/\{\{/)
+        }
+      }
     }
-    for (const [key, value] of Object.entries(en.translation.commandEditor)) {
-      if (key === 'sent') continue
-      expect(String(value), `en commandEditor.${key} 里有插值花括号`).not.toMatch(/\{\{/)
+  })
+
+  it('已选会话文案显示实际数量，不残留插值花括号', async () => {
+    const i18n = createInstance()
+    await i18n.init({ lng: 'zh', fallbackLng: false, resources: { zh, en } })
+    for (const lng of ['zh', 'en']) {
+      for (const count of [0, 1, 3]) {
+        const label = i18n.t('commandEditor.targetSelected', { lng, count })
+        expect(label).toBe(
+          lng === 'zh' ? `已选 ${count} 个会话` : `${count} selected`
+        )
+        expect(label).not.toMatch(/[{}]/)
+      }
     }
   })
 
