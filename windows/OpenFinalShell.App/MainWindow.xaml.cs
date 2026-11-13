@@ -387,12 +387,7 @@ public sealed partial class MainWindow : Window
         CommandGroupMoveUp.Text = localization["native.group"] + " · " + localization["native.groups.moveUp"];
         CommandGroupMoveDown.Text = localization["native.group"] + " · " + localization["native.groups.moveDown"];
         SnippetSendToLabel.Text = localization["commandEditor.sendTo"];
-        var snippetTarget = SnippetTargets.SelectedIndex;
-        SnippetTargets.Items.Clear();
-        SnippetTargets.Items.Add(localization["commandEditor.targetCurrent"]);
-        SnippetTargets.Items.Add(localization["commandEditor.targetAll"]);
-        SnippetTargets.SelectedIndex = Math.Max(0, snippetTarget);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(SnippetTargets, SnippetSendToLabel.Text);
+        SnippetTargets.ConfigureLabels();
         ToolTipService.SetToolTip(CommandSearchToggle, localization["native.commands.search"]);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandSearchToggle, localization["native.commands.search"]);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(CommandLibraryMenu, localization["native.workbench.commands"]);
@@ -489,6 +484,9 @@ public sealed partial class MainWindow : Window
         RecentConnections.ItemsSource = connections.Profiles.Where(p => p.Data["lastUsedAt"] != null || p.Data["lastConnectedAt"] != null)
             .OrderByDescending(p => (p.Data["lastUsedAt"]?.GetValue<long>() ?? p.Data["lastConnectedAt"]!.GetValue<long>())).Take(8).ToArray();
         UpdateRecentEmptyState();
+        foreach (var (id, profile) in sessionProfiles)
+            if (sessionTabs.TryGetValue(id, out var tab))
+                UpdateSessionTabHeader(tab, connections.Profiles.FirstOrDefault(item => item.Id == profile.Id) ?? profile, SessionTabTitle(tab));
     }
 
     private void ApplyActivityIcons()
@@ -917,6 +915,7 @@ public sealed partial class MainWindow : Window
             var connectionStepCount = profile.Data["jumpHostId"] != null ? 10 : 6;
             var connectingId = "connecting:" + Guid.NewGuid().ToString("N");
             var connectingTab = new TabViewItem { Header = profile.Name, Tag = connectingId, IsClosable = false };
+            UpdateSessionTabHeader(connectingTab, profile, profile.Name);
             var progressRing = new ProgressRing { IsActive = true, Width = 36, Height = 36, HorizontalAlignment = HorizontalAlignment.Center };
             var connectionLabel = new TextBlock
             {
@@ -1058,16 +1057,15 @@ public sealed partial class MainWindow : Window
         Tool(openSftp, "\uE8B7"); Tool(openMonitor, "\uE9D9"); Tool(openPortTraffic, "\uE968");
         var search = new Button { Content = localization["terminal.search"] };
         search.Click += async (_, _) => await ShowTerminalSearchAsync(terminal); Tool(search, "\uE721");
-        var history = new Button { Content = localization["terminal.historyTip"] };
-        history.Click += async (_, _) => await ShowTerminalHistoryAsync(terminal, sessionId); Tool(history, "\uE81C");
         var clear = new Button { Content = localization["terminal.clear"] };
         clear.Click += (_, _) => terminal.ClearScreen(); Tool(clear, "\uE75C");
         var disconnect = new Button { Content = localization["terminal.disconnect"] };
         disconnect.Click += async (_, _) => { if (sessionTabs.TryGetValue(sessionId, out var closing)) await CloseSessionTabAsync(closing); }; Tool(disconnect, "\uE8CD");
-        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Children = { openSftp, openMonitor, search, history, openPortTraffic, clear, disconnect } };
+        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Children = { openSftp, openMonitor, search, openPortTraffic, clear, disconnect } };
         var session = sessionsManager.Get(sessionId);
         var composer = CreateCommandComposer(sessionId);
         composer.ReturnToTerminal += () => terminal.Focus(FocusState.Programmatic);
+        composer.HistoryRequested += () => UiTaskRunner.Run(() => ShowTerminalHistoryAsync(terminal, sessionId), ShowError);
         var content = new Controls.NativeSessionWorkspace(terminal, toolbar, store,
             () => new Controls.NativeSftpBrowser(session, transferQueue, WindowHandle, key => localization[key], path => OpenRemoteEditorTab(sessionId, profile.Name, path), settings),
             () => new Controls.NativeMonitorPanel(session, settings.MonitorIntervalMs, key => localization[key]),
@@ -1088,7 +1086,7 @@ public sealed partial class MainWindow : Window
         sessionTabs[sessionId] = tab;
         sessionProfiles[sessionId] = profile;
         AddSessionTab(tab, content);
-        if (activeActivity == "commands") content.ToggleCommands(true);
+        SelectActivity("commands", false);
         if (profile.Data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true)
             content.ToggleMonitor(true);
         RefreshAiTargets();
@@ -1409,6 +1407,7 @@ public sealed partial class MainWindow : Window
             terminal.Configure(settings, key => localization[key]);
         if (selectedSessionId != null && sessionWorkspaces.TryGetValue(selectedSessionId, out var selectedWorkspace))
             selectedWorkspace.Configure(settings);
+        RefreshCommandTargets();
         UpdateActivityMarkers();
     }
     private void RemoveSessionTab(TabViewItem tab)
@@ -1439,6 +1438,7 @@ public sealed partial class MainWindow : Window
             editorWindowHost.SetSessionState(snapshot.SessionId, snapshot.State == NativeSessionState.Ready);
             if (snapshot.State == NativeSessionState.Failed && !string.IsNullOrWhiteSpace(snapshot.Error)) ShowError(snapshot.Error);
             if (sessionTabs.TryGetValue(snapshot.SessionId, out var sessionTab)) UpdateSessionTabState(sessionTab, snapshot.State);
+            RefreshCommandTargets();
             Status.Text = $"{snapshot.ProfileName} · {snapshot.State}";
             RefreshAiTargets();
         });
@@ -1714,8 +1714,8 @@ public sealed partial class MainWindow : Window
     private void SendSelectedSnippet(object sender, RoutedEventArgs args)
     {
         if (CommandViewModel.SelectedSnippet is not { } snippet) return;
-        SendComposedToSession(SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()),
-            snippet.Command, snippet.AutoEnter, true, SnippetTargets.SelectedIndex == 1);
+        SendComposedToSessions(SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()),
+            snippet.Command, snippet.AutoEnter, true, SnippetTargets.ResolveSessionIds());
     }
 
     private Task ShowCommandSendAsync(string initialCommand, bool appendEnter)

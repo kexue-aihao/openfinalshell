@@ -17,6 +17,15 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.61',
+    items: [
+      { type: 'feat', zh: '将 WinUI 3 原生版命令历史按钮移到终端底部快捷输入栏右侧，直接打开当前会话的历史记录；SSH 连接成功后自动展开命令库和命令编辑器', en: 'Move the WinUI 3 command-history button to the right of the terminal quick-input bar, opening history for the current session, and automatically reveal the command library and editor after SSH connects' },
+      { type: 'feat', zh: '命令库和编辑器支持直接勾选单个或多个 SSH 会话分发命令，同时保留当前会话和所有会话快捷选项；两处选择相互独立，快捷输入仍发送到所属会话', en: 'Let the command library and editor directly select one or multiple SSH recipients while retaining Current and All presets; their selections remain independent, and quick input stays bound to its own session' },
+      { type: 'fix', zh: '分发目标断开后立即更新选择数量，发送时只使用仍已连接的选定会话；没有可用目标时保留命令草稿，不会回退发送到其他会话', en: 'Update recipient counts when sessions disconnect and send only to selected sessions that remain connected; preserve drafts when no target is available without falling back to another session' },
+      { type: 'feat', zh: '连接标签显示现有位置标记对应的地区旗帜，保留连接状态指示；重命名和连接状态变化不会丢失旗帜，修改位置设置后已打开的标签同步更新', en: 'Show the configured region flag on connection tabs alongside their status indicators; preserve flags across renames and state changes, and refresh open tabs when location settings change' }
+    ]
+  },
+  {
     version: '0.30.60',
     items: [
       { type: 'fix', zh: '重新调整 WinUI 3 原生工作区：监控恢复到右侧，底部通过“文件 / 命令”标签切换；命令库采用紧凑的自动换行排版，右侧提供大面积命令编辑器，并支持拖动调整宽度', en: 'Rework the WinUI 3 native workspace with monitoring restored to the right and Files / Commands tabs at the bottom; use a compact wrapping command library alongside a large editor with adjustable pane widths' },

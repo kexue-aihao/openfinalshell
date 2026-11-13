@@ -16,16 +16,39 @@ public sealed partial class MainWindow
 
     private void InitializeCommandDock()
     {
+        SnippetTargets.Configure(key => localization[key], ReadyCommandSessions, () => SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()));
         CommandLibraryHome.Content = null;
         commandLibraryHomeHost.Content = CommandsPage;
         standaloneCommandComposer = CreateCommandComposer(null);
         CommandLibraryHome.Content = Controls.NativeSessionWorkspace.CreateCommandDock(commandLibraryHomeHost, standaloneCommandComposer, store);
     }
     private Controls.NativeCommandComposer CreateCommandComposer(string? sessionId) => new(key => localization[key],
-        (command, enter, expand, all) => SendComposedToSession(sessionId, command, enter, expand, all),
+        (command, enter, expand, targets) => SendComposedToSessions(sessionId, command, enter, expand, targets),
         () => commandLibrary.ListHistory(sessionId),
         (command, enter) => UiTaskRunner.Run(() => SaveComposedSnippetAsync(command, enter), ShowError),
-        (command, enter) => UiTaskRunner.Run(() => ShowCommandSendWindowAsync(command, enter), ShowError));
+        (command, enter) => UiTaskRunner.Run(() => ShowCommandSendWindowAsync(command, enter), ShowError), CreateCommandTargets(sessionId));
+
+    private Controls.NativeCommandTargets CreateCommandTargets(string? sessionId)
+    {
+        var targets = new Controls.NativeCommandTargets();
+        targets.Configure(key => localization[key], ReadyCommandSessions, () => sessionId);
+        return targets;
+    }
+
+    private IReadOnlyList<NativeSessionSnapshot> ReadyCommandSessions()
+    {
+        var ready = sessionsManager.List().Where(session => session.State == NativeSessionState.Ready && sessionTerminals.ContainsKey(session.SessionId))
+            .ToDictionary(session => session.SessionId, StringComparer.Ordinal);
+        return Sessions.TabItems.OfType<TabViewItem>().Where(tab => tab.Tag is string id && ready.ContainsKey(id))
+            .Select(tab => ready[(string)tab.Tag] with { ProfileName = SessionTabTitle(tab) }).ToArray();
+    }
+
+    private void RefreshCommandTargets()
+    {
+        SnippetTargets.RefreshAvailableSessions();
+        standaloneCommandComposer.RefreshTargetSessions();
+        foreach (var workspace in sessionWorkspaces.Values) workspace.Composer.RefreshTargetSessions();
+    }
 
     private void AttachCommandLibrary()
     {
@@ -61,12 +84,12 @@ public sealed partial class MainWindow
         SelectCommandSnippet(snippet);
         await EditSnippetAsync(snippet, false);
     }
-    private bool SendComposedToSession(string? sessionId, string command, bool appendEnter, bool expandVariables, bool allSessions = false)
+    private bool SendComposedToSessions(string? sessionId, string command, bool appendEnter, bool expandVariables, IReadOnlyList<string> targetSessionIds)
     {
         try
         {
-            var ready = sessionsManager.List().Where(s => s.State == NativeSessionState.Ready && sessionTerminals.ContainsKey(s.SessionId));
-            var targets = ready.Where(s => allSessions || s.SessionId == sessionId).ToArray();
+            var selected = targetSessionIds.ToHashSet(StringComparer.Ordinal);
+            var targets = ReadyCommandSessions().Where(session => selected.Contains(session.SessionId)).ToArray();
             if (targets.Length == 0) { ShowError(localization["native.commands.selectSession"]); return false; }
             foreach (var target in targets)
             {

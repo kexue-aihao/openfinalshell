@@ -11,7 +11,7 @@ namespace OpenFinalShell.App.Controls;
 public sealed class NativeCommandComposer : UserControl
 {
     private readonly Func<string, string> text;
-    private readonly Func<string, bool, bool, bool, bool> sendCommand;
+    private readonly Func<string, bool, bool, IReadOnlyList<string>, bool> sendCommand;
     private readonly Func<IReadOnlyList<string>> readHistory;
     private readonly TextBox input = new()
     {
@@ -34,21 +34,24 @@ public sealed class NativeCommandComposer : UserControl
     private readonly Button send = new() { MinHeight = 28, FontSize = 12, Padding = new Thickness(12, 2, 12, 2) };
     private readonly Button quickSend = new() { Content = new FontIcon { Glyph = "\uE724", FontSize = 14 }, Width = 28, Height = 28, Padding = new Thickness(2) };
     private readonly Button openEditor = new() { Content = new FontIcon { Glyph = "\uE70F", FontSize = 14 }, Width = 28, Height = 28, Padding = new Thickness(2) };
+    private readonly Button quickHistory = new() { Height = 28, MinHeight = 28, Padding = new Thickness(8, 2, 8, 2), FontSize = 12 };
     private readonly Button history = new(), save = new(), selectTargets = new();
-    private readonly ComboBox targets = new() { MinWidth = 100, MinHeight = 28, Padding = new Thickness(8, 2, 24, 2), FontSize = 12 };
+    private readonly NativeCommandTargets targets;
     private bool composing;
     private bool syncing;
     private Action? revealEditor;
     private string Command => input.Text.Replace("\r\n", "\n").Replace('\r', '\n');
     public event Action? ReturnToTerminal;
+    public event Action? HistoryRequested;
 
-    public NativeCommandComposer(Func<string, string> text, Func<string, bool, bool, bool, bool> sendCommand,
-        Func<IReadOnlyList<string>> readHistory, Action<string, bool> saveSnippet, Action<string, bool> chooseTargets)
+    public NativeCommandComposer(Func<string, string> text, Func<string, bool, bool, IReadOnlyList<string>, bool> sendCommand,
+        Func<IReadOnlyList<string>> readHistory, Action<string, bool> saveSnippet, Action<string, bool> chooseTargets, NativeCommandTargets targets)
     {
-        this.text = text; this.sendCommand = sendCommand; this.readHistory = readHistory;
+        this.text = text; this.sendCommand = sendCommand; this.readHistory = readHistory; this.targets = targets;
         AutomationProperties.SetAutomationId(input, "CommandEditorInput");
         AutomationProperties.SetAutomationId(send, "CommandEditorSend");
         AutomationProperties.SetAutomationId(this, "NativeCommandComposer");
+        AutomationProperties.SetAutomationId(quickHistory, "QuickCommandHistory");
         ScrollViewer.SetVerticalScrollBarVisibility(input, ScrollBarVisibility.Auto);
         ScrollViewer.SetVerticalScrollBarVisibility(quickInput, ScrollBarVisibility.Hidden);
         quickPreview.Content = previewText;
@@ -57,8 +60,9 @@ public sealed class NativeCommandComposer : UserControl
         history.Click += (_, _) => { options.Flyout.Hide(); ShowHistory(); };
         save.Click += (_, _) => { options.Flyout.Hide(); saveSnippet(Command, autoEnter.IsChecked == true); };
         selectTargets.Click += (_, _) => { options.Flyout.Hide(); chooseTargets(Command, autoEnter.IsChecked == true); };
-        send.Click += (_, _) => Send(targets.SelectedIndex == 1);
-        quickSend.Click += (_, _) => Send(false);
+        send.Click += (_, _) => Send();
+        quickSend.Click += (_, _) => Send(currentOnly: true);
+        quickHistory.Click += (_, _) => HistoryRequested?.Invoke();
         openEditor.Click += (_, _) => { revealEditor?.Invoke(); Edit(); };
         quickPreview.Click += (_, _) => { revealEditor?.Invoke(); Edit(); };
         var footer = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
@@ -78,7 +82,7 @@ public sealed class NativeCommandComposer : UserControl
             editor.TextCompositionStarted += (_, _) => composing = true;
             editor.TextCompositionEnded += (_, _) => composing = false;
             var submit = new KeyboardAccelerator { Key = VirtualKey.Enter, Modifiers = VirtualKeyModifiers.Control };
-            submit.Invoked += (_, args) => { args.Handled = true; if (!composing) Send(editor == input && targets.SelectedIndex == 1); };
+            submit.Invoked += (_, args) => { args.Handled = true; if (!composing) Send(currentOnly: editor == quickInput); };
             editor.KeyboardAccelerators.Add(submit);
             editor.KeyDown += (_, args) =>
             {
@@ -102,10 +106,12 @@ public sealed class NativeCommandComposer : UserControl
         layout.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
         layout.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         layout.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        layout.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         layout.Children.Add(quickInput); layout.Children.Add(quickPreview);
         layout.Children.Add(quickSend); Grid.SetColumn(quickSend, 1);
         layout.Children.Add(openEditor); Grid.SetColumn(openEditor, 2);
-        return new Border { Child = layout, MaxWidth = 1200, Margin = new Thickness(12, 4, 12, 6), HorizontalAlignment = HorizontalAlignment.Stretch };
+        layout.Children.Add(quickHistory); Grid.SetColumn(quickHistory, 3);
+        return new Border { Child = layout, MaxWidth = 1300, Margin = new Thickness(12, 4, 12, 6), HorizontalAlignment = HorizontalAlignment.Stretch };
     }
 
     public void ConfigureLabels()
@@ -121,12 +127,13 @@ public sealed class NativeCommandComposer : UserControl
         options.Content = text("commandEditor.options"); send.Content = text("commandEditor.send");
         history.Content = text("snippet.history"); save.Content = text("commandEditor.saveAsSnippet"); selectTargets.Content = text("commandEditor.sendTo");
         sendTo.Text = text("commandEditor.sendTo");
-        var selected = targets.SelectedIndex;
-        targets.Items.Clear(); targets.Items.Add(text("commandEditor.targetCurrent")); targets.Items.Add(text("commandEditor.targetAll")); targets.SelectedIndex = Math.Max(0, selected);
-        AutomationProperties.SetName(targets, sendTo.Text);
+        targets.ConfigureLabels();
+        quickHistory.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { new FontIcon { Glyph = "\uE81C", FontSize = 14 }, new TextBlock { Text = text("terminal.history"), FontSize = 12 } } };
+        ToolTipService.SetToolTip(quickHistory, text("terminal.historyTip")); AutomationProperties.SetName(quickHistory, text("terminal.history"));
         ToolTipService.SetToolTip(quickSend, text("commandEditor.sendHint")); AutomationProperties.SetName(quickSend, text("commandEditor.send"));
         ToolTipService.SetToolTip(openEditor, heading.Text); AutomationProperties.SetName(openEditor, heading.Text);
     }
+    public void RefreshTargetSessions() => targets.RefreshAvailableSessions();
     private void SynchronizeDraft(TextBox source, TextBox destination)
     {
         if (syncing) return;
@@ -149,10 +156,10 @@ public sealed class NativeCommandComposer : UserControl
         if (command != null) { input.Text = command; autoEnter.IsChecked = appendEnter; SynchronizeDraft(input, quickInput); }
         input.Focus(FocusState.Programmatic); input.SelectionStart = input.Text.Length;
     }
-    private void Send(bool allSessions)
+    private void Send(bool currentOnly = false)
     {
         if (composing || string.IsNullOrWhiteSpace(Command) || Command.Contains('\0') ||
-            !sendCommand(Command, autoEnter.IsChecked == true, expandVariables.IsChecked == true, allSessions)) return;
+            !sendCommand(Command, autoEnter.IsChecked == true, expandVariables.IsChecked == true, targets.ResolveSessionIds(currentOnly))) return;
         input.Text = ""; SynchronizeDraft(input, quickInput); ReturnToTerminal?.Invoke();
     }
     private void ShowHistory()

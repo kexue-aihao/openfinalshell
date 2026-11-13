@@ -29,14 +29,16 @@ public sealed partial class MainWindow
         async Task Rename()
         {
             var name = await PromptTextAsync(localization["tab.rename"]);
-            if (!string.IsNullOrWhiteSpace(name)) { tab.Header = name.Trim(); AutomationProperties.SetName(tab, name.Trim()); }
+            if (!string.IsNullOrWhiteSpace(name) && tab.Tag is string id && sessionProfiles.TryGetValue(id, out var profile))
+                UpdateSessionTabHeader(tab, profile, name.Trim());
         }
         if (tab.Tag is string id && sessionProfiles.TryGetValue(id, out var profile))
         {
-            UpdateSessionTabState(tab, sessionsManager.Get(id).Snapshot.State);
+            UpdateSessionTabHeader(tab, profile, SessionTabTitle(tab));
+            if (sessionTerminals.ContainsKey(id)) UpdateSessionTabState(tab, sessionsManager.Get(id).Snapshot.State);
             Action("tab.rename", Rename);
             Action("tab.duplicate", () => OpenProfileAsync(profile, duplicate: true));
-            Action("tab.reconnect", () => sessionsManager.ReconnectAsync(id, CancellationToken.None));
+            if (sessionTerminals.ContainsKey(id)) Action("tab.reconnect", () => sessionsManager.ReconnectAsync(id, CancellationToken.None));
             menu.Items.Add(new MenuFlyoutSeparator());
             tab.DoubleTapped += async (_, args) => { args.Handled = true; await Rename(); };
         }
@@ -71,6 +73,25 @@ public sealed partial class MainWindow
             if (!args.GetCurrentPoint(tab).Properties.IsMiddleButtonPressed) return;
             args.Handled = true; await CloseSessionTabAsync(tab);
         };
+    }
+
+    private static string SessionTabTitle(TabViewItem tab) => tab.Header is StackPanel { Tag: string name } ? name : tab.Header?.ToString() ?? "";
+
+    private void UpdateSessionTabHeader(TabViewItem tab, ConnectionProfile profile, string name)
+    {
+        profile = connections.Profiles.FirstOrDefault(item => item.Id == profile.Id) ?? profile;
+        var code = Controls.NativeRegionMarker.EffectiveCode(profile.Data["flag"]?.GetValue<string>(), profile.Host);
+        var header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Tag = name, VerticalAlignment = VerticalAlignment.Center };
+        if (code != null)
+        {
+            var marker = Controls.NativeRegionMarker.Create(code, 14);
+            AutomationProperties.SetName(marker, localization[$"region.{code}"]);
+            header.Children.Add(marker);
+        }
+        header.Children.Add(new TextBlock { Text = name, FontSize = 12, MaxWidth = code == null ? 120 : 100, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+        tab.Header = header;
+        AutomationProperties.SetName(tab, name);
+        ToolTipService.SetToolTip(tab, code == null ? name : $"{name} · {localization[$"region.{code}"]}");
     }
 
     private static void UpdateSessionTabState(TabViewItem tab, NativeSessionState state)
