@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.63',
+    items: [
+      { type: 'fix', zh: '隐藏左侧活动栏中独立的命令库入口，保留会话底部“命令”标签访问命令库', en: 'Hide the standalone command-library entry in the left activity bar while keeping the command library available from the session’s bottom Commands tab' }
+    ]
+  },
+  {
     version: '0.30.62',
     items: [
       { type: 'feat', zh: '将 WinUI 3 原生版命令历史按钮移到终端底部快捷输入栏右侧，直接打开当前会话的历史记录；SSH 连接成功后自动展开命令库和命令编辑器', en: 'Move the WinUI 3 command-history button to the right of the terminal quick-input bar, opening history for the current session, and automatically reveal the command library and editor after SSH connects' },
