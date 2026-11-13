@@ -1065,7 +1065,15 @@ public sealed partial class MainWindow : Window
             () => new Controls.NativeMonitorPanel(session, settings.MonitorIntervalMs, key => localization[key]),
             path => new Controls.NativeRemoteEditor(session, remoteEditorService, key => localization[key], WindowHandle(), Root, settings, HandleNativeEditorShortcut) { Tag = path });
         sessionWorkspaces[sessionId] = content;
-        if (settings.Data["sftp"]?["autoOpenOnConnect"]?.GetValue<bool>() ?? true) content.ToggleFiles(true);
+        if (settings.Data["sftp"]?["autoOpenOnConnect"]?.GetValue<bool>() ?? true)
+        {
+            // Start the independent SFTP transport while the native workspace
+            // is being attached. The browser then reuses the ready client
+            // instead of waiting for a second SSH handshake after the terminal
+            // has already become interactive.
+            _ = session.WarmSftpAsync();
+            content.ToggleFiles(true);
+        }
         var tab = new TabViewItem { Header = profile.Name, Tag = sessionId };
         sessionTabs[sessionId] = tab;
         sessionProfiles[sessionId] = profile;

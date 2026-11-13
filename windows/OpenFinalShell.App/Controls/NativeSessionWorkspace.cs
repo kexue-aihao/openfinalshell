@@ -45,7 +45,7 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         var workspacePreferences = store.Find("nativeWorkspace", "nativeWorkspace");
         filesHeightWeight = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "filesHeight", 200), 60, 1800);
         editorHeightWeight = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "editorHeight", 280), 60, 1800);
-        monitorWidth = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "monitorWidth", 300), 220, 600);
+        monitorWidth = Math.Clamp(NativeSettings.ReadPath(workspacePreferences, "monitorWidth", 230), 190, 600);
         this.terminal = terminal; terminal.RemoteDirectoryChanged += FollowRemoteDirectory;
         main.RowDefinitions.Add(new() { Height = new(0) });
         main.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star), MinHeight = 100 });
@@ -103,10 +103,12 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
             documents.Remove(path); editorTabs.TabItems.Remove(item.Tab); item.Editor.Dispose();
             if (documents.Count == 0) { editors.Visibility = editorSplitter.Visibility = Visibility.Collapsed; editorRow.Height = new(0); }
         };
-        root.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star), MinWidth = 160 });
-        root.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); root.ColumnDefinitions.Add(monitorColumn);
-        root.Children.Add(main); root.Children.Add(monitorSplitter); Grid.SetColumn(monitorSplitter, 1);
-        root.Children.Add(monitoring); Grid.SetColumn(monitoring, 2);
+        root.ColumnDefinitions.Add(monitorColumn);
+        root.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+        root.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star), MinWidth = 236 });
+        root.Children.Add(monitoring);
+        root.Children.Add(monitorSplitter); Grid.SetColumn(monitorSplitter, 1);
+        root.Children.Add(main); Grid.SetColumn(main, 2);
         filesSplitter.DragDelta += (_, args) =>
         {
             filesHeightWeight = ResizePaneWeight(files.ActualHeight - args.VerticalChange);
@@ -121,8 +123,8 @@ public sealed class NativeSessionWorkspace : UserControl, IDisposable
         editorSplitter.DragCompleted += (_, _) => SaveSize("editorHeight", editorHeightWeight);
         monitorSplitter.DragDelta += (_, args) =>
         {
-            monitorWidth = Math.Clamp(monitoring.ActualWidth - args.HorizontalChange, 220,
-                Math.Max(220, ActualWidth * .45));
+            monitorWidth = Math.Clamp(monitoring.ActualWidth + args.HorizontalChange, 190,
+                Math.Max(190, ActualWidth * .45));
             monitorColumn.Width = new GridLength(monitorWidth);
         };
         monitorSplitter.DragCompleted += (_, _) => SaveSize("monitorWidth", monitorWidth);

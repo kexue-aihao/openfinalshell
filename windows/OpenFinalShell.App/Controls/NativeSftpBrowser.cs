@@ -33,6 +33,7 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
     private readonly TextBox path = new() { MinWidth = 0, Text = "/", FontSize = 12 };
     private readonly ListView entries = new() { SelectionMode = ListViewSelectionMode.Single, IsItemClickEnabled = true };
     private readonly TextBlock status = new() { TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly ProgressRing loading = new() { Width = 14, Height = 14, IsActive = false, Visibility = Visibility.Collapsed };
     private readonly Button back = new(), forward = new(), up = new(), refresh = new(), upload = new(), uploadFolder = new(), download = new(), newFolder = new(), newFile = new(), rename = new(), chmod = new(), delete = new();
     private readonly StackPanel breadcrumbs = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     private readonly NativeSftpNavigationHistory navigationHistory = new();
@@ -131,6 +132,7 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             if (args.PropertyName == nameof(SftpBrowserViewModel.Status)) status.Text = viewModel.Status;
             if (args.PropertyName == nameof(SftpBrowserViewModel.IsBusy))
             {
+                SetLoading(viewModel.IsBusy);
                 UpdateHistoryControls();
                 if (!viewModel.IsBusy) ScheduleFollow();
             }
@@ -228,25 +230,49 @@ public sealed class NativeSftpBrowser : UserControl, IDisposable
             Child = dropHint
         };
         var entriesHost = new Grid { Children = { entriesScroller, dropOverlay } };
+        var statusBar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 6,
+            Padding = new Thickness(8, 2, 8, 4),
+            Children = { loading, status }
+        };
         Content = new Grid
         {
             RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }, new RowDefinition { Height = GridLength.Auto } },
-            Children = { toolbar, breadcrumbRow, headerScroller, entriesHost, status }
+            Children = { toolbar, breadcrumbRow, headerScroller, entriesHost, statusBar }
         };
         Grid.SetRow(breadcrumbRow, 1);
-        Grid.SetRow(headerScroller, 2); Grid.SetRow(entriesHost, 3); Grid.SetRow(status, 4);
+        Grid.SetRow(headerScroller, 2); Grid.SetRow(entriesHost, 3); Grid.SetRow(statusBar, 4);
         Loaded += async (_, _) =>
         {
             if (initialized) return;
             initialized = true;
             var queuedFollow = pendingFollowPath;
             var initial = "/";
-            try { homeDirectory = initial = await session.RealPathAsync(".", CancellationToken.None); }
+            SetLoading(true);
+            try
+            {
+                var workingDirectory = await session.GetSftpWorkingDirectoryAsync(CancellationToken.None);
+                if (!string.IsNullOrWhiteSpace(workingDirectory)) homeDirectory = initial = SftpBrowserViewModel.NormalizePath(workingDirectory);
+            }
             catch { /* Some SFTP servers reject REALPATH; root remains a safe fallback. */ }
-            await NavigateAsync(initial);
+            // The SFTP client's working directory is already canonical. Going
+            // through NavigateAsync here would issue another REALPATH before
+            // the first directory listing on every newly opened session.
+            await viewModel.NavigateAsync(initial);
+            navigationHistory.Push(initial);
+            UpdateHistoryControls();
             pendingFollowPath ??= queuedFollow;
             ScheduleFollow();
         };
+    }
+
+    private void SetLoading(bool value)
+    {
+        loading.IsActive = value;
+        loading.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        if (value) status.Text = text("native.sftp.loading");
     }
 
     private void UpdateEntryPresentation(ListViewBase sender, ContainerContentChangingEventArgs args)

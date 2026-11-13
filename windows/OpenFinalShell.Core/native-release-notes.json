@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.30.59",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "加速 WinUI 3 原生版打开 SSH 连接后的 SFTP 首次加载：连接阶段提前预热独立 SFTP 通道，并复用已确定的工作目录，减少重复握手与路径解析等待",
+        "en": "Speed up the first SFTP load after opening an SSH connection in the WinUI 3 native edition by prewarming the independent SFTP channel and reusing its resolved working directory to reduce duplicate handshake and path-resolution waits"
+      },
+      {
+        "type": "feat",
+        "zh": "为 SFTP 文件管理器增加加载状态指示和多语言提示，连接或切换目录时反馈更清晰",
+        "en": "Add a loading indicator and localized status text to the SFTP file manager for clearer feedback while connecting or changing directories"
+      },
+      {
+        "type": "feat",
+        "zh": "调整 WinUI 3 原生工作区排版：监控栏位于左侧，终端位于右上方，SFTP 文件管理器位于右下方；监控栏宽度可拖动调整，编辑器继续保留在底部区域",
+        "en": "Refine the WinUI 3 native workspace layout with monitoring on the left, the terminal above the SFTP file manager on the right, a resizable monitoring column, and the editor retained in the bottom area"
+      }
+    ]
+  },
+  {
     "version": "0.30.58",
     "items": [
       {

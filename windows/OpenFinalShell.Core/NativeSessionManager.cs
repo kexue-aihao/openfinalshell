@@ -389,7 +389,14 @@ public sealed class NativeSession : IDisposable
         connection?.Resize(columns, rows);
     }
     public Task<IReadOnlyList<RemoteEntry>> ListAsync(string path, CancellationToken token) => RequireConnection().ListAsync(path, token);
+    public async Task WarmSftpAsync(CancellationToken token = default)
+    {
+        try { await RequireConnection().WarmSftpAsync(token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error) { System.Diagnostics.Debug.WriteLine($"Could not prewarm SFTP: {error.Message}"); }
+    }
     public Task<string> RealPathAsync(string path, CancellationToken token, bool requireExisting = false) => RequireConnection().RealPathAsync(path, token, requireExisting);
+    public Task<string> GetSftpWorkingDirectoryAsync(CancellationToken token) => RequireConnection().GetWorkingDirectoryAsync(token);
     public Task<RemoteEntry?> ResolveEntryAsync(string path, CancellationToken token) => RequireConnection().ResolveEntryAsync(path, token);
     public Task<NativeDeletePreview> PreviewDeleteAsync(string path, CancellationToken token) => RequireConnection().PreviewDeleteAsync(path, token);
     public Task DownloadAsync(string path, Stream destination, CancellationToken token, Action<long>? progress = null, long resumeOffset = 0) => RequireConnection().DownloadAsync(path, destination, token, progress, resumeOffset);

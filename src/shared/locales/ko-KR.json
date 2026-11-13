@@ -1365,6 +1365,7 @@
     },
     "sftp": {
       "refresh": "Refresh",
+      "loading": "로드 중…",
       "upload": "Upload",
       "uploadFolder": "Upload folder",
       "download": "Download",

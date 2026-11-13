@@ -1365,6 +1365,7 @@
     },
     "sftp": {
       "refresh": "Refresh",
+      "loading": "正在載入…",
       "upload": "Upload",
       "uploadFolder": "Upload folder",
       "download": "Download",

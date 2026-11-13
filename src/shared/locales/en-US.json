@@ -1361,6 +1361,7 @@
     },
     "sftp": {
       "refresh": "Refresh",
+      "loading": "Loading…",
       "upload": "Upload",
       "uploadFolder": "Upload folder",
       "download": "Download",

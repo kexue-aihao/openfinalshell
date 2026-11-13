@@ -203,6 +203,20 @@ public sealed class SshConnection : IDisposable
         finally { sftpGate.Release(); }
     }
 
+    public async Task<string> GetWorkingDirectoryAsync(CancellationToken token)
+    {
+        await sftpGate.WaitAsync(token);
+        try { return (await GetSftp(token)).WorkingDirectory; }
+        finally { sftpGate.Release(); }
+    }
+
+    public async Task WarmSftpAsync(CancellationToken token)
+    {
+        await sftpGate.WaitAsync(token).ConfigureAwait(false);
+        try { await GetSftp(token).ConfigureAwait(false); }
+        finally { sftpGate.Release(); }
+    }
+
     public async Task<RemoteEntry?> ResolveEntryAsync(string path, CancellationToken token)
     {
         await sftpGate.WaitAsync(token);
