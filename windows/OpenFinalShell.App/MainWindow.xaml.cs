@@ -1678,7 +1678,8 @@ public sealed partial class MainWindow : Window
     {
         if (args.ClickedItem is not NativeSnippet snippet) return;
         SelectCommandSnippet(snippet);
-        ActiveCommandComposer.Edit(snippet.Command, snippet.AutoEnter);
+        SendComposedToSessions(SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()),
+            snippet.Command, true, true, SnippetTargets.ResolveSessionIds());
     }
 
     private async Task<string?> PromptTextAsync(string title, string initial = "", string? header = null)
@@ -1750,7 +1751,7 @@ public sealed partial class MainWindow : Window
     {
         if (CommandViewModel.SelectedSnippet is not { } snippet) return;
         SendComposedToSessions(SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()),
-            snippet.Command, snippet.AutoEnter, true, SnippetTargets.ResolveSessionIds());
+            snippet.Command, true, true, SnippetTargets.ResolveSessionIds());
     }
 
     private Task ShowCommandSendAsync(string initialCommand, bool appendEnter)

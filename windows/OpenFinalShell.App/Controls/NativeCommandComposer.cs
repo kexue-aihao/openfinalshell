@@ -21,7 +21,7 @@ public sealed class NativeCommandComposer : UserControl
     };
     private readonly TextBox quickInput = new()
     {
-        AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap, FontFamily = new FontFamily("Consolas"),
+        AcceptsReturn = false, TextWrapping = TextWrapping.NoWrap, FontFamily = new FontFamily("Consolas"),
         FontSize = 12, MinWidth = 0, MinHeight = 28, Height = 28, MaxLength = 32768, Padding = new Thickness(8, 2, 8, 2)
     };
     private readonly TextBlock previewText = new() { FontFamily = new FontFamily("Consolas"), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
@@ -61,7 +61,7 @@ public sealed class NativeCommandComposer : UserControl
         save.Click += (_, _) => { options.Flyout.Hide(); saveSnippet(Command, autoEnter.IsChecked == true); };
         selectTargets.Click += (_, _) => { options.Flyout.Hide(); chooseTargets(Command, autoEnter.IsChecked == true); };
         send.Click += (_, _) => Send();
-        quickSend.Click += (_, _) => Send(currentOnly: true);
+        quickSend.Click += (_, _) => Send(currentOnly: true, forceEnter: true);
         quickHistory.Click += (_, _) => HistoryRequested?.Invoke();
         openEditor.Click += (_, _) => { revealEditor?.Invoke(); Edit(); };
         quickPreview.Click += (_, _) => { revealEditor?.Invoke(); Edit(); };
@@ -82,7 +82,7 @@ public sealed class NativeCommandComposer : UserControl
             editor.TextCompositionStarted += (_, _) => composing = true;
             editor.TextCompositionEnded += (_, _) => composing = false;
             var submit = new KeyboardAccelerator { Key = VirtualKey.Enter, Modifiers = VirtualKeyModifiers.Control };
-            submit.Invoked += (_, args) => { args.Handled = true; if (!composing) Send(currentOnly: editor == quickInput); };
+            submit.Invoked += (_, args) => { args.Handled = true; if (!composing) Send(currentOnly: editor == quickInput, forceEnter: editor == quickInput); };
             editor.KeyboardAccelerators.Add(submit);
             editor.KeyDown += (_, args) =>
             {
@@ -94,7 +94,7 @@ public sealed class NativeCommandComposer : UserControl
         {
             if (args.Key != VirtualKey.Enter || composing ||
                 (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0) return;
-            args.Handled = true; revealEditor?.Invoke(); Edit();
+            args.Handled = true; Send(currentOnly: true, forceEnter: true);
         };
         ConfigureLabels(); UpdateActions();
     }
@@ -117,7 +117,7 @@ public sealed class NativeCommandComposer : UserControl
     public void ConfigureLabels()
     {
         heading.Text = text("commandEditor.title");
-        quickInput.PlaceholderText = text("native.commands.command") + " · Ctrl+Enter";
+        quickInput.PlaceholderText = text("native.commands.command") + " · Enter";
         AutomationProperties.SetName(input, text("commandEditor.title"));
         AutomationProperties.SetName(quickInput, text("native.commands.command"));
         AutomationProperties.SetName(quickPreview, text("commandEditor.title"));
@@ -130,7 +130,7 @@ public sealed class NativeCommandComposer : UserControl
         targets.ConfigureLabels();
         quickHistory.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { new FontIcon { Glyph = "\uE81C", FontSize = 14 }, new TextBlock { Text = text("terminal.history"), FontSize = 12 } } };
         ToolTipService.SetToolTip(quickHistory, text("terminal.historyTip")); AutomationProperties.SetName(quickHistory, text("terminal.history"));
-        ToolTipService.SetToolTip(quickSend, text("commandEditor.sendHint")); AutomationProperties.SetName(quickSend, text("commandEditor.send"));
+        ToolTipService.SetToolTip(quickSend, text("native.commands.command") + " · Enter"); AutomationProperties.SetName(quickSend, text("commandEditor.send"));
         ToolTipService.SetToolTip(openEditor, heading.Text); AutomationProperties.SetName(openEditor, heading.Text);
     }
     public void RefreshTargetSessions() => targets.RefreshAvailableSessions();
@@ -156,10 +156,10 @@ public sealed class NativeCommandComposer : UserControl
         if (command != null) { input.Text = command; autoEnter.IsChecked = appendEnter; SynchronizeDraft(input, quickInput); }
         input.Focus(FocusState.Programmatic); input.SelectionStart = input.Text.Length;
     }
-    private void Send(bool currentOnly = false)
+    private void Send(bool currentOnly = false, bool forceEnter = false)
     {
         if (composing || string.IsNullOrWhiteSpace(Command) || Command.Contains('\0') ||
-            !sendCommand(Command, autoEnter.IsChecked == true, expandVariables.IsChecked == true, targets.ResolveSessionIds(currentOnly))) return;
+            !sendCommand(Command, forceEnter || autoEnter.IsChecked == true, expandVariables.IsChecked == true, targets.ResolveSessionIds(currentOnly))) return;
         input.Text = ""; SynchronizeDraft(input, quickInput); ReturnToTerminal?.Invoke();
     }
     private void ShowHistory()

@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.67',
+    items: [
+      { type: 'feat', zh: '优化 WinUI 3 原生命令操作：点击命令库条目即可在当前 SSH 会话执行，快捷输入框按 Enter 立即执行；命令库支持选择多个会话下发，并保留长命令编辑和发送功能', en: 'Improve command workflows in the WinUI 3 native app: click a library item to run it in the current SSH session, press Enter in quick input to execute, and select multiple sessions for dispatch while retaining the long-command editor' }
+    ]
+  },
+  {
     version: '0.30.66',
     items: [
       { type: 'fix', zh: '修复 WinUI 3 原生版 SSH 终端仍不显示光标的问题：改为在终端画布中绘制光标，修正输入控件首次布局，并恢复光标闪烁和位置跟随', en: 'Restore the missing SSH terminal cursor in the WinUI 3 native app by drawing it on the terminal canvas, initializing the input client layout correctly, and restoring cursor blinking and movement' }

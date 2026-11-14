@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.67",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "优化 WinUI 3 原生命令操作：点击命令库条目即可在当前 SSH 会话执行，快捷输入框按 Enter 立即执行；命令库支持选择多个会话下发，并保留长命令编辑和发送功能",
+        "en": "Improve command workflows in the WinUI 3 native app: click a library item to run it in the current SSH session, press Enter in quick input to execute, and select multiple sessions for dispatch while retaining the long-command editor"
+      }
+    ]
+  },
+  {
     "version": "0.30.66",
     "items": [
       {

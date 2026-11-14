@@ -84,6 +84,7 @@ public sealed partial class MainWindow
         SelectCommandSnippet(snippet);
         await EditSnippetAsync(snippet, false);
     }
+    private void CommandSnippetEditTapped(object sender, TappedRoutedEventArgs args) => args.Handled = true;
     private bool SendComposedToSessions(string? sessionId, string command, bool appendEnter, bool expandVariables, IReadOnlyList<string> targetSessionIds)
     {
         try
@@ -91,9 +92,14 @@ public sealed partial class MainWindow
             var selected = targetSessionIds.ToHashSet(StringComparer.Ordinal);
             var targets = ReadyCommandSessions().Where(session => selected.Contains(session.SessionId)).ToArray();
             if (targets.Length == 0) { ShowError(localization["native.commands.selectSession"]); return false; }
-            foreach (var target in targets)
+            var destinations = targets.Select(target => (Target: target, Session: sessionsManager.Get(target.SessionId))).ToArray();
+            if (destinations.Any(destination => destination.Session.Snapshot.State != NativeSessionState.Ready))
             {
-                var session = sessionsManager.Get(target.SessionId);
+                ShowError(localization["native.commands.selectSession"]);
+                return false;
+            }
+            foreach (var (target, session) in destinations)
+            {
                 var expanded = expandVariables ? NativeCommandLibrary.ExpandSnippet(command, session.Profile) : command;
                 session.Write(System.Text.Encoding.UTF8.GetBytes(expanded + (appendEnter ? "\r" : "")));
                 if (!appendEnter) continue;

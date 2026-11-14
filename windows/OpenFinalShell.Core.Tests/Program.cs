@@ -85,6 +85,19 @@ Check(barCursor == new NativeTerminalCursorGeometry(10, 20, 2, 18)
     && blockCursor == new NativeTerminalCursorGeometry(10, 20, 8, 18)
     && underlineCursor == new NativeTerminalCursorGeometry(10, 36, 8, 2),
     "Native terminal cursor geometry preserves bar, block and underline styles");
+var commandTargets = new NativeCommandTargetSelection();
+string[] availableCommandSessions = ["current", "second", "third"];
+Check(commandTargets.Resolve("current", availableCommandSessions).SequenceEqual(["current"])
+    && commandTargets.Resolve("current", availableCommandSessions, currentOnly: true).SequenceEqual(["current"]),
+    "Native command target selection defaults to the active session");
+commandTargets.UseAll();
+Check(commandTargets.Resolve("current", availableCommandSessions).SequenceEqual(availableCommandSessions)
+    && commandTargets.Resolve("current", availableCommandSessions, currentOnly: true).SequenceEqual(["current"]),
+    "Native command target selection can send to all sessions or force the active session");
+commandTargets.SetSelected(["third", "second"]);
+Check(commandTargets.Resolve("current", availableCommandSessions).SequenceEqual(["second", "third"])
+    && commandTargets.Resolve("current", ["current", "second"]).SequenceEqual(["second"]),
+    "Native command target selection fans out to checked connected sessions only");
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");
