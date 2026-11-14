@@ -29,11 +29,12 @@ public sealed partial class NativeTerminalCanvas
     {
         surface.Children.Add(textInput);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(textInput, "Native terminal input");
-        textInput.TextCompositionStarted += (_, _) => { composing = true; textInput.Opacity = 1; PositionTextInput(); PositionCursorVisual(); };
+        textInput.TextCompositionStarted += (_, _) => { composing = true; textInput.Opacity = 1; PositionTextInput(); canvas.Invalidate(); };
         textInput.TextCompositionChanged += (_, _) => PositionTextInput();
         textInput.TextCompositionEnded += (_, _) =>
         {
             composing = false; textInput.Opacity = 0;
+            canvas.Invalidate();
             // TextChanged may follow CompositionEnded in the same dispatch.
             CommitTextInput();
             DispatcherQueue.TryEnqueue(CommitTextInput);
@@ -50,9 +51,9 @@ public sealed partial class NativeTerminalCanvas
             // An interrupted composition must never execute remote input.
             ClearTextInputBuffer();
             composing = false; textInput.Opacity = 0;
-            PositionCursorVisual();
+            canvas.Invalidate();
         };
-        textInput.GotFocus += (_, _) => { cursorOn = true; PositionCursorVisual(); };
+        textInput.GotFocus += (_, _) => { cursorOn = true; canvas.Invalidate(); };
         GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
     }
     private void FocusTextInput(FocusState state)
@@ -77,7 +78,7 @@ public sealed partial class NativeTerminalCanvas
         { x += Math.Max(0, ofs_terminal_cursor_col(parser)) * cellWidth; y += Math.Max(0, ofs_terminal_cursor_row(parser)) * cellHeight; }
         x = Math.Clamp(x, 0, Math.Max(0, ActualWidth - 20));
         y = Math.Clamp(y, 0, Math.Max(0, ActualHeight - cellHeight));
-        if (Math.Abs(lastInputX - x) > .01 || Math.Abs(lastInputY - y) > .01)
+        if (NativeTerminalCursorLayout.HasChanged(lastInputX, x) || NativeTerminalCursorLayout.HasChanged(lastInputY, y))
         {
             textInput.Margin = new Thickness(x, y, 0, 0);
             lastInputX = x; lastInputY = y;
@@ -86,14 +87,14 @@ public sealed partial class NativeTerminalCanvas
         // over the terminal's selectable text. Expand only for IME composition.
         var width = composing ? Math.Max(20, Math.Min(320, ActualWidth - x)) : 1;
         var height = Math.Max(20, cellHeight + 4);
-        if (Math.Abs(lastInputWidth - width) > .01) { textInput.Width = width; lastInputWidth = width; }
-        if (Math.Abs(lastInputHeight - height) > .01) { textInput.Height = height; lastInputHeight = height; }
+        if (NativeTerminalCursorLayout.HasChanged(lastInputWidth, width)) { textInput.Width = width; lastInputWidth = width; }
+        if (NativeTerminalCursorLayout.HasChanged(lastInputHeight, height)) { textInput.Height = height; lastInputHeight = height; }
         if (!string.Equals(lastInputFont, textFormat.FontFamily, StringComparison.Ordinal))
         {
             textInput.FontFamily = new FontFamily(textFormat.FontFamily);
             lastInputFont = textFormat.FontFamily;
         }
-        if (Math.Abs(lastInputFontSize - textFormat.FontSize) > .01)
+        if (NativeTerminalCursorLayout.HasChanged(lastInputFontSize, textFormat.FontSize))
         {
             textInput.FontSize = textFormat.FontSize;
             lastInputFontSize = textFormat.FontSize;

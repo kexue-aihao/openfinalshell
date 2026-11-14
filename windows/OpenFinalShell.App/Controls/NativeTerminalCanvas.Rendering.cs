@@ -1,6 +1,7 @@
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using OpenFinalShell.Core;
 using System.Diagnostics;
 using System.Numerics;
 using System.Text;
@@ -67,6 +68,22 @@ public sealed partial class NativeTerminalCanvas
         var bottom = SnapToPhysicalPixel(4 + (row + 1) * cellHeight);
         var minimum = 1d / DrawingScale;
         return new Rect(left, top, Math.Max(minimum, right - left), Math.Max(minimum, bottom - top));
+    }
+
+    private void RenderTerminalCursor(CanvasDrawingSession session)
+    {
+        if (parser == 0 || !NativeTerminalCursorLayout.ShouldDraw(
+                terminalActive, scrollOffset == 0, cursorOn, composing)) return;
+        var row = ofs_terminal_cursor_row(parser);
+        var column = ofs_terminal_cursor_col(parser);
+        if (row < 0 || column < 0 || row >= ScreenRows || column >= ScreenColumns) return;
+
+        var cell = CellSpanRect(row, column, 1);
+        var style = NativeSettings.ReadPath(preferences, "cursorStyle", "bar");
+        var cursor = NativeTerminalCursorLayout.ForCell(cell.X, cell.Y, cell.Width, cell.Height, style);
+        var bounds = new Rect(cursor.X, cursor.Y, cursor.Width, cursor.Height);
+        if (style == "block") session.DrawRectangle(bounds, terminalCursor, (float)(1d / DrawingScale));
+        else session.FillRectangle(bounds, terminalCursor);
     }
 
     private void RenderTerminalRow(CanvasDrawingSession session, int row, int line, int scrollback, int columns)

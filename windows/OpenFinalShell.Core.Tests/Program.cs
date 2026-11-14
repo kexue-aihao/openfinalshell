@@ -1,5 +1,6 @@
 using OpenFinalShell.Core;
 using OpenFinalShell.Core.Tests;
+using OpenFinalShell.App;
 using Microsoft.Data.Sqlite;
 using System.Buffers.Binary;
 using System.Security.Cryptography;
@@ -66,6 +67,24 @@ void Reject(Action action, string name) { try { action(); } catch { Check(true, 
 async Task RejectAsync(Func<Task> action, string name) { try { await action(); } catch { Check(true, name); return; } throw new Exception(name); }
 await NativeFileUpdateTests.RunAsync(Check, root);
 NativeEditorLanguageTests.Run(Check);
+Check(NativeTerminalCursorLayout.HasChanged(double.NaN, 24)
+    && NativeTerminalCursorLayout.HasChanged(double.NaN, 18)
+    && !NativeTerminalCursorLayout.HasChanged(24, 24.001)
+    && NativeTerminalCursorLayout.HasChanged(24, 24.02),
+    "Native terminal layout cache initializes NaN values and ignores subpixel noise");
+Check(NativeTerminalCursorLayout.ShouldDraw(true, true, true, false)
+    && !NativeTerminalCursorLayout.ShouldDraw(false, true, true, false)
+    && !NativeTerminalCursorLayout.ShouldDraw(true, false, true, false)
+    && !NativeTerminalCursorLayout.ShouldDraw(true, true, false, false)
+    && !NativeTerminalCursorLayout.ShouldDraw(true, true, true, true),
+    "Native terminal cursor visibility follows active, scroll, blink and composition state without focus gating");
+var barCursor = NativeTerminalCursorLayout.ForCell(10, 20, 8, 18, "bar");
+var blockCursor = NativeTerminalCursorLayout.ForCell(10, 20, 8, 18, "block");
+var underlineCursor = NativeTerminalCursorLayout.ForCell(10, 20, 8, 18, "underline");
+Check(barCursor == new NativeTerminalCursorGeometry(10, 20, 2, 18)
+    && blockCursor == new NativeTerminalCursorGeometry(10, 20, 8, 18)
+    && underlineCursor == new NativeTerminalCursorGeometry(10, 36, 8, 2),
+    "Native terminal cursor geometry preserves bar, block and underline styles");
 Check(OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 7, 9, 25, 30), "zh-CN") == "2026/11/7周六 上午 09:25:30"
     && OpenFinalShell.App.Controls.SftpTimestamp.Format(new DateTime(2026, 11, 8, 13, 2, 3), "zh-CN") == "2026/11/8周日 下午 01:02:03",
     "SFTP timestamps display the exact Chinese date, weekday, period and seconds");

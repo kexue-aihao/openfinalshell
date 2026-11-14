@@ -4,6 +4,7 @@
  <ItemGroup><Compile Include="../OpenFinalShell.App/Controls/SftpTimestamp.cs" Link="SftpTimestamp.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/NativeAccessibilityGuard.cs" Link="NativeAccessibilityGuard.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/NativeTerminalTextContrast.cs" Link="NativeTerminalTextContrast.cs" /></ItemGroup>
+ <ItemGroup><Compile Include="../OpenFinalShell.App/NativeTerminalCursorLayout.cs" Link="NativeTerminalCursorLayout.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/NativeCommandEditorLayout.cs" Link="NativeCommandEditorLayout.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/ViewModels/BulkObservableCollection.cs" Link="BulkObservableCollection.cs" /></ItemGroup>
  <ItemGroup><Compile Include="../OpenFinalShell.App/ViewModels/TransferQueueViewModel.cs" Link="TransferQueueViewModel.cs" /></ItemGroup>

@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.66',
+    items: [
+      { type: 'fix', zh: '修复 WinUI 3 原生版 SSH 终端仍不显示光标的问题：改为在终端画布中绘制光标，修正输入控件首次布局，并恢复光标闪烁和位置跟随', en: 'Restore the missing SSH terminal cursor in the WinUI 3 native app by drawing it on the terminal canvas, initializing the input client layout correctly, and restoring cursor blinking and movement' }
+    ]
+  },
+  {
     version: '0.30.65',
     items: [
       { type: 'fix', zh: '修复终端输入光标被输入控件遮挡的问题；SSH 连接后保持当前页面，不再自动展开命令库和命令编辑器', en: 'Keep the terminal cursor visible above its input client, and stop switching to and opening the command library and editor after SSH connects' }

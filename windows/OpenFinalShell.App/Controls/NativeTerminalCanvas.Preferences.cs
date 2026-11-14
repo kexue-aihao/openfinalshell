@@ -32,7 +32,6 @@ public sealed partial class NativeTerminalCanvas
     private Color terminalBackground = Colors.Black, terminalForeground = Colors.Gainsboro, terminalCursor = Colors.White;
     private readonly SolidColorBrush terminalBackgroundBrush = new(Colors.Black);
     private readonly SolidColorBrush terminalForegroundBrush = new(Colors.Gainsboro);
-    private readonly SolidColorBrush terminalCursorBrush = new(Colors.White);
     private Color[]? ansiPalette;
     private JsonObject preferences = new();
     private Func<string, string> localize = key => key;
@@ -45,8 +44,6 @@ public sealed partial class NativeTerminalCanvas
     private ElementTheme lastConfiguredTheme;
     private double lastInputX = double.NaN, lastInputY = double.NaN;
     private double lastInputWidth = double.NaN, lastInputHeight = double.NaN;
-    private double lastCursorX = double.NaN, lastCursorY = double.NaN;
-    private double lastCursorWidth = double.NaN, lastCursorHeight = double.NaN;
     private string lastInputFont = string.Empty;
     private double lastInputFontSize = double.NaN;
     public event Action? HistoryRequested;
@@ -74,7 +71,6 @@ public sealed partial class NativeTerminalCanvas
         }
         terminalBackgroundBrush.Color = terminalBackground;
         terminalForegroundBrush.Color = terminalForeground;
-        terminalCursorBrush.Color = terminalCursor;
         textInput.Background = terminalBackgroundBrush;
         textInput.Foreground = terminalForegroundBrush;
         canvas.ClearColor = terminalBackground;
@@ -89,42 +85,9 @@ public sealed partial class NativeTerminalCanvas
     {
         if (!terminalActive || !IsLoaded || Visibility != Visibility.Visible) return;
         cursorOn = !cursorOn;
-        PositionCursorVisual();
+        canvas.Invalidate();
     }
-    private void UpdateTerminalOverlays()
-    {
-        PositionTextInput();
-        PositionCursorVisual();
-    }
-    private void PositionCursorVisual()
-    {
-        if (!terminalActive || parser == 0 || scrollOffset > 0 || !cursorOn || composing ||
-            textInput.FocusState == FocusState.Unfocused)
-        {
-            cursorVisual.Visibility = Visibility.Collapsed;
-            return;
-        }
-        var cursorRow = ofs_terminal_cursor_row(parser);
-        var cursorColumn = ofs_terminal_cursor_col(parser);
-        if (cursorRow < 0 || cursorColumn < 0 || cursorRow >= ScreenRows || cursorColumn >= ScreenColumns)
-        {
-            cursorVisual.Visibility = Visibility.Collapsed;
-            return;
-        }
-        var bounds = CellSpanRect(cursorRow, cursorColumn, 1);
-        var style = NativeSettings.ReadPath(preferences, "cursorStyle", "bar");
-        var x = bounds.X;
-        var y = bounds.Y;
-        var width = style == "block" ? bounds.Width : 2;
-        var height = style == "underline" ? 2 : bounds.Height;
-        if (style == "underline") y = bounds.Bottom - height;
-        if (Math.Abs(lastCursorX - x) > .01) { cursorVisual.Margin = new Thickness(x, cursorVisual.Margin.Top, 0, 0); lastCursorX = x; }
-        if (Math.Abs(lastCursorY - y) > .01) { cursorVisual.Margin = new Thickness(cursorVisual.Margin.Left, y, 0, 0); lastCursorY = y; }
-        if (Math.Abs(lastCursorWidth - width) > .01) { cursorVisual.Width = width; lastCursorWidth = width; }
-        if (Math.Abs(lastCursorHeight - height) > .01) { cursorVisual.Height = height; lastCursorHeight = height; }
-        cursorVisual.Background = terminalCursorBrush;
-        cursorVisual.Visibility = Visibility.Visible;
-    }
+    private void UpdateTerminalOverlays() => PositionTextInput();
     private static Color ParseColor(string? value, Color fallback) => value is { Length: 7 } && value[0] == '#' && uint.TryParse(value.AsSpan(1), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb)
         ? Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb) : fallback;
     private void ApplyScrollbackLimit()

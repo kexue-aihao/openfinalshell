@@ -21,15 +21,6 @@ namespace OpenFinalShell.App.Controls;
 public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 {
     private readonly CanvasControl canvas = new();
-    private readonly Border cursorVisual = new()
-    {
-        Width = 2,
-        Height = 1,
-        HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Top,
-        IsHitTestVisible = false,
-        Visibility = Visibility.Collapsed
-    };
     private readonly TextBlock accessibleScreen = new()
     {
         Width = 1, Height = 1, Opacity = 0.01, IsHitTestVisible = false,
@@ -37,7 +28,6 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     };
     private nint parser;
     private readonly CanvasTextFormat textFormat = new() { FontFamily = "Cascadia Mono", FontSize = 14, WordWrapping = CanvasWordWrapping.NoWrap };
-    private readonly CanvasTextFormat cursorTextFormat = new() { FontFamily = "Cascadia Mono", FontSize = 14, WordWrapping = CanvasWordWrapping.NoWrap };
     private readonly uint[] codepointBuffer = new uint[16];
     private long? submittedAt;
     private readonly byte[] generatedOutputBuffer = new byte[64 * 1024];
@@ -92,9 +82,6 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         surface.Children.Add(canvas);
         surface.Children.Add(accessibleScreen);
         InitializeTextInput(surface);
-        // Keep the custom terminal cursor above the invisible TSF TextBox;
-        // the focused input client can otherwise paint over the cursor cell.
-        surface.Children.Add(cursorVisual);
         Content = surface;
         canvas.ClearColor = Colors.Black;
         canvas.Draw += DrawTerminal;
@@ -148,7 +135,6 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         blinkTimer?.Stop();
         accessibilityTimer?.Stop();
         accessibilityTimer = null;
-        cursorVisual.Visibility = Visibility.Collapsed;
         ReleaseParser();
     }
     private void ReleaseParser()
@@ -180,12 +166,10 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         lock (inactiveOutputGate)
         {
             terminalActive = active;
-            if (!active)
-            {
-                cursorVisual.Visibility = Visibility.Collapsed;
-                return;
-            }
+            if (!active) return;
         }
+        cursorOn = true;
+        canvas.Invalidate();
         _ = DrainInactiveOutputAsync();
     }
 
@@ -278,6 +262,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             var line = firstLine + row;
             RenderTerminalRow(args.DrawingSession, row, line, scrollback, columns);
         }
+        RenderTerminalCursor(args.DrawingSession);
         UpdateTerminalOverlays();
     }
 
