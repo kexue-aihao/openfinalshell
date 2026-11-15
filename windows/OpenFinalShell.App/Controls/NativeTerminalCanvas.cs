@@ -33,6 +33,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private readonly byte[] generatedOutputBuffer = new byte[64 * 1024];
     private readonly Stopwatch automationUpdateClock = Stopwatch.StartNew();
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? accessibilityTimer;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? renderTimer;
     private NativeTerminalSnapshotCell[] visibleSnapshot = new NativeTerminalSnapshotCell[1];
     private NativeTerminalSnapshotCell[] screenSnapshot = new NativeTerminalSnapshotCell[1];
     private NativeTerminalSnapshotCell[] scrollbackSnapshot = new NativeTerminalSnapshotCell[1];
@@ -78,7 +79,17 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         : NativeAiAnswer.PrepareTerminalPaste(value, BracketedPasteEnabled).Issue;
     public int Columns => lastColumns;
     public int Rows => lastRows;
-    public bool HasInputFocus => textInput.FocusState != FocusState.Unfocused;
+    // The outer control can retain focus while the native text input client
+    // has not acquired it. Focus retries must observe the actual text client.
+    public bool HasInputFocus
+    {
+        get
+        {
+            var xamlRoot = XamlRoot;
+            return xamlRoot != null && textInput.FocusState != FocusState.Unfocused &&
+                ReferenceEquals(Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(xamlRoot), textInput);
+        }
+    }
 
     public NativeTerminalCanvas()
     {
@@ -89,6 +100,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         Content = surface;
         canvas.ClearColor = Colors.Black;
         canvas.Draw += DrawTerminal;
+        canvas.CreateResources += (_, _) => ClearTerminalTextLayoutCache();
         Loaded += (_, _) => EnsureParser();
         PreviewKeyDown += OnKeyDown;
         CharacterReceived += OnCharacterReceived;
@@ -141,7 +153,10 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         }
         blinkTimer?.Stop();
         accessibilityTimer?.Stop();
+        renderTimer?.Stop();
         accessibilityTimer = null;
+        renderTimer = null;
+        ClearTerminalTextLayoutCache();
         ReleaseParser();
     }
     private void ReleaseParser()
@@ -207,6 +222,24 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         }
     }
 
+    private void RequestTerminalRender()
+    {
+        if (terminalDisposed) return;
+        if (renderTimer == null)
+        {
+            renderTimer = DispatcherQueue.CreateTimer();
+            renderTimer.IsRepeating = false;
+            renderTimer.Tick += (sender, _) =>
+            {
+                sender.Stop();
+                if (!terminalDisposed) canvas.Invalidate();
+            };
+        }
+        if (renderTimer.IsRunning) return;
+        renderTimer.Interval = TimeSpan.FromMilliseconds(33);
+        renderTimer.Start();
+    }
+
     private async Task DrainOutputQueueAsync()
     {
         var reschedule = false;
@@ -240,7 +273,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         {
             if (!terminalDisposed && parser != 0)
             {
-                canvas.Invalidate();
+                RequestTerminalRender();
                 UpdateAccessibleText();
             }
             lock (inactiveOutputGate)
@@ -347,10 +380,41 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         if (snapshot.Valid == 0 || snapshot.CodepointCount == 0) return string.Empty;
         var result = new StringBuilder(snapshot.CodepointCount);
-        for (var index = 0; index < snapshot.CodepointCount; index++)
-            result.Append(ToSafeText(snapshot.CodepointAt(index)));
+        AppendSnapshotText(result, snapshot);
         return result.ToString();
     }
+
+    private static bool HasSnapshotText(NativeTerminalSnapshotCell snapshot)
+    {
+        if (snapshot.Valid == 0 || snapshot.CodepointCount == 0 ||
+            (snapshot.CodepointCount == 1 && snapshot.Codepoint0 == ' ')) return false;
+
+        for (var index = 0; index < snapshot.CodepointCount; index++)
+            if (IsSafeCodepoint(snapshot.CodepointAt(index))) return true;
+        return false;
+    }
+
+    private static void AppendSnapshotText(StringBuilder destination, NativeTerminalSnapshotCell snapshot)
+    {
+        for (var index = 0; index < snapshot.CodepointCount; index++)
+        {
+            var value = snapshot.CodepointAt(index);
+            if (!IsSafeCodepoint(value)) continue;
+            if (value <= 0xFFFF)
+            {
+                destination.Append((char)value);
+                continue;
+            }
+
+            var scalar = (int)value - 0x10000;
+            destination.Append((char)(0xD800 + (scalar >> 10)));
+            destination.Append((char)(0xDC00 + (scalar & 0x3FF)));
+        }
+    }
+
+    private static bool IsSafeCodepoint(uint value) =>
+        value <= 0x10FFFF && value is not (>= 0xD800 and <= 0xDFFF) &&
+        (value & 0xFFFF) is not (0xFFFE or 0xFFFF);
 
     private bool TryReadLogicalCell(int line, int column, out NativeTerminalSnapshotCell cell)
     {
@@ -369,11 +433,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         if ((type & 0x06) != 0) return fallback;
         if ((type & 0x01) == 0) return Windows.UI.Color.FromArgb(255, r, g, b);
-        var palette = index < 16 ? new[] {
-            Colors.Black, Colors.Maroon, Colors.Green, Colors.Olive, Colors.Navy, Colors.Purple, Colors.Teal, Colors.Silver,
-            Colors.Gray, Colors.Red, Colors.Lime, Colors.Yellow, Colors.Blue, Colors.Magenta, Colors.Cyan, Colors.White
-        } : null;
-        if (palette != null) return ansiPalette?[index] ?? palette[index];
+        if (index < 16) return ansiPalette?[index] ?? DefaultAnsiPalette[index];
         if (index >= 232) { var v = (byte)(8 + (index - 232) * 10); return Windows.UI.Color.FromArgb(255, v, v, v); }
         var n = index - 16; var rr = (byte)((n / 36) == 0 ? 0 : 55 + (n / 36 - 1) * 40); var gg = (byte)(((n / 6) % 6) == 0 ? 0 : 55 + ((n / 6) % 6 - 1) * 40); var bb = (byte)((n % 6) == 0 ? 0 : 55 + (n % 6 - 1) * 40);
         return Windows.UI.Color.FromArgb(255, rr, gg, bb);
@@ -414,11 +474,24 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 
     private void OnCharacterReceived(UIElement sender, Microsoft.UI.Xaml.Input.CharacterReceivedRoutedEventArgs args)
     {
-        // Focused TextBox input is forwarded by TextChanged. This handler is
-        // only a fallback for characters delivered directly to the canvas.
-        if (composing || textInput.FocusState != FocusState.Unfocused) return;
+        // TextBox input is normally forwarded by TextChanged. If WinUI routed
+        // a character here but the hidden native text client did not commit it,
+        // defer the fallback until the current routed event finishes. A revision
+        // check avoids sending a duplicate when TextChanged handled the key.
+        if (composing) return;
+        var revision = textInputRevision;
         var value = args.Character;
-        if (char.IsHighSurrogate(value)) { pendingHighSurrogate = value; args.Handled = true; return; }
+        var modifiers = CurrentModifiers() & 3;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!composing && textInputRevision == revision) ForwardCharacter(value, modifiers);
+        });
+        args.Handled = true;
+    }
+
+    private void ForwardCharacter(char value, int modifiers)
+    {
+        if (char.IsHighSurrogate(value)) { pendingHighSurrogate = value; return; }
         if (char.IsLowSurrogate(value))
         {
             if (pendingHighSurrogate is { } high)
@@ -427,16 +500,15 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
                 pendingHighSurrogate = null;
             }
             ClearTextInputBuffer();
-            args.Handled = true; return;
+            return;
         }
         if (pendingHighSurrogate != null)
         {
             SendCodepoint(0xfffd, 0);
             pendingHighSurrogate = null;
         }
-        if (!char.IsControl(value)) SendCodepoint(value, CurrentModifiers() & 3);
+        if (!char.IsControl(value)) SendCodepoint(value, modifiers);
         ClearTextInputBuffer();
-        args.Handled = true;
     }
 
     private void ClearTextInputBuffer()
@@ -938,7 +1010,8 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
                     for (var col = 0; col < columns; col++)
                     {
                         var snapshot = screenSnapshot[row * columns + col];
-                        line.Append(snapshot.Valid == 0 || snapshot.Cell.CodePoint == 0 ? " " : ReadSnapshotText(snapshot));
+                        if (snapshot.Valid == 0 || snapshot.Cell.CodePoint == 0) line.Append(' ');
+                        else AppendSnapshotText(line, snapshot);
                     }
                 }
                 submittedAt = null;
@@ -949,7 +1022,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             DrainGeneratedOutput();
             if (requestRender)
             {
-                canvas.Invalidate();
+                RequestTerminalRender();
                 UpdateAccessibleText();
             }
         }
@@ -983,7 +1056,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             {
                 var snapshot = screenSnapshot[row * cols + col];
                 if (snapshot.Valid == 0) continue;
-                result.Append(ReadSnapshotText(snapshot));
+                AppendSnapshotText(result, snapshot);
             }
         }
         accessibleScreen.Text = result.ToString().TrimEnd();

@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.69',
+    items: [
+      { type: 'fix', zh: '修复 SSH 连接后焦点重试误判终端已就绪的问题；优化 ANSI 高频输出渲染，移除逐单元格调色板和文本分配造成的卡顿', en: 'Fix terminal focus retries that could mistake the outer control for a ready input client, and reduce ANSI-heavy rendering stalls by removing per-cell palette and text allocations' }
+    ]
+  },
+  {
     version: '0.30.68',
     items: [
       { type: 'fix', zh: '修复 SSH 会话建立后终端未立即获得输入焦点的问题，并限制高频终端输出的 UI 处理批次，避免窗口卡死', en: 'Fix SSH sessions not accepting input until the terminal is clicked, and bound high-frequency terminal output work to keep the native window responsive' }

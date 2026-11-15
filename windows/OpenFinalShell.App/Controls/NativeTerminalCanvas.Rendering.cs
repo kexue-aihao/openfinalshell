@@ -1,6 +1,7 @@
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.UI;
 using OpenFinalShell.Core;
 using System.Diagnostics;
 using System.Numerics;
@@ -42,6 +43,24 @@ public sealed partial class NativeTerminalCanvas
     private readonly List<TerminalTextRun> terminalTextRuns = [];
     private readonly List<TerminalDecorationSpan> terminalDecorationSpans = [];
     private readonly StringBuilder terminalTextRunBuffer = new();
+    private const int MaximumCachedTextLayouts = 256;
+    private const int MaximumCachedTextLayoutCharacters = 64 * 1024;
+    private readonly record struct TerminalTextLayoutKey(
+        string Text, bool Bold, bool Italic, string FontFamily,
+        int FontSizeBits, int WidthBits, int HeightBits);
+    private readonly LinkedList<(TerminalTextLayoutKey Key, CanvasTextLayout Layout)> textLayoutLru = [];
+    private readonly Dictionary<TerminalTextLayoutKey,
+        LinkedListNode<(TerminalTextLayoutKey Key, CanvasTextLayout Layout)>> textLayoutCache = [];
+    private int cachedTextLayoutCharacters;
+    private readonly Dictionary<(TerminalRgbColor Foreground, TerminalRgbColor Background, bool DefaultForeground), TerminalRgbColor>
+        terminalContrastCache = [];
+    private static readonly Color[] DefaultAnsiPalette =
+    [
+        Colors.Black, Colors.Maroon, Colors.Green, Colors.Olive,
+        Colors.Navy, Colors.Purple, Colors.Teal, Colors.Silver,
+        Colors.Gray, Colors.Red, Colors.Lime, Colors.Yellow,
+        Colors.Blue, Colors.Magenta, Colors.Cyan, Colors.White
+    ];
     private const float MinimumHorizontalTextScale = 0.75f;
     private const float MaximumHorizontalTextScale = 1.25f;
 
@@ -84,6 +103,76 @@ public sealed partial class NativeTerminalCanvas
         var bounds = new Rect(cursor.X, cursor.Y, cursor.Width, cursor.Height);
         if (style == "block") session.DrawRectangle(bounds, terminalCursor, (float)(1d / DrawingScale));
         else session.FillRectangle(bounds, terminalCursor);
+    }
+
+    private CanvasTextLayout GetTextLayout(TerminalTextRun run, Rect bounds, out bool disposeAfterDraw)
+    {
+        var width = (float)bounds.Width;
+        var height = (float)bounds.Height;
+        var key = new TerminalTextLayoutKey(
+            run.Text, run.Style.Bold, run.Style.Italic, textFormat.FontFamily,
+            BitConverter.SingleToInt32Bits(textFormat.FontSize),
+            BitConverter.SingleToInt32Bits(width), BitConverter.SingleToInt32Bits(height));
+        if (textLayoutCache.TryGetValue(key, out var cached))
+        {
+            textLayoutLru.Remove(cached);
+            textLayoutLru.AddFirst(cached);
+            disposeAfterDraw = false;
+            return cached.Value.Layout;
+        }
+
+        textFormat.FontWeight = run.Style.Bold
+            ? Microsoft.UI.Text.FontWeights.Bold
+            : Microsoft.UI.Text.FontWeights.Normal;
+        textFormat.FontStyle = run.Style.Italic
+            ? Windows.UI.Text.FontStyle.Italic
+            : Windows.UI.Text.FontStyle.Normal;
+        var layout = new CanvasTextLayout(
+            CanvasDevice.GetSharedDevice(), run.Text, textFormat, width, height)
+        {
+            WordWrapping = CanvasWordWrapping.NoWrap,
+            HorizontalAlignment = CanvasHorizontalAlignment.Left
+        };
+
+        if (run.Text.Length > 512 || run.Text.Length > MaximumCachedTextLayoutCharacters)
+        {
+            disposeAfterDraw = true;
+            return layout;
+        }
+
+        while (textLayoutLru.Count >= MaximumCachedTextLayouts ||
+               cachedTextLayoutCharacters + run.Text.Length > MaximumCachedTextLayoutCharacters)
+        {
+            var leastRecentlyUsed = textLayoutLru.Last!;
+            textLayoutCache.Remove(leastRecentlyUsed.Value.Key);
+            cachedTextLayoutCharacters -= leastRecentlyUsed.Value.Key.Text.Length;
+            leastRecentlyUsed.Value.Layout.Dispose();
+            textLayoutLru.RemoveLast();
+        }
+        var entry = textLayoutLru.AddFirst((key, layout));
+        textLayoutCache.Add(key, entry);
+        cachedTextLayoutCharacters += run.Text.Length;
+        disposeAfterDraw = false;
+        return layout;
+    }
+
+    private void ClearTerminalTextLayoutCache()
+    {
+        foreach (var entry in textLayoutLru) entry.Layout.Dispose();
+        textLayoutLru.Clear();
+        textLayoutCache.Clear();
+        cachedTextLayoutCharacters = 0;
+    }
+
+    private TerminalRgbColor ResolveTerminalForeground(
+        TerminalRgbColor foreground, TerminalRgbColor background, bool usesDefaultForeground)
+    {
+        var key = (foreground, background, usesDefaultForeground);
+        if (terminalContrastCache.TryGetValue(key, out var cached)) return cached;
+        if (terminalContrastCache.Count >= 4096) terminalContrastCache.Clear();
+        var resolved = NativeTerminalTextContrast.Resolve(foreground, background, usesDefaultForeground);
+        terminalContrastCache[key] = resolved;
+        return resolved;
     }
 
     private void RenderTerminalRow(CanvasDrawingSession session, int row, int line, int scrollback, int columns)
@@ -153,8 +242,7 @@ public sealed partial class NativeTerminalCanvas
             }
             if (cell.CodePoint == 0xFFFFFFFFu) continue;
 
-            var cellText = ReadSnapshotText(snapshot);
-            if (string.IsNullOrEmpty(cellText) || cellText == " ")
+            if (!HasSnapshotText(snapshot))
             {
                 FlushTextRun();
                 continue;
@@ -164,7 +252,7 @@ public sealed partial class NativeTerminalCanvas
             var reverse = (cell.Attributes & 8) != 0;
             if (reverse)
                 foreground = ResolveColor(cell.BgType, cell.BgR, cell.BgG, cell.BgB, cell.BgIndex, terminalBackground);
-            var adjustedForeground = NativeTerminalTextContrast.Resolve(
+            var adjustedForeground = ResolveTerminalForeground(
                 ToTerminalRgb(foreground),
                 ToTerminalRgb(background),
                 NativeTerminalTextContrast.UsesDefaultForeground(cell.FgType, cell.BgType, reverse));
@@ -188,7 +276,7 @@ public sealed partial class NativeTerminalCanvas
                 activeStart = column;
                 activeWide = wide;
             }
-            terminalTextRunBuffer.Append(cellText);
+            AppendSnapshotText(terminalTextRunBuffer, snapshot);
             activeCells += span;
         }
         FlushTextRun();
@@ -203,33 +291,38 @@ public sealed partial class NativeTerminalCanvas
         foreach (var run in terminalTextRuns)
         {
             var bounds = CellSpanRect(row, run.StartColumn, run.CellCount);
-            textFormat.FontWeight = run.Style.Bold ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.Normal;
-            textFormat.FontStyle = run.Style.Italic ? Windows.UI.Text.FontStyle.Italic : Windows.UI.Text.FontStyle.Normal;
-            using var layout = new CanvasTextLayout(
-                CanvasDevice.GetSharedDevice(), run.Text, textFormat, (float)bounds.Width, (float)bounds.Height)
-            {
-                WordWrapping = CanvasWordWrapping.NoWrap,
-                HorizontalAlignment = CanvasHorizontalAlignment.Left
-            };
-            var naturalWidth = layout.LayoutBounds.Width;
-            var horizontalScale = ResolveHorizontalTextScale((float)bounds.Width, (float)naturalWidth);
-            var savedTransform = session.Transform;
-            using var clip = session.CreateLayer(1f, bounds);
+            var layout = GetTextLayout(run, bounds, out var disposeAfterDraw);
             try
             {
-                if (Math.Abs(horizontalScale - 1f) > 0.0001f)
+                var naturalWidth = layout.LayoutBounds.Width;
+                var horizontalScale = ResolveHorizontalTextScale((float)bounds.Width, (float)naturalWidth);
+                var savedTransform = session.Transform;
+                if (Math.Abs(horizontalScale - 1f) <= 0.0001f && naturalWidth <= bounds.Width)
                 {
-                    session.Transform =
-                        Matrix3x2.CreateTranslation(-(float)bounds.X, -(float)bounds.Y) *
-                        Matrix3x2.CreateScale(horizontalScale, 1f) *
-                        Matrix3x2.CreateTranslation((float)bounds.X, (float)bounds.Y) *
-                        savedTransform;
+                    session.DrawTextLayout(layout, new Vector2((float)bounds.X, (float)bounds.Y), run.Style.Foreground);
+                    continue;
                 }
-                session.DrawTextLayout(layout, new Vector2((float)bounds.X, (float)bounds.Y), run.Style.Foreground);
+                using var clip = session.CreateLayer(1f, bounds);
+                try
+                {
+                    if (Math.Abs(horizontalScale - 1f) > 0.0001f)
+                    {
+                        session.Transform =
+                            Matrix3x2.CreateTranslation(-(float)bounds.X, -(float)bounds.Y) *
+                            Matrix3x2.CreateScale(horizontalScale, 1f) *
+                            Matrix3x2.CreateTranslation((float)bounds.X, (float)bounds.Y) *
+                            savedTransform;
+                    }
+                    session.DrawTextLayout(layout, new Vector2((float)bounds.X, (float)bounds.Y), run.Style.Foreground);
+                }
+                finally
+                {
+                    session.Transform = savedTransform;
+                }
             }
             finally
             {
-                session.Transform = savedTransform;
+                if (disposeAfterDraw) layout.Dispose();
             }
         }
 

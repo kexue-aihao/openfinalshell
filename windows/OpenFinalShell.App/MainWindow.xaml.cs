@@ -921,6 +921,7 @@ public sealed partial class MainWindow : Window
                     CreateSessionTerminalTab(profile, existing.SessionId, terminal);
                 }
                 RecordSuccessfulConnection(profile.Id);
+                FocusSessionTerminalWhenReady(existing.SessionId);
                 return;
             }
             var initialTerminal = new Controls.NativeTerminalCanvas { Margin = new Thickness(8, 4, 0, 4) };
@@ -1037,6 +1038,7 @@ public sealed partial class MainWindow : Window
             sessionOutputSinks[snapshot.SessionId] = terminalSink;
             CreateSessionTerminalTab(profile, snapshot.SessionId, initialTerminal);
             RecordSuccessfulConnection(profile.Id);
+            FocusSessionTerminalWhenReady(snapshot.SessionId);
             Status.Text = $"{profile.Host}:{profile.Port} · {localization["native.connected"]}";
         }
         catch (Exception error) { ShowError(error); }
@@ -1103,7 +1105,14 @@ public sealed partial class MainWindow : Window
         if (profile.Data["options"]?["monitorEnabled"]?.GetValue<bool>() ?? true)
             content.ToggleMonitor(true);
         RefreshAiTargets();
-        FocusTerminalWhenReady(tab, content, terminal);
+    }
+
+    private void FocusSessionTerminalWhenReady(string sessionId)
+    {
+        if (sessionTabs.TryGetValue(sessionId, out var tab) &&
+            sessionWorkspaces.TryGetValue(sessionId, out var workspace) &&
+            sessionTerminals.TryGetValue(sessionId, out var terminal))
+            FocusTerminalWhenReady(tab, workspace, terminal);
     }
 
     private void FocusTerminalWhenReady(TabViewItem tab, Controls.NativeSessionWorkspace workspace,

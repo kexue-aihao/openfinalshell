@@ -15,7 +15,7 @@ public sealed partial class NativeTerminalCanvas
     {
         HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
         MinWidth = 1, MinHeight = 1, Width = 100, Height = 24,
-        Padding = new(0), BorderThickness = new(0), Opacity = 0,
+        Padding = new(0), BorderThickness = new(0), Opacity = 0.01,
         UseSystemFocusVisuals = false,
         // WinUI can report logical focus on a hit-test-disabled TextBox while
         // its native text input client never receives keyboard messages.
@@ -24,6 +24,7 @@ public sealed partial class NativeTerminalCanvas
         Background = new SolidColorBrush(Colors.Transparent)
     };
     private bool composing, clearingInput;
+    private int textInputRevision;
     public bool IsInputComposing => composing;
     private void InitializeTextInput(Grid surface)
     {
@@ -33,7 +34,7 @@ public sealed partial class NativeTerminalCanvas
         textInput.TextCompositionChanged += (_, _) => PositionTextInput();
         textInput.TextCompositionEnded += (_, _) =>
         {
-            composing = false; textInput.Opacity = 0;
+            composing = false; textInput.Opacity = 0.01;
             canvas.Invalidate();
             // TextChanged may follow CompositionEnded in the same dispatch.
             CommitTextInput();
@@ -43,18 +44,25 @@ public sealed partial class NativeTerminalCanvas
         {
             // TextBox consumes CharacterReceived internally. Its committed Text
             // is the source of truth, including when it owns keyboard focus.
-            if (!composing && !clearingInput) CommitTextInput();
+            if (!composing && !clearingInput)
+            {
+                textInputRevision++;
+                CommitTextInput();
+            }
         };
         textInput.LostFocus += (_, _) =>
         {
             CommitTextInput();
             // An interrupted composition must never execute remote input.
             ClearTextInputBuffer();
-            composing = false; textInput.Opacity = 0;
+            composing = false; textInput.Opacity = 0.01;
             canvas.Invalidate();
         };
         textInput.GotFocus += (_, _) => { cursorOn = true; canvas.Invalidate(); };
-        GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
+        GotFocus += (_, args) =>
+        {
+            if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic);
+        };
     }
     private bool FocusTextInput(FocusState state)
     {
@@ -62,7 +70,10 @@ public sealed partial class NativeTerminalCanvas
         PositionTextInput();
         return textInput.Focus(state);
     }
-    public bool FocusTerminalInput() => FocusTextInput(FocusState.Programmatic);
+    public bool FocusTerminalInput()
+    {
+        return FocusTextInput(FocusState.Programmatic);
+    }
     private void CommitTextInput()
     {
         if (composing || clearingInput || textInput.Text.Length == 0) return;
