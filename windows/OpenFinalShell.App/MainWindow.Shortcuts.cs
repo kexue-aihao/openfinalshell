@@ -82,7 +82,7 @@ public sealed partial class MainWindow
         if (next < 0 || next >= Sessions.TabItems.Count) return;
         ActivatePage("connections"); Sessions.SelectedItem = Sessions.TabItems[next];
         var selected = SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString());
-        if (selected != null && sessionTerminals.TryGetValue(selected, out var terminal)) terminal.Focus(FocusState.Programmatic);
+        if (selected != null && sessionTerminals.TryGetValue(selected, out var terminal)) terminal.FocusTerminalInput();
     }
     private void ConfigureShortcutList()
     {

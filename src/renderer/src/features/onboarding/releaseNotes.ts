@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.68',
+    items: [
+      { type: 'fix', zh: '修复 SSH 会话建立后终端未立即获得输入焦点的问题，并限制高频终端输出的 UI 处理批次，避免窗口卡死', en: 'Fix SSH sessions not accepting input until the terminal is clicked, and bound high-frequency terminal output work to keep the native window responsive' }
+    ]
+  },
+  {
     version: '0.30.67',
     items: [
       { type: 'feat', zh: '优化 WinUI 3 原生命令操作：点击命令库条目即可在当前 SSH 会话执行，快捷输入框按 Enter 立即执行；命令库支持选择多个会话下发，并保留长命令编辑和发送功能', en: 'Improve command workflows in the WinUI 3 native app: click a library item to run it in the current SSH session, press Enter in quick input to execute, and select multiple sessions for dispatch while retaining the long-command editor' }

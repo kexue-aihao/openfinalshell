@@ -56,12 +56,13 @@ public sealed partial class NativeTerminalCanvas
         textInput.GotFocus += (_, _) => { cursorOn = true; canvas.Invalidate(); };
         GotFocus += (_, args) => { if (ReferenceEquals(args.OriginalSource, this)) FocusTextInput(FocusState.Programmatic); };
     }
-    private void FocusTextInput(FocusState state)
+    private bool FocusTextInput(FocusState state)
     {
+        if (!IsLoaded || Visibility != Visibility.Visible) return false;
         PositionTextInput();
-        textInput.Focus(state);
+        return textInput.Focus(state);
     }
-    public void FocusTerminalInput() => FocusTextInput(FocusState.Programmatic);
+    public bool FocusTerminalInput() => FocusTextInput(FocusState.Programmatic);
     private void CommitTextInput()
     {
         if (composing || clearingInput || textInput.Text.Length == 0) return;

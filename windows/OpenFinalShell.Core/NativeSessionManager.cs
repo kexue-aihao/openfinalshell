@@ -363,8 +363,25 @@ public sealed class NativeSession : IDisposable
     {
         try
         {
-            await foreach (var bytes in output.Reader.ReadAllAsync(cancellation))
+            const int maximumBatchBytes = 128 * 1024;
+            while (await output.Reader.WaitToReadAsync(cancellation))
             {
+                if (!output.Reader.TryRead(out var first)) continue;
+                var chunks = new List<byte[]>(4) { first };
+                var batchLength = first.Length;
+
+                // Let closely spaced SSH packets join one terminal parse/render pass.
+                // The bounded channel remains the memory and backpressure boundary.
+                if (batchLength < maximumBatchBytes && !output.Reader.TryPeek(out _))
+                    await Task.Delay(TimeSpan.FromMilliseconds(4), cancellation);
+
+                while (batchLength < maximumBatchBytes && output.Reader.TryRead(out var next))
+                {
+                    chunks.Add(next);
+                    batchLength += next.Length;
+                }
+
+                var bytes = CombineOutputBatch(chunks, batchLength);
                 if (onOutput != null) await onOutput(bytes);
                 Output?.Invoke(bytes);
             }
@@ -375,6 +392,19 @@ public sealed class NativeSession : IDisposable
             SetState(NativeSessionState.Failed, error.Message);
             output.Writer.TryComplete(error);
         }
+    }
+
+    private static byte[] CombineOutputBatch(IReadOnlyList<byte[]> chunks, int length)
+    {
+        if (chunks.Count == 1) return chunks[0];
+        var combined = new byte[length];
+        var offset = 0;
+        foreach (var chunk in chunks)
+        {
+            Buffer.BlockCopy(chunk, 0, combined, offset, chunk.Length);
+            offset += chunk.Length;
+        }
+        return combined;
     }
 
     public void Write(byte[] bytes)

@@ -50,10 +50,13 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     private readonly Dictionary<int, List<(int column, int length)>> searchByLine = [];
     private int searchIndex = -1;
     private int searchGeneration;
+    private const int OutputWorkBudgetMilliseconds = 6;
+    private const int OutputWorkBudgetBytes = 256 * 1024;
     private readonly object inactiveOutputGate = new();
     private readonly Queue<PendingOutput> inactiveOutput = new();
     private bool terminalActive = true;
-    private bool inactiveDrainRunning;
+    private bool outputDrainScheduled;
+    private bool terminalDisposed;
     private char? pendingHighSurrogate;
     private bool mouseTracking;
     private int activeMouseButton = 1;
@@ -75,6 +78,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         : NativeAiAnswer.PrepareTerminalPaste(value, BracketedPasteEnabled).Issue;
     public int Columns => lastColumns;
     public int Rows => lastRows;
+    public bool HasInputFocus => textInput.FocusState != FocusState.Unfocused;
 
     public NativeTerminalCanvas()
     {
@@ -126,11 +130,14 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
     {
         lock (inactiveOutputGate)
         {
+            terminalDisposed = true;
+            terminalActive = false;
             while (inactiveOutput.TryDequeue(out var pending))
             {
                 pending.Completion.TrySetException(new ObjectDisposedException(nameof(NativeTerminalCanvas)));
                 pending.CancellationRegistration.Dispose();
             }
+            outputDrainScheduled = false;
         }
         blinkTimer?.Stop();
         accessibilityTimer?.Stop();
@@ -144,87 +151,123 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         appliedScrollbackLimit = -1;
     }
 
-    /// <summary>Applies one backpressured SSH chunk on the UI thread without loss.</summary>
+    /// <summary>Queues SSH output and drains it in bounded UI slices without loss.</summary>
     public Task EnqueueOutputAsync(byte[] bytes, CancellationToken cancellation = default)
     {
         if (bytes.Length == 0) return Task.CompletedTask;
+        var schedule = false;
+        TaskCompletionSource? completion;
         lock (inactiveOutputGate)
         {
-            if (!terminalActive || inactiveDrainRunning || inactiveOutput.Count > 0)
+            if (terminalDisposed) return Task.FromException(new ObjectDisposedException(nameof(NativeTerminalCanvas)));
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var registration = cancellation.Register(() => completion.TrySetCanceled(cancellation));
+            inactiveOutput.Enqueue(new PendingOutput(bytes, cancellation, completion, registration));
+            if (terminalActive && !outputDrainScheduled)
             {
-                var delayed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                var registration = cancellation.Register(() => delayed.TrySetCanceled(cancellation));
-                inactiveOutput.Enqueue(new PendingOutput(bytes, cancellation, delayed, registration));
-                return delayed.Task;
+                outputDrainScheduled = true;
+                schedule = true;
             }
         }
-        return EnqueueActiveOutputAsync(bytes, cancellation);
+        if (schedule) ScheduleOutputDrain();
+        return completion.Task;
     }
 
     public void SetActive(bool active)
     {
+        var schedule = false;
         lock (inactiveOutputGate)
         {
             terminalActive = active;
             if (!active) return;
+            if (!outputDrainScheduled && inactiveOutput.Count > 0)
+            {
+                outputDrainScheduled = true;
+                schedule = true;
+            }
         }
         cursorOn = true;
         canvas.Invalidate();
-        _ = DrainInactiveOutputAsync();
+        if (schedule) ScheduleOutputDrain();
     }
 
-    private Task EnqueueActiveOutputAsync(byte[] bytes, CancellationToken cancellation)
+    private void ScheduleOutputDrain()
     {
-        if (DispatcherQueue.HasThreadAccess)
-        {
-            return FeedBatchedAsync(bytes, cancellation);
-        }
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var registration = cancellation.Register(() => completion.TrySetCanceled(cancellation));
-        _ = completion.Task.ContinueWith(_ => registration.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        if (!DispatcherQueue.TryEnqueue(async () =>
-        {
-            try { await FeedBatchedAsync(bytes, cancellation); completion.TrySetResult(); }
-            catch (OperationCanceledException) { completion.TrySetCanceled(cancellation); }
-            catch (Exception error) { completion.TrySetException(error); }
-        })) completion.TrySetException(new InvalidOperationException("Terminal dispatcher is not available."));
-        return completion.Task;
-    }
+        if (DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => _ = DrainOutputQueueAsync())) return;
 
-    private async Task DrainInactiveOutputAsync()
-    {
         lock (inactiveOutputGate)
         {
-            if (inactiveDrainRunning || !terminalActive) return;
-            inactiveDrainRunning = true;
+            outputDrainScheduled = false;
+            while (inactiveOutput.TryDequeue(out var pending))
+            {
+                pending.Completion.TrySetException(new InvalidOperationException("Terminal dispatcher is not available."));
+                pending.CancellationRegistration.Dispose();
+            }
         }
+    }
+
+    private async Task DrainOutputQueueAsync()
+    {
+        var reschedule = false;
         try
         {
-            while (true)
+            var budget = Stopwatch.StartNew();
+            var processedBytes = 0;
+            while (budget.ElapsedMilliseconds < OutputWorkBudgetMilliseconds && processedBytes < OutputWorkBudgetBytes)
             {
                 PendingOutput pending;
                 lock (inactiveOutputGate)
                 {
-                    if (!terminalActive || !inactiveOutput.TryDequeue(out pending!)) break;
+                    if (terminalDisposed || !terminalActive || !inactiveOutput.TryDequeue(out pending!)) break;
                 }
                 try
                 {
-                    await EnqueueActiveOutputAsync(pending.Bytes, pending.Cancellation);
-                    pending.Completion.TrySetResult();
+                    if (pending.Cancellation.IsCancellationRequested) pending.Completion.TrySetCanceled(pending.Cancellation);
+                    else
+                    {
+                        await FeedBatchedAsync(pending.Bytes, pending.Cancellation);
+                        pending.Completion.TrySetResult();
+                    }
                 }
                 catch (OperationCanceledException) { pending.Completion.TrySetCanceled(pending.Cancellation); }
                 catch (Exception error) { pending.Completion.TrySetException(error); }
                 finally { pending.CancellationRegistration.Dispose(); }
+                processedBytes += pending.Bytes.Length;
             }
         }
         finally
         {
-            lock (inactiveOutputGate) inactiveDrainRunning = false;
+            if (!terminalDisposed && parser != 0)
+            {
+                canvas.Invalidate();
+                UpdateAccessibleText();
+            }
             lock (inactiveOutputGate)
             {
-                if (terminalActive && inactiveOutput.Count > 0) _ = DrainInactiveOutputAsync();
+                if (terminalDisposed || !terminalActive || inactiveOutput.Count == 0)
+                    outputDrainScheduled = false;
+                else
+                {
+                    reschedule = true;
+                }
+            }
+            if (reschedule) _ = PaceOutputDrainAsync();
+        }
+    }
+
+    private async Task PaceOutputDrainAsync()
+    {
+        await Task.Delay(8).ConfigureAwait(false);
+        lock (inactiveOutputGate)
+        {
+            if (terminalDisposed || !terminalActive || inactiveOutput.Count == 0)
+            {
+                outputDrainScheduled = false;
+                return;
             }
         }
+        ScheduleOutputDrain();
     }
 
     private async Task FeedBatchedAsync(byte[] bytes, CancellationToken cancellation)
@@ -235,7 +278,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         {
             cancellation.ThrowIfCancellationRequested();
             var count = Math.Min(sliceSize, bytes.Length - offset);
-            Feed(bytes.AsSpan(offset, count).ToArray());
+            Feed(bytes.AsSpan(offset, count).ToArray(), requestRender: false);
             offset += count;
             if (offset < bytes.Length && clock.ElapsedMilliseconds >= 6)
             {
@@ -870,8 +913,11 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         SendPaste(text);
     }
 
-    public void Feed(byte[] bytes)
+    public void Feed(byte[] bytes) => Feed(bytes, requestRender: true);
+
+    private void Feed(byte[] bytes, bool requestRender)
     {
+        if (terminalDisposed) return;
         if (directoryTracker.Feed(bytes) is { } directory) RemoteDirectoryChanged?.Invoke(directory);
         if (parser == 0) EnsureParser();
         if (parser != 0)
@@ -901,8 +947,11 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             }
             else ofs_terminal_feed(parser, bytes, (nuint)bytes.Length);
             DrainGeneratedOutput();
-            canvas.Invalidate();
-            UpdateAccessibleText();
+            if (requestRender)
+            {
+                canvas.Invalidate();
+                UpdateAccessibleText();
+            }
         }
     }
 
@@ -911,11 +960,13 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
         if (parser == 0) return;
         if (automationUpdateClock.ElapsedMilliseconds < 350)
         {
-            accessibilityTimer ??= DispatcherQueue.CreateTimer();
-            accessibilityTimer.IsRepeating = false;
+            if (accessibilityTimer == null)
+            {
+                accessibilityTimer = DispatcherQueue.CreateTimer();
+                accessibilityTimer.IsRepeating = false;
+                accessibilityTimer.Tick += AccessibilityTimerTick;
+            }
             accessibilityTimer.Interval = TimeSpan.FromMilliseconds(Math.Max(1, 350 - automationUpdateClock.ElapsedMilliseconds));
-            accessibilityTimer.Tick -= AccessibilityTimerTick;
-            accessibilityTimer.Tick += AccessibilityTimerTick;
             if (!accessibilityTimer.IsRunning) accessibilityTimer.Start();
             return;
         }

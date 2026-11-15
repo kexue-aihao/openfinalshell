@@ -1078,7 +1078,7 @@ public sealed partial class MainWindow : Window
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Children = { openSftp, openMonitor, search, openPortTraffic, clear, disconnect } };
         var session = sessionsManager.Get(sessionId);
         var composer = CreateCommandComposer(sessionId);
-        composer.ReturnToTerminal += () => terminal.Focus(FocusState.Programmatic);
+        composer.ReturnToTerminal += () => terminal.FocusTerminalInput();
         composer.HistoryRequested += () => UiTaskRunner.Run(() => ShowTerminalHistoryAsync(terminal, sessionId), ShowError);
         var content = new Controls.NativeSessionWorkspace(terminal, toolbar, store,
             () => new Controls.NativeSftpBrowser(session, transferQueue, WindowHandle, key => localization[key], path => OpenRemoteEditorTab(sessionId, profile.Name, path), settings),
@@ -1109,6 +1109,33 @@ public sealed partial class MainWindow : Window
     private void FocusTerminalWhenReady(TabViewItem tab, Controls.NativeSessionWorkspace workspace,
         Controls.NativeTerminalCanvas terminal)
     {
+        var attemptsRemaining = 3;
+        var retryTimer = DispatcherQueue.CreateTimer();
+        retryTimer.Interval = TimeSpan.FromMilliseconds(90);
+        void StopRetries()
+        {
+            retryTimer.Stop();
+            retryTimer.Tick -= RetryFocus;
+        }
+        void RetryFocus(Microsoft.UI.Dispatching.DispatcherQueueTimer _, object __)
+        {
+            if (!ReferenceEquals(Sessions.SelectedItem, tab) ||
+                !ReferenceEquals(SessionContent.Content, workspace) || activeOverlay != null)
+            {
+                StopRetries();
+                return;
+            }
+
+            if (terminal.HasInputFocus)
+            {
+                StopRetries();
+                return;
+            }
+
+            terminal.FocusTerminalInput();
+            if (--attemptsRemaining <= 0) StopRetries();
+        }
+        retryTimer.Tick += RetryFocus;
         RoutedEventHandler? loadedHandler = null;
         void QueueFocus()
         {
@@ -1118,7 +1145,10 @@ public sealed partial class MainWindow : Window
                 if (ReferenceEquals(Sessions.SelectedItem, tab) &&
                     ReferenceEquals(SessionContent.Content, workspace) &&
                     activeOverlay == null)
+                {
                     terminal.FocusTerminalInput();
+                    if (attemptsRemaining > 0 && !retryTimer.IsRunning) retryTimer.Start();
+                }
             });
         }
 
@@ -1970,7 +2000,7 @@ public sealed partial class MainWindow : Window
         }
         if (sessionTabs.TryGetValue(id, out var tab)) Sessions.SelectedItem = tab;
         CloseOverlayCore();
-        terminal.Focus(FocusState.Programmatic);
+        terminal.FocusTerminalInput();
         Status.Text = localization["aiCommands.inserted"];
     }
 
