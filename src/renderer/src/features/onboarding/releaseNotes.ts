@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.70',
+    items: [
+      { type: 'fix', zh: '修复关闭 SSH 标签页时确认弹窗显示控件类型而不是会话名称的问题，并缩短终端解析时间片、降低高频输出下的界面阻塞', en: 'Fix SSH tab close confirmations showing a control type instead of the session name, and reduce UI blocking under high-rate terminal output with shorter parsing slices' }
+    ]
+  },
+  {
     version: '0.30.69',
     items: [
       { type: 'fix', zh: '修复 SSH 连接后焦点重试误判终端已就绪的问题；优化 ANSI 高频输出渲染，移除逐单元格调色板和文本分配造成的卡顿', en: 'Fix terminal focus retries that could mistake the outer control for a ready input client, and reduce ANSI-heavy rendering stalls by removing per-cell palette and text allocations' }

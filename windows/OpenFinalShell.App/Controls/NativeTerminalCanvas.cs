@@ -236,7 +236,7 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             };
         }
         if (renderTimer.IsRunning) return;
-        renderTimer.Interval = TimeSpan.FromMilliseconds(33);
+        renderTimer.Interval = TimeSpan.FromMilliseconds(50);
         renderTimer.Start();
     }
 
@@ -305,7 +305,10 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
 
     private async Task FeedBatchedAsync(byte[] bytes, CancellationToken cancellation)
     {
-        const int sliceSize = 8 * 1024;
+        // Keep native parsing work short and explicitly return through the low
+        // priority dispatcher queue. Task.Yield resumes at the synchronization
+        // context's normal priority and can keep a busy terminal ahead of input.
+        const int sliceSize = 2 * 1024;
         var clock = Stopwatch.StartNew();
         for (var offset = 0; offset < bytes.Length;)
         {
@@ -313,12 +316,23 @@ public sealed partial class NativeTerminalCanvas : UserControl, IDisposable
             var count = Math.Min(sliceSize, bytes.Length - offset);
             Feed(bytes.AsSpan(offset, count).ToArray(), requestRender: false);
             offset += count;
-            if (offset < bytes.Length && clock.ElapsedMilliseconds >= 6)
+            if (offset < bytes.Length && clock.ElapsedMilliseconds >= 2)
             {
                 clock.Restart();
-                await Task.Yield();
+                await YieldTerminalWorkAsync(cancellation);
             }
         }
+    }
+
+    private async Task YieldTerminalWorkAsync(CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var registration = cancellation.Register(() => completion.TrySetCanceled(cancellation));
+        if (!DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+                () => completion.TrySetResult()))
+            completion.TrySetException(new InvalidOperationException("Terminal dispatcher is not available."));
+        await completion.Task;
     }
 
     private void DrawTerminal(CanvasControl sender, CanvasDrawEventArgs args)

@@ -2334,7 +2334,7 @@ public sealed partial class MainWindow : Window
     private async Task CloseSessionTabCoreAsync(TabViewItem tab)
     {
         var rawTag = tab.Tag?.ToString() ?? string.Empty;
-        if (!await ConfirmSessionCloseAsync(rawTag, tab.Header?.ToString() ?? "")) return;
+        if (!await ConfirmSessionCloseAsync(rawTag, SessionTabTitle(tab))) return;
         sessionContents.TryGetValue(rawTag, out var content);
         if (content is Controls.NativeSessionWorkspace workspace)
         {

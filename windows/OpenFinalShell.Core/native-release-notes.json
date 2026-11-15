@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.70",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复关闭 SSH 标签页时确认弹窗显示控件类型而不是会话名称的问题，并缩短终端解析时间片、降低高频输出下的界面阻塞",
+        "en": "Fix SSH tab close confirmations showing a control type instead of the session name, and reduce UI blocking under high-rate terminal output with shorter parsing slices"
+      }
+    ]
+  },
+  {
     "version": "0.30.69",
     "items": [
       {
