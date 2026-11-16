@@ -25,7 +25,7 @@ public sealed record NativeSessionSnapshot(
 /// Owns the lifetime of native SSH sessions. The UI only observes snapshots and
 /// forwards input; it never owns transport objects or decides when to reconnect.
 /// </summary>
-public sealed class NativeSessionManager : IDisposable
+public sealed class NativeSessionManager : IDisposable, IAsyncDisposable
 {
     private readonly NativeStore store;
     private readonly ConcurrentDictionary<string, NativeSession> sessions = new(StringComparer.Ordinal);
@@ -60,7 +60,7 @@ public sealed class NativeSessionManager : IDisposable
         {
             session.SetState(NativeSessionState.Failed, error.Message);
             sessions.TryRemove(id, out _);
-            session.Dispose();
+            await session.CloseAsync().ConfigureAwait(false);
             throw;
         }
     }
@@ -77,11 +77,18 @@ public sealed class NativeSessionManager : IDisposable
         catch (Exception error) { session.SetState(NativeSessionState.Failed, error.Message); throw; }
     }
 
-    public void Close(string sessionId)
+    public void Close(string sessionId) => Observe(CloseAsync(sessionId));
+    public async Task CloseAsync(string sessionId, CancellationToken cancellation = default)
     {
-        if (!sessions.TryRemove(sessionId, out var session)) return;
+        if (!sessions.TryGetValue(sessionId, out var session)) return;
         session.SetState(NativeSessionState.Closed, null);
-        session.Dispose();
+        await session.CloseAsync(cancellation).ConfigureAwait(false);
+        sessions.TryRemove(new KeyValuePair<string, NativeSession>(sessionId, session));
+    }
+    private static async void Observe(Task task) { try { await task.ConfigureAwait(false); } catch (Exception error) { System.Diagnostics.Debug.WriteLine(error); } }
+    public async ValueTask DisposeAsync()
+    {
+        await Task.WhenAll(sessions.Keys.Select(id => CloseAsync(id))).ConfigureAwait(false);
     }
 
     public IReadOnlyList<NativeSessionSnapshot> List() => sessions.Values.Select(x => x.Snapshot).ToArray();
@@ -92,13 +99,14 @@ public sealed class NativeSessionManager : IDisposable
     }
 }
 
-public sealed class NativeSession : IDisposable
+public sealed class NativeSession : IDisposable, IAsyncDisposable
 {
     private readonly NativeStore store;
     private readonly Func<HostKeyChallenge, Task<bool>> confirmHost;
     private readonly Func<string, bool, Task<string?>> prompt;
     private readonly Func<byte[], Task>? onOutput;
-    private readonly Channel<byte[]> output = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64)
+    private sealed record OutputChunk(long Generation, byte[] Bytes, TaskCompletionSource? Barrier = null);
+    private readonly Channel<OutputChunk> output = Channel.CreateBounded<OutputChunk>(new BoundedChannelOptions(64)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
@@ -106,12 +114,20 @@ public sealed class NativeSession : IDisposable
         AllowSynchronousContinuations = false
     });
     private readonly CancellationTokenSource outputCancellation = new();
-    private readonly TerminalCharsetCodec terminalCodec;
     private readonly ConcurrentDictionary<string, ForwardTelemetrySnapshot> forwardTelemetry = new(StringComparer.Ordinal);
     private SshConnection? connection;
     private SshConnection? jumpConnection;
     private Task? outputPump;
     private int disposed;
+    private long generation, pendingBytes, queueHighWater, receivedBytes;
+    private readonly object closeGate = new();
+    private Task? closeTask, reconnectTask;
+    public long PendingOutputBytes => Interlocked.Read(ref pendingBytes);
+    public int PendingOutputChunks => output.Reader.Count;
+    public long OutputQueueHighWater => Interlocked.Read(ref queueHighWater);
+    public long ReceivedBytes => Interlocked.Read(ref receivedBytes);
+    public long ShellBufferedBytes => connection?.ShellBufferedBytes ?? 0;
+    public long ShellBufferHighWater => connection?.ShellBufferHighWater ?? 0;
     private readonly SemaphoreSlim connectionGate = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private int reconnectScheduled;
@@ -137,7 +153,6 @@ public sealed class NativeSession : IDisposable
         SessionId = sessionId; Profile = profile; this.store = store;
         this.confirmHost = confirmHost; this.prompt = prompt; this.onOutput = onOutput;
         if (onConnectionProgress != null) ConnectionProgressChanged += onConnectionProgress;
-        terminalCodec = new TerminalCharsetCodec(profile.Data["terminal"]?["charset"]?.GetValue<string>());
         Snapshot = new(sessionId, profile.Id, profile.Name, NativeSessionState.Closed, null, DateTimeOffset.UtcNow);
     }
 
@@ -151,15 +166,15 @@ public sealed class NativeSession : IDisposable
     internal async Task ConnectAsync(CancellationToken cancellation)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
-        await connectionGate.WaitAsync(linked.Token);
-        try { await ConnectTransportAsync(linked.Token); }
+        await connectionGate.WaitAsync(linked.Token).ConfigureAwait(false);
+        try { await ConnectTransportAsync(linked.Token).ConfigureAwait(false); }
         finally { connectionGate.Release(); }
     }
     private async Task ConnectTransportAsync(CancellationToken cancellation)
     {
         ObjectDisposedException.ThrowIf(disposed != 0, this);
-        outputPump ??= PumpOutputAsync(outputCancellation.Token);
-        terminalCodec.Reset();
+        outputPump ??= Task.Run(() => PumpOutputAsync(outputCancellation.Token));
+        var transportGeneration = Interlocked.Increment(ref generation);
         lastConnectionProgressPercent = 0;
         var hasJump = Profile.Data["jumpHostId"] != null;
         var stepCount = hasJump ? 10 : 6;
@@ -169,22 +184,22 @@ public sealed class NativeSession : IDisposable
         connection = new SshConnection(Profile, store, confirmHost, prompt, resolvedPassword,
             targetConnectPort is null ? null : "127.0.0.1", targetConnectPort,
             progressChanged: progress => ReportSshProgress("target", progress, hasJump, stepCount));
-        connection.Output += PublishOutput;
+        connection.OutputConsumer = (bytes, token) => PublishOutputAsync(bytes, transportGeneration, token);
         var transport = connection;
         connection.Failed += error => TransportFailed(transport, error);
         connection.ForwardTelemetryChanged += PublishForwardTelemetry;
         connection.ForwardFailed += (id, error) => ForwardFailed?.Invoke(id, error);
         try
         {
-            await transport.ConnectAsync(terminalColumns, terminalRows, cancellation);
+            await transport.ConnectAsync(terminalColumns, terminalRows, cancellation).ConfigureAwait(false);
             cancellation.ThrowIfCancellationRequested();
             ObjectDisposedException.ThrowIf(disposed != 0, this);
         }
         catch
         {
             if (ReferenceEquals(connection, transport)) connection = null;
-            transport.Dispose();
-            var jump = jumpConnection; jumpConnection = null; jump?.Dispose();
+            await transport.CloseAsync().ConfigureAwait(false);
+            var jump = jumpConnection; jumpConnection = null; if (jump != null) await jump.CloseAsync().ConfigureAwait(false);
             throw;
         }
         hasConnected = true;
@@ -195,12 +210,17 @@ public sealed class NativeSession : IDisposable
     internal async Task ReconnectAsync(CancellationToken cancellation)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
-        await connectionGate.WaitAsync(linked.Token);
+        await connectionGate.WaitAsync(linked.Token).ConfigureAwait(false);
         try
         {
-            var old = connection; connection = null; old?.Dispose();
-            var oldJump = jumpConnection; jumpConnection = null; oldJump?.Dispose();
-            await ConnectTransportAsync(linked.Token);
+            var old = connection; connection = null; if (old != null) await old.CloseAsync().ConfigureAwait(false);
+            var oldJump = jumpConnection; jumpConnection = null; if (oldJump != null) await oldJump.CloseAsync().ConfigureAwait(false);
+            // Finish the previous generation's in-flight parser callback before
+            // a new transport can publish data or state notifications.
+            var barrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await output.Writer.WriteAsync(new(generation, [], barrier), linked.Token).ConfigureAwait(false);
+            await barrier.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+            await ConnectTransportAsync(linked.Token).ConfigureAwait(false);
         }
         finally { connectionGate.Release(); }
     }
@@ -210,7 +230,7 @@ public sealed class NativeSession : IDisposable
         SetState(NativeSessionState.Failed, error.Message);
         var autoReconnect = Profile.Data["options"]?["autoReconnect"]?.GetValue<bool>() ?? true;
         if (!hasConnected || !autoReconnect || Interlocked.CompareExchange(ref reconnectScheduled, 1, 0) != 0) return;
-        _ = Task.Run(async () =>
+        reconnectTask = Task.Run(async () =>
         {
             try
             {
@@ -253,7 +273,7 @@ public sealed class NativeSession : IDisposable
             jumpConnection = new SshConnection(jumpProfile, store, confirmHost, prompt, jumpPassword,
                 progressChanged: progress => ReportSshProgress("jump", progress, hasJump, stepCount));
             ReportProgress("native.connection.connectingJump", 15, 2, stepCount);
-            await jumpConnection.ConnectAsync(0, 0, cancellation, openShell: false);
+            await jumpConnection.ConnectAsync(0, 0, cancellation, openShell: false).ConfigureAwait(false);
             ReportProgress("native.connection.establishingJumpTunnel", 38, 5, stepCount);
             localPort = jumpConnection.StartJumpTunnel(Profile.Host, Profile.Port);
             ReportProgress("native.connection.jumpTunnelReady", 40, 5, stepCount);
@@ -340,53 +360,37 @@ public sealed class NativeSession : IDisposable
         }
     }
 
-    private void PublishOutput(byte[] bytes)
+    private async Task PublishOutputAsync(byte[] bytes, long sourceGeneration, CancellationToken cancellation)
     {
-        if (bytes.Length == 0 || outputCancellation.IsCancellationRequested) return;
-        bytes = terminalCodec.DecodeRemote(bytes);
-        if (bytes.Length == 0) return;
-        try
+        if (bytes.Length == 0 || sourceGeneration != Volatile.Read(ref generation)) return;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, outputCancellation.Token);
+        for (var offset = 0; offset < bytes.Length; offset += 32 * 1024)
         {
-            // SSH.NET raises DataReceived synchronously on its receive path. Waiting
-            // on this bounded channel intentionally applies backpressure instead
-            // of dropping terminal bytes when the UI thread is busy.
-            const int chunkSize = 32 * 1024;
-            for (var offset = 0; offset < bytes.Length; offset += chunkSize)
-            {
-                var count = Math.Min(chunkSize, bytes.Length - offset);
-                var chunk = bytes.AsSpan(offset, count).ToArray();
-                output.Writer.WriteAsync(chunk, outputCancellation.Token).AsTask().GetAwaiter().GetResult();
-            }
+            var chunk = bytes.AsSpan(offset, Math.Min(32 * 1024, bytes.Length - offset)).ToArray();
+            var queued = Interlocked.Add(ref pendingBytes, chunk.Length);
+            Interlocked.Exchange(ref queueHighWater, Math.Max(queueHighWater, queued));
+            try { await output.Writer.WriteAsync(new(sourceGeneration, chunk), linked.Token).ConfigureAwait(false); }
+            catch { Interlocked.Add(ref pendingBytes, -chunk.Length); throw; }
+            Interlocked.Add(ref receivedBytes, chunk.Length);
         }
-        catch (OperationCanceledException) { }
-        catch (ChannelClosedException) { }
     }
 
     private async Task PumpOutputAsync(CancellationToken cancellation)
     {
+        var decodedGeneration = -1L;
+        var codec = new TerminalCharsetCodec(Profile.Data["terminal"]?["charset"]?.GetValue<string>());
         try
         {
-            const int maximumBatchBytes = 128 * 1024;
-            while (await output.Reader.WaitToReadAsync(cancellation))
+            await foreach (var chunk in output.Reader.ReadAllAsync(cancellation).ConfigureAwait(false))
             {
-                if (!output.Reader.TryRead(out var first)) continue;
-                var chunks = new List<byte[]>(4) { first };
-                var batchLength = first.Length;
-
-                // Let closely spaced SSH packets join one terminal parse/render pass.
-                // The bounded channel remains the memory and backpressure boundary.
-                if (batchLength < maximumBatchBytes && !output.Reader.TryPeek(out _))
-                    await Task.Delay(TimeSpan.FromMilliseconds(4), cancellation);
-
-                while (batchLength < maximumBatchBytes && output.Reader.TryRead(out var next))
-                {
-                    chunks.Add(next);
-                    batchLength += next.Length;
-                }
-
-                var bytes = CombineOutputBatch(chunks, batchLength);
-                if (onOutput != null) await onOutput(bytes);
-                Output?.Invoke(bytes);
+                Interlocked.Add(ref pendingBytes, -chunk.Bytes.Length);
+                if (chunk.Barrier is { } barrier) { barrier.TrySetResult(); continue; }
+                if (chunk.Generation != Volatile.Read(ref generation)) continue;
+                if (decodedGeneration != chunk.Generation) { codec.Reset(); decodedGeneration = chunk.Generation; }
+                var bytes = codec.DecodeRemote(chunk.Bytes);
+                if (bytes.Length == 0) continue;
+                if (onOutput != null) await onOutput(bytes).WaitAsync(cancellation).ConfigureAwait(false);
+                if (chunk.Generation == Volatile.Read(ref generation)) Output?.Invoke(bytes);
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
@@ -394,32 +398,32 @@ public sealed class NativeSession : IDisposable
         {
             SetState(NativeSessionState.Failed, error.Message);
             output.Writer.TryComplete(error);
+            if (connection is { } failed) await failed.CloseAsync().ConfigureAwait(false);
         }
-    }
-
-    private static byte[] CombineOutputBatch(IReadOnlyList<byte[]> chunks, int length)
-    {
-        if (chunks.Count == 1) return chunks[0];
-        var combined = new byte[length];
-        var offset = 0;
-        foreach (var chunk in chunks)
+        finally
         {
-            Buffer.BlockCopy(chunk, 0, combined, offset, chunk.Length);
-            offset += chunk.Length;
+            while (output.Reader.TryRead(out var pending))
+            {
+                Interlocked.Add(ref pendingBytes, -pending.Bytes.Length);
+                pending.Barrier?.TrySetCanceled();
+            }
         }
-        return combined;
     }
 
-    public void Write(byte[] bytes)
+    public Task WriteAsync(byte[] bytes, CancellationToken cancellation = default) => connection?.WriteAsync(bytes, cancellation) ?? Task.CompletedTask;
+    public void Write(byte[] bytes) => Observe(WriteAsync(bytes));
+    public Task ResizeAsync(uint columns, uint rows, CancellationToken cancellation = default)
     {
-        var encoded = terminalCodec.EncodeInput(bytes);
-        if (encoded.Length > 0) connection?.Write(encoded);
-    }
-    public void Resize(uint columns, uint rows)
-    {
-        if (columns == 0 || rows == 0) return;
+        if (columns == 0 || rows == 0) return Task.CompletedTask;
         terminalColumns = columns; terminalRows = rows;
-        connection?.Resize(columns, rows);
+        return connection?.ResizeAsync(columns, rows, cancellation) ?? Task.CompletedTask;
+    }
+    public void Resize(uint columns, uint rows) => Observe(ResizeAsync(columns, rows));
+    private async void Observe(Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (disposed == 0) SetState(NativeSessionState.Failed, error.Message); }
     }
     public Task<IReadOnlyList<RemoteEntry>> ListAsync(string path, CancellationToken token) => RequireConnection().ListAsync(path, token);
     public async Task WarmSftpAsync(CancellationToken token = default)
@@ -459,27 +463,39 @@ public sealed class NativeSession : IDisposable
 
     private SshConnection RequireConnection() => connection ?? throw new InvalidOperationException("Native session is not connected.");
 
-    public void Dispose()
+    public Task CloseAsync(CancellationToken cancellation = default)
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        lifetime.Cancel();
-        outputCancellation.Cancel();
-        output.Writer.TryComplete();
-        connection?.Dispose();
-        connection = null;
-        jumpConnection?.Dispose();
-        jumpConnection = null;
-        // A credential prompt or handshake may still be completing. Once the
-        // connect gate drains, clean up anything created during cancellation.
-        _ = Task.Run(async () =>
+        Task closing;
+        lock (closeGate)
         {
-            await connectionGate.WaitAsync();
-            try { connection?.Dispose(); connection = null; jumpConnection?.Dispose(); jumpConnection = null; }
-            finally { connectionGate.Release(); }
-        });
-        if (outputPump is { } pump)
-            _ = pump.ContinueWith(_ => outputCancellation.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
-        else outputCancellation.Dispose();
-        if (Snapshot.State != NativeSessionState.Closed) SetState(NativeSessionState.Closed, null);
+            if (closeTask == null)
+            {
+                Interlocked.Exchange(ref disposed, 1);
+                lifetime.Cancel(); outputCancellation.Cancel(); output.Writer.TryComplete();
+                Interlocked.Increment(ref generation);
+                closeTask = Task.Run(CloseCoreAsync);
+            }
+            closing = closeTask;
+        }
+        return closing.WaitAsync(cancellation);
     }
+    private async Task CloseCoreAsync()
+    {
+        var transport = connection; connection = null;
+        if (transport != null) await transport.CloseAsync().ConfigureAwait(false);
+        await connectionGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (connection is { } late) await late.CloseAsync().ConfigureAwait(false);
+            connection = null;
+            if (jumpConnection is { } jump) await jump.CloseAsync().ConfigureAwait(false);
+            jumpConnection = null;
+        }
+        finally { connectionGate.Release(); }
+        if (outputPump != null) await outputPump.ConfigureAwait(false);
+        if (reconnectTask != null) await reconnectTask.ConfigureAwait(false);
+        SetState(NativeSessionState.Closed, null);
+    }
+    public ValueTask DisposeAsync() => new(CloseAsync());
+    public void Dispose() => Observe(CloseAsync());
 }

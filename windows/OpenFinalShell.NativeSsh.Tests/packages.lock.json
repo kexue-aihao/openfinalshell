@@ -65,15 +65,6 @@
           "SQLitePCLRaw.core": "2.1.13"
         }
       },
-      "SSH.NET": {
-        "type": "Transitive",
-        "resolved": "2026.0.0",
-        "contentHash": "Yu9dirPq8l3oaat0+OQ7K0nUf5MmYltpia5UGqsApTG4zTPvBC1cxbNnC3NERij26dUST0A3Ef1QdHSn5ArbWQ==",
-        "dependencies": {
-          "BouncyCastle.Cryptography": "2.7.0",
-          "Microsoft.Extensions.Logging.Abstractions": "8.0.3"
-        }
-      },
       "System.Security.Cryptography.ProtectedData": {
         "type": "Transitive",
         "resolved": "10.0.0",
@@ -84,8 +75,15 @@
         "dependencies": {
           "BouncyCastle.Cryptography": "[2.7.0, )",
           "Microsoft.Data.Sqlite": "[10.0.14, )",
-          "SSH.NET": "[2026.0.0, )",
+          "Renci.SshNet": "[2026.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.0, )"
+        }
+      },
+      "renci.sshnet": {
+        "type": "Project",
+        "dependencies": {
+          "BouncyCastle.Cryptography": "[2.7.0, )",
+          "Microsoft.Extensions.Logging.Abstractions": "[8.0.3, )"
         }
       }
     }

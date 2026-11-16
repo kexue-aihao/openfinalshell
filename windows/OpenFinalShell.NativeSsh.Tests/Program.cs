@@ -51,6 +51,8 @@ await TestSshAuthSockUnixEndpointAsync();
 TestPageantCopyDataTransport();
 await TestJumpHostEndToEndAsync();
 await TestForwardBridgeEndToEndAsync();
+await TestTerminalReceivePipelineAsync();
+if (Environment.GetEnvironmentVariable("OFS_SSH_BURST_STRESS") == "1") await TestTerminalBurstAsync();
 Console.WriteLine($"Native SSH contract checks passed: {total}");
 
 static int CharsetCodePage(string charset) => charset switch
@@ -62,6 +64,223 @@ static int CharsetCodePage(string charset) => charset switch
     "latin1" => 28591,
     _ => throw new ArgumentOutOfRangeException(nameof(charset))
 };
+
+async Task TestTerminalBurstAsync()
+{
+    var root = FindRepositoryRoot();
+    var temp = Path.Combine(Path.GetTempPath(), "ofs-terminal-burst-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(temp);
+    var port = FindFreePort();
+    using var fixture = StartFixture(Path.Combine(root, "test", "fixtures", "testSshServer.mjs"), port, temp);
+    await WaitForPortAsync(port);
+    using var store = new NativeStore(Path.Combine(temp, "data"), new TestProtector());
+    var secret = store.SaveSecret("test123");
+    var profile = ConnectionProfile.FromJson(new JsonObject
+    {
+        ["id"] = "burst", ["name"] = "Burst", ["host"] = "127.0.0.1", ["port"] = port, ["username"] = "test",
+        ["auth"] = new JsonObject { ["method"] = "password", ["passwordRef"] = secret },
+        ["options"] = new JsonObject { ["autoReconnect"] = false }
+    });
+    await using var terminal = new NativeTerminalProcessor();
+    await using var sessions = new NativeSessionManager(store);
+    var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var tail = new StringBuilder();
+    using var expectedHash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+    using var actualHash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+    long expectedBytes = 0, verifiedBytes = 0;
+    for (var first = 0; first < 2500000; first += 128)
+    {
+        var block = new StringBuilder();
+        for (var n = first; n < Math.Min(first + 128, 2500000); n++) block.Append(n % 16 == 0
+            ? $"\r\u001b[32mUnpacking fixture 中文🙂 {n:D8} 90%\u001b[0m\u001b[K\r\n"
+            : $"{n:D8} fixture log 中文🙂\r\n");
+        var bytes = Encoding.UTF8.GetBytes(block.ToString()); expectedHash.AppendData(bytes); expectedBytes += bytes.Length;
+    }
+    var prefix = Encoding.UTF8.GetBytes("\r\u001b[32mUnpacking fixture 中文🙂 00000000");
+    byte[] prefixTail = [];
+    var hashing = false;
+    sessions.StateChanged += s => { if (s.State == NativeSessionState.Failed) done.TrySetException(new IOException(s.Error)); };
+    var snapshot = await sessions.OpenAsync(profile, _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"), CancellationToken.None,
+        async bytes =>
+        {
+            await terminal.ConsumeAsync(bytes);
+            var payload = bytes;
+            if (!hashing)
+            {
+                payload = prefixTail.Concat(bytes).ToArray();
+                var start = payload.AsSpan().IndexOf(prefix);
+                if (start >= 0) { hashing = true; payload = payload.AsSpan(start).ToArray(); }
+                else { prefixTail = payload.AsSpan(Math.Max(0, payload.Length - prefix.Length)).ToArray(); payload = []; }
+            }
+            var take = (int)Math.Min(payload.Length, expectedBytes - verifiedBytes);
+            if (take > 0) { actualHash.AppendData(payload.AsSpan(0, take)); verifiedBytes += take; }
+            tail.Append(Encoding.UTF8.GetString(bytes));
+            if (tail.ToString().Contains("[replay done 2500000]")) done.TrySetResult();
+            if (tail.Length > 512) tail.Remove(0, tail.Length - 512);
+        });
+    var session = sessions.Get(snapshot.SessionId);
+    await session.WriteAsync(Encoding.UTF8.GetBytes("replay 2500000 0 32768\r"));
+    await done.Task.WaitAsync(TimeSpan.FromMinutes(3));
+    Check(verifiedBytes == expectedBytes && actualHash.GetHashAndReset().SequenceEqual(expectedHash.GetHashAndReset()) && session.ShellBufferedBytes == 0,
+        "unthrottled real SSH 2.5-million-line burst matches every byte by SHA-256 with bounded receive buffer");
+    Console.WriteLine($"BURST bytes={verifiedBytes} parsed={terminal.ParsedBytes} queueHighWater={session.OutputQueueHighWater} sshHighWater={session.ShellBufferHighWater}");
+}
+
+async Task TestTerminalReceivePipelineAsync()
+{
+    var root = FindRepositoryRoot();
+    var temp = Path.Combine(Path.GetTempPath(), "ofs-terminal-transport-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(temp);
+    var port = FindFreePort();
+    using var fixture = StartFixture(Path.Combine(root, "test", "fixtures", "testSshServer.mjs"), port, temp);
+    await WaitForPortAsync(port);
+    using var store = new NativeStore(Path.Combine(temp, "data"), new TestProtector());
+    var secret = store.SaveSecret("test123");
+    var profile = ConnectionProfile.FromJson(new JsonObject
+    {
+        ["id"] = "pipeline", ["name"] = "Pipeline", ["host"] = "127.0.0.1", ["port"] = port, ["username"] = "test",
+        ["auth"] = new JsonObject { ["method"] = "password", ["passwordRef"] = secret },
+        ["options"] = new JsonObject { ["autoReconnect"] = false }
+    });
+    // Reproduce the old event-only behavior on the same SSH.NET version.
+    using (var old = new Renci.SshNet.SshClient("127.0.0.1", port, "test", "test123"))
+    {
+        await old.ConnectAsync(CancellationToken.None);
+        using var shell = old.CreateShellStream("xterm", 120, 40, 0, 0, 65536);
+        var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        long eventBytes = 0;
+        shell.DataReceived += (_, e) => { if (Interlocked.Add(ref eventBytes, e.Data.Length) >= 1024 * 1024) received.TrySetResult(); };
+        shell.WriteLine("flood 1");
+        await received.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(shell.Length >= 1024 * 1024, "baseline: event-only ShellStream retains at least 1 MiB after output delivery");
+        Console.WriteLine($"BASELINE eventBytes={eventBytes} shellRetained={shell.Length}");
+    }
+    await using (var transport = new SshConnection(profile, store, _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123")))
+    {
+        long bytes = 0;
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.OutputConsumer = (chunk, token) =>
+        {
+            Interlocked.Add(ref bytes, chunk.Length);
+            if (Encoding.UTF8.GetString(chunk).Contains("[done 1MB]")) done.TrySetResult();
+            return Task.CompletedTask;
+        };
+        await transport.ConnectAsync(120, 40, CancellationToken.None);
+        await transport.WriteAsync(Encoding.UTF8.GetBytes("flood 1\r"));
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(100);
+        Check(bytes >= 1024 * 1024 && transport.ShellBufferedBytes == 0, "single background reader drains SSH.NET buffer with no duplicate event delivery");
+        Console.WriteLine($"AFTER readBytes={transport.ReadBytes} retained={transport.ShellBufferedBytes} highWater={transport.ShellBufferHighWater}");
+        var close = Stopwatch.StartNew();
+        await transport.CloseAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        Check(close.Elapsed < TimeSpan.FromSeconds(3), "closing shell releases idle blocking Read within 3 seconds");
+    }
+    await using (var transport = new SshConnection(profile, store, _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123")))
+    {
+        var stalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.OutputConsumer = (bytes, _) => { if (Encoding.UTF8.GetString(bytes).Contains("[input stalled]")) stalled.TrySetResult(); return Task.CompletedTask; };
+        await transport.ConnectAsync(120, 40, CancellationToken.None);
+        await transport.WriteAsync(Encoding.UTF8.GetBytes("stall-input\r"));
+        await stalled.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        using var cancel = new CancellationTokenSource(250);
+        var sendClock = Stopwatch.StartNew();
+        try { await transport.WriteAsync(Enumerable.Repeat((byte)'x', 4 * 1024 * 1024).ToArray(), cancel.Token); }
+        catch (OperationCanceledException) { }
+        using var disconnectTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        while (transport.Connected && !disconnectTimeout.IsCancellationRequested) await Task.Delay(10);
+        Check(!transport.Connected, "canceling a partial blocked write disconnects the sender without requiring a separate close");
+        await transport.CloseAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        Check(sendClock.Elapsed < TimeSpan.FromSeconds(3), "remote input stall honors send cancellation and closes without a stranded sender");
+    }
+    await using (var sessions = new NativeSessionManager(store))
+    {
+        var blocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshot = await sessions.OpenAsync(profile, _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"),
+            CancellationToken.None, async _ => { entered.TrySetResult(); await blocked.Task; });
+        var session = sessions.Get(snapshot.SessionId);
+        await entered.Task;
+        await session.WriteAsync(Encoding.UTF8.GetBytes("flood 4\r"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        while (session.PendingOutputChunks < 64 && !timeout.IsCancellationRequested) await Task.Delay(10);
+        Console.WriteLine($"FULL queueChunks={session.PendingOutputChunks} pendingBytes={session.PendingOutputBytes} sshBuffer={session.ShellBufferedBytes}");
+        Check(session.PendingOutputChunks == 64 && session.PendingOutputBytes <= 2 * 1024 * 1024 + 32768, "full session receive queue stays bounded including one waiting producer");
+        await Task.Delay(1000);
+        Check(session.ShellBufferedBytes <= 256 * 1024 && session.Snapshot.State == NativeSessionState.Ready,
+            "stalled application consumption propagates SSH window backpressure without disconnecting");
+        using var commandTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var otherChannel = await session.ExecuteAsync("echo independent-channel", commandTimeout.Token);
+        Check(otherChannel.Contains("independent-channel"), "full terminal queue leaves the SSH listener and independent exec channel responsive");
+        var close = Stopwatch.StartNew();
+        await sessions.CloseAsync(snapshot.SessionId).WaitAsync(TimeSpan.FromSeconds(3));
+        blocked.TrySetResult();
+        Check(close.Elapsed < TimeSpan.FromSeconds(3) && session.PendingOutputBytes == 0, "close cancels full-channel writer and UI-independent consumer wait");
+    }
+    await using (var terminal = new NativeTerminalProcessor())
+    await using (var sessions = new NativeSessionManager(store))
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var received = new StringBuilder();
+        var snapshot = await sessions.OpenAsync(profile, _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"),
+            CancellationToken.None, async bytes =>
+            {
+                await terminal.ConsumeAsync(bytes);
+                received.Append(Encoding.UTF8.GetString(bytes));
+                if (received.ToString().Contains("[replay done 4096]")) done.TrySetResult();
+            });
+        var session = sessions.Get(snapshot.SessionId);
+        await session.WriteAsync(Encoding.UTF8.GetBytes("replay 4096 0 13\r"));
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var expected = new StringBuilder();
+        for (var n = 0; n < 4096; n++) expected.Append(n % 16 == 0
+            ? $"\r\u001b[32mUnpacking fixture 中文🙂 {n:D8} 90%\u001b[0m\u001b[K\r\n"
+            : $"{n:D8} fixture log 中文🙂\r\n");
+        Check(received.ToString().Contains(expected.ToString(), StringComparison.Ordinal), "real SSH replay preserves every ordered UTF-8 and ANSI byte across 13-byte packets");
+        Check(terminal.ParsedBytes > Encoding.UTF8.GetByteCount(expected.ToString()), "real SSH consumer completes only after libvterm parses all replay bytes");
+    }
+    await using (var sessions = new NativeSessionManager(store))
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var received = new StringBuilder();
+        var snapshot = await sessions.OpenAsync(profile, _ => Task.FromResult(true), (_, _) => Task.FromResult<string?>("test123"),
+            CancellationToken.None, async bytes =>
+            {
+                entered.TrySetResult(); await release.Task;
+                received.Append(Encoding.UTF8.GetString(bytes));
+                if (received.ToString().Contains("[replay done 16000]")) done.TrySetResult();
+            });
+        var session = sessions.Get(snapshot.SessionId);
+        await entered.Task;
+        await session.WriteAsync(Encoding.UTF8.GetBytes("replay 16000 0 32768\r"));
+        await Task.Delay(600);
+        Check(session.PendingOutputChunks == 64 && session.ShellBufferedBytes <= 256 * 1024,
+            "paused parser keeps both application and SSH receive queues bounded");
+        release.TrySetResult();
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var expected = new StringBuilder();
+        for (var n = 0; n < 16000; n++) expected.Append(n % 16 == 0
+            ? $"\r\u001b[32mUnpacking fixture 中文🙂 {n:D8} 90%\u001b[0m\u001b[K\r\n"
+            : $"{n:D8} fixture log 中文🙂\r\n");
+        Check(received.ToString().Contains(expected.ToString(), StringComparison.Ordinal),
+            "resuming a full receive queue delivers every stalled byte in order");
+        await sessions.ReconnectAsync(snapshot.SessionId, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        await session.WriteAsync(Encoding.UTF8.GetBytes("echo reconnected-generation\r"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!received.ToString().Contains("reconnected-generation") && !timeout.IsCancellationRequested) await Task.Delay(10);
+        Check(received.ToString().Contains("reconnected-generation") && session.Snapshot.State == NativeSessionState.Ready,
+            "reconnect joins previous output before accepting the next transport generation");
+        await session.WriteAsync(Encoding.UTF8.GetBytes("extended-output\r"));
+        using var extendedTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (!received.ToString().Contains("[extended fixture]") && !extendedTimeout.IsCancellationRequested) await Task.Delay(10);
+        Check(received.ToString().Contains("[extended fixture]"), "extended SSH data shares bounded raw terminal consumption");
+        await session.WriteAsync(Encoding.UTF8.GetBytes("drop-transport\r"));
+        using var failureTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (session.Snapshot.State != NativeSessionState.Failed && !failureTimeout.IsCancellationRequested) await Task.Delay(10);
+        Check(session.Snapshot.State == NativeSessionState.Failed, "abrupt TCP disconnect reports transport failure without blocking UI consumption");
+    }
+}
 
 async Task TestAgentNamedPipeAsync()
 {

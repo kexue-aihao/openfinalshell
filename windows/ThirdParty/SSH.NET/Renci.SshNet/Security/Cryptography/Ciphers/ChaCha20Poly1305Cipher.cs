@@ -1,0 +1,205 @@
+﻿#nullable enable
+using System;
+using System.Buffers.Binary;
+using System.Diagnostics;
+
+using Org.BouncyCastle.Crypto.Engines;
+using Org.BouncyCastle.Crypto.Macs;
+using Org.BouncyCastle.Crypto.Parameters;
+using Org.BouncyCastle.Utilities;
+
+using Renci.SshNet.Common;
+using Renci.SshNet.Messages.Transport;
+
+namespace Renci.SshNet.Security.Cryptography.Ciphers
+{
+    /// <summary>
+    /// ChaCha20Poly1305 cipher implementation.
+    /// <see href="https://datatracker.ietf.org/doc/html/draft-josefsson-ssh-chacha20-poly1305-openssh-00"/>.
+    /// </summary>
+    internal sealed class ChaCha20Poly1305Cipher : SymmetricCipher
+    {
+        private readonly byte[] _iv;
+        private readonly int _aadLength;
+        private readonly KeyParameter? _aadKeyParameter;
+        private readonly KeyParameter _keyParameter;
+        private readonly ChaCha7539Engine? _aadCipher;
+        private readonly ChaCha7539Engine _cipher;
+        private readonly Poly1305 _mac;
+
+        /// <summary>
+        /// Gets the minimum block size.
+        /// </summary>
+        public override byte MinimumSize
+        {
+            get
+            {
+                return 16;
+            }
+        }
+
+        /// <summary>
+        /// Gets the tag size in bytes.
+        /// Poly1305 [Poly1305], also by Daniel Bernstein, is a one-time Carter-
+        /// Wegman MAC that computes a 128 bit integrity tag given a message
+        /// <see href="https://datatracker.ietf.org/doc/html/draft-josefsson-ssh-chacha20-poly1305-openssh-00#section-1"/>.
+        /// </summary>
+        public override int TagSize
+        {
+            get
+            {
+                return 16;
+            }
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ChaCha20Poly1305Cipher"/> class.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="aadLength">The length of additional associated data.</param>
+        public ChaCha20Poly1305Cipher(byte[] key, int aadLength)
+            : base(key)
+        {
+            _iv = new byte[12];
+            _aadLength = aadLength;
+
+            _keyParameter = new KeyParameter(key, 0, 32);
+            _cipher = new ChaCha7539Engine();
+
+            if (aadLength > 0)
+            {
+                _aadKeyParameter = new KeyParameter(key, 32, 32);
+                _aadCipher = new ChaCha7539Engine();
+            }
+
+            _mac = new Poly1305();
+        }
+
+        public override byte[] Encrypt(byte[] input, int offset, int length)
+        {
+            var output = new byte[length + TagSize];
+
+            var bytesWritten = Encrypt(input, offset, length, output, 0);
+
+            Debug.Assert(bytesWritten == length);
+
+            return output;
+        }
+
+        /// <summary>
+        /// Encrypts the specified input.
+        /// </summary>
+        /// <param name="input">
+        /// The input data with below format:
+        ///   <code>
+        ///   [----(offset)][----AAD----][----Plain Text----(length)]
+        ///   </code>
+        /// </param>
+        /// <param name="offset">The zero-based offset in <paramref name="input"/> at which to begin encrypting.</param>
+        /// <param name="length">The number of bytes to encrypt from <paramref name="input"/>.</param>
+        /// <param name="output">The output buffer to write to.</param>
+        /// <param name="outputOffset">The zero-based offset in <paramref name="output"/> at which to write encrypted output.</param>
+        /// <remarks>
+        /// The output data is written with the below format:
+        ///   <code>
+        ///   [----Cipher AAD----][----Cipher Text----][----TAG----]
+        ///   </code>
+        /// </remarks>
+        public override int Encrypt(byte[] input, int offset, int length, byte[] output, int outputOffset)
+        {
+            _aadCipher?.Init(forEncryption: true, new ParametersWithIV(_aadKeyParameter, _iv));
+            _cipher.Init(forEncryption: true, new ParametersWithIV(_keyParameter, _iv));
+
+            var keyStream = new byte[64];
+            _cipher.ProcessBytes(keyStream, 0, keyStream.Length, keyStream, 0);
+            _mac.Init(new KeyParameter(keyStream, 0, 32));
+
+            _aadCipher?.ProcessBytes(input, offset, _aadLength, output, outputOffset);
+            _cipher.ProcessBytes(input, offset + _aadLength, length - _aadLength, output, outputOffset + _aadLength);
+
+            _mac.BlockUpdate(output, outputOffset, length);
+            var macBytesWritten = _mac.DoFinal(output, outputOffset + length);
+
+            Debug.Assert(macBytesWritten == TagSize);
+
+            return length + macBytesWritten;
+        }
+
+        /// <summary>
+        /// Decrypts the specified bytes.
+        /// </summary>
+        /// <remarks>
+        /// If a positive AAD length was specified for this instance, the bytes are
+        /// decrypted as if they are AAD (i.e. the packet length of an SSH packet).
+        /// </remarks>
+        /// <param name="input">The buffer containing the ciphertext to decrypt.</param>
+        /// <param name="offset">The offset of the ciphertext in the buffer.</param>
+        /// <param name="length">The length of the ciphertext to decrypt.</param>
+        /// <returns>The decrypted plaintext.</returns>
+        public override byte[] Decrypt(byte[] input, int offset, int length)
+        {
+            var output = new byte[length];
+
+            _cipher.Init(forEncryption: false, new ParametersWithIV(_keyParameter, _iv));
+
+            var keyStream = new byte[64];
+            _cipher.ProcessBytes(keyStream, 0, keyStream.Length, keyStream, 0);
+            _mac.Init(new KeyParameter(keyStream, 0, 32));
+
+            if (_aadLength > 0)
+            {
+                // If we are in 'AAD mode', then put these bytes through the AAD cipher.
+
+                _mac.BlockUpdate(input, offset, length);
+
+                Debug.Assert(_aadCipher != null);
+
+                _aadCipher.Init(forEncryption: false, new ParametersWithIV(_aadKeyParameter, _iv));
+
+                _aadCipher.ProcessBytes(input, offset, length, output, 0);
+            }
+            else
+            {
+                var bytesWritten = Decrypt(input, offset, length, output, 0);
+
+                Debug.Assert(bytesWritten == length);
+            }
+
+            return output;
+        }
+
+        /// <summary>
+        /// Decrypts the specified input.
+        /// </summary>
+        /// <param name="input">
+        /// The input data with below format:
+        ///   <code>
+        ///   [----(offset)][----Cipher Text----(length)][----TAG----]
+        ///   </code>
+        /// </param>
+        /// <param name="offset">The zero-based offset in <paramref name="input"/> at which to begin decrypting and authenticating.</param>
+        /// <param name="length">The number of bytes to decrypt and authenticate from <paramref name="input"/>.</param>
+        /// <param name="output">The buffer to which to write the decrypted bytes.</param>
+        /// <param name="outputOffset">The zero-based offset in <paramref name="output"/> at which to write the decrypted bytes.</param>
+        /// <returns>The number of plaintext bytes written to <paramref name="output"/>.</returns>
+        public override int Decrypt(byte[] input, int offset, int length, byte[] output, int outputOffset)
+        {
+            var tag = new byte[TagSize];
+            _mac.BlockUpdate(input, offset, length);
+            _ = _mac.DoFinal(tag, 0);
+            if (!Arrays.FixedTimeEquals(TagSize, tag, 0, input, offset + length))
+            {
+                throw new SshConnectionException("MAC error", DisconnectReason.MacError);
+            }
+
+            _cipher.ProcessBytes(input, offset, length, output, outputOffset);
+
+            return length;
+        }
+
+        internal override void SetSequenceNumber(uint sequenceNumber)
+        {
+            BinaryPrimitives.WriteUInt64BigEndian(_iv.AsSpan(4), sequenceNumber);
+        }
+    }
+}

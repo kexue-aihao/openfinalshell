@@ -1,0 +1,134 @@
+Thread (0x342C):
+  [Native Frames]
+  Microsoft.WinUI!ABI.Microsoft.UI.Xaml.IApplicationStaticsMethods.Start(class WinRT.IObjectReference,class Microsoft.UI.Xaml.ApplicationInitializationCallback)
+  Microsoft.WinUI!Microsoft.UI.Xaml.Application.Start(class Microsoft.UI.Xaml.ApplicationInitializationCallback)
+  OpenFinalShell.App!OpenFinalShell.App.Program.Main(class System.String[])
+
+Thread (0x4094):
+  [Native Frames]
+  Renci.SshNet!Renci.SshNet.ShellStream.Read(value class System.Span`1<unsigned int8>)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection+<ReadShellAsync>d__60.MoveNext()
+  System.Private.CoreLib.il!System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)
+  System.Private.CoreLib.il!System.Runtime.CompilerServices.AsyncTaskMethodBuilder.Start(!!0&)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection.ReadShellAsync(class Renci.SshNet.ShellStream,value class System.Threading.CancellationToken)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection+<>c__DisplayClass58_0.<ConnectAsync>b__1()
+  System.Private.CoreLib.il!System.Threading.Tasks.Task`1[System.__Canon].InnerInvoke()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(class System.Threading.Thread,class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.ThreadPoolWorkQueue.Dispatch()
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x38B8):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class WaitHandleWaitSourceMap)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+GateThread.GateThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x27BC):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.WaitHandle.WaitOneNoCheck(int32,bool,class System.Object,value class WaitHandleWaitSourceMap)
+  System.Private.CoreLib.il!System.Threading.TimerQueue.TimerThread()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x4A50):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x25C4):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+IOCompletionPoller.Poll()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x4584):
+  [Native Frames]
+  Renci.SshNet!Renci.SshNet.ShellStream.Read(value class System.Span`1<unsigned int8>)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection+<ReadShellAsync>d__60.MoveNext()
+  System.Private.CoreLib.il!System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)
+  System.Private.CoreLib.il!System.Runtime.CompilerServices.AsyncTaskMethodBuilder.Start(!!0&)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection.ReadShellAsync(class Renci.SshNet.ShellStream,value class System.Threading.CancellationToken)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection+<>c__DisplayClass58_0.<ConnectAsync>b__1()
+  System.Private.CoreLib.il!System.Threading.Tasks.Task`1[System.__Canon].InnerInvoke()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(class System.Threading.Thread,class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.ThreadPoolWorkQueue.Dispatch()
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x41E8):
+  [Native Frames]
+  Renci.SshNet!Renci.SshNet.Session.ReceiveMessage(class System.Net.Sockets.Socket)
+  Renci.SshNet!Renci.SshNet.Session.MessageListener()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x4B68):
+  [Native Frames]
+  Renci.SshNet!Renci.SshNet.Session.ReceiveMessage(class System.Net.Sockets.Socket)
+  Renci.SshNet!Renci.SshNet.Session.MessageListener()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x1590):
+  [Native Frames]
+  Renci.SshNet!Renci.SshNet.ShellStream.Read(value class System.Span`1<unsigned int8>)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection+<ReadShellAsync>d__60.MoveNext()
+  System.Private.CoreLib.il!System.Runtime.CompilerServices.AsyncMethodBuilderCore.Start(!!0&)
+  System.Private.CoreLib.il!System.Runtime.CompilerServices.AsyncTaskMethodBuilder.Start(!!0&)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection.ReadShellAsync(class Renci.SshNet.ShellStream,value class System.Threading.CancellationToken)
+  OpenFinalShell.Core!OpenFinalShell.Core.SshConnection+<>c__DisplayClass58_0.<ConnectAsync>b__1()
+  System.Private.CoreLib.il!System.Threading.Tasks.Task`1[System.__Canon].InnerInvoke()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunFromThreadPoolDispatchLoop(class System.Threading.Thread,class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.ThreadPoolWorkQueue.Dispatch()
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x3B68):
+  [Native Frames]
+  Renci.SshNet!Renci.SshNet.Session.ReceiveMessage(class System.Net.Sockets.Socket)
+  Renci.SshNet!Renci.SshNet.Session.MessageListener()
+  System.Private.CoreLib.il!System.Threading.ExecutionContext.RunInternal(class System.Threading.ExecutionContext,class System.Threading.ContextCallback,class System.Object)
+  System.Private.CoreLib.il!System.Threading.Tasks.Task.ExecuteWithThreadLocal(class System.Threading.Tasks.Task&,class System.Threading.Thread)
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x49C8):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x472C):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x1F0C):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x4CCC):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+
+Thread (0x25A4):
+  [Native Frames]
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.WaitForSignal(int32)
+  System.Private.CoreLib.il!System.Threading.LowLevelLifoSemaphore.Wait(int32,bool)
+  System.Private.CoreLib.il!System.Threading.PortableThreadPool+WorkerThread.WorkerThreadStart()
+  System.Private.CoreLib.il!System.Threading.Thread.StartCallback()
+

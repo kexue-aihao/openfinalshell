@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="../../build/native-terminal/x64/ofs-terminal.dll" Link="ofs-terminal.dll" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../OpenFinalShell.Core/OpenFinalShell.Core.csproj" />
     <Compile Include="../OpenFinalShell.App/ViewModels/SftpBrowserViewModel.cs" Link="Acceptance/SftpBrowserViewModel.cs" />
     <Compile Include="../OpenFinalShell.App/ViewModels/BulkObservableCollection.cs" Link="Acceptance/BulkObservableCollection.cs" />

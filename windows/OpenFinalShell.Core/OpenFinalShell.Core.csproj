@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <Content Include="../ThirdParty/SSH.NET/LICENSE" Link="SSH.NET-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <ProjectReference Include="../ThirdParty/SSH.NET/Renci.SshNet/Renci.SshNet.csproj" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />

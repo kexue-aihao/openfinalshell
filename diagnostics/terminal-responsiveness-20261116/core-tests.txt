@@ -1,0 +1,418 @@
+E:\openfinalshell\windows\OpenFinalShell.Core.Tests\Program.cs(142,68): warning CA1416: 可在所有平台上访问此调用站点。"DpapiProtector" 仅在 'windows' 上受支持。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [E:\openfinalshell\windows\OpenFinalShell.Core.Tests\OpenFinalShell.Core.Tests.csproj]
+E:\openfinalshell\windows\OpenFinalShell.Core.Tests\Program.cs(27,64): warning CA1416: 可在所有平台上访问此调用站点。"DpapiProtector" 仅在 'windows' 上受支持。 (https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416) [E:\openfinalshell\windows\OpenFinalShell.Core.Tests\OpenFinalShell.Core.Tests.csproj]
+PASS Update service selects the signed incremental inventory and never requests the full installer
+PASS Incremental updates report applying and verification phases without a false ready state between stages
+PASS Incremental staging reports monotonic byte-level progress through final verification
+PASS Incremental updater downloads only the two changed/new files, reusing two local files
+PASS Incremental transfer is smaller than the full payload
+PASS Update replaces changed files and removes obsolete signed files
+PASS Incremental update preserves unknown user files
+PASS Successful update commits its signed inventory
+PASS A locked file rolls back files already replaced and leaves the old application intact
+PASS Retry after failed update succeeds and removes the completed transaction backup
+PASS Staged file tampering is rejected before installation changes
+PASS Update rejects unsafe path: ../outside
+PASS Update rejects unsafe path: C:/outside
+PASS Update rejects unsafe path: folder/../file
+PASS Update rejects unsafe path: file:stream
+PASS Update rejects unsafe path: CON.txt
+PASS Update rejects unsafe path: file.
+PASS Update rejects unsafe path: /absolute
+PASS A corrupted staging cache is repaired from verified installed bytes
+PASS Range-ignoring server fails without silently downloading the full program
+PASS Incremental inventory rejects wrong architecture even with a valid signature
+PASS Incremental inventory rejects signature/hash mismatch
+PASS Native editor recognizes HTML, TypeScript and C# files
+PASS Native editor recognizes documentation and build files
+PASS Native editor recognizes config files and extensionless scripts
+PASS Native terminal layout cache initializes NaN values and ignores subpixel noise
+PASS Native terminal cursor visibility follows active, scroll, blink and composition state without focus gating
+PASS Native terminal cursor geometry preserves bar, block and underline styles
+PASS Native command target selection defaults to the active session
+PASS Native command target selection can send to all sessions or force the active session
+PASS Native command target selection fans out to checked connected sessions only
+PASS SFTP timestamps display the exact Chinese date, weekday, period and seconds
+PASS Native release notes embed the current Electron changelog
+PASS Native startup notice classifies first launch, update and unchanged version
+PASS Native shell path sync parses only statically safe cd commands
+PASS Native shell path sync resolves relative, absolute and home directories
+PASS SFTP file drops on a directory row target that directory
+PASS SFTP file rows and blank space fall back to the current directory
+PASS SFTP drops reject non-file data, disconnected sessions and pending navigation
+PASS SFTP drop target rejects non-canonical remote paths and unsafe current directories
+PASS Bulk SFTP replacement publishes one reset notification for 5000 entries
+PASS Transfer progress burst is coalesced into bounded UI notifications
+PASS SFTP navigation history records new directories and exposes back target
+PASS SFTP navigation history commits back navigation and exposes forward target
+PASS SFTP navigation history commits forward navigation
+PASS SFTP navigation history truncates forward entries after a new directory
+PASS SFTP sort keeps directories first and sorts names ascending
+PASS SFTP sort supports descending size while keeping directories first
+PASS SFTP sort supports ascending modification time while keeping directories first
+PASS Native terminal search finds every case-insensitive literal match
+PASS Native terminal search respects case sensitivity
+PASS Native terminal search supports bounded regular expressions
+PASS Native terminal search rejects malformed regular expressions safely
+PASS Unacknowledged startup history remains pending until the dialog has been shown
+PASS Native startup notice classifies the first database launch
+PASS Native startup notice stays dismissed after restarting the process
+PASS Native startup notice records an upgrade boundary
+PASS Native startup marker remains outside the shared migration export
+PASS FinalShell scan reads nested directory, classifies SSH/groups and previews unsupported credentials
+PASS Selecting FinalShell conn folder does not scan its files twice
+PASS FinalShell skip import preserves group references and never imports encrypted passwords or proxy/key refs
+PASS FinalShell nested group hierarchy survives transactional import
+PASS FinalShell preview token is single use
+PASS FinalShell duplicate policy creates a separate remapped connection and group graph
+PASS Electron v2 whole-file exports are identified as passphrase-protected
+PASS Electron v1 export without credentials does not require a passphrase
+PASS Electron v1 plaintext configuration imports without a passphrase
+PASS Electron v1 credentials are identified as passphrase-protected
+PASS Electron v1 credentials cannot be imported without their passphrase
+PASS Electron v1 rejects a wrong credentials passphrase
+PASS Electron v1 decrypts the credential map and retains its original references in preview
+PASS Electron v1 accepts bounded legacy scrypt work factors supported by its import schema
+PASS Electron v1 honors includesSecrets=false and does not import an unadvertised credential block
+PASS Electron v1 credentials are rekeyed into the native protected store on transactional import
+PASS Electron v1 rejects unsafe KDF parameters before decryption
+PASS Unknown newer export formats are rejected
+PASS AI response parser preserves prose, tilde-fenced shell blocks and trailing text
+PASS AI response parser recognizes shell languages and marks unfinished blocks
+PASS AI terminal fill normalizes line endings and gates multiline text on bracketed paste
+PASS AI terminal fill rejects controls, oversized and empty payloads
+PASS Directory following never guesses from commands or prompt text
+PASS Explicit OSC 7 BEL report decodes a remote path without executing a command
+PASS OSC 7 UTF-8 and ST terminators survive byte-by-byte chunk boundaries
+PASS Duplicate directory reports do not issue duplicate navigation requests
+PASS A terminal chunk coalesces directory reports to its newest path
+PASS Malformed, non-file, credential, control, backslash and oversized directory URIs are ignored
+PASS OSC inside DCS payloads and window titles cannot trigger directory following
+PASS Oversized OSC reports are bounded and the parser recovers at the next report
+PASS Session reset discards incomplete and stale remote directory state
+PASS Invalid UTF-8 directory reports are rejected without replacement-character paths
+PASS Fast delete previews POSIX-quoted paths and exact item counts
+PASS Fast delete command preserves option terminator and residue reporting
+PASS Fast delete rejects an empty selection
+PASS Fast delete rejects filesystem root
+PASS Fast delete rejects shallow system-level paths
+PASS Fast delete rejects dot segments
+PASS Fast delete rejects relative paths
+PASS Fast delete rejects line breaks used by result framing
+PASS Fast delete splits large selections into bounded batches
+PASS Fast delete aggregates batches and treats a missing exit code as unknown
+PASS Fast delete reports a disconnected command as an unknown result
+PASS Packed transfer parses remote GNU tar and capacity probe
+PASS Packed transfer distinguishes BusyBox tar from missing tar
+PASS Packed transfer accepts a safe target with sufficient temporary space
+PASS Packed transfer normalizes a trailing slash in the remote temporary directory
+PASS Packed transfer falls back to source filesystem when temporary space is low
+PASS Packed transfer skips small directories
+PASS Packed transfer respects non-overwrite conflict policy for existing targets
+PASS Packed probe rejects relative remote paths
+PASS Packed probe safely quotes apostrophes in remote paths
+PASS Packed archive command uses a private mktemp path
+PASS Packed archive path must match its generated temporary name
+PASS Packed archive path cannot redirect transfer or cleanup outside its temporary directory
+PASS Packed archive path must use the mktemp template prefix
+PASS Packed extraction preserves file bytes beneath the expected root
+PASS Packed extraction skips links without creating reparse points
+PASS Packed extraction rejects traversal before writing user files
+PASS Rejected packed archive leaves no partially extracted directory
+PASS Packed extraction rejects multiple top-level roots
+PASS Packed extraction rejects Windows alternate data stream names
+PASS Packed extraction rejects reserved Windows device names
+PASS Packed extraction rejects case-insensitive Windows filename collisions
+PASS Packed extraction rejects an empty archive
+PASS Native upload conflict planning requests one decision for the whole batch
+PASS Native upload ask policy does not show a conflict decision when the target names are free
+PASS Native upload batch skip omits only the colliding top-level items
+PASS Native upload batch overwrite applies to matching items and protects against late conflicts
+PASS Native upload batch rename uses Electron naming and reserves existing names
+PASS Native upload overwrite rejects a file-directory type mismatch
+PASS Native upload overwrite rejects a symbolic-link target
+PASS Native upload planning rejects duplicate names within one batch
+PASS Skipped upload is a localized visible terminal queue task without claiming transferred bytes
+PASS Skipped queue tasks remain terminal under transfer controls
+PASS Queue-wide pause leaves terminal tasks unchanged
+PASS Queue-wide transfer controls reject unsupported operations
+PASS Directory group localizes skipped children and reaches a terminal skipped state
+PASS Clear finished removes standalone and grouped skipped tasks
+PASS Transfer overview aggregates leaf tasks, known bytes, unknown work and active rates without counting group parents
+PASS Empty transfer overview reports zero totals
+PASS Workbench Ctrl+Tab arbitration switches sessions in both directions
+PASS Workbench duplication and Alt+1 through Alt+9 share a native-editor compatible route
+PASS Ctrl+W preserves text-entry editing and closes only workbench targets
+PASS IME, dialogs and terminal Ctrl+C are excluded from global session shortcuts
+PASS Mixed editor newlines use the shared majority rule with LF on ties
+PASS Editor exposes normalization warnings for bare CR and keeps uniform newlines unflagged
+PASS Editor GB18030 preserves four-byte characters without substituting GBK
+PASS Editor refuses unrepresentable GBK characters instead of writing question marks
+PASS Editor refuses lossy legacy-encoding saves before a remote write
+PASS Re-decoding as UTF-8 BOM never drops three bytes when no BOM exists
+PASS UTF-8 re-decode preserves a compatible real BOM
+PASS Invalid sequences remain viewable but fail the lossless editing gate
+PASS Editor Gbk round-trips its supported characters
+PASS Editor Big5 round-trips its supported characters
+PASS Editor Latin1 round-trips its supported characters
+PASS Terminal history derives the submitted command from remote echo, including shell completion
+PASS Terminal command capture recognizes common fish and PowerShell prompt markers so SFTP can follow typed cd commands
+PASS Non-echoed input and credential prompts never become command history
+PASS History ignores alternate-screen, unrecognized and oversized lines
+PASS Echo capture preserves redirections and Unicode without recording keystrokes
+PASS Command editing retains ordering, exact whitespace and unknown imported fields
+PASS Command ordering moves within its own group
+PASS Command placeholders expand independently for the selected target without trimming command text
+PASS History privacy preference is enforced by the Core service for every caller
+PASS History retains the shared command length limit
+PASS Shared zoom, accent, monitor and all locale settings load
+PASS System theme mode remains compatible with Electron settings
+PASS In-memory integer preferences can be read as floating point controls
+PASS Malformed and nonfinite numeric preferences use safe defaults
+PASS Independent setting edits do not overwrite concurrent preferences
+PASS Preference edits retain imported and unknown fields
+PASS Nested preference patches retain sibling fields
+PASS Encrypted exports retain portable terminal, accent and SFTP preferences
+PASS Unknown executable or environment settings cannot enter through import
+PASS Unknown accent values resolve to a safe shared default
+PASS Native first-run theme, language, SFTP and terminal defaults match the shared Electron defaults
+PASS Partial legacy settings resolve absent theme and language to the shared Electron defaults
+PASS Saved SFTP and terminal interaction preferences override Electron-compatible defaults
+PASS Invalid SFTP and terminal interaction values fall back to safe shared defaults
+PASS Follow mode resolves the global default proxy
+PASS Direct mode ignores saved and global proxies
+PASS Legacy native saved mode maps to shared custom mode
+PASS Legacy profiles without proxy mode stay direct despite a global proxy
+PASS Missing proxy never silently dials directly
+PASS Group edits retain hierarchy and unknown fields
+PASS Nested group parent survives model roundtrip
+PASS Group moves reject cycles
+PASS Group moves reject missing parents
+PASS Rejected group moves do not write partial state
+PASS Deleting a nested group promotes child groups and connections to its parent
+PASS Imported cycles and missing parents are reported without recursion
+PASS Compatibility backup uses a consistent SQLite snapshot
+PASS Shared RDP fields take precedence over legacy native fields
+PASS RDP worker features obey the saved profile
+PASS Legacy native RDP domain remains readable
+PASS Migration defaults import portable data but leave local settings unchanged
+PASS Category selection excludes AI credentials without mutating the original preview
+PASS Category selection rejects dangling forward references before any write
+PASS Command selection resolves snippet groups separately from connection groups
+PASS Command selection rejects unselected missing snippet groups
+PASS Category selection rejects missing parent groups before import
+PASS Duplicate imports remap colliding IDs by entity category and retain correct references
+PASS Duplicate imports preserve unknown ID-shaped fields
+PASS Duplicate imports preserve natural host-key identities and existing trust decisions
+PASS Legacy AI providers remain usable without copying or exposing their secret
+PASS AI edits use the shared collection while retaining legacy token and unknown fields
+PASS Native AI configurations and credentials survive the shared encrypted export format
+PASS Partial settings imports retain local sibling and unknown preferences
+PASS SSH compression prefers a supported compressor and retains none fallback
+PASS Modern SSH mode excludes legacy negotiation and disables compression
+PASS Transfer limits enforce both session and global capacity
+PASS Increasing transfer limits wakes queued work without restarting active transfers
+PASS Canceled transfer waits release cleanly
+PASS Encrypted migration, profile editing and store restart preserve hierarchy, proxy semantics and unknown fields
+PASS Settings and rekeyed credential references survive import, edit and restart
+PASS Window bounds are absent on first launch
+PASS Valid restored window bounds preserve size and maximized state
+PASS Window bounds below the usable minimum are ignored
+PASS Window height below the usable minimum is ignored
+PASS Window bounds above the supported display range are ignored
+PASS Malformed window dimensions are ignored
+PASS Default terminal foreground auto-contrasts on bright ANSI backgrounds
+PASS Auto-contrast terminal foreground reaches the WCAG AA ratio
+PASS Explicit neutral ANSI foreground is corrected when contrast is insufficient
+PASS Explicit white ANSI foreground becomes black on a bright background
+PASS Explicit saturated ANSI foreground colors are preserved
+PASS Reverse video uses the actual foreground source for terminal auto-contrast
+PASS Command editor uses a wide layout on widescreen viewports
+PASS Command editor keeps a usable writing area in portrait
+PASS Command editor clamps compact viewports without collapsing controls
+PASS Command editor uses a separate wide window sized for the monitor work area
+PASS Command editor client fits portrait, DPI and UI zoom without covering the taskbar
+PASS Command editor client fits portrait, DPI and UI zoom without covering the taskbar
+PASS Command editor client fits portrait, DPI and UI zoom without covering the taskbar
+PASS Command editor restores a custom DIP size across DPI changes
+PASS Command editor clamps remembered custom size to the current monitor work area
+PASS Command editor ignores invalid persisted custom sizes and uses its default layout
+PASS Recovery preflight validates intact entities and encrypted credentials
+PASS Read-only recovery preflight leaves the active database unchanged
+PASS SQLite backup snapshot is integrity checked and all encrypted payloads decrypt
+PASS Recovery rejects backups whose protected store key cannot be decrypted
+PASS Missing active database with a valid backup opens recovery instead of silently initializing blank data
+PASS A verified backup restores successfully when the active database is missing
+PASS Recovery routes structurally malformed payloads to the recovery flow instead of crashing startup
+PASS Authentication tag failure is detected before loading the shell
+PASS Recovery lists only snapshots whose database, entities and credentials validate
+PASS A failed restore rolls back to the original database and retains the selected snapshot
+PASS Restoring a snapshot retains the previous database as an immutable recovery archive
+PASS Restored snapshot opens while the damaged source remains preserved
+PASS Snapshot restore recovers settings, profile and its encrypted secret
+PASS Orphaned SQLite sidecars trigger recovery instead of silently starting an empty store
+PASS Starting an empty profile archives the original database and SQLite sidecars without deleting them
+PASS New empty recovery profile is initialized and validates successfully
+PASS Fresh profile starts empty without importing damaged records
+PASS Unavailable high-contrast query falls back without failing startup
+PASS Unavailable high-contrast change event does not block startup
+PASS Unavailable high-contrast event cleanup is harmless
+PASS Windows boundary 19045
+PASS Windows boundary 21999
+PASS Windows boundary 22000
+PASS Windows boundary 22621
+PASS Server conservative fallback
+PASS Unsupported Windows rejected
+PASS Windows 11 displays release, full UBR version and operating system architecture
+PASS Windows 10 displays its release and falls back cleanly when UBR is unavailable
+PASS Platform display preserves known version data when release and architecture cannot be read
+PASS Node v2 decrypted with Unicode passphrase
+PASS Untrusted settings stripped
+PASS Missing private key reported
+PASS Wrong passphrase rejected
+PASS Ciphertext tampering rejected
+PASS Excessive KDF rejected before work
+PASS Duplicate IDs rejected
+PASS Native import reports entities and only referenced credentials actually written
+PASS Imported secret remapped
+PASS Skip import reports conflicts without leaking unreferenced secret rows
+PASS Selected settings merge independently of entity conflict policy
+PASS Import never overwrites a local host-key trust decision
+PASS Skip import is repeatable
+PASS Duplicate graph references remapped
+PASS Stale writer rejected
+PASS Invalid transaction rejected
+PASS Failed import rolled back atomically
+PASS Pre-import backups retained
+PASS Encrypted store survives restart
+PASS Sensitive configuration encrypted at rest
+PASS Port traffic counters validated and rate capability preserved
+PASS Command library follows shared schema fields and Electron default auto-enter
+PASS Command history can be scoped to a session
+PASS Command history clear is session scoped
+PASS An empty command library receives its first-run defaults
+PASS First-run command library contains five categorized groups and 26 operations commands
+PASS Read-only defaults auto-enter while install and scan commands wait for review
+PASS Built-in command seeding is idempotent and keeps the first localized names
+PASS Deleting all built-ins does not cause them to be seeded again
+PASS Existing command data suppresses built-ins and records the one-time seed decision
+PASS Existing user data is never replaced by later default seeding
+PASS Duplicate detection normalizes CRLF/LF, preserves other text, and scopes matches to one group
+PASS Duplicate cleanup rejects a survivor that is not part of the matching command group
+PASS Rejected duplicate cleanup leaves every command intact
+PASS Duplicate cleanup rejects a stale preview membership list
+PASS Stale duplicate cleanup leaves every command intact
+PASS Duplicate cleanup honors the selected survivor and preserves other groups atomically
+PASS Native AI endpoint defaults to OpenAI-compatible v1 and stores token reference
+PASS Native AI resolves encrypted token per request
+PASS Native AI connection test probes chat completions like Electron and returns model latency
+PASS Native AI model discovery parses the provider response
+PASS Native AI model discovery rejects an empty provider model list like Electron
+PASS Native AI streaming yields response deltas
+PASS Native AI streaming request keeps Electron temperature, response limits and Accept negotiation
+PASS Native AI non-streaming mode preserves Electron request semantics and joins text content parts
+PASS Native AI image capability probe uses a bounded PNG request
+PASS Native AI image capability probe rejects a successful non-JSON body
+PASS Native AI image capability probe recognizes explicit provider image limitations
+PASS Native AI image capability probe keeps generic provider errors inconclusive
+PASS Native AI sends multimodal messages as image_url content parts
+PASS Native AI rejects malformed image data before network I/O
+PASS Native AI enforces Electron's message count limit
+PASS Native AI enforces Electron's per-message multimodal content part limit
+PASS Native AI rejects non-loopback HTTP endpoints
+PASS Replacing AI token removes the now-unreferenced encrypted secret
+PASS Deleting one AI provider retains a credential referenced by another profile
+PASS Deleting the last AI provider reference removes its encrypted secret
+PASS Clearing AI token removes an unreferenced secret atomically
+PASS Saving a legacy provider atomically consolidates tokenRef into apiKeyRef
+PASS Stale AI secret/entity write rejected
+PASS Failed AI credential transaction leaves entity and encrypted secrets unchanged
+PASS Saving a duplicated canonical/legacy AI ID consolidates records and drops only the obsolete legacy secret
+PASS Deleting duplicate canonical/legacy AI IDs removes both rows and cleans both unreferenced secrets
+PASS Native AI feature switch blocks model discovery when disabled
+PASS Native AI feature switch blocks connection tests when disabled
+PASS Native AI feature switch blocks image probes when disabled
+PASS Native AI feature switch blocks conversation requests when disabled
+PASS Forward rule follows shared fields
+PASS Forward rule rejects invalid port
+PASS Forward rules persist with runtime state
+PASS Forward stale writer rejected
+PASS Forward deletion uses CAS
+PASS LAN sync receiver publishes a pairing code and TCP port
+PASS LAN sync authenticates and previews an encrypted v2 envelope
+PASS LAN sync rolls back a failed selected import
+PASS Failed LAN sync import returns to the same retryable confirmation
+PASS LAN sync applies the user-approved preview once and reports actual writes
+PASS LAN sync re-encrypts received credentials into the native secret store
+PASS LAN sync sends the import receipt to its peer
+PASS LAN sync exposes applied counts from the peer receipt
+PASS LAN sync burns a pairing code after a failed online guess
+PASS LAN sync rejects oversized frame before buffering
+PASS Native instances elect one primary writer
+PASS Secondary instance focuses the primary over a current-user pipe
+PASS Secondary instance can publish a configuration revision
+PASS Native update gate allows install when the application is idle
+PASS Native update coordinator records interrupted-install recovery state
+PASS Native update verifies the package hash before launch
+PASS Native update service checks, downloads, hashes and verifies a signed manifest
+PASS Native update service preserves the verified installer bytes
+PASS Preview clients accept the signed stable full installer with the new native product name
+PASS Native update service rejects a manifest whose signature no longer matches
+PASS Native update service rejects package bytes that differ from the signed digest
+PASS Native update service rejects a redirect that ends outside HTTPS or loopback
+PASS Native update service does not offer an older or equal version
+PASS Native editor preserves UTF-8 BOM and CRLF metadata
+PASS Native editor saves with the original BOM and newline format
+PASS Native text codec preserves UTF-8 BOM and bytes
+PASS Native text codec normalizes editor line endings
+PASS Native connection group contract parses order and revision
+PASS Native store reports saved key references before deletion
+PASS Connection sorting and grouping preferences persist
+PASS Connection group order is persisted atomically
+PASS Connection group reorder rejects a stale participant
+PASS Rejected group reorder rolls back every update
+PASS Connection group deletion rejects stale revisions
+PASS Stale group deletion leaves profiles unchanged
+PASS Connection group deletion atomically detaches linked profiles
+PASS Native RDP dirty rectangles retain and update the Win2D frame
+PASS Native RDP rejects empty dirty rectangle payload
+PASS Remote editor accepts ordinary UTF-8 text
+PASS Remote editor accepts BOM-marked UTF-16 text
+PASS Remote editor rejects binary data with NUL bytes
+PASS Remote editor enforces the shared 8 MiB file limit
+PASS Empty directory transfer groups complete as visible tasks
+PASS Directory transfer groups aggregate child failures and retain retryable children
+PASS monitor parser exposes per-core CPU baseline
+PASS monitor parser parses disk capacity and excludes partitions
+PASS monitor parser preserves process names containing spaces and sorts by CPU
+PASS monitor parser aggregates IPv4 and IPv6 socket counters
+PASS monitor parser calculates total and per-core CPU deltas
+PASS monitor parser calculates interface byte rates
+PASS monitor parser calculates disk I/O byte rates
+PASS monitor parser maps TCP state counters
+PASS monitor parser preserves latency, uptime, and memory usage
+PASS monitor parser rejects incomplete or malformed required metrics
+PASS Local forwarding opens a telemetry connection
+PASS Local forwarding tracks multiple active connections
+PASS Local forwarding records both byte directions
+PASS Local forwarding decrements closed connections and preserves bytes
+PASS Local forwarding never reports a negative connection count
+PASS Local forwarding stop clears active connections and retains byte totals
+PASS Local forwarding ignores late byte updates after stop
+PASS Local forwarding cannot reopen a stopped telemetry runtime
+PASS Remote forwarding opens a telemetry connection
+PASS Remote forwarding tracks multiple active connections
+PASS Remote forwarding records both byte directions
+PASS Remote forwarding decrements closed connections and preserves bytes
+PASS Remote forwarding never reports a negative connection count
+PASS Remote forwarding stop clears active connections and retains byte totals
+PASS Remote forwarding ignores late byte updates after stop
+PASS Remote forwarding cannot reopen a stopped telemetry runtime
+PASS Dynamic forwarding opens a telemetry connection
+PASS Dynamic forwarding tracks multiple active connections
+PASS Dynamic forwarding records both byte directions
+PASS Dynamic forwarding decrements closed connections and preserves bytes
+PASS Dynamic forwarding never reports a negative connection count
+PASS Dynamic forwarding stop clears active connections and retains byte totals
+PASS Dynamic forwarding ignores late byte updates after stop
+PASS Dynamic forwarding cannot reopen a stopped telemetry runtime
+415 native contract checks passed

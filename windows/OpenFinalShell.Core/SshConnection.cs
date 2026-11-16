@@ -8,7 +8,7 @@ using System.Security.Cryptography;
 namespace OpenFinalShell.Core;
 
 /// <summary>Owns one SSH transport. Host verification runs before credentials are sent.</summary>
-public sealed class SshConnection : IDisposable
+public sealed class SshConnection : IDisposable, IAsyncDisposable
 {
     private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
     {
@@ -33,6 +33,19 @@ public sealed class SshConnection : IDisposable
     private readonly SemaphoreSlim sftpGate = new(1);
     private SftpClient? sftp;
     private ShellStream? shell;
+    public Func<byte[], CancellationToken, Task>? OutputConsumer { get; set; }
+    private readonly CancellationTokenSource terminalLifetime = new();
+    private readonly System.Threading.Channels.Channel<SendRequest> sends = System.Threading.Channels.Channel.CreateBounded<SendRequest>(
+        new System.Threading.Channels.BoundedChannelOptions(128) { SingleReader = true, AllowSynchronousContinuations = false });
+    private sealed record SendRequest(byte[]? Bytes, TaskCompletionSource Completion, CancellationToken Cancellation);
+    private readonly object resizeGate = new(), closeGate = new();
+    private (uint Columns, uint Rows)? pendingSize;
+    private Task? resizeCompletion;
+    private Task? readTask, sendTask, bufferMonitorTask, closeTask;
+    private long readBytes, bufferHighWater;
+    public long ReadBytes => Interlocked.Read(ref readBytes);
+    public long ShellBufferedBytes => shell?.Length ?? 0;
+    public long ShellBufferHighWater => Interlocked.Read(ref bufferHighWater);
     public event Action<byte[]>? Output;
     public event Action<Exception>? Failed;
     public event Action<ForwardTelemetrySnapshot>? ForwardTelemetryChanged;
@@ -112,6 +125,7 @@ public sealed class SshConnection : IDisposable
         }
         else info = new ConnectionInfo(connectHost ?? profile.Host, connectPort ?? profile.Port, profile.Username, methods.ToArray());
         NativeSshOptions.Apply(info, data["options"] as JsonObject);
+        info.ChannelCloseTimeout = TimeSpan.FromMilliseconds(500);
         info.Timeout = TimeSpan.FromMilliseconds(data["options"]?["readyTimeout"]?.GetValue<int>() ?? 20000);
         client = new SshClient(info) { KeepAliveInterval = TimeSpan.FromMilliseconds(data["options"]?["keepaliveInterval"]?.GetValue<int>() ?? 15000) };
         client.HostKeyReceived += VerifyHost;
@@ -147,14 +161,17 @@ public sealed class SshConnection : IDisposable
         progressChanged?.Invoke(new("authenticated"));
         if (!openShell) return;
         progressChanged?.Invoke(new("openingShell"));
-        shell = client.CreateShellStream(terminalType, columns, rows, 0, 0, 65536);
-        shell.DataReceived += (_, e) => Output?.Invoke(e.Data);
-        shell.ErrorOccurred += (_, e) => Failed?.Invoke(e.Exception);
-        shell.Closed += (_, _) => Failed?.Invoke(new IOException("terminal.disconnected"));
+        shell = client.CreateBoundedShellStream(terminalType, columns, rows, 0, 0, 65536);
+        // ShellStream.Read blocks in SSH.NET 2026. Never also subscribe to
+        // DataReceived: that path leaves a second, unread copy in ShellStream.
+        readTask = Task.Run(() => ReadShellAsync(shell, terminalLifetime.Token));
+        sendTask = Task.Run(() => SendShellAsync(terminalLifetime.Token));
+        bufferMonitorTask = Task.Run(() => MonitorShellBufferAsync(terminalLifetime.Token));
+        shell.ErrorOccurred += (_, e) => { if (!terminalLifetime.IsCancellationRequested) Failed?.Invoke(e.Exception); };
+        shell.Closed += (_, _) => { if (!terminalLifetime.IsCancellationRequested) Failed?.Invoke(new IOException("terminal.disconnected")); };
         if (!string.IsNullOrWhiteSpace(startupCommand))
         {
-            shell.Write(terminalCodec.EncodeText(startupCommand + "\r"));
-            shell.Flush();
+            await WriteAsync(System.Text.Encoding.UTF8.GetBytes(startupCommand + "\r"), cancellation).ConfigureAwait(false);
         }
     }
 
@@ -173,8 +190,121 @@ public sealed class SshConnection : IDisposable
         }
         catch { tunnel.Dispose(); throw; }
     }
-    public void Write(byte[] bytes) { shell?.Write(bytes, 0, bytes.Length); shell?.Flush(); }
-    public void Resize(uint columns, uint rows) => shell?.ChangeWindowSize(columns, rows, 0, 0);
+    private async Task ReadShellAsync(ShellStream source, CancellationToken token)
+    {
+        var buffer = new byte[32 * 1024];
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                var count = source.Read(buffer, 0, buffer.Length);
+                if (count == 0) break;
+                Interlocked.Add(ref readBytes, count);
+                var bytes = buffer.AsSpan(0, count).ToArray();
+                if (OutputConsumer is { } consumer) await consumer(bytes, token).ConfigureAwait(false);
+                Output?.Invoke(bytes);
+            }
+        }
+        catch (Exception error) when (token.IsCancellationRequested && error is OperationCanceledException or ObjectDisposedException or IOException) { }
+        catch (Exception error) { Failed?.Invoke(error); }
+    }
+
+    private async Task MonitorShellBufferAsync(CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                await Task.Delay(100, token).ConfigureAwait(false);
+                var buffered = ShellBufferedBytes;
+                Interlocked.Exchange(ref bufferHighWater, Math.Max(bufferHighWater, buffered));
+                // The consumption-driven SSH window bounds this buffer even
+                // when the application queue is full. Detect invariant failures.
+                if (buffered > 256 * 1024)
+                {
+                    Failed?.Invoke(new IOException("SSH receive buffer exceeded its 256 KiB receive window."));
+                    _ = CloseAsync();
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (ObjectDisposedException) when (token.IsCancellationRequested) { }
+    }
+
+    public Task WriteAsync(byte[] bytes, CancellationToken cancellation = default) => QueueSendAsync(bytes.ToArray(), cancellation);
+    public Task ResizeAsync(uint columns, uint rows, CancellationToken cancellation = default)
+    {
+        lock (resizeGate)
+        {
+            pendingSize = (columns, rows);
+            if (resizeCompletion?.IsCompleted != false) resizeCompletion = QueueResizeAsync();
+            return resizeCompletion.WaitAsync(cancellation);
+        }
+    }
+    private async Task QueueResizeAsync()
+    {
+        // One queued signal can represent arbitrarily many layout events.
+        do
+        {
+            await QueueSendAsync(null, terminalLifetime.Token).ConfigureAwait(false);
+            lock (resizeGate)
+            {
+                if (pendingSize == null) { resizeCompletion = null; return; }
+            }
+        } while (true);
+    }
+    private async Task QueueSendAsync(byte[]? bytes, CancellationToken cancellation)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, terminalLifetime.Token);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        linked.Token.ThrowIfCancellationRequested();
+        if (!sends.Writer.TryWrite(new(bytes, completion, cancellation)))
+            throw new IOException("SSH send queue is full.");
+        await completion.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+    }
+    private async Task SendShellAsync(CancellationToken token)
+    {
+        try
+        {
+            await foreach (var request in sends.Reader.ReadAllAsync(token).ConfigureAwait(false))
+            {
+                try
+                {
+                    request.Cancellation.ThrowIfCancellationRequested();
+                    token.ThrowIfCancellationRequested();
+                    if (request.Bytes is { } bytes)
+                    {
+                        var encoded = terminalCodec.EncodeInput(bytes);
+                        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, request.Cancellation);
+                        // Flush can block on the peer's SSH send window. A partial
+                        // canceled write cannot safely be followed by later input;
+                        // close the transport to release that wait and preserve order.
+                        using var abort = request.Cancellation.Register(() => { _ = CloseAsync(); });
+                        if (shell is { } target)
+                        {
+                            await target.WriteAsync(encoded.AsMemory(), linked.Token).ConfigureAwait(false);
+                            await target.FlushAsync(linked.Token).ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        (uint Columns, uint Rows)? size;
+                        lock (resizeGate) { size = pendingSize; pendingSize = null; }
+                        if (size is { } value) shell?.ChangeWindowSize(value.Columns, value.Rows, 0, 0);
+                    }
+                    request.Completion.TrySetResult();
+                }
+                catch (OperationCanceledException) { request.Completion.TrySetCanceled(); }
+                catch (Exception error) { request.Completion.TrySetException(error); Failed?.Invoke(error); }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        finally { while (sends.Reader.TryRead(out var pending)) pending.Completion.TrySetCanceled(); }
+    }
+    public void Write(byte[] bytes) => Observe(WriteAsync(bytes));
+    public void Resize(uint columns, uint rows) => Observe(ResizeAsync(columns, rows));
+    private async void Observe(Task task) { try { await task.ConfigureAwait(false); } catch (OperationCanceledException) { } catch (Exception error) { if (!terminalLifetime.IsCancellationRequested) Failed?.Invoke(error); } }
     private async Task<SftpClient> GetSftp(CancellationToken token)
     {
         if (sftp?.IsConnected == true) return sftp;
@@ -648,5 +778,31 @@ public sealed class SshConnection : IDisposable
         await cmd.ExecuteAsync(token);
         return new(cmd.Result, cmd.Error, cmd.ExitStatus);
     }
-    public void Dispose() { shell?.Dispose(); sftp?.Dispose(); foreach (var id in forwards.Keys.ToArray()) StopForward(id); foreach (var tunnel in jumpTunnels) { try { tunnel.Stop(); } catch { } tunnel.Dispose(); } jumpTunnels.Clear(); client.Dispose(); foreach (var item in owned) item.Dispose(); }
+    public Task CloseAsync(CancellationToken cancellation = default)
+    {
+        Task closing;
+        lock (closeGate) closing = closeTask ??= Task.Run(CloseCoreAsync);
+        return closing.WaitAsync(cancellation);
+    }
+    private async Task CloseCoreAsync()
+    {
+        terminalLifetime.Cancel();
+        sends.Writer.TryComplete();
+        // Dispose pulses the monitor used by ShellStream.Read. Teardown must
+        // remain off the dispatcher even when the SSH peer has disappeared.
+        // A remote application may stop reading and exhaust its SSH window.
+        // Disconnect the session first so blocked SendData/Flush wait handles
+        // are released before channel disposal attempts a graceful close.
+        client.Disconnect();
+        shell?.Dispose();
+        await Task.WhenAll(readTask ?? Task.CompletedTask, sendTask ?? Task.CompletedTask,
+            bufferMonitorTask ?? Task.CompletedTask).ConfigureAwait(false);
+        sftp?.Dispose();
+        foreach (var id in forwards.Keys.ToArray()) StopForward(id);
+        foreach (var tunnel in jumpTunnels) { try { tunnel.Stop(); } catch { } tunnel.Dispose(); }
+        jumpTunnels.Clear(); client.Dispose();
+        foreach (var item in owned) item.Dispose();
+    }
+    public ValueTask DisposeAsync() => new(CloseAsync());
+    public void Dispose() => Observe(CloseAsync());
 }

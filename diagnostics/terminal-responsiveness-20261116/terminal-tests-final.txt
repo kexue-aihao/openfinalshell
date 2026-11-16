@@ -1,0 +1,32 @@
+PASS: snapshot ABI matches native layout
+PASS: byte-split UTF-8, wide glyphs, combining marks, ANSI and CR progress equal unsplit reference
+PASS: split terminal query replies preserve exact bytes
+PASS: snapshot carries terminal modes
+PASS: carriage return rewrites progress without newline framing
+PASS: paste executes on owner with negotiated bracketed mode
+PASS: alternate screen snapshot is isolated
+PASS: return from alternate screen restores normal screen
+PASS: published snapshot remains independent after parser mutation
+PASS: utf8 decoder retains characters across every byte boundary
+PASS: gb18030 decoder retains characters across every byte boundary
+PASS: gbk decoder retains characters across every byte boundary
+PASS: big5 decoder retains characters across every byte boundary
+PASS: latin1 decoder retains characters across every byte boundary
+PASS: scrollback remains bounded while consumer has no UI subscriber
+PASS: history request returns detached bounded cells
+PASS: hidden terminal resumes at requested history viewport
+PASS: history requests honor cancellation
+PASS: resize executes on parser owner
+PASS: processing and disposal do not require caller synchronization context
+PASS: close cancels active producer, joins owner and supports repeated disposal within 3 seconds
+PASS: Ctrl+C encoding is serviced during continuous output without waiting for all parsing
+PASS: resize and snapshot commands run while an output producer is active
+PASS: stress 5000: all 52500000 bytes parsed in order
+PASS: stress 5000: final line survives 2500000 lines
+PASS: stress 5000: history at configured cap
+{"mode":"stress","limit":5000,"totalLines":2500000,"bytes":52500000,"elapsedMs":7023,"parseMs":6508.6204,"memory":[52199424,55607296,57786368,60469248,62251008,64364544,73797632,76251136,78405632,56635392,56635392,52989952,52989952,54579200,56197120,58355712,59973632,62128128,63746048,65900544,67514368,61407232,61407232,47960064,47960064,48365568,50520064,51683328,53837824,55451648,56532992,56541184,47099904,47292416,47292416,48234496,50388992,52006912,53624832],"ScrollbackLines":5000}
+PASS: stress 100000: all 52500000 bytes parsed in order
+PASS: stress 100000: final line survives 2500000 lines
+PASS: stress 100000: history at configured cap
+{"mode":"stress","limit":100000,"totalLines":2500000,"bytes":52500000,"elapsedMs":5965,"parseMs":5551.9161,"memory":[297353216,297508864,297881600,292769792,290758656,290758656,290840576,292638720,293756928,293715968,293715968,293715968,291090432,291090432,291090432,291049472,292528128,292528128,292569088,292569088,290938880,290938880,290942976,291028992,291450880,292524032,292524032,292483072,292483072,291258368,291217408,291217408,291217408,292630528,293670912,293711872,293670912,293670912,290312192],"ScrollbackLines":100000}
+Terminal pipeline checks passed: 29

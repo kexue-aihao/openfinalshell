@@ -193,6 +193,8 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
           prompt()
 
           let line = ''
+          let replayGeneration = 0
+          stream.on('close', () => { replayGeneration++ })
           stream.on('data', (chunk) => {
             const s = chunk.toString('utf8')
             for (const ch of s) {
@@ -206,6 +208,7 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
                   stream.write('\b \b')
                 }
               } else if (ch === '\x03') {
+                replayGeneration++
                 stream.write('^C\r\n')
                 line = ''
                 prompt()
@@ -220,6 +223,42 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
             if (cmd === '') return prompt()
             if (cmd === 'exit') return stream.exit(0), stream.end()
             if (cmd === 'drop-shell') return stream.close()
+            if (cmd === 'drop-transport') { client.destroy(); return }
+            if (cmd === 'extended-output') { stream.stderr.write('[extended fixture]\r\n'); return }
+            if (cmd === 'stall-input') { stream.write('[input stalled]\r\n'); stream.pause(); return }
+            // Deterministic raw-byte replay: apt-style CR progress, UTF-8 and
+            // ANSI are deliberately split by --packet. Never installs software.
+            const replay = /^replay\s+(\d+)(?:\s+(\d+))?(?:\s+(\d+))?$/.exec(cmd)
+            if (replay) {
+              const count = Math.min(Number(replay[1]), 10000000)
+              const delay = Math.min(Number(replay[2] ?? 0), 1000)
+              const packet = Math.max(1, Math.min(Number(replay[3] ?? 32768), 32768))
+              const generation = ++replayGeneration
+              void (async () => {
+                for (let first = 0; first < count && generation === replayGeneration; first += 128) {
+                  const lines = []
+                  for (let n = first; n < Math.min(count, first + 128); n++) {
+                    lines.push(n % 16 === 0
+                      ? '\r\x1b[32mUnpacking fixture 中文🙂 ' + String(n).padStart(8, '0') + ' 90%\x1b[0m\x1b[K\r\n'
+                      : String(n).padStart(8, '0') + ' fixture log 中文🙂\r\n')
+                  }
+                  const bytes = Buffer.from(lines.join(''))
+                  for (let offset = 0; offset < bytes.length && generation === replayGeneration; offset += packet) {
+                    if (!stream.write(bytes.subarray(offset, offset + packet))) {
+                      const drained = await new Promise(resolve => {
+                        const done = () => { stream.off('drain', done); stream.off('close', done); resolve(!stream.destroyed) }
+                        stream.once('drain', done); stream.once('close', done)
+                      })
+                      if (!drained) return
+                    }
+                    if (delay) await new Promise(resolve => setTimeout(resolve, delay))
+                  }
+                  await new Promise(resolve => setImmediate(resolve))
+                }
+                if (generation === replayGeneration && !stream.destroyed) { stream.write('\r\n[replay done ' + count + ']\r\n'); prompt() }
+              })().catch(() => stream.close())
+              return
+            }
             if (cmd === 'size') {
               stream.write(`${ptyInfo.cols}x${ptyInfo.rows}\r\n`)
               return prompt()

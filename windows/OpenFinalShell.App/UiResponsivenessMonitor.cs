@@ -11,13 +11,14 @@ internal sealed class UiResponsivenessMonitor : IDisposable
     private readonly CancellationTokenSource cancellation = new();
     private readonly List<double> gaps = [];
     private readonly Task loop;
-    private long lastHeartbeat;
     private int disposed;
+    private int heartbeatPending;
+    private long postedAt;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<double> samples = new();
 
     public UiResponsivenessMonitor(DispatcherQueue dispatcher)
     {
         this.dispatcher = dispatcher;
-        lastHeartbeat = Stopwatch.GetTimestamp();
         loop = Task.Run(LoopAsync);
     }
 
@@ -28,25 +29,40 @@ internal sealed class UiResponsivenessMonitor : IDisposable
             while (!cancellation.IsCancellationRequested)
             {
                 await Task.Delay(16, cancellation.Token).ConfigureAwait(false);
-                dispatcher.TryEnqueue(Heartbeat);
+                while (samples.TryDequeue(out var sample))
+                {
+                    if (gaps.Count < 120_000) gaps.Add(sample);
+                    if (sample >= 250) Write($"UI stall {sample:0.0} ms");
+                }
+                if (Interlocked.CompareExchange(ref heartbeatPending, 1, 0) != 0) continue;
+                Volatile.Write(ref postedAt, Stopwatch.GetTimestamp());
+                if (!dispatcher.TryEnqueue(Heartbeat)) Volatile.Write(ref heartbeatPending, 0);
             }
         }
         catch (OperationCanceledException)
         {
+        }
+        finally
+        {
+            while (samples.TryDequeue(out var sample)) gaps.Add(sample);
+            if (gaps.Count > 0)
+            {
+                gaps.Sort();
+                var p99 = gaps[Math.Clamp((int)Math.Ceiling(gaps.Count * .99) - 1, 0, gaps.Count - 1)];
+                Write($"summary samples={gaps.Count} p99={p99:0.0}ms max={gaps[^1]:0.0}ms");
+            }
+            cancellation.Dispose();
         }
     }
 
     private void Heartbeat()
     {
         var now = Stopwatch.GetTimestamp();
-        var previous = Interlocked.Exchange(ref lastHeartbeat, now);
+        var previous = Volatile.Read(ref postedAt);
         var milliseconds = Stopwatch.GetElapsedTime(previous, now).TotalMilliseconds;
-        if (!double.IsFinite(milliseconds) || milliseconds < 0) return;
-        lock (gaps)
-        {
-            if (gaps.Count < 120_000) gaps.Add(milliseconds);
-        }
-        if (milliseconds >= 250) Write($"UI stall {milliseconds:0.0} ms");
+        if (Volatile.Read(ref disposed) == 0 && double.IsFinite(milliseconds) && milliseconds >= 0)
+            samples.Enqueue(milliseconds);
+        Volatile.Write(ref heartbeatPending, 0);
     }
 
     private void Write(string line)
@@ -66,17 +82,5 @@ internal sealed class UiResponsivenessMonitor : IDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         cancellation.Cancel();
-        double[] snapshot;
-        lock (gaps) snapshot = gaps.ToArray();
-        if (snapshot.Length == 0)
-        {
-            cancellation.Dispose();
-            return;
-        }
-        Array.Sort(snapshot);
-        var percentile99 = snapshot[Math.Clamp((int)Math.Ceiling(snapshot.Length * .99) - 1, 0, snapshot.Length - 1)];
-        Write($"summary samples={snapshot.Length} p99={percentile99:0.0}ms max={snapshot[^1]:0.0}ms");
-        _ = loop.ContinueWith(_ => cancellation.Dispose(), CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 }

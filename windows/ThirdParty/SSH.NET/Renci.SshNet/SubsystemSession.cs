@@ -1,0 +1,474 @@
+﻿using System;
+using System.Globalization;
+using System.Runtime.ExceptionServices;
+using System.Threading;
+using System.Threading.Tasks;
+
+using Microsoft.Extensions.Logging;
+
+using Renci.SshNet.Channels;
+using Renci.SshNet.Common;
+
+namespace Renci.SshNet
+{
+    /// <summary>
+    /// Base class for SSH subsystem implementations.
+    /// </summary>
+    internal abstract class SubsystemSession : ISubsystemSession
+    {
+        /// <summary>
+        /// Holds the number of system wait handles that are returned as the leading entries in the array returned
+        /// in <see cref="CreateWaitHandleArray"/>.
+        /// </summary>
+        private const int SystemWaitHandleCount = 3;
+
+        private readonly string _subsystemName;
+        private readonly ILogger _logger;
+        private readonly ISession _session;
+        private IChannelSession _channel;
+        private Exception _exception;
+        private EventWaitHandle _errorOccurredWaitHandle = new ManualResetEvent(initialState: false);
+        private EventWaitHandle _sessionDisconnectedWaitHandle = new ManualResetEvent(initialState: false);
+        private EventWaitHandle _channelClosedWaitHandle = new ManualResetEvent(initialState: false);
+        private bool _isDisposed;
+
+        /// <inheritdoc/>
+        public int OperationTimeout { get; set; }
+
+        /// <summary>
+        /// Occurs when an error occurred.
+        /// </summary>
+        public event EventHandler<ExceptionEventArgs> ErrorOccurred;
+
+        /// <summary>
+        /// Occurs when the server has disconnected from the session.
+        /// </summary>
+        public event EventHandler<EventArgs> Disconnected;
+
+        /// <summary>
+        /// Gets the channel associated with this session.
+        /// </summary>
+        /// <value>
+        /// The channel associated with this session.
+        /// </value>
+        internal IChannelSession Channel
+        {
+            get
+            {
+                ObjectDisposedException.ThrowIf(_isDisposed, this);
+
+                return _channel;
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether this session is open.
+        /// </summary>
+        /// <value>
+        /// <see langword="true"/> if this session is open; otherwise, <see langword="false"/>.
+        /// </value>
+        public bool IsOpen
+        {
+            get { return _channel is not null && _channel.IsOpen; }
+        }
+
+        public ILoggerFactory SessionLoggerFactory
+        {
+            get
+            {
+                return _session.SessionLoggerFactory;
+            }
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SubsystemSession"/> class.
+        /// </summary>
+        /// <param name="session">The session.</param>
+        /// <param name="subsystemName">Name of the subsystem.</param>
+        /// <param name="operationTimeout">The number of milliseconds to wait for a given operation to complete, or -1 to wait indefinitely.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="session" /> or <paramref name="subsystemName" /> is <see langword="null"/>.</exception>
+        protected SubsystemSession(ISession session, string subsystemName, int operationTimeout)
+        {
+            ArgumentNullException.ThrowIfNull(session);
+            ArgumentNullException.ThrowIfNull(subsystemName);
+
+            _session = session;
+            _subsystemName = subsystemName;
+            _logger = SessionLoggerFactory.CreateLogger(GetType());
+            OperationTimeout = operationTimeout;
+        }
+
+        /// <summary>
+        /// Connects the subsystem using a new SSH channel session.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The session is already connected.</exception>
+        /// <exception cref="ObjectDisposedException">The method was called after the session was disposed.</exception>
+        /// <exception cref="SshException">The channel session could not be opened, or the subsystem could not be executed.</exception>
+        public void Connect()
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+
+            if (IsOpen)
+            {
+                throw new InvalidOperationException("The session is already connected.");
+            }
+
+            // reset waithandles in case we're reconnecting
+            _ = _errorOccurredWaitHandle.Reset();
+            _ = _sessionDisconnectedWaitHandle.Reset();
+            _ = _sessionDisconnectedWaitHandle.Reset();
+            _ = _channelClosedWaitHandle.Reset();
+
+            _session.ErrorOccured += Session_ErrorOccurred;
+            _session.Disconnected += Session_Disconnected;
+
+            _channel = _session.CreateChannelSession();
+            _channel.DataReceived += Channel_DataReceived;
+            _channel.Exception += Channel_Exception;
+            _channel.Closed += Channel_Closed;
+            _channel.Open();
+
+            if (!_channel.SendSubsystemRequest(_subsystemName))
+            {
+                // close channel session
+                Disconnect();
+
+                // signal subsystem failure
+                throw new SshException(string.Format(CultureInfo.InvariantCulture,
+                                                     "Subsystem '{0}' could not be executed.",
+                                                     _subsystemName));
+            }
+
+            OnChannelOpen();
+        }
+
+        /// <summary>
+        /// Disconnects the subsystem channel.
+        /// </summary>
+        public void Disconnect()
+        {
+            UnsubscribeFromSessionEvents(_session);
+
+            var channel = _channel;
+            if (channel is not null)
+            {
+                _channel = null;
+                channel.DataReceived -= Channel_DataReceived;
+                channel.Exception -= Channel_Exception;
+                channel.Closed -= Channel_Closed;
+                channel.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Sends data to the subsystem.
+        /// </summary>
+        /// <param name="data">The data to be sent.</param>
+        public void SendData(byte[] data)
+        {
+            SendData(data, 0, data.Length);
+        }
+
+        /// <summary>
+        /// Sends data to the subsystem.
+        /// </summary>
+        /// <param name="data">The data to be sent.</param>
+        /// <param name="offset">The zero-based byte offset in <paramref name="data"/> at which to begin sending bytes.</param>
+        /// <param name="count">The number of bytes to send.</param>
+        public void SendData(byte[] data, int offset, int count)
+        {
+            ObjectDisposedException.ThrowIf(_isDisposed, this);
+            EnsureSessionIsOpen();
+
+            _channel.SendData(data, offset, count);
+        }
+
+        /// <summary>
+        /// Called when channel is open.
+        /// </summary>
+        protected abstract void OnChannelOpen();
+
+        /// <summary>
+        /// Called when data is received.
+        /// </summary>
+        /// <param name="data">The data.</param>
+        protected abstract void OnDataReceived(ArraySegment<byte> data);
+
+        /// <summary>
+        /// Raises the error.
+        /// </summary>
+        /// <param name="error">The error.</param>
+        protected void RaiseError(Exception error)
+        {
+            _exception = error;
+
+            _logger.LogInformation(error, "Raised exception");
+
+            _ = _errorOccurredWaitHandle?.Set();
+
+            SignalErrorOccurred(error);
+        }
+
+        private void Channel_DataReceived(object sender, ChannelDataEventArgs e)
+        {
+            try
+            {
+                OnDataReceived(e.Data);
+            }
+            catch (Exception ex)
+            {
+                RaiseError(ex);
+            }
+        }
+
+        private void Channel_Exception(object sender, ExceptionEventArgs e)
+        {
+            RaiseError(e.Exception);
+        }
+
+        private void Channel_Closed(object sender, ChannelEventArgs e)
+        {
+            _ = _channelClosedWaitHandle?.Set();
+        }
+
+        /// <summary>
+        /// Waits a specified time for a given <see cref="WaitHandle"/> to get signaled.
+        /// </summary>
+        /// <param name="waitHandle">The handle to wait for.</param>
+        /// <param name="millisecondsTimeout">To number of milliseconds to wait for <paramref name="waitHandle"/> to get signaled, or -1 to wait indefinitely.</param>
+        /// <exception cref="SshException">The connection was closed by the server.</exception>
+        /// <exception cref="SshException">The channel was closed.</exception>
+        /// <exception cref="SshOperationTimeoutException">The handle did not get signaled within the specified timeout.</exception>
+        public void WaitOnHandle(WaitHandle waitHandle, int millisecondsTimeout)
+        {
+            var waitHandles = new[]
+                {
+                    _errorOccurredWaitHandle,
+                    _sessionDisconnectedWaitHandle,
+                    _channelClosedWaitHandle,
+                    waitHandle
+                };
+
+            var result = WaitHandle.WaitAny(waitHandles, millisecondsTimeout);
+            switch (result)
+            {
+                case 0:
+                    ExceptionDispatchInfo.Capture(_exception).Throw();
+                    break;
+                case 1:
+                    throw new SshException("Connection was closed by the server.");
+                case 2:
+                    throw new SshException("Channel was closed.");
+                case 3:
+                    break;
+                case WaitHandle.WaitTimeout:
+                    throw new SshOperationTimeoutException("Operation has timed out.");
+                default:
+                    throw new NotImplementedException(string.Format(CultureInfo.InvariantCulture, "WaitAny return value '{0}' is not implemented.", result));
+            }
+        }
+
+        public async Task WaitOnHandleAsync(WaitHandle waitHandle, int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            var tcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            using RegisteredWait reg = new(
+                waitHandle,
+                (tcs, _) => ((TaskCompletionSource<object>)tcs).TrySetResult(null),
+                state: tcs);
+
+            _ = await WaitOnHandleAsync(tcs, millisecondsTimeout, cancellationToken).ConfigureAwait(false);
+        }
+
+        public Task<T> WaitOnHandleAsync<T>(TaskCompletionSource<T> tcs, int millisecondsTimeout, CancellationToken cancellationToken)
+        {
+            return tcs.Task.IsCompleted ? tcs.Task
+                : cancellationToken.IsCancellationRequested ? Task.FromCanceled<T>(cancellationToken)
+                : DoWaitAsync(tcs, millisecondsTimeout, cancellationToken);
+
+            async Task<T> DoWaitAsync(TaskCompletionSource<T> tcs, int millisecondsTimeout, CancellationToken cancellationToken)
+            {
+                using RegisteredWait errorOccurredReg = new(
+                    _errorOccurredWaitHandle,
+                    (tcs, _) => ((TaskCompletionSource<T>)tcs).TrySetException(_exception),
+                    state: tcs);
+
+                using RegisteredWait sessionDisconnectedReg = new(
+                    _sessionDisconnectedWaitHandle,
+                    static (tcs, _) => ((TaskCompletionSource<T>)tcs).TrySetException(new SshException("Connection was closed by the server.")),
+                    state: tcs);
+
+                using RegisteredWait channelClosedReg = new(
+                    _channelClosedWaitHandle,
+                    static (tcs, _) => ((TaskCompletionSource<T>)tcs).TrySetException(new SshException("Channel was closed.")),
+                    state: tcs);
+
+                using var timeoutCts = new CancellationTokenSource(millisecondsTimeout);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+                using var tokenReg = linkedCts.Token.Register(
+                    static s =>
+                    {
+                        (var tcs, var cancellationToken) = ((TaskCompletionSource<T>, CancellationToken))s;
+                        _ = tcs.TrySetCanceled(cancellationToken);
+                    },
+                    state: (tcs, cancellationToken),
+                    useSynchronizationContext: false);
+
+                try
+                {
+                    return await tcs.Task.ConfigureAwait(false);
+                }
+                catch (OperationCanceledException oce) when (timeoutCts.IsCancellationRequested)
+                {
+                    throw new SshOperationTimeoutException("Operation has timed out.", oce);
+                }
+            }
+        }
+
+        private readonly struct RegisteredWait : IDisposable
+        {
+            private readonly RegisteredWaitHandle _handle;
+
+            public RegisteredWait(WaitHandle waitObject, WaitOrTimerCallback callback, object state)
+            {
+                _handle = ThreadPool.RegisterWaitForSingleObject(
+                    waitObject,
+                    callback,
+                    state,
+                    millisecondsTimeOutInterval: -1,
+                    executeOnlyOnce: true);
+            }
+
+            public void Dispose()
+            {
+                _ = _handle.Unregister(waitObject: null);
+            }
+        }
+
+        /// <inheritdoc/>
+        public int WaitAny(WaitHandle[] waitHandles, int millisecondsTimeout)
+        {
+            var result = WaitHandle.WaitAny(waitHandles, millisecondsTimeout);
+            switch (result)
+            {
+                case 0:
+                    ExceptionDispatchInfo.Capture(_exception).Throw();
+                    return -1; // unreached
+                case 1:
+                    throw new SshException("Connection was closed by the server.");
+                case 2:
+                    throw new SshException("Channel was closed.");
+                case WaitHandle.WaitTimeout:
+                    throw new SshOperationTimeoutException("Operation has timed out.");
+                default:
+                    return result - SystemWaitHandleCount;
+            }
+        }
+
+        /// <inheritdoc/>
+        public WaitHandle[] CreateWaitHandleArray(WaitHandle waitHandle1, WaitHandle waitHandle2)
+        {
+            return new WaitHandle[]
+                {
+                    _errorOccurredWaitHandle,
+                    _sessionDisconnectedWaitHandle,
+                    _channelClosedWaitHandle,
+                    waitHandle1,
+                    waitHandle2
+                };
+        }
+
+        private void Session_Disconnected(object sender, EventArgs e)
+        {
+            _ = _sessionDisconnectedWaitHandle?.Set();
+
+            SignalDisconnected();
+        }
+
+        private void Session_ErrorOccurred(object sender, ExceptionEventArgs e)
+        {
+            RaiseError(e.Exception);
+        }
+
+        private void SignalErrorOccurred(Exception error)
+        {
+            ErrorOccurred?.Invoke(this, new ExceptionEventArgs(error));
+        }
+
+        private void SignalDisconnected()
+        {
+            Disconnected?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void EnsureSessionIsOpen()
+        {
+            if (!IsOpen)
+            {
+                throw new InvalidOperationException("The session is not open.");
+            }
+        }
+
+        /// <summary>
+        /// Unsubscribes the current <see cref="SubsystemSession"/> from session events.
+        /// </summary>
+        /// <param name="session">The session.</param>
+        /// <remarks>
+        /// Does nothing when <paramref name="session"/> is <see langword="null"/>.
+        /// </remarks>
+        private void UnsubscribeFromSessionEvents(ISession session)
+        {
+            session.Disconnected -= Session_Disconnected;
+            session.ErrorOccured -= Session_ErrorOccurred;
+        }
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="disposing"><see langword="true"/> to release both managed and unmanaged resources; <see langword="false"/> to release only unmanaged resources.</param>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            if (disposing)
+            {
+                Disconnect();
+
+                var errorOccurredWaitHandle = _errorOccurredWaitHandle;
+                if (errorOccurredWaitHandle != null)
+                {
+                    _errorOccurredWaitHandle = null;
+                    errorOccurredWaitHandle.Dispose();
+                }
+
+                var sessionDisconnectedWaitHandle = _sessionDisconnectedWaitHandle;
+                if (sessionDisconnectedWaitHandle != null)
+                {
+                    _sessionDisconnectedWaitHandle = null;
+                    sessionDisconnectedWaitHandle.Dispose();
+                }
+
+                var channelClosedWaitHandle = _channelClosedWaitHandle;
+                if (channelClosedWaitHandle != null)
+                {
+                    _channelClosedWaitHandle = null;
+                    channelClosedWaitHandle.Dispose();
+                }
+
+                _isDisposed = true;
+            }
+        }
+    }
+}

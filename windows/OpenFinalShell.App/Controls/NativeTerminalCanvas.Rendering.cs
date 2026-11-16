@@ -91,10 +91,10 @@ public sealed partial class NativeTerminalCanvas
 
     private void RenderTerminalCursor(CanvasDrawingSession session)
     {
-        if (parser == 0 || !NativeTerminalCursorLayout.ShouldDraw(
+        if (!ParserReady || !NativeTerminalCursorLayout.ShouldDraw(
                 terminalActive, scrollOffset == 0, cursorOn, composing)) return;
-        var row = ofs_terminal_cursor_row(parser);
-        var column = ofs_terminal_cursor_col(parser);
+        var row = CursorRow;
+        var column = CursorColumn;
         if (row < 0 || column < 0 || row >= ScreenRows || column >= ScreenColumns) return;
 
         var cell = CellSpanRect(row, column, 1);

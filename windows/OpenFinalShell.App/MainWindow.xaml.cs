@@ -60,22 +60,31 @@ public sealed partial class MainWindow : Window
             foreach (var bytes in pending) WriteInput(bytes);
             if (Terminal is { } terminal) Resize(terminal.Columns, terminal.Rows);
         }
-        private void WriteInput(byte[] bytes)
+        private async void WriteInput(byte[] bytes)
         {
             string? target;
             lock (gate)
             {
                 target = sessionId;
-                if (target == null) { pendingInput.Enqueue(bytes.ToArray()); return; }
+                if (target == null)
+                {
+                    if (pendingInput.Count < 128) pendingInput.Enqueue(bytes.ToArray());
+                    else Terminal?.DispatcherQueue.TryEnqueue(() => Error?.Invoke(new IOException("Terminal input queue is full while connecting.")));
+                    return;
+                }
             }
-            try { sessions.Get(target).Write(bytes); } catch (Exception error) { Error?.Invoke(error); }
+            try { await sessions.Get(target).WriteAsync(bytes).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { Terminal?.DispatcherQueue.TryEnqueue(() => Error?.Invoke(error)); }
         }
-        private void Resize(int columns, int rows)
+        private async void Resize(int columns, int rows)
         {
             string? target;
             lock (gate) target = sessionId;
             if (target == null || columns <= 0 || rows <= 0) return;
-            try { sessions.Get(target).Resize((uint)columns, (uint)rows); } catch (Exception error) { Error?.Invoke(error); }
+            try { await sessions.Get(target).ResizeAsync((uint)columns, (uint)rows).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { Terminal?.DispatcherQueue.TryEnqueue(() => Error?.Invoke(error)); }
         }
     }
 
@@ -916,7 +925,8 @@ public sealed partial class MainWindow : Window
                 if (sessionTabs.TryGetValue(existing.SessionId, out var existingTab)) Sessions.SelectedItem = existingTab;
                 else
                 {
-                    var terminal = new Controls.NativeTerminalCanvas { Margin = new Thickness(8, 4, 0, 4) };
+                    var terminal = sessionOutputSinks.TryGetValue(existing.SessionId, out var retainedSink) && retainedSink.Terminal is { } retained
+                        ? retained : new Controls.NativeTerminalCanvas { Margin = new Thickness(8, 4, 0, 4) };
                     if (sessionOutputSinks.TryGetValue(existing.SessionId, out var sink)) { sink.Error = ShowError; sink.Attach(terminal); }
                     CreateSessionTerminalTab(profile, existing.SessionId, terminal);
                 }
@@ -1047,14 +1057,25 @@ public sealed partial class MainWindow : Window
 
     private void CreateSessionTerminalTab(ConnectionProfile profile, string sessionId, Controls.NativeTerminalCanvas terminal)
     {
-        terminal.Configure(settings, key => localization[key]);
-        terminal.HistoryRequested += () => _ = ShowTerminalHistoryAsync(terminal, sessionId);
-        terminal.CommandEntered += command =>
+        if (sessionWorkspaces.TryGetValue(sessionId, out var retainedWorkspace))
         {
-            if (settings.SaveCommandHistory) CommandViewModel.AddHistory(sessionId, command);
-            if (sessionWorkspaces.TryGetValue(sessionId, out var workspace)) workspace.FollowShellCommand(command);
-        };
-        terminal.SearchRequested += () => _ = ShowTerminalSearchAsync(terminal);
+            var retainedTab = new TabViewItem { Header = profile.Name, Tag = sessionId };
+            sessionTabs[sessionId] = retainedTab; sessionProfiles[sessionId] = profile;
+            AddSessionTab(retainedTab, retainedWorkspace);
+            RefreshAiTargets();
+            return;
+        }
+        terminal.Configure(settings, key => localization[key]);
+        if (!sessionTerminals.TryGetValue(sessionId, out var wired) || !ReferenceEquals(wired, terminal))
+        {
+            terminal.HistoryRequested += () => _ = ShowTerminalHistoryAsync(terminal, sessionId);
+            terminal.CommandEntered += command =>
+            {
+                if (settings.SaveCommandHistory) CommandViewModel.AddHistory(sessionId, command);
+                if (sessionWorkspaces.TryGetValue(sessionId, out var workspace)) workspace.FollowShellCommand(command);
+            };
+            terminal.SearchRequested += () => _ = ShowTerminalSearchAsync(terminal);
+        }
         sessionTerminals[sessionId] = terminal;
         var openSftp = new Button { Content = localization["native.openSftp"], HorizontalAlignment = HorizontalAlignment.Left };
         openSftp.Click += (_, _) => OpenSftpTab(sessionId, profile.Name);
@@ -2339,7 +2360,9 @@ public sealed partial class MainWindow : Window
         if (content is Controls.NativeSessionWorkspace workspace)
         {
             if (!await workspace.ConfirmCloseAsync()) return;
-            workspace.Dispose(); sessionWorkspaces.Remove(rawTag);
+            var shared = Sessions.TabItems.OfType<TabViewItem>().Any(item => item != tab && SessionIdForTag(item.Tag?.ToString()) == rawTag);
+            if (!shared) { workspace.Dispose(); sessionWorkspaces.Remove(rawTag); }
+            sessionTabs.Remove(rawTag);
         }
         if (content is Controls.NativeRemoteEditor editor && !await editor.ConfirmCloseAsync()) return;
         if (content is Controls.NativeRemoteEditor remoteEditor) remoteEditor.Dispose();
@@ -2349,11 +2372,7 @@ public sealed partial class MainWindow : Window
         foreach (var task in transferQueue.List().Where(t => t.SessionId == rawTag && t.ParentId == null && t.State is NativeTransferState.Queued or NativeTransferState.Running or NativeTransferState.Paused).ToArray())
             await transferQueue.ControlAsync(task.Id, "cancel");
         RemoveSessionTab(tab);
-        if (sessionTerminals.Remove(rawTag, out var terminal))
-        {
-            if (sessionOutputSinks.TryGetValue(rawTag, out var sink)) sink.Detach(terminal);
-            terminal.Dispose();
-        }
+        if (sessionTerminals.TryGetValue(rawTag, out var hiddenTerminal)) hiddenTerminal.SetActive(false);
         if (rawTag.StartsWith("editor:", StringComparison.Ordinal))
         {
             sessionTabs.Remove(rawTag);
@@ -2371,11 +2390,17 @@ public sealed partial class MainWindow : Window
         }))
         {
             sessionTabs.Remove(sessionId);
-            sessionTerminals.Remove(sessionId);
+            await sessionsManager.CloseAsync(sessionId);
+            if (sessionWorkspaces.Remove(sessionId, out var retainedWorkspace)) retainedWorkspace.Dispose();
+            if (sessionTerminals.Remove(sessionId, out var terminal))
+            {
+                if (sessionOutputSinks.TryGetValue(sessionId, out var sink)) sink.Detach(terminal);
+                await terminal.DisposeAsync();
+            }
             sessionOutputSinks.Remove(sessionId);
             if (rdpSessions.Remove(sessionId, out var rdp)) await rdp.DisposeAsync();
             if (rdpSurfaces.Remove(sessionId, out var surface)) surface.Dispose();
-            else sessionsManager.Close(sessionId);
+            else await sessionsManager.CloseAsync(sessionId);
         }
     }
     private void ThemeChanged(object sender, SelectionChangedEventArgs args) { if (!loadingSettings && ThemeChoice.SelectedItem is ComboBoxItem { Tag: string value }) { settings = (settings with { ThemeMode = value }).Save(store); ApplyAppearance(); Status.Text = localization.Format("native.themeStatus", ("value", value)); } }
@@ -2708,7 +2733,13 @@ public sealed partial class MainWindow : Window
         }
         foreach (var workspace in sessionWorkspaces.Values) Attempt(workspace.Dispose);
         sessionWorkspaces.Clear(); sessionContents.Clear(); sessionProfiles.Clear();
-        foreach (var terminal in sessionTerminals.Values) Attempt(terminal.Dispose);
+        try { await sessionsManager.DisposeAsync(); }
+        catch (Exception error) { WriteStartupError(error); }
+        foreach (var terminal in sessionTerminals.Values)
+        {
+            try { await terminal.DisposeAsync(); }
+            catch (Exception error) { WriteStartupError(error); }
+        }
         sessionOutputSinks.Clear(); sessionTerminals.Clear();
         foreach (var rdp in rdpSessions.Values)
         {

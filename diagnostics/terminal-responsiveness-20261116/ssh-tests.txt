@@ -1,0 +1,71 @@
+PASS: utf8 remote output round-trips over split SSH chunks
+PASS: utf8 UTF-8 terminal input converts to the selected remote encoding
+PASS: gb18030 remote output round-trips over split SSH chunks
+PASS: gb18030 UTF-8 terminal input converts to the selected remote encoding
+PASS: gbk remote output round-trips over split SSH chunks
+PASS: gbk UTF-8 terminal input converts to the selected remote encoding
+PASS: big5 remote output round-trips over split SSH chunks
+PASS: big5 UTF-8 terminal input converts to the selected remote encoding
+PASS: latin1 remote output round-trips over split SSH chunks
+PASS: latin1 UTF-8 terminal input converts to the selected remote encoding
+PASS: legacy utf-8 spelling normalizes compatibly
+PASS: Windows code page aliases normalize
+PASS: unsupported terminal charset is rejected
+PASS: SSH_AUTH_SOCK named pipe discovery and identity/signature protocol framing
+PASS: Windows OpenSSH named pipe is discovered and speaks agent framing
+PASS: Pageant WM_COPYDATA/shared-memory request framing
+PASS: Pageant is selected when SSH_AUTH_SOCK and OpenSSH Agent are unavailable
+PASS: Automatic single-hop reconnect restores SFTP and remembers terminal dimensions
+PASS: Closing a session cancels a scheduled reconnect without resurrecting it
+PASS: two local SSH fixtures connect through one jump; host keys, terminal, and SFTP reach target independently
+PASS: missing jump-host references fail explicitly
+PASS: nested jump-host references fail explicitly in first-version single-hop scope
+PASS: SFTP navigation keeps the latest requested directory and never publishes a stale in-flight listing
+PASS: Canceled SFTP navigation preserves the committed directory snapshot and clears its busy state without a stale error
+PASS: SFTP navigation recovers after cancellation without dropping the next request
+PASS: Explicit directory notification survives SSH output chunks and navigates the same session's SFTP without injecting a cd command
+PASS: Missing SFTP paths are distinguished from existing entries
+PASS: Atomic save creates an absent target without overwriting another path
+PASS: New editor temporary file receives mode 0600 over SFTP before any content is written
+PASS: SFTP chmod sends the intended 0640 permission bits instead of interpreting 416 as octal digits
+PASS: Atomic save requires overwrite consent for an existing target
+PASS: Rejected atomic overwrite leaves original bytes intact
+PASS: Remote editor atomic save writes exact bytes through SFTP rename
+PASS: Editor rejects silent backup/rename fallback and leaves the original remote bytes intact
+PASS: Explicit non-atomic consent saves exact bytes after rechecking the conflict baseline
+PASS: Editor resolves a real filesystem symlink and records the requested alias independently
+PASS: Saving a symlink edits its resolved target, preserves the link and retains fixture-reported permissions
+PASS: Retargeting a symlink rejects saving and leaves its new target unchanged
+PASS: A file replaced by a directory is rejected without modifying the directory
+PASS: Atomic overwrite race is injected while a temporary upload is in progress
+PASS: Target appearing during atomic upload still requires overwrite consent
+PASS: Atomic conflict preserves the other client's bytes and removes its own temporary upload
+PASS: A second writer is injected while the editor temporary upload is in progress
+PASS: Editor rechecks bytes after upload, preserves concurrent changes even after overwrite consent, and removes only its own temporary file
+PASS: Monitor publishes fixture snapshots after start or restart
+PASS: Monitor stop is idempotent and publishes no stale snapshots after teardown
+PASS: Monitor publishes fixture snapshots after start or restart
+PASS: Canceled monitor startup leaves the collector stopped
+PASS: local, dynamic SOCKS5, and remote forwards report active connections and bidirectional bytes, then clear active count on stop
+PASS: baseline: event-only ShellStream retains at least 1 MiB after output delivery
+BASELINE eventBytes=1048753 shellRetained=1048753
+PASS: single background reader drains SSH.NET buffer with no duplicate event delivery
+AFTER readBytes=1048753 retained=0 highWater=0
+PASS: closing shell releases idle blocking Read within 3 seconds
+PASS: canceling a partial blocked write disconnects the sender without requiring a separate close
+PASS: remote input stall honors send cancellation and closes without a stranded sender
+FULL queueChunks=64 pendingBytes=56424 sshBuffer=205677
+PASS: full session receive queue stays bounded including one waiting producer
+PASS: stalled application consumption propagates SSH window backpressure without disconnecting
+PASS: full terminal queue leaves the SSH listener and independent exec channel responsive
+PASS: close cancels full-channel writer and UI-independent consumer wait
+PASS: real SSH replay preserves every ordered UTF-8 and ANSI byte across 13-byte packets
+PASS: real SSH consumer completes only after libvterm parses all replay bytes
+PASS: paused parser keeps both application and SSH receive queues bounded
+PASS: resuming a full receive queue delivers every stalled byte in order
+PASS: reconnect joins previous output before accepting the next transport generation
+PASS: extended SSH data shares bounded raw terminal consumption
+PASS: abrupt TCP disconnect reports transport failure without blocking UI consumption
+PASS: unthrottled real SSH 2.5-million-line burst matches every byte by SHA-256 with bounded receive buffer
+BURST bytes=86093750 parsed=86093953 queueHighWater=2129920 sshHighWater=262144
+Native SSH contract checks passed: 66

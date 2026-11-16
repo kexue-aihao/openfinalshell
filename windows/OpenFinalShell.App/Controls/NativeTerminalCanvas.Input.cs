@@ -80,14 +80,14 @@ public sealed partial class NativeTerminalCanvas
         var committed = textInput.Text;
         clearingInput = true;
         try { textInput.Text = ""; } finally { clearingInput = false; }
-        foreach (var rune in committed.EnumerateRunes())
-            if (!System.Text.Rune.IsControl(rune)) SendCodepoint((uint)rune.Value, CurrentModifiers() & 3);
+        var modifiers = CurrentModifiers() & 3;
+        Observe(processor.TextAsync(committed, modifiers));
     }
     private void PositionTextInput()
     {
         var x = 8d; var y = 4d;
-        if (parser != 0)
-        { x += Math.Max(0, ofs_terminal_cursor_col(parser)) * cellWidth; y += Math.Max(0, ofs_terminal_cursor_row(parser)) * cellHeight; }
+        if (ParserReady)
+        { x += Math.Max(0, CursorColumn) * cellWidth; y += Math.Max(0, CursorRow) * cellHeight; }
         x = Math.Clamp(x, 0, Math.Max(0, ActualWidth - 20));
         y = Math.Clamp(y, 0, Math.Max(0, ActualHeight - cellHeight));
         if (NativeTerminalCursorLayout.HasChanged(lastInputX, x) || NativeTerminalCursorLayout.HasChanged(lastInputY, y))

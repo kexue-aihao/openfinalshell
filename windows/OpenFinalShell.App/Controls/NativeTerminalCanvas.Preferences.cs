@@ -74,7 +74,7 @@ public sealed partial class NativeTerminalCanvas
         textInput.Background = terminalBackgroundBrush;
         textInput.Foreground = terminalForegroundBrush;
         canvas.ClearColor = terminalBackground;
-        if (parser != 0) ApplyScrollbackLimit();
+        if (ParserReady) ApplyScrollbackLimit();
         blinkTimer ??= DispatcherQueue.CreateTimer();
         blinkTimer.Interval = TimeSpan.FromMilliseconds(530);
         blinkTimer.Tick -= BlinkCursor; blinkTimer.Tick += BlinkCursor;
@@ -94,8 +94,8 @@ public sealed partial class NativeTerminalCanvas
     {
         var limit = Math.Clamp(NativeSettings.ReadPath(preferences, "scrollback", 5000), 0, 100000);
         if (limit == appliedScrollbackLimit) return;
-        if (ofs_terminal_set_scrollback_limit(parser, limit) == 0) InputRejected?.Invoke();
-        else appliedScrollbackLimit = limit;
+        Observe(processor.SetScrollbackLimitAsync(limit));
+        appliedScrollbackLimit = limit;
     }
     private void UpdateFontMetrics()
     {
@@ -108,9 +108,9 @@ public sealed partial class NativeTerminalCanvas
         cellWidth = Math.Max(1, (float)layout.LayoutBounds.Width);
         cellHeight = Math.Max(1, textFormat.FontSize * Math.Clamp(NativeSettings.ReadPath(preferences, "lineHeight", 1.2f), 1, 3));
         measuredDpi = canvas.Dpi;
-        if (parser != 0)
+        if (ParserReady)
         {
-            ofs_terminal_resize(parser, ScreenRows, ScreenColumns);
+            Observe(processor.ResizeAsync(ScreenRows, ScreenColumns));
             lastColumns = ScreenColumns; lastRows = ScreenRows;
             TerminalSizeChanged?.Invoke(lastColumns, lastRows);
         }
@@ -128,9 +128,9 @@ public sealed partial class NativeTerminalCanvas
     }
     public void ClearScreen()
     {
-        if (parser == 0) return;
-        ofs_terminal_clear(parser); scrollOffset = 0; ClearSelection();
-        searchResults.Clear(); searchByLine.Clear(); searchGeneration++; submittedAt = null;
+        if (!ParserReady) return;
+        Observe(processor.ClearAsync()); scrollOffset = 0; ClearSelection();
+        searchResults.Clear(); searchByLine.Clear(); searchGeneration++;
         canvas.Invalidate(); UpdateAccessibleText();
         // The toolbar/menu control that triggered clear may now own keyboard
         // focus. Restore terminal input after its click and menu-close handlers.

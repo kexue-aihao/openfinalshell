@@ -17,6 +17,13 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.72',
+    items: [
+      { type: 'fix', zh: '将 WinUI 原生终端读取、解析和发送移到后台，隐藏标签持续消费输出，改善安装进度和持续日志输出期间的窗口响应', en: 'Move native terminal reads, parsing and sends to background workers, and keep hidden tabs consuming output to improve responsiveness during progress updates and continuous logs' },
+      { type: 'fix', zh: '限制 SSH 内部接收缓冲，完善阻塞发送取消、会话关闭和重连清理，避免持续输出造成积压', en: 'Bound the SSH receive buffer and improve cancellation, session shutdown and reconnect cleanup under sustained output' }
+    ]
+  },
+  {
     version: '0.30.71',
     items: [
       { type: 'fix', zh: '修复清屏后终端无法继续输入的问题；SSH shell 意外断开时自动持续重连，恢复长时间闲置后失效的会话', en: 'Restore terminal input after clearing the screen, and keep retrying SSH reconnections after an unexpected shell disconnect so idle sessions can recover' }

@@ -11,6 +11,7 @@ public partial class App : Application
     private MainWindow? window;
     private NativeStoreRecoveryWindow? recoveryWindow;
     private TerminalLayoutFixtureWindow? terminalFixtureWindow;
+    private TerminalStressFixtureWindow? terminalStressWindow;
     private StartupWindow? startupWindow;
     private readonly PlatformEnvironment environment;
     private readonly NativeInstanceCoordinator coordinator;
@@ -37,6 +38,13 @@ public partial class App : Application
         TraceStartup("OnLaunched entered");
         try
         {
+            if (Environment.GetEnvironmentVariable("OFS_NATIVE_TERMINAL_STRESS_FIXTURE") == "1")
+            {
+                LoadPlatformTheme();
+                terminalStressWindow = new TerminalStressFixtureWindow();
+                terminalStressWindow.Activate();
+                return;
+            }
             if (Environment.GetEnvironmentVariable("OFS_NATIVE_TERMINAL_LAYOUT_FIXTURE") == "1")
             {
                 LoadPlatformTheme();

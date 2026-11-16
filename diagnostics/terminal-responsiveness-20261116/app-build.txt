@@ -1,0 +1,13 @@
+  正在确定要还原的项目…
+  所有项目均是最新的，无法还原。
+C:\Program Files\dotnet\sdk\11.0.100-rc.2.26504.105\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: 你正在使用 .NET 的预览版。请参阅 https://aka.ms/dotnet-support-policy [E:\openfinalshell\windows\OpenFinalShell.App\OpenFinalShell.App.csproj]
+C:\Program Files\dotnet\sdk\11.0.100-rc.2.26504.105\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: 你正在使用 .NET 的预览版。请参阅 https://aka.ms/dotnet-support-policy [E:\openfinalshell\windows\ThirdParty\SSH.NET\Renci.SshNet\Renci.SshNet.csproj]
+  Renci.SshNet -> E:\openfinalshell\windows\ThirdParty\SSH.NET\Renci.SshNet\bin\x64\Release\net10.0\Renci.SshNet.dll
+  OpenFinalShell.Core -> E:\openfinalshell\windows\OpenFinalShell.Core\bin\x64\Release\net10.0\OpenFinalShell.Core.dll
+  OpenFinalShell.App -> E:\openfinalshell\windows\OpenFinalShell.App\bin\x64\Release\net10.0-windows10.0.26100.0\win-x64\OpenFinalShell.App.dll
+
+已成功生成。
+    0 个警告
+    0 个错误
+
+已用时间 00:00:14.07

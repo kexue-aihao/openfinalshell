@@ -1,0 +1,275 @@
+--- a/Channels/Channel.cs
++++ b/Channels/Channel.cs
+@@ -19,6 +19,33 @@
+         private readonly Lock _messagingLock = new Lock();
+         private readonly Lock _sendDataLock = new Lock();
+         private readonly uint _initialWindowSize;
++        private readonly object _receiveWindowLock = new object();
++        private bool _consumptionWindow;
++        private uint _consumedCredit;
++
++        internal void EnableConsumptionWindow() => _consumptionWindow = true;
++
++        // Only the bounded raw ShellStream reader returns credit. No network
++        // listener waits for the application to consume data.
++        public void AcknowledgeConsumed(int count)
++        {
++            if (!_consumptionWindow || count == 0) return;
++            uint credit;
++            lock (_receiveWindowLock)
++            {
++                _consumedCredit = checked(_consumedCredit + (uint)count);
++                if (_consumedCredit < LocalPacketSize) return;
++                credit = _consumedCredit;
++                _consumedCredit = 0;
++                if (credit > _initialWindowSize - LocalWindowSize)
++                    throw new SshException("Receive window credit exceeds consumed bytes.");
++                LocalWindowSize += credit;
++            }
++            // Never hold the receive-window lock during socket I/O, or the
++            // listener could be prevented from processing incoming packets.
++            if (IsOpen && IsConnected)
++                TrySendMessage(new ChannelWindowAdjustMessage(RemoteChannelNumber, credit));
++        }
+         private readonly ISession _session;
+         private readonly ILogger _logger;
+         private EventWaitHandle _channelClosedWaitHandle = new ManualResetEvent(initialState: false);
+@@ -769,6 +796,16 @@
+ 
+         private void AdjustDataWindow(int count)
+         {
++            if (_consumptionWindow)
++            {
++                lock (_receiveWindowLock)
++                {
++                    if ((uint)count > LocalWindowSize)
++                        throw new SshException("Peer exceeded the bounded channel receive window.");
++                    LocalWindowSize -= (uint)count;
++                }
++                return;
++            }
+             LocalWindowSize -= (uint)count;
+ 
+             // Adjust window if window size is too low
+--- a/Channels/IChannel.cs
++++ b/Channels/IChannel.cs
+@@ -42,6 +42,8 @@
+         /// The local channel number.
+         /// </value>
+         uint LocalChannelNumber { get; }
++
++        void AcknowledgeConsumed(int count);
+ 
+         /// <summary>
+         /// Gets the maximum size of a data packet that we can receive using the channel.
+--- a/ISession.cs
++++ b/ISession.cs
+@@ -84,6 +84,8 @@
+         /// A new SSH session channel.
+         /// </returns>
+         IChannelSession CreateChannelSession();
++
++        IChannelSession CreateConsumptionChannelSession(uint receiveWindow);
+ 
+         /// <summary>
+         /// Create a new channel for a locally forwarded TCP/IP port.
+--- a/Renci.SshNet.csproj
++++ b/Renci.SshNet.csproj
+@@ -1,71 +1,14 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+-
+   <PropertyGroup>
++    <TargetFramework>net10.0</TargetFramework>
+     <AssemblyName>Renci.SshNet</AssemblyName>
+-    <Product>SSH.NET</Product>
+-    <AssemblyTitle>SSH.NET</AssemblyTitle>
+-    <TargetFrameworks>net462;netstandard2.0;net8.0;net9.0;net10.0</TargetFrameworks>
++    <Version>2026.0.0</Version>
++    <Nullable>disable</Nullable>
++    <ImplicitUsings>disable</ImplicitUsings>
++    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+   </PropertyGroup>
+-
+-  <PropertyGroup>
+-    <IsPackable>true</IsPackable>
+-    <PackageId>SSH.NET</PackageId>
+-    <Title>SSH.NET</Title>
+-    <Description>SSH.NET is a Secure Shell (SSH) library for .NET, optimized for parallelism.</Description>
+-    <Copyright>Copyright © Renci 2010-$([System.DateTime]::UtcNow.Year)</Copyright>
+-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+-    <Authors>Renci</Authors>
+-    <PackageIcon>SS-NET-icon-h500.png</PackageIcon>
+-    <PackageReadmeFile>README.md</PackageReadmeFile>
+-    <PackageTags>ssh; scp; sftp</PackageTags>
+-    <IncludeSymbols>True</IncludeSymbols>
+-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+-    <NBGV_ThisAssemblyIncludesPackageVersion>true</NBGV_ThisAssemblyIncludesPackageVersion>
+-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+-  </PropertyGroup>
+-
+-  <Target Name="SetVersionProperties" BeforeTargets="Build" DependsOnTargets="GetBuildVersion">
+-    <!-- For properties which depend on those set by NBGV -->
+-    <PropertyGroup>
+-      <PackageReleaseNotes>https://github.com/sshnet/SSH.NET/releases/tag/$(Version)</PackageReleaseNotes>
+-    </PropertyGroup>
+-  </Target>
+-    
+-  <PropertyGroup Condition="'$(CI)' != ''">
+-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+-  </PropertyGroup>
+-
+-  <PropertyGroup Condition=" $([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0')) ">
+-    <IsAotCompatible>true</IsAotCompatible>
+-  </PropertyGroup>
+-
+   <ItemGroup>
+-    <PackageReference Include="BouncyCastle.Cryptography" />
+-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+-    <PackageReference Include="Nerdbank.GitVersioning" PrivateAssets="all" />
+-    <PackageReference Include="PolySharp" PrivateAssets="all">
+-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+-    </PackageReference>
++    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
++    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+   </ItemGroup>
+-
+-  <ItemGroup Condition=" '$(TargetFramework)' == 'net462' ">
+-    <PackageReference Include="Microsoft.Bcl.Cryptography" />
+-  </ItemGroup>
+-
+-  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
+-    <PackageReference Include="System.Formats.Asn1" />
+-  </ItemGroup>
+-
+-  <ItemGroup>
+-    <None Include="..\..\images\logo\png\SS-NET-icon-h500.png">
+-      <Pack>True</Pack>
+-      <PackagePath>\</PackagePath>
+-    </None>
+-    <None Include="..\..\README.md">
+-      <Pack>True</Pack>
+-      <PackagePath>\</PackagePath>
+-    </None>
+-  </ItemGroup>
+-
+ </Project>
+--- a/Session.cs
++++ b/Session.cs
+@@ -70,7 +70,7 @@
+         private const int LocalChannelDataPacketSize = 1024 * 64;
+ 
+         internal static readonly string ClientVersionString =
+-            "SSH-2.0-Renci.SshNet.SshClient." + ThisAssembly.NuGetPackageVersion.Replace('-', '_');
++            "SSH-2.0-Renci.SshNet.SshClient." + "2026.0.0_OpenFinalShell_flow1";
+ 
+         /// <summary>
+         /// Holds the factory to use for creating new services.
+@@ -2244,6 +2244,13 @@
+         /// <returns>
+         /// A new channel for a locally forwarded TCP/IP port.
+         /// </returns>
++        IChannelSession ISession.CreateConsumptionChannelSession(uint receiveWindow)
++        {
++            var channel = new ChannelSession(this, NextChannelNumber, receiveWindow, LocalChannelDataPacketSize);
++            channel.EnableConsumptionWindow();
++            return channel;
++        }
++
+         IChannelDirectTcpip ISession.CreateChannelDirectTcpip()
+         {
+             return new ChannelDirectTcpip(this, NextChannelNumber, InitialLocalWindowSize, LocalChannelDataPacketSize);
+--- a/ShellStream.cs
++++ b/ShellStream.cs
+@@ -81,8 +81,8 @@
+         /// <exception cref="SshException">The channel could not be opened.</exception>
+         /// <exception cref="SshException">The pseudo-terminal request was not accepted by the server.</exception>
+         /// <exception cref="SshException">The request to start a shell was not accepted by the server.</exception>
+-        internal ShellStream(ISession session, string terminalName, uint columns, uint rows, uint width, uint height, IDictionary<TerminalModes, uint> terminalModeValues, int bufferSize)
+-               : this(session, bufferSize, noTerminal: false)
++        internal ShellStream(ISession session, string terminalName, uint columns, uint rows, uint width, uint height, IDictionary<TerminalModes, uint> terminalModeValues, int bufferSize, uint receiveWindow = 0)
++               : this(session, bufferSize, noTerminal: false, receiveWindow)
+         {
+             try
+             {
+@@ -138,7 +138,7 @@
+         /// <param name="bufferSize">The size of the buffer.</param>
+         /// <param name="noTerminal">Disables pseudo terminal allocation or not.</param>
+         /// <exception cref="SshException">The channel could not be opened.</exception>
+-        private ShellStream(ISession session, int bufferSize, bool noTerminal)
++        private ShellStream(ISession session, int bufferSize, bool noTerminal, uint receiveWindow = 0)
+         {
+             if (bufferSize == -1)
+             {
+@@ -158,7 +158,9 @@
+             _carriageReturnBytes = _encoding.GetBytes("\r");
+             _lineFeedBytes = _encoding.GetBytes("\n");
+ 
+-            _channel = _session.CreateChannelSession();
++            _channel = receiveWindow == 0 ? _session.CreateChannelSession() : _session.CreateConsumptionChannelSession(receiveWindow);
++            if (receiveWindow != 0) _channel.ExtendedDataReceived += Channel_DataReceived;
++            if (receiveWindow != 0) _channel.Exception += Session_ErrorOccurred;
+             _channel.DataReceived += Channel_DataReceived;
+             _channel.Closed += Channel_Closed;
+             _session.Disconnected += Session_Disconnected;
+@@ -788,6 +790,7 @@
+         private int Read(Span<byte> buffer)
+ #endif
+         {
++            int bytesRead;
+             lock (_sync)
+             {
+                 while (_readBuffer.ActiveLength == 0 && !_disposed)
+@@ -795,14 +798,15 @@
+                     _ = Monitor.Wait(_sync);
+                 }
+ 
+-                var bytesRead = Math.Min(buffer.Length, _readBuffer.ActiveLength);
++                bytesRead = Math.Min(buffer.Length, _readBuffer.ActiveLength);
+ 
+                 _readBuffer.ActiveReadOnlySpan.Slice(0, bytesRead).CopyTo(buffer);
+ 
+                 _readBuffer.Discard(bytesRead);
+ 
+-                return bytesRead;
+-            }
++            }
++            _channel.AcknowledgeConsumed(bytesRead);
++            return bytesRead;
+         }
+ 
+ #if NET
+@@ -982,6 +986,8 @@
+ 
+                 // But we do own _channel
+                 _channel.DataReceived -= Channel_DataReceived;
++                _channel.ExtendedDataReceived -= Channel_DataReceived;
++                _channel.Exception -= Session_ErrorOccurred;
+                 _channel.Closed -= Channel_Closed;
+                 _channel.Dispose();
+ 
+--- a/SshClient.cs
++++ b/SshClient.cs
+@@ -328,6 +328,22 @@
+             }
+         }
+ 
++        /// <summary>
++        /// Creates a terminal stream whose SSH receive credit is replenished
++        /// only by raw Read(byte[],int,int), Read(Span) or ReadByte calls.
++        /// Do not use ReadLine, Expect, Read() or event-only consumption on this stream.
++        /// Extended channel data is merged into the raw byte stream in arrival order.
++        /// </summary>
++        public ShellStream CreateBoundedShellStream(string terminalName, uint columns, uint rows,
++            uint width, uint height, int bufferSize, uint receiveWindow = 262144)
++        {
++            ArgumentOutOfRangeException.ThrowIfLessThan(receiveWindow, 65536u);
++            ArgumentOutOfRangeException.ThrowIfGreaterThan(receiveWindow, 1048576u);
++            EnsureSessionIsOpen();
++            return new ShellStream(Session!, terminalName, columns, rows, width, height,
++                new Dictionary<TerminalModes, uint>(), bufferSize, receiveWindow);
++        }
++
+         private void EnsureSessionIsOpen()
+         {
+             if (Session is null)

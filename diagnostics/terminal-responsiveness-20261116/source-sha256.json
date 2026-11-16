@@ -1,0 +1,46 @@
+[
+  {
+    "file": "windows/OpenFinalShell.Core/NativeSessionManager.cs",
+    "Hash": "BEC8C662901E7AAEF99E703D87CA3BE7A618F5FC6683C701411F5168400CC737"
+  },
+  {
+    "file": "windows/OpenFinalShell.Core/SshConnection.cs",
+    "Hash": "E6A27A7149C07D9B46CB6EBB4669B9E2988D89662F04516BE653EEE3ED4DF3C9"
+  },
+  {
+    "file": "windows/OpenFinalShell.Core/NativeTerminalProcessor.cs",
+    "Hash": "242C3577A5312FA571490D8E35A523317E48918624031CB02EB7C595D883DCD6"
+  },
+  {
+    "file": "windows/OpenFinalShell.Core/NativeTerminalProcessor.Interop.cs",
+    "Hash": "2A55C6FC481D7A8EB7CF4FBCB1CBC9077BD9FA73E8BB621BEB74567F51A0BC56"
+  },
+  {
+    "file": "windows/OpenFinalShell.App/MainWindow.xaml.cs",
+    "Hash": "1C3FDFD9B42D6F8A2530AC702C673435A360297C4090AF4CF891B58C11323F01"
+  },
+  {
+    "file": "windows/OpenFinalShell.App/Controls/NativeTerminalCanvas.cs",
+    "Hash": "41C443882119DA9B0A52F92E4BC779654F726353D40B66BDA5CE08FB385ABB4E"
+  },
+  {
+    "file": "windows/OpenFinalShell.App/Controls/NativeTerminalCanvas.Input.cs",
+    "Hash": "7B539BA689A258C3241844D1A677F5074CBA94432537648B643E9968F7C25C21"
+  },
+  {
+    "file": "windows/OpenFinalShell.App/Controls/NativeTerminalCanvas.Rendering.cs",
+    "Hash": "D50E0D14B4EFC32B0CCBE57517840344D3400963A06E297A68DA3EFD0891A8F7"
+  },
+  {
+    "file": "windows/OpenFinalShell.App/Controls/NativeTerminalCanvas.Preferences.cs",
+    "Hash": "EF6C76DC13277B981FF9F7AB24A871330ACACC6D006E839A18179B3C657B824F"
+  },
+  {
+    "file": "windows/OpenFinalShell.App/TerminalStressFixtureWindow.cs",
+    "Hash": "F97F7A6B56B7AC4CF8A2F32ABA5BD0BDFC160EFD26F65E850F671150B5B72A8B"
+  },
+  {
+    "file": "windows/ThirdParty/SSH.NET/consumption-window.patch",
+    "Hash": "811AE98B345F31B505FDF9E21223A5240E5C3CDC557E8F4F69BEF9B5506C47B8"
+  }
+]
