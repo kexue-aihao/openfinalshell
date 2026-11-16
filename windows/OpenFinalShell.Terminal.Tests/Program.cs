@@ -43,6 +43,23 @@ await using (var split = new NativeTerminalProcessor(12, 40))
     Check(Fingerprint(actual) == retained && !Text(await split.SnapshotAsync()).Contains("working"), "published snapshot remains independent after parser mutation");
 }
 
+await using (var terminal = new NativeTerminalProcessor(6, 40, 100))
+{
+    await terminal.ConsumeAsync(Encoding.UTF8.GetBytes("old output\r\nroot@host:~# unfinished\u001b[?2004h"));
+    var before = await terminal.SnapshotAsync();
+    var sent = new List<byte>();
+    terminal.Input += bytes => sent.AddRange(bytes);
+    await terminal.ExecuteClearCommandAsync();
+    Check(Encoding.ASCII.GetString(sent.ToArray()) == "\u0015\u000bclear\r", "clear action removes input on both sides of the cursor and submits clear once without bracketed paste");
+    Check(Fingerprint(await terminal.SnapshotAsync()) == Fingerprint(before), "clear action preserves parser contents and modes until the remote shell redraws");
+    await terminal.ConsumeAsync(Encoding.UTF8.GetBytes("\u001b[H\u001b[2J\u001b[3Jroot@host:~# "));
+    var after = await terminal.SnapshotAsync();
+    Check(Text(after).StartsWith("root@host:~# "), "remote clear response restores prompt at top of screen");
+    await terminal.TextAsync("echo ready", 0);
+    await terminal.KeyAsync(1, 0);
+    Check(Encoding.ASCII.GetString(sent.ToArray()).EndsWith("echo ready\r"), "terminal continues sending input after clear");
+}
+
 foreach (var charset in new[] { "utf8", "gb18030", "gbk", "big5", "latin1" })
 {
     var codec = new TerminalCharsetCodec(charset);

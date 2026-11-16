@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.73',
+    items: [
+      { type: 'fix', zh: 'WinUI 原生终端的清屏按钮和右键清屏改为执行远端 clear 命令，避免本地重置后提示符消失；清屏后恢复输入焦点', en: 'Run the remote clear command from the native terminal toolbar and context menu, keeping the prompt in sync and restoring input focus afterward' }
+    ]
+  },
+  {
     version: '0.30.72',
     items: [
       { type: 'fix', zh: '将 WinUI 原生终端读取、解析和发送移到后台，隐藏标签持续消费输出，改善安装进度和持续日志输出期间的窗口响应', en: 'Move native terminal reads, parsing and sends to background workers, and keep hidden tabs consuming output to improve responsiveness during progress updates and continuous logs' },

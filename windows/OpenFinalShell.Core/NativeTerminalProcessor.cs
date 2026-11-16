@@ -107,6 +107,14 @@ public sealed partial class NativeTerminalProcessor : IAsyncDisposable
     public Task SetViewportAsync(int offset) => Post(() => { scrollOffset = offset; dirty = true; });
     public Task ResetDirectoryAsync() => Post(directory.Reset);
     public Task ClearAsync() => Post(() => { ofs_terminal_clear(parser); submittedAt = null; scrollOffset = 0; dirty = true; });
+    public Task ExecuteClearCommandAsync() => Post(() =>
+    {
+        // Run clear through the shell. A local parser reset leaves the shell's
+        // prompt and terminal modes out of sync with the displayed screen.
+        // Discard an unfinished command before submitting this toolbar action.
+        submittedAt = null; scrollOffset = 0; dirty = true;
+        Input?.Invoke(Encoding.ASCII.GetBytes("\u0015\u000bclear\r"));
+    });
     public async Task<ImmutableArray<NativeTerminalSnapshotCell>> ReadLinesAsync(int first, int count, CancellationToken cancellation = default)
         => (await ReadHistoryAsync(first, count, cancellation).ConfigureAwait(false)).Cells;
     public async Task<TerminalHistoryBatch> ReadHistoryAsync(int first, int count, CancellationToken cancellation = default)

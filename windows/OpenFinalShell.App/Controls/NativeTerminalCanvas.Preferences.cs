@@ -129,7 +129,7 @@ public sealed partial class NativeTerminalCanvas
     public void ClearScreen()
     {
         if (!ParserReady) return;
-        Observe(processor.ClearAsync()); scrollOffset = 0; ClearSelection();
+        Observe(processor.ExecuteClearCommandAsync()); scrollOffset = 0; ClearSelection();
         searchResults.Clear(); searchByLine.Clear(); searchGeneration++;
         canvas.Invalidate(); UpdateAccessibleText();
         // The toolbar/menu control that triggered clear may now own keyboard
