@@ -219,6 +219,7 @@ const server = new Server({ hostKeys: [privateKey] }, (client) => {
           function handle(cmd) {
             if (cmd === '') return prompt()
             if (cmd === 'exit') return stream.exit(0), stream.end()
+            if (cmd === 'drop-shell') return stream.close()
             if (cmd === 'size') {
               stream.write(`${ptyInfo.cols}x${ptyInfo.rows}\r\n`)
               return prompt()

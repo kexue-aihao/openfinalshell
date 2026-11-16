@@ -208,21 +208,24 @@ public sealed class NativeSession : IDisposable
     {
         if (disposed != 0 || !ReferenceEquals(source, connection)) return;
         SetState(NativeSessionState.Failed, error.Message);
-        if (!hasConnected || Profile.Data["options"]?["autoReconnect"]?.GetValue<bool>() != true || Interlocked.CompareExchange(ref reconnectScheduled, 1, 0) != 0) return;
+        var autoReconnect = Profile.Data["options"]?["autoReconnect"]?.GetValue<bool>() ?? true;
+        if (!hasConnected || !autoReconnect || Interlocked.CompareExchange(ref reconnectScheduled, 1, 0) != 0) return;
         _ = Task.Run(async () =>
         {
             try
             {
-                for (var attempt = 0; attempt < 5 && !lifetime.IsCancellationRequested; attempt++)
+                var attempt = 0;
+                while (!lifetime.IsCancellationRequested)
                 {
                     SetState(NativeSessionState.Reconnecting, error.Message);
-                    await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, 1 << attempt)), lifetime.Token);
+                    var delaySeconds = attempt >= 5 ? 30 : 1 << attempt;
+                    attempt++;
+                    await Task.Delay(TimeSpan.FromSeconds(delaySeconds), lifetime.Token);
                     if (Snapshot.State == NativeSessionState.Ready) return;
                     try { await ReconnectAsync(lifetime.Token); return; }
                     catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
                     catch (Exception failure) { error = failure; }
                 }
-                if (!lifetime.IsCancellationRequested) SetState(NativeSessionState.Failed, error.Message);
             }
             catch (OperationCanceledException) { }
             finally { Volatile.Write(ref reconnectScheduled, 0); }

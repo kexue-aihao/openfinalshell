@@ -17,6 +17,12 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.71',
+    items: [
+      { type: 'fix', zh: '修复清屏后终端无法继续输入的问题；SSH shell 意外断开时自动持续重连，恢复长时间闲置后失效的会话', en: 'Restore terminal input after clearing the screen, and keep retrying SSH reconnections after an unexpected shell disconnect so idle sessions can recover' }
+    ]
+  },
+  {
     version: '0.30.70',
     items: [
       { type: 'fix', zh: '修复关闭 SSH 标签页时确认弹窗显示控件类型而不是会话名称的问题，并缩短终端解析时间片、降低高频输出下的界面阻塞', en: 'Fix SSH tab close confirmations showing a control type instead of the session name, and reduce UI blocking under high-rate terminal output with shorter parsing slices' }

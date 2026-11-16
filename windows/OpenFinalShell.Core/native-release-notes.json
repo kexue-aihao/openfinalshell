@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.30.71",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复清屏后终端无法继续输入的问题；SSH shell 意外断开时自动持续重连，恢复长时间闲置后失效的会话",
+        "en": "Restore terminal input after clearing the screen, and keep retrying SSH reconnections after an unexpected shell disconnect so idle sessions can recover"
+      }
+    ]
+  },
+  {
     "version": "0.30.70",
     "items": [
       {

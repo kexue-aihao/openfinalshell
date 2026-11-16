@@ -102,6 +102,15 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
     ofs.send('term:input', { termId, data })
   }, [])
 
+  const clearTerminal = useCallback((): void => {
+    const term = bundleRef.current?.term
+    if (!term) return
+    term.clear()
+    // Toolbar and context-menu clicks move DOM focus away from xterm. Restore
+    // it after the click finishes so the next keystroke still reaches the shell.
+    requestAnimationFrame(() => bundleRef.current?.term.focus())
+  }, [])
+
   /**
    * 调字号：不直接改本实例的 term.options，而是写回设置 ——
    * 所有 tab 经"字体热更新" effect 同步生效，且随设置持久化。
@@ -428,7 +437,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
       if (sel) void navigator.clipboard.writeText(sel).catch(() => {})
     } else if (key === 'paste') void pasteFromClipboard()
     else if (key === 'selectAll') bundle.term.selectAll()
-    else if (key === 'clear') bundle.term.clear()
+    else if (key === 'clear') clearTerminal()
     else if (key === 'search') setSearchOpen(true)
     else if (key === 'history') setHistoryOpen(true)
     else if (key === 'ai') { const selection = bundle.term.getSelection(); if (selection) openAiWithText(selection, termIdRef.current ?? undefined); else setAiOpen(true, termIdRef.current ?? undefined) }
@@ -487,7 +496,7 @@ export function TerminalPane({ tab, active, uiMode }: Props): React.JSX.Element 
             <IconButton label={t('terminal.clear')}
               size="small"
               icon={<Eraser size={14} strokeWidth={1.75} />}
-              onClick={() => bundleRef.current?.term.clear()}
+              onClick={clearTerminal}
             />
           </TitlebarSafeTooltip>
           <TitlebarSafeTooltip title={t('terminal.disconnect')}>

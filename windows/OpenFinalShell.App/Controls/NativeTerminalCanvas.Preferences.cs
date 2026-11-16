@@ -132,6 +132,9 @@ public sealed partial class NativeTerminalCanvas
         ofs_terminal_clear(parser); scrollOffset = 0; ClearSelection();
         searchResults.Clear(); searchByLine.Clear(); searchGeneration++; submittedAt = null;
         canvas.Invalidate(); UpdateAccessibleText();
+        // The toolbar/menu control that triggered clear may now own keyboard
+        // focus. Restore terminal input after its click and menu-close handlers.
+        DispatcherQueue.TryEnqueue(() => FocusTerminalInput());
     }
     private void ShowContextMenu(Windows.Foundation.Point position)
     {

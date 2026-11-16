@@ -6,6 +6,7 @@ import type { Terminal } from '@xterm/xterm'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { SessionId } from '@shared/types'
 import { TerminalPane } from '@/features/terminal/TerminalPane'
+import i18n from '@/i18n'
 import { onShellCommand } from '@/features/terminal/commandEvents'
 import { useHistoryStore } from '@/stores/useHistoryStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -188,5 +189,20 @@ describe('采集与回显的赛跑', () => {
     expect(rig.captured).toEqual(['cd /tmp'])
     expect(useHistoryStore.getState().entries).toEqual([])
     expect(fakeOfs.invokes.some((c) => c.channel === 'history:push')).toBe(false)
+  })
+
+  it('点击清屏后恢复终端焦点，让后续按键继续进入 shell', async () => {
+    const rig = await mountPane()
+    const clear = vi.spyOn(rig.term, 'clear')
+    const focus = vi.spyOn(rig.term, 'focus')
+    const clearButton = document.querySelector<HTMLButtonElement>(`button[aria-label="${i18n.t('terminal.clear')}"]`)
+    expect(clearButton, '清屏工具按钮未渲染').toBeTruthy()
+    act(() => clearButton!.click())
+    expect(clear).toHaveBeenCalledOnce()
+    expect(focus).not.toHaveBeenCalled()
+    await act(async () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())))
+    expect(focus).toHaveBeenCalledOnce()
+    rig.type('x')
+    expect(fakeOfs.sends.some((send) => send.channel === 'term:input' && (send.payload as { data?: string }).data === 'x')).toBe(true)
   })
 })

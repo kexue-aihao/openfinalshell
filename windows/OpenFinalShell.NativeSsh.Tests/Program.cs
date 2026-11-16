@@ -232,7 +232,6 @@ async Task TestJumpHostEndToEndAsync()
     };
     var jumpJson = ProfileJson("jump-fixture", "Jump fixture", jumpPort);
     var targetJson = ProfileJson("target-fixture", "Target fixture", targetPort, "jump-fixture");
-    targetJson["options"] = new JsonObject { ["autoReconnect"] = true };
     store.Save("profiles", "jump-fixture", jumpJson);
     store.Save("profiles", "target-fixture", targetJson);
     using var sessions = new NativeSessionManager(store);
@@ -275,7 +274,7 @@ async Task TestJumpHostEndToEndAsync()
     session.StateChanged += state => { if (state.State == NativeSessionState.Ready) reconnected.TrySetResult(); };
     session.Output += bytes => { if (Encoding.UTF8.GetString(bytes).Contains("97x23", StringComparison.Ordinal)) rememberedSize.TrySetResult(); };
     session.Resize(97, 23);
-    session.Write(Encoding.UTF8.GetBytes("exit\r"));
+    session.Write(Encoding.UTF8.GetBytes("drop-shell\r"));
     await reconnected.Task.WaitAsync(TimeSpan.FromSeconds(12));
     session.Write(Encoding.UTF8.GetBytes("size\r"));
     await rememberedSize.Task.WaitAsync(TimeSpan.FromSeconds(8));
