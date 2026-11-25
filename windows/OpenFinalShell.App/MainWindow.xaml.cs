@@ -275,8 +275,7 @@ public sealed partial class MainWindow : Window
     {
         // Mica is a Win11-only shell material. Keep Win10 and high-contrast
         // sessions on solid theme brushes, and tolerate compositor/API failure.
-        var highContrast = NativeAccessibilityGuard.ReadHighContrast(
-            () => new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast);
+        var highContrast = NativeUiMotion.HighContrast;
         var useMica = environment.Profile == "windows-11" && environment.MicaEligible &&
             !settings.ReduceTransparency && !highContrast;
         try { SystemBackdrop = useMica ? new MicaBackdrop() : null; }
@@ -507,9 +506,14 @@ public sealed partial class MainWindow : Window
         RecentConnections.ItemsSource = connections.Profiles.Where(p => p.Data["lastUsedAt"] != null || p.Data["lastConnectedAt"] != null)
             .OrderByDescending(p => (p.Data["lastUsedAt"]?.GetValue<long>() ?? p.Data["lastConnectedAt"]!.GetValue<long>())).Take(8).ToArray();
         UpdateRecentEmptyState();
+        Dictionary<string, ConnectionProfile>? profileById = null;
         foreach (var (id, profile) in sessionProfiles)
             if (sessionTabs.TryGetValue(id, out var tab))
-                UpdateSessionTabHeader(tab, connections.Profiles.FirstOrDefault(item => item.Id == profile.Id) ?? profile, SessionTabTitle(tab));
+            {
+                // One lookup table instead of re-scanning the profile list per tab.
+                profileById ??= connections.Profiles.ToDictionary(item => item.Id, StringComparer.Ordinal);
+                UpdateSessionTabHeader(tab, profileById.GetValueOrDefault(profile.Id) ?? profile, SessionTabTitle(tab));
+            }
     }
 
     private void ApplyActivityIcons()
@@ -585,7 +589,8 @@ public sealed partial class MainWindow : Window
         ShowSelectedSessionContent();
         if (tag == "commands" && SessionContent.Content is Controls.NativeSessionWorkspace workspace)
             workspace.ToggleCommands(forceOpen: !toggle);
-        UiTaskRunner.Run(() => NativeUiMotion.FadeInAsync(activeSidebarPage), ShowError);
+        if (!same)
+            UiTaskRunner.Run(() => NativeUiMotion.AnimateInAsync(activeSidebarPage, null, NativeMotionKind.Content), ShowError);
     }
 
     private void ConfigureActivityHeading()
@@ -674,6 +679,10 @@ public sealed partial class MainWindow : Window
         if (previousOverlay != activeOverlay)
         {
             Interlocked.Increment(ref overlayMotionVersion);
+            // Re-enable the host we are about to show; a superseded close may
+            // still be animating and must not leave the new overlay inert.
+            if (activeOverlay == "ai") AiPage.IsHitTestVisible = true;
+            else if (activeOverlay is "settings" or "lansync" or "about") SettingsOverlay.IsHitTestVisible = true;
             if (activeOverlay == "ai")
                 UiTaskRunner.Run(() => NativeUiMotion.AnimateInAsync(AiSurface, AiScrim, NativeMotionKind.Overlay), ShowError);
             else if (activeOverlay is "settings" or "lansync" or "about")
@@ -1199,10 +1208,6 @@ public sealed partial class MainWindow : Window
             LoadProfiles();
             connections.Selected = connections.Profiles.FirstOrDefault(item => item.Id == profileId);
             ProfilesList.SelectedItem = connections.Selected;
-        connectionTree?.Reload(connections.Profiles.ToArray(), ConnectionGroups.Groups.ToArray());
-        RecentConnections.ItemsSource = connections.Profiles.Where(p => p.Data["lastUsedAt"] != null || p.Data["lastConnectedAt"] != null)
-            .OrderByDescending(p => (p.Data["lastUsedAt"]?.GetValue<long>() ?? p.Data["lastConnectedAt"]!.GetValue<long>())).Take(8).ToArray();
-        UpdateRecentEmptyState();
         }
         catch (InvalidOperationException error) when (error.Message.Contains("revision conflict", StringComparison.OrdinalIgnoreCase))
         {
@@ -1464,7 +1469,7 @@ public sealed partial class MainWindow : Window
     private void OpenPortTrafficTab(string sessionId, string profileName)
     {
         var session = sessionsManager.Get(sessionId);
-        var panel = new Controls.NativePortTrafficPanel(session, settings.MonitorIntervalMs, key => localization[key]);
+        var panel = new Controls.NativePortTrafficPanel(session, settings.MonitorIntervalMs, localization);
         var tab = new TabViewItem { Header = $"{profileName} · {localization["native.portTraffic.title"]}", Tag = $"portTraffic:{sessionId}" };
         AddSessionTab(tab, panel);
     }
@@ -1491,10 +1496,18 @@ public sealed partial class MainWindow : Window
         var selectedSessionId = SessionIdForTag(selectedId);
         foreach (var (id, workspace) in sessionWorkspaces)
             workspace.SetActive(selectedSessionId == id);
-        SessionContent.Content = Sessions.SelectedItem is TabViewItem tab &&
+        var nextContent = Sessions.SelectedItem is TabViewItem tab &&
             tab.Tag?.ToString() is { } tag && sessionContents.TryGetValue(tag, out var content)
                 ? content
                 : null;
+        // Re-assigning the same element detaches and re-attaches the terminal,
+        // which loses focus and forces a full layout pass. Only swap on change.
+        if (!ReferenceEquals(SessionContent.Content, nextContent))
+        {
+            SessionContent.Content = nextContent;
+            if (nextContent != null && activeOverlay == null)
+                UiTaskRunner.Run(() => NativeUiMotion.AnimateInAsync(SessionContent, null, NativeMotionKind.Content), ShowError);
+        }
         AttachCommandLibrary();
         WelcomePage.Visibility = Sessions.TabItems.Count == 0 && CommandLibraryHome.Visibility != Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
@@ -2067,7 +2080,6 @@ public sealed partial class MainWindow : Window
         try
         {
             aiViewModel.Save(new AiProviderDraft(existing?.Id, name.Text, baseUrl, model.Text, enabled.IsOn, string.IsNullOrEmpty(token.Password) ? null : token.Password));
-            AiProviderChoice.ItemsSource = aiViewModel.Providers;
             AiProviderChoice.SelectedItem = aiViewModel.SelectedProvider;
             UpdateAiProviderActions();
         }
@@ -2090,7 +2102,6 @@ public sealed partial class MainWindow : Window
         try
         {
             aiViewModel.Save(new AiProviderDraft(provider.Id, provider.Name, provider.BaseUrl, provider.Model, provider.Enabled, null, true));
-            AiProviderChoice.ItemsSource = aiViewModel.Providers;
             AiProviderChoice.SelectedItem = aiViewModel.SelectedProvider;
             UpdateAiProviderActions();
             Status.Text = localization["native.ai.tokenCleared"];
@@ -2114,7 +2125,6 @@ public sealed partial class MainWindow : Window
         try
         {
             aiViewModel.DeleteSelectedProvider();
-            AiProviderChoice.ItemsSource = aiViewModel.Providers;
             AiProviderChoice.SelectedItem = aiViewModel.SelectedProvider;
             UpdateAiProviderActions();
             Status.Text = localization["native.common.deleted"];
@@ -2778,6 +2788,7 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(() =>
         {
+            NativeUiMotion.InvalidateAccessibilityCache();
             ApplyShellPalette();
             ApplyWindowBackdrop();
             ApplyNativeEditorTheme();

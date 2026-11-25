@@ -1,6 +1,11 @@
 package io.github.openfinalshell.android
 
 import android.content.Intent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -80,6 +85,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,6 +115,7 @@ import io.github.openfinalshell.android.update.UpdateState
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.openfinalshell.android.ui.OpenFinalShellTheme
+import io.github.openfinalshell.android.ui.OpenFinalShellMotion
 import io.github.openfinalshell.android.ui.OpenFinalShellSpacing
 import io.github.openfinalshell.android.ui.OpenFinalShellShapes
 import io.github.openfinalshell.android.ui.OpenFinalShellTerminalTokens
@@ -151,6 +158,9 @@ fun OpenFinalShellApp(
     var showMore by rememberSaveable { mutableStateOf(false) }
     var deferredUpdateTag by rememberSaveable { mutableStateOf<String?>(null) }
     var installAfterPermission by rememberSaveable { mutableStateOf(false) }
+    // Retains per-destination saveable state (scroll offsets, form drafts, expanded
+    // sections) when a page leaves the composition during navigation.
+    val destinationStateHolder = rememberSaveableStateHolder()
     val updatePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (installAfterPermission && settingsViewModel.canInstallPackages()) {
             settingsViewModel.installUpdate()
@@ -293,19 +303,52 @@ fun OpenFinalShellApp(
                         )
                     }
                     Column(Modifier.fillMaxSize().weight(1f)) {
-                        when (destination) {
-                            AppDestination.CONNECTIONS -> ConnectionsScreen(state, viewModel)
-                            AppDestination.TERMINAL -> TerminalScreen(
+                        if (destination == AppDestination.TERMINAL) {
+                            TerminalScreen(
                                 state,
                                 viewModel,
                                 settingsState.settings.terminalFontSize,
                                 settingsState.settings.terminalCursorStyle
                             )
-                            AppDestination.SFTP -> SftpScreen(state, viewModel, settingsViewModel)
-                            AppDestination.MONITOR -> MonitorScreen(state, viewModel)
-                            AppDestination.FORWARDS -> ForwardScreen(state, viewModel)
-                            AppDestination.SYNC -> LanSyncScreen(lanSyncState, lanSyncViewModel)
-                            AppDestination.SETTINGS -> SettingsScreen(settingsViewModel, settingsState, viewModel, state, requestUpdateInstall)
+                        } else {
+                            // The terminal owns an AndroidView-backed emulator surface, so it stays
+                            // out of the crossfade to avoid detaching and re-attaching that surface.
+                            // Every other destination fades through the shared motion tokens.
+                            AnimatedContent(
+                                targetState = destination,
+                                transitionSpec = {
+                                    fadeIn(
+                                        animationSpec = tween(
+                                            durationMillis = OpenFinalShellMotion.NormalMs,
+                                            easing = OpenFinalShellMotion.Easing
+                                        )
+                                    ) togetherWith fadeOut(
+                                        animationSpec = tween(
+                                            durationMillis = OpenFinalShellMotion.FastMs,
+                                            easing = OpenFinalShellMotion.Easing
+                                        )
+                                    )
+                                },
+                                label = "destination"
+                            ) { target ->
+                                destinationStateHolder.SaveableStateProvider(target.key) {
+                                    when (target) {
+                                        AppDestination.CONNECTIONS -> ConnectionsScreen(state, viewModel)
+                                        AppDestination.SFTP -> SftpScreen(state, viewModel, settingsViewModel)
+                                        AppDestination.MONITOR -> MonitorScreen(state, viewModel)
+                                        AppDestination.FORWARDS -> ForwardScreen(state, viewModel)
+                                        AppDestination.SYNC -> LanSyncScreen(lanSyncState, lanSyncViewModel)
+                                        AppDestination.SETTINGS -> SettingsScreen(
+                                            settingsViewModel,
+                                            settingsState,
+                                            viewModel,
+                                            state,
+                                            requestUpdateInstall
+                                        )
+                                        AppDestination.TERMINAL -> Unit
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -456,18 +499,26 @@ private fun MoreNavigationItem(label: Int, icon: ImageVector, onClick: () -> Uni
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
-    var name by remember { mutableStateOf("") }
-    var host by remember { mutableStateOf("") }
-    var port by remember { mutableStateOf("22") }
-    var username by remember { mutableStateOf("") }
+    // Draft fields survive a navigation round-trip. Passwords deliberately stay plain
+    // `remember` state so they never enter the saved-instance Bundle.
+    var name by rememberSaveable { mutableStateOf("") }
+    var host by rememberSaveable { mutableStateOf("") }
+    var port by rememberSaveable { mutableStateOf("22") }
+    var username by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var privateKeyId by remember { mutableStateOf<String?>(null) }
+    var privateKeyId by rememberSaveable { mutableStateOf<String?>(null) }
     var showAddConnectionForm by rememberSaveable { mutableStateOf(state.profiles.isEmpty()) }
     var showAddLocalForm by rememberSaveable { mutableStateOf(false) }
-    var localName by remember { mutableStateOf("") }
-    var localStartDirectory by remember { mutableStateOf("") }
-    var localTier by remember { mutableStateOf(LocalShellTier.AUTO) }
+    var localName by rememberSaveable { mutableStateOf("") }
+    var localStartDirectory by rememberSaveable { mutableStateOf("") }
+    var localTier by rememberSaveable { mutableStateOf(LocalShellTier.AUTO) }
     var privateKeyMenuExpanded by remember { mutableStateOf(false) }
+    // One pass over the live sessions instead of scanning every session for every row.
+    val sessionByProfile = remember(state.sessions) {
+        state.sessions.values
+            .filter { it.state != SessionState.CLOSED }
+            .associateBy { it.profile.id }
+    }
     val formValid = name.isNotBlank() && host.isNotBlank() && username.isNotBlank() &&
         (port.toIntOrNull()?.let { it in 1..65535 } == true)
     // Both forms render at the bottom of this list, which on a phone is below the fold: tapping
@@ -496,7 +547,7 @@ private fun ConnectionsScreen(state: AndroidUiState, viewModel: MainViewModel) {
                 ConnectionCard(
                     profile = profile,
                     selected = profile.id == state.selectedProfileId,
-                    session = state.sessions.values.firstOrNull { it.profile.id == profile.id && it.state != SessionState.CLOSED },
+                    session = sessionByProfile[profile.id],
                     resolution = state.localTiers[profile.id],
                     viewModel = viewModel,
                     onSelect = { viewModel.selectProfile(profile) },
@@ -1016,8 +1067,11 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel, settings
             }
         }
         if (state.transfers.isNotEmpty()) {
-            MetricCard(androidx.compose.ui.res.stringResource(R.string.transfer_queue)) {
-                state.transfers.forEach { transfer ->
+            // A long queue would otherwise compose every row eagerly inside a Column.
+            // Cap the visible rows and surface the remainder as a count.
+            val visibleTransfers = state.transfers.take(6)
+            MetricCard("${androidx.compose.ui.res.stringResource(R.string.transfer_queue)} (${state.transfers.size})") {
+                visibleTransfers.forEach { transfer ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(transfer.remotePath, maxLines = 1)
@@ -1042,6 +1096,13 @@ private fun SftpScreen(state: AndroidUiState, viewModel: MainViewModel, settings
                             TextButton(onClick = { viewModel.cancelTransfer(transfer.id) }) { Text(androidx.compose.ui.res.stringResource(R.string.action_cancel)) }
                         }
                     }
+                }
+                if (state.transfers.size > visibleTransfers.size) {
+                    Text(
+                        "+${state.transfers.size - visibleTransfers.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

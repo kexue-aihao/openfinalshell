@@ -113,6 +113,14 @@ export function ConnectionTreePanel(): React.JSX.Element {
     if (!loaded) void load()
   }, [loaded, load])
 
+  // 搜索防抖：每个键都同步重建整棵树（递归 filter + sort）在几百条连接时会明显卡输入。
+  // 清空输入不防抖，点 ✕ 立刻回到完整列表。
+  const [debouncedSearch, setDebouncedSearch] = useState(searchText)
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedSearch(searchText), searchText ? 140 : 0)
+    return () => window.clearTimeout(id)
+  }, [searchText])
+
   // 连接树默认展开：启动时把所有分组展开，之后新建的分组也自动展开，
   // 而用户手动折叠过的分组不再被强行展开（seenGroups 记住"已经替它做过一次展开决定"）
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([])
@@ -244,7 +252,7 @@ export function ConnectionTreePanel(): React.JSX.Element {
   })
 
   const treeData = useMemo((): TreeDataNode[] => {
-    const q = searchText.trim().toLowerCase()
+    const q = debouncedSearch.trim().toLowerCase()
     if (q) {
       return profiles
         .filter(
@@ -255,20 +263,33 @@ export function ConnectionTreePanel(): React.JSX.Element {
         )
         .map(profileNode)
     }
+    // 先按父节点建索引再递归：原来每个分组都要把整张 profiles/groups 表
+    // filter 一遍，树的层数一深就是 O(n²)。
+    const groupsByParent = new Map<string | null, ConnectionGroup[]>()
+    for (const g of groups) {
+      const key = g.parentId ?? null
+      const list = groupsByParent.get(key)
+      if (list) list.push(g)
+      else groupsByParent.set(key, [g])
+    }
+    for (const list of groupsByParent.values()) list.sort((a, b) => a.order - b.order)
+    const profilesByGroup = new Map<string | null, ConnectionProfile[]>()
+    for (const p of profiles) {
+      const key = p.groupId ?? null
+      const list = profilesByGroup.get(key)
+      if (list) list.push(p)
+      else profilesByGroup.set(key, [p])
+    }
+    for (const list of profilesByGroup.values()) list.sort((a, b) => a.name.localeCompare(b.name))
+
     const buildGroup = (parentId: string | null): TreeDataNode[] => {
-      const childGroups = groups
-        .filter((g) => g.parentId === parentId)
-        .sort((a, b) => a.order - b.order)
-        .map((g) => groupNode(g, buildGroup(g.id)))
-      const childProfiles = profiles
-        .filter((p) => (p.groupId ?? null) === parentId)
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(profileNode)
+      const childGroups = (groupsByParent.get(parentId) ?? []).map((g) => groupNode(g, buildGroup(g.id)))
+      const childProfiles = (profilesByGroup.get(parentId) ?? []).map(profileNode)
       return [...childGroups, ...childProfiles]
     }
     return buildGroup(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profiles, groups, searchText, t, maskInList, openContextMenu])
+  }, [profiles, groups, debouncedSearch, t, maskInList, openContextMenu])
 
   const contextMenuItems = useMemo<ContextMenuItem[]>(() => {
     const target = contextMenu?.target
@@ -372,7 +393,7 @@ export function ConnectionTreePanel(): React.JSX.Element {
             expandAction="click"
             selectable={false}
             // 搜索态是平铺的 profile 列表（无分组），expandedKeys 在那种情况下无意义
-            expandedKeys={searchText.trim() ? undefined : expandedKeys}
+            expandedKeys={debouncedSearch.trim() ? undefined : expandedKeys}
             onExpand={(keys) => setExpandedKeys(keys)}
           />
         )}

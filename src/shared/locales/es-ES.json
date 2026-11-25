@@ -752,6 +752,7 @@
     "nextTab": "Siguiente pestaña",
     "prevTab": "Pestaña anterior",
     "gotoTab": "Ir a la pestaña N",
+    "quickSwitcher": "Abrir el conmutador rápido",
     "search": "Buscar en la terminal",
     "history": "Abrir el historial de comandos",
     "copy": "Copiar la selección",
@@ -765,6 +766,14 @@
       "files": "Archivos",
       "overlays": "Paneles"
     }
+  },
+  "palette": {
+    "title": "Conmutador rápido",
+    "placeholder": "Buscar sesiones y conexiones",
+    "hint": "Enter para abrir · ↑↓ para moverte · Esc para cerrar",
+    "sessions": "Sesiones abiertas",
+    "connections": "Conexiones",
+    "empty": "No hay sesiones ni conexiones coincidentes"
   },
   "common": {
     "ok": "Aceptar",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} puertos · {{connections}} conexiones · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} puertos · {{connections}} conexiones · tasa no disponible",
+      "row": "Puerto {{port}} · {{connections}} conexiones · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "Puerto {{port}} · {{connections}} conexiones · tasa no disponible",
+      "empty": "No hay puertos TCP activos legibles",
+      "stateStarting": "Iniciando…",
+      "stateRunning": "Activo",
+      "stateFailed": "Error",
+      "stateUnsupported": "No compatible",
+      "stateStopped": "Detenido"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}} grupos · {{keys}} referencias de clave · {{proxies}} proxies · {{knownHosts}} hosts de confianza · {{forwards}} reenvíos · {{aiProfiles}} proveedores de IA",
     "workbench": {
       "search": "Buscar nombre, servidor o usuario",
+      "noMatches": "Ninguna conexión coincide con la búsqueda",
       "welcome": "Administración remota · SSH · SFTP · Monitorización",
       "quickConnect": "Conexión rápida",
       "recent": "Sesiones recientes",

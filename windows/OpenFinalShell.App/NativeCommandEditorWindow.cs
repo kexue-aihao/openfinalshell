@@ -277,7 +277,7 @@ internal sealed class NativeCommandEditorWindow : Window
     private void ApplyTitleBarTheme()
     {
         var titleBar = AppWindow.TitleBar;
-        if (NativeAccessibilityGuard.ReadHighContrast(() => new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast))
+        if (NativeUiMotion.HighContrast)
         {
             titleBar.BackgroundColor = titleBar.ForegroundColor = titleBar.ButtonBackgroundColor = titleBar.ButtonForegroundColor = null;
             return;

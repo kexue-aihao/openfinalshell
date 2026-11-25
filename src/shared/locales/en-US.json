@@ -748,6 +748,7 @@
     "nextTab": "Next tab",
     "prevTab": "Previous tab",
     "gotoTab": "Go to tab N",
+    "quickSwitcher": "Open quick switcher",
     "search": "Find in terminal",
     "history": "Open command history",
     "copy": "Copy selection",
@@ -761,6 +762,14 @@
       "files": "Files",
       "overlays": "Overlays"
     }
+  },
+  "palette": {
+    "title": "Quick switcher",
+    "placeholder": "Search sessions and connections",
+    "hint": "Enter to open · ↑↓ to move · Esc to close",
+    "sessions": "Open sessions",
+    "connections": "Connections",
+    "empty": "No matching sessions or connections"
   },
   "common": {
     "ok": "OK",
@@ -1361,7 +1370,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} ports · {{connections}} connections · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} ports · {{connections}} connections · rates unavailable",
+      "row": "Port {{port}} · {{connections}} connections · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "Port {{port}} · {{connections}} connections · rates unavailable",
+      "empty": "No readable active TCP ports",
+      "stateStarting": "Starting…",
+      "stateRunning": "Live",
+      "stateFailed": "Failed",
+      "stateUnsupported": "Unsupported",
+      "stateStopped": "Stopped"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1483,6 +1502,7 @@
     "migrationCategories": "{{groups}} groups · {{keys}} key references · {{proxies}} proxies · {{knownHosts}} trusted hosts · {{forwards}} forwards · {{aiProfiles}} AI providers",
     "workbench": {
       "search": "Search name, host or user",
+      "noMatches": "No connections match your search",
       "welcome": "Remote operations · SSH · SFTP · monitoring",
       "quickConnect": "Quick connect",
       "recent": "Recent sessions",

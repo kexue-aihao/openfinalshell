@@ -1,4 +1,6 @@
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
+import { useCallback, useEffect, useRef } from 'react'
+import type { AppSettings } from '@shared/types'
 import { TitleBar } from './TitleBar'
 import { ActivityBar } from './ActivityBar'
 import { SidePanel } from './SidePanel'
@@ -29,6 +31,22 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
   const toggleMonitor = useSessionStore((s) => s.toggleMonitor)
   const activeTab = tabs.find((tab) => tab.id === activeTabId)
 
+  // 拖分隔条时 onLayout 每帧都触发。立刻 patch 会每帧深拷贝 settings、
+  // 往主进程发一次 IPC + 落盘；这里合并到 180ms 静默后再写一次。
+  const pendingLayout = useRef<AppSettings['layout'] | null>(null)
+  const layoutTimer = useRef<number | undefined>(undefined)
+  const flushLayout = useCallback((): void => {
+    if (layoutTimer.current !== undefined) {
+      window.clearTimeout(layoutTimer.current)
+      layoutTimer.current = undefined
+    }
+    const next = pendingLayout.current
+    pendingLayout.current = null
+    if (next) patch({ layout: next })
+  }, [patch])
+  // 关闭窗口前把最后一次拖拽结果补写进去
+  useEffect(() => flushLayout, [flushLayout])
+
   if (!settings) return <div className={styles.root} />
   const { layout } = settings
   const sidePanelSize = Math.min(
@@ -54,7 +72,9 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                 )
               }
               if (activeTab?.monitorOpen) next.monitorPanelSizePct = sizes[sizes.length - 1]
-              patch({ layout: next })
+              pendingLayout.current = next
+              if (layoutTimer.current !== undefined) window.clearTimeout(layoutTimer.current)
+              layoutTimer.current = window.setTimeout(flushLayout, 180)
             }}
           >
             {!layout.sidePanelCollapsed && (

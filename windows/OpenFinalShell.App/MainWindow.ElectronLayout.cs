@@ -179,7 +179,12 @@ public sealed partial class MainWindow
         SettingsNavigationColumn.Width = new GridLength(Body.ActualWidth < 760 ? 136 : 168);
         AiSurface.Width = Math.Max(0, Math.Min(820, Body.ActualWidth - 32));
         AiSurface.Height = Math.Max(0, Math.Min(640, Body.ActualHeight - 32));
-        var modal = connectionDrawerOpen || activeOverlay != null;
+        if (paletteSurface != null)
+        {
+            paletteSurface.Width = Math.Max(0, Math.Min(560, Body.ActualWidth - 32));
+            paletteSurface.MaxHeight = Math.Max(160, Math.Min(460, Body.ActualHeight - 48));
+        }
+        var modal = connectionDrawerOpen || activeOverlay != null || paletteOpen;
         MainWorkspace.IsHitTestVisible = ContextSidebar.IsHitTestVisible = ActivityRail.IsHitTestVisible = !modal;
         Sessions.IsEnabled = !modal;
         if (SettingsOverlay.Visibility == Visibility.Visible)

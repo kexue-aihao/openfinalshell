@@ -35,6 +35,10 @@ public static class NativeParityTests
             && NativeWorkbenchShortcut.Resolve(0x39, false, false, true, false, false, false)?.Index == 8, "Workbench duplication and Alt+1 through Alt+9 share a native-editor compatible route");
         check(NativeWorkbenchShortcut.Resolve(0x57, true, false, false, true, false, false) == null
             && NativeWorkbenchShortcut.Resolve(0x57, true, false, false, false, false, false)?.Action == NativeWorkbenchAction.CloseSession, "Ctrl+W preserves text-entry editing and closes only workbench targets");
+        check(NativeWorkbenchShortcut.Resolve(0x4B, true, false, false, false, false, false)?.Action == NativeWorkbenchAction.OpenQuickSwitcher
+            && NativeWorkbenchShortcut.Resolve(0x4B, true, false, false, false, false, true) == null
+            && NativeWorkbenchShortcut.Resolve(0x4B, false, false, false, false, false, false) == null,
+            "Ctrl+K opens the quick switcher only when no modal surface owns the keyboard");
         check(NativeWorkbenchShortcut.Resolve(9, true, false, false, false, true, false) == null
             && NativeWorkbenchShortcut.Resolve(0x54, true, true, false, false, false, true) == null
             && NativeWorkbenchShortcut.Resolve(0x43, true, false, false, false, false, false) == null, "IME, dialogs and terminal Ctrl+C are excluded from global session shortcuts");

@@ -752,6 +752,7 @@
     "nextTab": "次のタブ",
     "prevTab": "前のタブ",
     "gotoTab": "タブ N へ移動",
+    "quickSwitcher": "クイック切り替えを開く",
     "search": "ターミナル内を検索",
     "history": "コマンド履歴を開く",
     "copy": "選択範囲をコピー",
@@ -765,6 +766,14 @@
       "files": "ファイル",
       "overlays": "オーバーレイ"
     }
+  },
+  "palette": {
+    "title": "クイック切り替え",
+    "placeholder": "セッションと接続を検索",
+    "hint": "Enter で開く · ↑↓ で移動 · Esc で閉じる",
+    "sessions": "開いているセッション",
+    "connections": "接続",
+    "empty": "一致するセッションまたは接続はありません"
   },
   "common": {
     "ok": "OK",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} ポート · {{connections}} 接続 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} ポート · {{connections}} 接続 · 速度は利用できません",
+      "row": "ポート {{port}} · {{connections}} 接続 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "ポート {{port}} · {{connections}} 接続 · 速度は利用できません",
+      "empty": "読み取り可能なアクティブ TCP ポートはありません",
+      "stateStarting": "起動中…",
+      "stateRunning": "稼働中",
+      "stateFailed": "失敗",
+      "stateUnsupported": "非対応",
+      "stateStopped": "停止"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}} グループ · {{keys}} キー参照 · {{proxies}} プロキシ · {{knownHosts}} 信頼済みホスト · {{forwards}} 転送ルール · {{aiProfiles}} AI プロバイダー",
     "workbench": {
       "search": "名前・ホスト・ユーザーを検索",
+      "noMatches": "検索に一致する接続はありません",
       "welcome": "リモート運用 · SSH · SFTP · 監視",
       "quickConnect": "クイック接続",
       "recent": "最近のセッション",

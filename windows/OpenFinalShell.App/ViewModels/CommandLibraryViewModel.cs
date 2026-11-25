@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using OpenFinalShell.Core;
@@ -12,20 +11,27 @@ public sealed class CommandLibraryViewModel : INotifyPropertyChanged
     private NativeSnippet? selectedSnippet;
     private string query = "";
     public string Query { get => query; set { query = value; ReloadSnippets(); } }
-    public ObservableCollection<NativeSnippetGroup> Groups { get; } = [];
-    public ObservableCollection<NativeSnippet> Snippets { get; } = [];
-    public ObservableCollection<string> History { get; } = [];
+    public BulkObservableCollection<NativeSnippetGroup> Groups { get; } = [];
+    public BulkObservableCollection<NativeSnippet> Snippets { get; } = [];
+    public BulkObservableCollection<string> History { get; } = [];
     public NativeSnippetGroup? SelectedGroup { get => selectedGroup; set { if (selectedGroup == value) return; selectedGroup = value; OnPropertyChanged(); ReloadSnippets(); } }
     public NativeSnippet? SelectedSnippet { get => selectedSnippet; set { if (selectedSnippet == value) return; selectedSnippet = value; OnPropertyChanged(); } }
     public CommandLibraryViewModel(NativeCommandLibrary library) { this.library = library; Reload(); }
     public void Reload()
     {
         var id = SelectedGroup?.Id;
-        Groups.Clear(); foreach (var group in library.ListGroups()) Groups.Add(group);
+        Groups.ReplaceAll(library.ListGroups());
         SelectedGroup = Groups.FirstOrDefault(i => i.Id == id) ?? Groups.FirstOrDefault(); ReloadSnippets(); ReloadHistory();
     }
-    public void ReloadSnippets() { var id = SelectedSnippet?.Id; Snippets.Clear(); foreach (var snippet in library.ListSnippets(SelectedGroup?.Id).Where(i => $"{i.Name} {i.Command}".Contains(query, StringComparison.CurrentCultureIgnoreCase))) Snippets.Add(snippet); SelectedSnippet = Snippets.FirstOrDefault(i => i.Id == id) ?? Snippets.FirstOrDefault(); }
-    public void ReloadHistory(string? sessionId = null) { History.Clear(); foreach (var command in library.ListHistory(sessionId)) History.Add(command); }
+    public void ReloadSnippets()
+    {
+        var id = SelectedSnippet?.Id;
+        Snippets.ReplaceAll(library.ListSnippets(SelectedGroup?.Id).Where(i =>
+            $"{i.Name} {i.Command}".Contains(query, StringComparison.CurrentCultureIgnoreCase)));
+        SelectedSnippet = Snippets.FirstOrDefault(i => i.Id == id) ?? Snippets.FirstOrDefault();
+    }
+
+    public void ReloadHistory(string? sessionId = null) => History.ReplaceAll(library.ListHistory(sessionId));
     public NativeSnippetGroup SaveGroup(string? id, string name) { var result = library.SaveGroup(id, name, id == null ? Groups.Count : null); Reload(); SelectedGroup = Groups.FirstOrDefault(item => item.Id == result.Id); return result; }
     public NativeSnippet SaveSnippet(string? id, string name, string command, bool autoEnter) { if (SelectedGroup == null) throw new InvalidOperationException("Select a command group first."); var result = library.SaveSnippet(id, SelectedGroup.Id, name, command, autoEnter, id == null ? library.ListSnippets(SelectedGroup.Id).Count : null); ReloadSnippets(); SelectedSnippet = Snippets.FirstOrDefault(item => item.Id == result.Id); return result; }
     public void MoveGroup(int direction) { if (SelectedGroup == null) return; library.Move("snippetGroups", SelectedGroup.Id, direction); Reload(); }

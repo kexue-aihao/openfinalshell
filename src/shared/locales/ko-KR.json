@@ -752,6 +752,7 @@
     "nextTab": "다음 탭",
     "prevTab": "이전 탭",
     "gotoTab": "N번 탭으로 이동",
+    "quickSwitcher": "빠른 전환기 열기",
     "search": "터미널에서 찾기",
     "history": "명령 기록 열기",
     "copy": "선택 항목 복사",
@@ -765,6 +766,14 @@
       "files": "파일",
       "overlays": "오버레이"
     }
+  },
+  "palette": {
+    "title": "빠른 전환기",
+    "placeholder": "세션 및 연결 검색",
+    "hint": "Enter로 열기 · ↑↓로 이동 · Esc로 닫기",
+    "sessions": "열린 세션",
+    "connections": "연결",
+    "empty": "일치하는 세션이나 연결이 없습니다"
   },
   "common": {
     "ok": "확인",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "포트 {{ports}}개 · 연결 {{connections}}개 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "포트 {{ports}}개 · 연결 {{connections}}개 · 속도 사용 불가",
+      "row": "포트 {{port}} · 연결 {{connections}}개 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "포트 {{port}} · 연결 {{connections}}개 · 속도 사용 불가",
+      "empty": "읽을 수 있는 활성 TCP 포트가 없습니다",
+      "stateStarting": "시작 중…",
+      "stateRunning": "실행 중",
+      "stateFailed": "실패",
+      "stateUnsupported": "지원되지 않음",
+      "stateStopped": "중지됨"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}}개 그룹 · {{keys}}개 키 참조 · {{proxies}}개 프록시 · {{knownHosts}}개 신뢰 호스트 · {{forwards}}개 포워딩 규칙 · {{aiProfiles}}개 AI 공급자",
     "workbench": {
       "search": "이름, 호스트 또는 사용자 검색",
+      "noMatches": "검색과 일치하는 연결이 없습니다",
       "welcome": "원격 운영 · SSH · SFTP · 모니터링",
       "quickConnect": "빠른 연결",
       "recent": "최근 세션",

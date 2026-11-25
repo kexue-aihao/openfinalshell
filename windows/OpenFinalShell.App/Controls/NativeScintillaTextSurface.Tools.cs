@@ -45,7 +45,7 @@ public sealed partial class NativeScintillaTextSurface
     private void ConfigureSyntaxStyles()
     {
         if (editorWindow == 0) return;
-        var highContrast = OpenFinalShell.App.NativeAccessibilityGuard.ReadHighContrast(() => new AccessibilitySettings().HighContrast);
+        var highContrast = OpenFinalShell.App.NativeUiMotion.HighContrast;
         var background = ThemeColor("EditorBackgroundBrush", darkTheme ? Color.FromArgb(255, 39, 39, 39) : Color.FromArgb(255, 251, 251, 251));
         var foreground = ThemeColor("EditorForegroundBrush", darkTheme ? Color.FromArgb(255, 215, 215, 215) : Color.FromArgb(255, 32, 32, 32));
         var gutter = ThemeColor("EditorGutterBrush", darkTheme ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 243, 243, 243));

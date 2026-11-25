@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         Root.PreviewKeyDown += WorkbenchKeyDown;
     }
 
-    private bool HasWorkbenchPopup() => commandEditorWindow != null || connectionDrawerOpen || activeOverlay != null || Root.XamlRoot == null || VisualTreeHelper.GetOpenPopupsForXamlRoot(Root.XamlRoot).Count > 0;
+    private bool HasWorkbenchPopup() => commandEditorWindow != null || connectionDrawerOpen || activeOverlay != null || paletteOpen || Root.XamlRoot == null || VisualTreeHelper.GetOpenPopupsForXamlRoot(Root.XamlRoot).Count > 0;
     private static bool KeyDown(VirtualKey key) => Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
     private void WorkbenchKeyDown(object sender, KeyRoutedEventArgs args)
     {
@@ -60,6 +60,11 @@ public sealed partial class MainWindow
     }
     private async Task ExecuteWorkbenchShortcutAsync(NativeWorkbenchShortcut shortcut)
     {
+        if (shortcut.Action == NativeWorkbenchAction.OpenQuickSwitcher)
+        {
+            if (!HasWorkbenchPopup()) OpenQuickSwitcher();
+            return;
+        }
         if (HasWorkbenchPopup() || Sessions.TabItems.Count == 0) return;
         if (shortcut.Action == NativeWorkbenchAction.CloseSession)
         {
@@ -90,6 +95,7 @@ public sealed partial class MainWindow
         var groups = new (string Key, (string Keys, string Description)[] Items)[]
         {
             ("sessions", [
+                ("Ctrl+K", "shortcut.quickSwitcher"),
                 ("Ctrl+Shift+T", "shortcut.duplicateSession"), ("Ctrl+W", "shortcut.closeTab"),
                 ("Ctrl+Tab", "shortcut.nextTab"), ("Ctrl+Shift+Tab", "shortcut.prevTab"), ("Alt+1…9", "shortcut.gotoTab")]),
             ("terminal", [

@@ -12,6 +12,7 @@ import { TransferDrawer } from '@/features/transfers/TransferDrawer'
 import { SettingsModal } from '@/features/settings/SettingsModal'
 import { CommandEditorModal } from '@/features/snippets/CommandEditorModal'
 import { StartupNoticeModal } from '@/features/onboarding/StartupNoticeModal'
+import { QuickSwitcher } from '@/features/palette/QuickSwitcher'
 import { useTransferStore, wireTransferEvents } from '@/stores/useTransferStore'
 import { wireMonitorEvents } from '@/stores/useMonitorStore'
 import { wirePortTrafficEvents } from '@/stores/usePortTrafficStore'
@@ -66,6 +67,8 @@ export default function App(): React.JSX.Element {
           <CommandEditorModal />
           {/* 开机弹窗：全新安装弹功能/快捷键引导，增量更新弹更新说明；同版本只弹一次 */}
           <StartupNoticeModal />
+          {/* Ctrl/Cmd+K 快速切换器：常驻挂载，查询与焦点不随侧栏/会话切换丢失 */}
+          <QuickSwitcher />
         </ErrorBoundary>
       </AntdApp>
     </ConfigProvider>

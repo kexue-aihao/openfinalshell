@@ -2,6 +2,8 @@ package io.github.openfinalshell.android.ui
 
 import android.app.Activity
 import android.os.Build
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -148,6 +150,24 @@ object OpenFinalShellDimens {
     val controlHeight = OpenFinalShellSpacing.ControlHeight
     val compactControlHeight = OpenFinalShellSpacing.CompactControlHeight
     val minimumTouchTarget = OpenFinalShellSpacing.MinimumTouchTarget
+}
+
+/**
+ * Shared motion tokens. Durations stay short so navigation feels immediate, and every
+ * animated surface uses the same easing curve instead of ad-hoc tween values. Screens
+ * should pull from here so a future motion change is a one-line edit.
+ */
+object OpenFinalShellMotion {
+    /** Micro feedback: ripples, indicator reveals, content swaps inside a panel. */
+    const val FastMs: Int = 120
+
+    /** Standard entrance/exit for panels, pages and sheets. */
+    const val NormalMs: Int = 200
+
+    /** Expressive transitions (hero elements, shared-axis navigation). */
+    const val SlowMs: Int = 280
+
+    val Easing: Easing = FastOutSlowInEasing
 }
 
 val OpenFinalShellShapes = Shapes(

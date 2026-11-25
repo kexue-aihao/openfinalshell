@@ -752,6 +752,7 @@
     "nextTab": "Próxima aba",
     "prevTab": "Aba anterior",
     "gotoTab": "Ir para a aba N",
+    "quickSwitcher": "Abrir o alternador rápido",
     "search": "Localizar no terminal",
     "history": "Abrir histórico de comandos",
     "copy": "Copiar seleção",
@@ -765,6 +766,14 @@
       "files": "Arquivos",
       "overlays": "Painéis"
     }
+  },
+  "palette": {
+    "title": "Alternador rápido",
+    "placeholder": "Pesquisar sessões e conexões",
+    "hint": "Enter para abrir · ↑↓ para navegar · Esc para fechar",
+    "sessions": "Sessões abertas",
+    "connections": "Conexões",
+    "empty": "Nenhuma sessão ou conexão correspondente"
   },
   "common": {
     "ok": "OK",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} portas · {{connections}} conexões · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} portas · {{connections}} conexões · taxa indisponível",
+      "row": "Porta {{port}} · {{connections}} conexões · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "Porta {{port}} · {{connections}} conexões · taxa indisponível",
+      "empty": "Nenhuma porta TCP ativa legível",
+      "stateStarting": "Iniciando…",
+      "stateRunning": "Ativa",
+      "stateFailed": "Falhou",
+      "stateUnsupported": "Não compatível",
+      "stateStopped": "Parada"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}} grupos · {{keys}} referências de chave · {{proxies}} proxies · {{knownHosts}} hosts confiáveis · {{forwards}} encaminhamentos · {{aiProfiles}} provedores de IA",
     "workbench": {
       "search": "Buscar nome, host ou usuário",
+      "noMatches": "Nenhuma conexão corresponde à pesquisa",
       "welcome": "Operações remotas · SSH · SFTP · Monitoramento",
       "quickConnect": "Conexão rápida",
       "recent": "Sessões recentes",

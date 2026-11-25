@@ -15,4 +15,11 @@
 
 .viewActive {
   visibility: visible;
+  /* 只做透明度：终端/RDP 都是 canvas，父级 transform 会让文字/画面在动画期间发虚 */
+  animation: ofsSessionViewIn var(--ofs-motion-normal) var(--ofs-ease);
+}
+
+@keyframes ofsSessionViewIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

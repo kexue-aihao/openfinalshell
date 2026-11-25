@@ -1,6 +1,6 @@
 namespace OpenFinalShell.Core;
 
-public enum NativeWorkbenchAction { DuplicateSession, CloseSession, NextSession, PreviousSession, SelectSession }
+public enum NativeWorkbenchAction { OpenQuickSwitcher, DuplicateSession, CloseSession, NextSession, PreviousSession, SelectSession }
 
 public readonly record struct NativeWorkbenchShortcut(NativeWorkbenchAction Action, int Index = -1)
 {
@@ -9,6 +9,7 @@ public readonly record struct NativeWorkbenchShortcut(NativeWorkbenchAction Acti
     public static NativeWorkbenchShortcut? Resolve(int key, bool control, bool shift, bool alt, bool textEntry, bool composing, bool modal)
     {
         if (composing || modal || key == 229) return null;
+        if (control && !alt && !shift && key == 0x4B) return new(NativeWorkbenchAction.OpenQuickSwitcher);
         if (control && !alt && key == 9) return new(shift ? NativeWorkbenchAction.PreviousSession : NativeWorkbenchAction.NextSession);
         if (control && !alt && shift && key == 0x54) return new(NativeWorkbenchAction.DuplicateSession);
         if (control && !alt && !shift && key == 0x57 && !textEntry) return new(NativeWorkbenchAction.CloseSession);

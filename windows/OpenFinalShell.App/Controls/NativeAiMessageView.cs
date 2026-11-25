@@ -22,6 +22,8 @@ public sealed class NativeAiMessageView : UserControl, IDisposable
     private readonly StackPanel content = new() { Spacing = 8 };
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer refreshTimer;
     private bool disposed;
+    private bool streamingVisible;
+    private TextBlock? streamingText;
 
     public event EventHandler<NativeAiActionEventArgs>? CopyRequested;
     public event EventHandler<NativeAiActionEventArgs>? InsertRequested;
@@ -63,14 +65,29 @@ public sealed class NativeAiMessageView : UserControl, IDisposable
 
     private void Render()
     {
-        content.Children.Clear();
         var isAssistant = message.Role == "assistant";
-        content.Children.Add(new TextBlock
+        // Streaming deltas arrive several times a second. Reuse one TextBlock
+        // instead of clearing and re-parsing the whole answer on every delta;
+        // the full parse (code blocks, action rows) only runs once at the end.
+        if (isAssistant && message.IsStreaming)
         {
-            Text = isAssistant ? localization["aiAssistant.answer"] : localization["aiAssistant.userMessage"],
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Opacity = .78
-        });
+            if (!streamingVisible)
+            {
+                content.Children.Clear();
+                content.Children.Add(Header(isAssistant));
+                streamingText = null;
+                streamingVisible = true;
+            }
+            if (message.Content.Length == 0) return;
+            streamingText ??= AddStreamingText();
+            if (!string.Equals(streamingText.Text, message.Content, StringComparison.Ordinal))
+                streamingText.Text = message.Content;
+            return;
+        }
+        streamingVisible = false;
+        streamingText = null;
+        content.Children.Clear();
+        content.Children.Add(Header(isAssistant));
         if (message.PreviewImage is { } image)
             content.Children.Add(new Image { Source = image, MaxHeight = 180, MaxWidth = 320, Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform });
         if (!isAssistant)
@@ -92,6 +109,20 @@ public sealed class NativeAiMessageView : UserControl, IDisposable
             }
             content.Children.Add(CodeBlock(part));
         }
+    }
+
+    private TextBlock Header(bool isAssistant) => new()
+    {
+        Text = isAssistant ? localization["aiAssistant.answer"] : localization["aiAssistant.userMessage"],
+        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        Opacity = .78
+    };
+
+    private TextBlock AddStreamingText()
+    {
+        var block = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+        content.Children.Add(block);
+        return block;
     }
 
     private static TextBlock Prose(string value) => new()

@@ -71,7 +71,7 @@ public sealed partial class MainWindow
         var comment = light ? Color.FromArgb(255, 32, 128, 80) : Color.FromArgb(255, 152, 194, 139);
         var keyword = light ? Color.FromArgb(255, 112, 48, 160) : Color.FromArgb(255, 198, 161, 231);
         var literal = light ? Color.FromArgb(255, 160, 112, 64) : Color.FromArgb(255, 229, 195, 145);
-        var highContrast = NativeAccessibilityGuard.ReadHighContrast(() => new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast);
+        var highContrast = NativeUiMotion.HighContrast;
         if (highContrast)
         {
             try

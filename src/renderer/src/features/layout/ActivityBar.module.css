@@ -45,6 +45,18 @@
   width: 3px;
   border-radius: 1px;
   background: var(--ofs-accent);
+  animation: ofsRailIndicatorIn var(--ofs-motion-normal) var(--ofs-ease);
+}
+
+@keyframes ofsRailIndicatorIn {
+  from {
+    opacity: 0;
+    transform: scaleY(.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 :global(:root[data-platform-ui='windows-11']) .activityBar {

@@ -29,30 +29,32 @@ export function historyOf(sessionId: SessionId): MonitorHistory {
   return h
 }
 
+/**
+ * 追加一个采样点。返回新数组而不是原地 push/shift：
+ * 图表的 useEffect 靠引用比较决定是否重画，原地改数组会让依赖永远"看起来没变"
+ * （调用方于是被迫每次渲染都 spread 一份），也会让无关的重渲染（展开 CPU 核心、
+ * 进程列表）把所有趋势图重画一遍。
+ */
+function appendSample(samples: number[], value: number): number[] {
+  if (samples.length < HISTORY_LEN) return [...samples, value]
+  return [...samples.slice(samples.length - HISTORY_LEN + 1), value]
+}
+
 function pushHistory(sessionId: SessionId, snapshot: MonitorSnapshot): void {
   const h = historyOf(sessionId)
   const memPct = snapshot.mem.totalKb > 0 ? (snapshot.mem.usedKb / snapshot.mem.totalKb) * 100 : 0
   const rx = snapshot.net.reduce((sum, n) => sum + n.rxBps, 0)
   const tx = snapshot.net.reduce((sum, n) => sum + n.txBps, 0)
-  for (const [arr, value] of [
-    [h.cpu, snapshot.cpu.usagePct],
-    [h.memPct, Number(memPct.toFixed(1))],
-    [h.rxBps, rx],
-    [h.txBps, tx]
-  ] as Array<[number[], number]>) {
-    arr.push(value)
-    if (arr.length > HISTORY_LEN) arr.shift()
-  }
+  h.cpu = appendSample(h.cpu, snapshot.cpu.usagePct)
+  h.memPct = appendSample(h.memPct, Number(memPct.toFixed(1)))
+  h.rxBps = appendSample(h.rxBps, rx)
+  h.txBps = appendSample(h.txBps, tx)
 
   // ICMP 可能被禁用，缺失时不填 0：0ms 会把“Ping 不可用”伪装成极低延迟。
-  for (const [arr, value] of [
-    [h.directLatencyMs, snapshot.directLatencyMs],
-    [h.connectionLatencyMs, snapshot.connectionLatencyMs]
-  ] as Array<[number[], number | undefined]>) {
-    if (value === undefined) continue
-    arr.push(value)
-    if (arr.length > HISTORY_LEN) arr.shift()
-  }
+  if (snapshot.directLatencyMs !== undefined)
+    h.directLatencyMs = appendSample(h.directLatencyMs, snapshot.directLatencyMs)
+  if (snapshot.connectionLatencyMs !== undefined)
+    h.connectionLatencyMs = appendSample(h.connectionLatencyMs, snapshot.connectionLatencyMs)
 }
 
 interface MonitorStore {

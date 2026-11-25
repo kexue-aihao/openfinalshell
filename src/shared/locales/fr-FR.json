@@ -752,6 +752,7 @@
     "nextTab": "Onglet suivant",
     "prevTab": "Onglet précédent",
     "gotoTab": "Aller à l'onglet N",
+    "quickSwitcher": "Ouvrir le sélecteur rapide",
     "search": "Rechercher dans le terminal",
     "history": "Ouvrir l'historique des commandes",
     "copy": "Copier la sélection",
@@ -765,6 +766,14 @@
       "files": "Fichiers",
       "overlays": "Panneaux"
     }
+  },
+  "palette": {
+    "title": "Sélecteur rapide",
+    "placeholder": "Rechercher des sessions et des connexions",
+    "hint": "Entrée pour ouvrir · ↑↓ pour naviguer · Échap pour fermer",
+    "sessions": "Sessions ouvertes",
+    "connections": "Connexions",
+    "empty": "Aucune session ou connexion correspondante"
   },
   "common": {
     "ok": "OK",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} ports · {{connections}} connexions · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} ports · {{connections}} connexions · débit indisponible",
+      "row": "Port {{port}} · {{connections}} connexions · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "Port {{port}} · {{connections}} connexions · débit indisponible",
+      "empty": "Aucun port TCP actif lisible",
+      "stateStarting": "Démarrage…",
+      "stateRunning": "En cours",
+      "stateFailed": "Échec",
+      "stateUnsupported": "Non pris en charge",
+      "stateStopped": "Arrêté"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}} groupes · {{keys}} références de clé · {{proxies}} proxys · {{knownHosts}} hôtes approuvés · {{forwards}} redirections · {{aiProfiles}} fournisseurs IA",
     "workbench": {
       "search": "Rechercher un nom, hôte ou utilisateur",
+      "noMatches": "Aucune connexion ne correspond à la recherche",
       "welcome": "Administration distante · SSH · SFTP · Supervision",
       "quickConnect": "Connexion rapide",
       "recent": "Sessions récentes",

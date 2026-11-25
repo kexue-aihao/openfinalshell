@@ -17,6 +17,14 @@ export interface ReleaseNote {
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: '0.30.74',
+    items: [
+      { type: 'feat', zh: '新增 Ctrl/Cmd+K 快速切换器，可在已打开标签与已保存连接间即时跳转', en: 'Add a Ctrl/Cmd+K quick switcher to jump between open tabs and saved connections' },
+      { type: 'fix', zh: '优化监控图表、连接树搜索与布局拖拽的重绘开销，并统一页面切换与侧栏动画', en: 'Reduce repaint cost in monitor charts, connection tree search and layout dragging, and unify page and side panel transitions' },
+      { type: 'feat', zh: 'Android 页面切换加入淡入淡出并保留滚动位置与表单草稿', en: 'Animate Android page transitions and preserve scroll position and form drafts' }
+    ]
+  },
+  {
     version: '0.30.73',
     items: [
       { type: 'fix', zh: 'WinUI 原生终端的清屏按钮和右键清屏改为执行远端 clear 命令，避免本地重置后提示符消失；清屏后恢复输入焦点', en: 'Run the remote clear command from the native terminal toolbar and context menu, keeping the prompt in sync and restoring input focus afterward' }

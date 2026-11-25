@@ -59,8 +59,8 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
   const history = sessionId
     ? historyOf(sessionId)
     : { cpu: [], memPct: [], rxBps: [], txBps: [], directLatencyMs: [], connectionLatencyMs: [] }
-  // 历史数组是原地 push/shift（引用不变），spread 成新数组让 MonitorGraph 的
-  // useEffect 依赖能察觉变化；每帧一次、60 点小图，开销可忽略
+  // 历史数组由 store 做不可变更新（每次采样返回新数组），这里直接传引用即可；
+  // 展开 CPU 核心/进程列表这类无关重渲染不会再让所有趋势图重画。
   void snapshot?.ts // 依赖锚点：每来一帧本组件重渲染，下面几张图跟着重画
 
   const header = (
@@ -138,7 +138,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
             {snapshot.cpu.usagePct.toFixed(1)}
             <span className={styles.unit}>%</span>
           </div>
-          <MonitorGraph primary={[...history.cpu]} height={48} max={100} className={styles.graph} />
+          <MonitorGraph primary={history.cpu} height={48} max={100} className={styles.graph} />
           {showCores && (
             <div className={styles.coreGrid}>
               {snapshot.cpu.perCore.map((pct, i) => (
@@ -158,7 +158,7 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
         </div>
 
         {/* 内存 */}
-        <MemCard snapshot={snapshot} accent={accent} memHistory={[...history.memPct]} />
+        <MemCard snapshot={snapshot} accent={accent} memHistory={history.memPct} />
 
         {/* 网络 */}
         <button
@@ -190,8 +190,8 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
           </div>
           {/* 下行 = 渐变面积（绿→红按量），上行 = 橙线叠加，与图例配色一致 */}
           <MonitorGraph
-            primary={[...history.rxBps]}
-            secondary={[...history.txBps]}
+            primary={history.rxBps}
+            secondary={history.txBps}
             height={48}
             className={styles.graph}
           />
@@ -207,12 +207,12 @@ export function MonitorPanel({ tab, onClose }: Props): React.JSX.Element {
               <LatencyMetric
                 label={t('monitor.directLatency')}
                 value={snapshot.directLatencyMs}
-                history={[...history.directLatencyMs]}
+                history={history.directLatencyMs}
               />
               <LatencyMetric
                 label={t('monitor.connectionLatency')}
                 value={snapshot.connectionLatencyMs}
-                history={[...history.connectionLatencyMs]}
+                history={history.connectionLatencyMs}
               />
             </div>
           </div>

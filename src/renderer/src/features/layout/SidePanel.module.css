@@ -16,6 +16,18 @@
   overflow: auto;
   overflow-x: hidden;
   padding: 6px 8px 10px;
+  animation: ofsSidePanelIn var(--ofs-motion-fast) var(--ofs-ease);
+}
+
+@keyframes ofsSidePanelIn {
+  from {
+    opacity: 0;
+    transform: translateX(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 :global(:root[data-platform-ui='windows-11']) .sidePanel {

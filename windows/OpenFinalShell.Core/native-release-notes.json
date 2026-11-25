@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.30.74",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "新增 Ctrl/Cmd+K 快速切换器，可在已打开标签与已保存连接间即时跳转",
+        "en": "Add a Ctrl/Cmd+K quick switcher to jump between open tabs and saved connections"
+      },
+      {
+        "type": "fix",
+        "zh": "优化监控图表、连接树搜索与布局拖拽的重绘开销，并统一页面切换与侧栏动画",
+        "en": "Reduce repaint cost in monitor charts, connection tree search and layout dragging, and unify page and side panel transitions"
+      },
+      {
+        "type": "feat",
+        "zh": "Android 页面切换加入淡入淡出并保留滚动位置与表单草稿",
+        "en": "Animate Android page transitions and preserve scroll position and form drafts"
+      }
+    ]
+  },
+  {
     "version": "0.30.73",
     "items": [
       {

@@ -18,6 +18,8 @@ interface UiStore {
   /** null=关闭；'new'=新建；其余为编辑的 profileId */
   editingProfileId: ProfileId | 'new' | null
   transferDrawerOpen: boolean
+  /** Ctrl/Cmd+K 快速切换器：搜索已打开会话与已保存连接 */
+  quickSwitcherOpen: boolean
   setSettingsOpen: (open: boolean) => void
   openSettingsSection: (section: string) => void
   setAiOpen: (open: boolean, termId?: TermId) => void
@@ -25,6 +27,7 @@ interface UiStore {
   openAiWithText: (text: string, termId?: TermId) => void
   setEditingProfile: (id: ProfileId | 'new' | null) => void
   setTransferDrawerOpen: (open: boolean) => void
+  setQuickSwitcherOpen: (open: boolean) => void
 }
 
 export const useUiStore = create<UiStore>((set) => ({
@@ -35,11 +38,13 @@ export const useUiStore = create<UiStore>((set) => ({
   settingsSection: undefined,
   editingProfileId: null,
   transferDrawerOpen: false,
+  quickSwitcherOpen: false,
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   openSettingsSection: (settingsSection) => set({ settingsOpen: true, settingsSection }),
   setAiOpen: (aiOpen, termId) => set({ aiOpen, aiTargetTermId: aiOpen ? termId ?? activeSshTermId() : undefined }),
   setAiTargetTermId: (aiTargetTermId) => set({ aiTargetTermId }),
   openAiWithText: (aiPrefill, termId) => set({ aiOpen: true, aiPrefill, aiTargetTermId: termId ?? activeSshTermId() }),
   setEditingProfile: (editingProfileId) => set({ editingProfileId }),
-  setTransferDrawerOpen: (transferDrawerOpen) => set({ transferDrawerOpen })
+  setTransferDrawerOpen: (transferDrawerOpen) => set({ transferDrawerOpen }),
+  setQuickSwitcherOpen: (quickSwitcherOpen) => set({ quickSwitcherOpen })
 }))

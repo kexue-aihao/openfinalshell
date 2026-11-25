@@ -53,6 +53,8 @@ export function computePeak(
 
 export function MonitorGraph({ primary, secondary, height, max, className }: Props): React.JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null)
+  /** ResizeObserver 只挂一次，回调时通过这个 ref 拿到"当前"的绘制函数与数据 */
+  const drawRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     const canvas = ref.current
@@ -63,8 +65,12 @@ export function MonitorGraph({ primary, secondary, height, max, className }: Pro
       const h = height
       if (w <= 0) return
       const dpr = window.devicePixelRatio || 1
-      canvas.width = Math.round(w * dpr)
-      canvas.height = Math.round(h * dpr)
+      // 只在真正变化时写 width/height：每次赋值都会清空画布并重置 2D 状态，
+      // 高频重绘（拖分隔条）时这是白扔的工作。
+      const pxWidth = Math.round(w * dpr)
+      const pxHeight = Math.round(h * dpr)
+      if (canvas.width !== pxWidth) canvas.width = pxWidth
+      if (canvas.height !== pxHeight) canvas.height = pxHeight
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -117,12 +123,31 @@ export function MonitorGraph({ primary, secondary, height, max, className }: Pro
       }
     }
 
+    drawRef.current = draw
     draw()
-    // 侧栏宽度会变（拖分隔条、折叠），宽度变了要重画
-    const ro = new ResizeObserver(() => draw())
-    ro.observe(canvas)
-    return () => ro.disconnect()
   }, [primary, secondary, height, max])
+
+  // 侧栏宽度会变（拖分隔条、折叠），宽度变了要重画。
+  // 独立成 mount-only 效果：原来 observer 在依赖数组里，每帧数据更新都会
+  // disconnect + 重新 observe 一遍，白白触发一次 layout 观测。
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    let frame = 0
+    const ro = new ResizeObserver(() => {
+      // 拖拽时一帧内可能来好几次回调，rAF 合流成一次绘制
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        drawRef.current()
+      })
+    })
+    ro.observe(canvas)
+    return () => {
+      ro.disconnect()
+      if (frame) cancelAnimationFrame(frame)
+    }
+  }, [])
 
   return <canvas ref={ref} className={className} style={{ width: '100%', height, display: 'block' }} />
 }

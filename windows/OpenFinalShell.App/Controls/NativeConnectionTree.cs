@@ -23,8 +23,15 @@ public sealed class NativeConnectionTree : UserControl
     private readonly NativeStore store;
     private readonly Func<string, string> text;
     private readonly HashSet<string> expanded = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ConnectionGroup> groupById = new(StringComparer.Ordinal);
     private IReadOnlyList<ConnectionProfile> profiles = [];
     private IReadOnlyList<ConnectionGroup> groups = [];
+    private IReadOnlyDictionary<string, string> issues = new Dictionary<string, string>(StringComparer.Ordinal);
+    private NativeSettings preferences = NativeSettings.Defaults;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? searchTimer;
+    private string warningText = "";
+    private string lastQuery = "";
+    private bool hasSnapshot;
     private bool rebuilding;
     private string? selectedId;
     private bool selectedGroup;
@@ -37,7 +44,21 @@ public sealed class NativeConnectionTree : UserControl
         this.store = store; this.text = text;
         tree.ItemTemplate = (DataTemplate)Application.Current.Resources["NativeConnectionTreeNodeTemplate"];
         AutomationProperties.SetName(tree, text("activity.connections"));
-        search.TextChanged += (_, _) => Rebuild();
+        searchTimer = DispatcherQueue.CreateTimer();
+        searchTimer.Interval = TimeSpan.FromMilliseconds(150);
+        searchTimer.IsRepeating = false;
+        searchTimer.Tick += (_, _) => Rebuild();
+        search.TextChanged += (_, _) => QueueSearch();
+        search.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Enter) { searchTimer?.Stop(); Rebuild(); args.Handled = true; }
+            else if (args.Key == Windows.System.VirtualKey.Escape && search.Text.Length > 0)
+            {
+                search.Text = string.Empty;
+                args.Handled = true;
+            }
+        };
+        Unloaded += (_, _) => searchTimer?.Stop();
         tree.ItemInvoked += (_, args) =>
         {
             var item = Unwrap(args.InvokedItem);
@@ -45,6 +66,7 @@ public sealed class NativeConnectionTree : UserControl
         };
         tree.SelectionChanged += (_, _) =>
         {
+            if (rebuilding) return;
             if (Unwrap(tree.SelectedItem) is not { } item) return;
             selectedId = item.Id; selectedGroup = item.Group;
             ActionRequested?.Invoke("select", item.Id, item.Group);
@@ -198,57 +220,102 @@ public sealed class NativeConnectionTree : UserControl
     }
     public void Reload(IReadOnlyList<ConnectionProfile> profiles, IReadOnlyList<ConnectionGroup> groups)
     {
-        this.profiles = profiles; this.groups = groups; search.PlaceholderText = text("native.workbench.search"); Rebuild();
+        this.profiles = profiles; this.groups = groups;
+        search.PlaceholderText = text("native.workbench.search");
+        groupById.Clear();
+        foreach (var group in groups) groupById[group.Id] = group;
+        issues = NativeConnectionHierarchy.Issues(groups);
+        preferences = NativeSettings.Load(store);
+        var groupIds = new HashSet<string>(groupById.Keys, StringComparer.Ordinal);
+        var warnings = new List<string>();
+        foreach (var (id, key) in issues)
+            if (groupById.TryGetValue(id, out var group)) warnings.Add($"⚠ {group.Name}: {text(key)}");
+        warnings.AddRange(profiles
+            .Where(profile => profile.Data["groupId"]?.GetValue<string>() is { } id && !groupIds.Contains(id))
+            .Select(profile => $"⚠ {profile.Name}: {text("native.workbench.groupMissing")}"));
+        warningText = string.Join("\n", warnings);
+        Rebuild(force: true);
     }
-    private void Rebuild()
+
+    private void QueueSearch()
     {
+        if (searchTimer == null) { Rebuild(); return; }
+        searchTimer.Stop();
+        searchTimer.Start();
+    }
+
+    private void Rebuild(bool force = false)
+    {
+        var query = search.Text.Trim();
+        if (!force && hasSnapshot && string.Equals(query, lastQuery, StringComparison.Ordinal)) return;
+        lastQuery = query;
+        hasSnapshot = true;
+
+        var grouped = preferences.ConnectionGrouping == "group";
+        var mask = preferences.MaskHostInList;
+        var offset = query.Length == 0 ? CurrentScrollOffset() : 0;
+        var matchingGroups = new HashSet<string>(StringComparer.Ordinal);
+        if (query.Length > 0)
+        {
+            foreach (var group in groups)
+            {
+                var visited = new HashSet<string>(StringComparer.Ordinal);
+                ConnectionGroup? current = group;
+                while (current != null && visited.Add(current.Id))
+                {
+                    if (current.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)) { matchingGroups.Add(group.Id); break; }
+                    current = current.ParentId != null && groupById.TryGetValue(current.ParentId, out var parent) ? parent : null;
+                }
+            }
+        }
+
+        var visible = new HashSet<string>(StringComparer.Ordinal);
+        void Include(string? id)
+        {
+            while (id != null && visible.Add(id))
+                id = issues.ContainsKey(id) || !groupById.TryGetValue(id, out var group) ? null : group.ParentId;
+        }
+
+        var selectedProfileId = selectedGroup ? null : selectedId;
+        var selectedGroupId = selectedGroup ? selectedId : null;
+        var visibleProfiles = new List<ConnectionProfile>();
+        foreach (var profile in profiles)
+        {
+            var group = profile.Data["groupId"]?.GetValue<string>();
+            var matchesText = query.Length == 0 ||
+                $"{profile.Name} {profile.Host} {profile.Username}".Contains(query, StringComparison.CurrentCultureIgnoreCase);
+            if (query.Length > 0 && !matchesText && (group == null || !matchingGroups.Contains(group))) continue;
+            visibleProfiles.Add(profile);
+            if (grouped) Include(group);
+        }
+        if (grouped)
+        {
+            if (query.Length == 0) foreach (var group in groups) Include(group.Id);
+            else foreach (var group in groups) if (matchingGroups.Contains(group.Id)) Include(group.Id);
+        }
+
         rebuilding = true;
         try
         {
             tree.RootNodes.Clear();
-            var query = search.Text.Trim();
-            var issues = NativeConnectionHierarchy.Issues(groups);
-            var preferences = NativeSettings.Load(store);
-            var grouped = preferences.ConnectionGrouping == "group";
-            var warnings = issues.Select(pair => $"⚠ {groups.First(g => g.Id == pair.Key).Name}: {text(pair.Value)}").ToList();
-            var groupIds = groups.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
-            warnings.AddRange(profiles.Where(p => p.Data["groupId"]?.GetValue<string>() is { } id && !groupIds.Contains(id))
-                .Select(p => $"⚠ {p.Name}: {text("native.workbench.groupMissing")}"));
-            warning.Text = string.Join("\n", warnings);
-            var nodes = groups.ToDictionary(g => g.Id, g =>
-            {
-                var item = new Item(g.Id, true, g.Name);
-                return new TreeViewNode
-                {
-                    Content = ItemVisual(item, new FontIcon { Glyph = "\uE8B7", FontSize = 15 }, g.Name),
-                    IsExpanded = query.Length > 0 || expanded.Contains(g.Id)
-                };
-            });
-            var visible = new HashSet<string>(StringComparer.Ordinal);
-            void Include(string? id)
-            {
-                while (id != null && visible.Add(id)) id = issues.ContainsKey(id) ? null : groups.FirstOrDefault(g => g.Id == id)?.ParentId;
-            }
-            var mask = preferences.MaskHostInList;
-            var matchingGroups = new HashSet<string>(StringComparer.Ordinal);
-            if (query.Length > 0)
+            warning.Text = warningText;
+            var nodes = new Dictionary<string, TreeViewNode>(StringComparer.Ordinal);
+            if (grouped)
             {
                 foreach (var group in groups)
                 {
-                    var visited = new HashSet<string>(StringComparer.Ordinal);
-                    var current = group;
-                    while (current != null && visited.Add(current.Id))
+                    var item = new Item(group.Id, true, group.Name);
+                    nodes[group.Id] = new TreeViewNode
                     {
-                        if (current.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase)) { matchingGroups.Add(group.Id); break; }
-                        current = groups.FirstOrDefault(g => g.Id == current.ParentId);
-                    }
+                        Content = ItemVisual(item, new FontIcon { Glyph = "\uE8B7", FontSize = 15 }, group.Name),
+                        IsExpanded = expanded.Contains(group.Id) || (query.Length > 0 && visible.Contains(group.Id))
+                    };
                 }
             }
-            foreach (var profile in profiles)
+
+            TreeViewNode? selectedNode = null;
+            foreach (var profile in visibleProfiles)
             {
-                var group = profile.Data["groupId"]?.GetValue<string>();
-                if (query.Length > 0 && !($"{profile.Name} {profile.Host} {profile.Username}".Contains(query, StringComparison.CurrentCultureIgnoreCase)) && (group == null || !matchingGroups.Contains(group))) continue;
-                Include(group);
                 var host = mask && profile.Host.Length > 6 ? profile.Host[..3] + "•••" + profile.Host[^3..] : profile.Host;
                 var item = new Item(profile.Id, false, profile.Name);
                 var markerCode = NativeRegionMarker.EffectiveCode(profile.Data["flag"]?.GetValue<string>(), profile.Host);
@@ -259,20 +326,64 @@ public sealed class NativeConnectionTree : UserControl
                 {
                     Content = ItemVisual(item, marker, profile.Name, $"{profile.Username}@{host}:{profile.Port}")
                 };
-                if (grouped && group != null && nodes.TryGetValue(group, out var parent)) parent.Children.Add(node); else tree.RootNodes.Add(node);
-                if (selectedId == profile.Id && !selectedGroup) tree.SelectedNode = node;
-            }
-            if (!grouped) return;
-            foreach (var group in groups) if (query.Length == 0 || matchingGroups.Contains(group.Id)) Include(group.Id);
-            foreach (var group in groups.OrderBy(g => g.Order).ThenBy(g => g.Name))
-            {
-                if (!visible.Contains(group.Id)) continue;
-                var node = nodes[group.Id];
-                if (!issues.ContainsKey(group.Id) && group.ParentId != null && nodes.TryGetValue(group.ParentId, out var parent)) parent.Children.Add(node);
+                var group = profile.Data["groupId"]?.GetValue<string>();
+                if (grouped && group != null && nodes.TryGetValue(group, out var parent)) parent.Children.Add(node);
                 else tree.RootNodes.Add(node);
-                if (selectedGroup && selectedId == group.Id) tree.SelectedNode = node;
+                if (selectedProfileId == profile.Id) selectedNode = node;
             }
+
+            if (grouped)
+            {
+                foreach (var group in groups.OrderBy(group => group.Order).ThenBy(group => group.Name))
+                {
+                    if (!visible.Contains(group.Id)) continue;
+                    var node = nodes[group.Id];
+                    if (!issues.ContainsKey(group.Id) && group.ParentId != null && nodes.TryGetValue(group.ParentId, out var parent)) parent.Children.Add(node);
+                    else tree.RootNodes.Add(node);
+                    if (selectedGroupId == group.Id) selectedNode = node;
+                }
+            }
+            if (selectedNode != null) tree.SelectedNode = selectedNode;
+            if (tree.RootNodes.Count == 0 && query.Length > 0)
+                warning.Text = warningText.Length == 0
+                    ? text("native.workbench.noMatches")
+                    : warningText + "\n" + text("native.workbench.noMatches");
         }
         finally { rebuilding = false; }
+        if (offset > 0) RestoreScrollOffset(offset);
+    }
+
+    private double CurrentScrollOffset()
+    {
+        try { return FindScrollViewer(tree)?.VerticalOffset ?? 0; }
+        catch { return 0; }
+    }
+
+    private void RestoreScrollOffset(double offset)
+    {
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            try
+            {
+                var viewer = FindScrollViewer(tree);
+                if (viewer == null || Math.Abs(viewer.VerticalOffset - offset) < 1) return;
+                tree.UpdateLayout();
+                viewer.ChangeView(null, offset, null, true);
+            }
+            catch { /* a newer rebuild owns the viewport; let the next pass win */ }
+        });
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject? root)
+    {
+        if (root == null) return null;
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var index = 0; index < count; index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is ScrollViewer viewer) return viewer;
+            if (FindScrollViewer(child) is { } nested) return nested;
+        }
+        return null;
     }
 }

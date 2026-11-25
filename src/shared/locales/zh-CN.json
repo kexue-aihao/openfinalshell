@@ -748,6 +748,7 @@
     "nextTab": "下一个标签",
     "prevTab": "上一个标签",
     "gotoTab": "切换到第 N 个标签",
+    "quickSwitcher": "打开快速切换器",
     "search": "在终端中查找",
     "history": "打开命令历史",
     "copy": "复制选中内容",
@@ -761,6 +762,14 @@
       "files": "文件",
       "overlays": "浮层"
     }
+  },
+  "palette": {
+    "title": "快速切换器",
+    "placeholder": "搜索会话和连接",
+    "hint": "Enter 打开 · ↑↓ 移动 · Esc 关闭",
+    "sessions": "已打开会话",
+    "connections": "连接",
+    "empty": "没有匹配的会话或连接"
   },
   "common": {
     "ok": "确定",
@@ -1425,7 +1434,17 @@
     },
     "portTraffic": {
       "title": "端口流量",
-      "state": "端口流量"
+      "state": "端口流量",
+      "summary": "{{ports}} 个端口 · {{connections}} 个连接 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} 个端口 · {{connections}} 个连接 · 速率不可用",
+      "row": "端口 {{port}} · {{connections}} 个连接 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "端口 {{port}} · {{connections}} 个连接 · 速率不可用",
+      "empty": "没有可读取的活动 TCP 端口",
+      "stateStarting": "正在启动…",
+      "stateRunning": "运行中",
+      "stateFailed": "失败",
+      "stateUnsupported": "不支持",
+      "stateStopped": "已停止"
     },
     "editor": {
       "save": "保存",
@@ -1483,6 +1502,7 @@
     "migrationCategories": "{{groups}} 个分组 · {{keys}} 个私钥引用 · {{proxies}} 个代理 · {{knownHosts}} 个已信任主机 · {{forwards}} 条转发规则 · {{aiProfiles}} 个 AI 服务",
     "workbench": {
       "search": "搜索名称、主机或用户",
+      "noMatches": "没有匹配搜索的连接",
       "welcome": "远程运维工作台 · SSH · SFTP · 监控",
       "quickConnect": "快速连接",
       "recent": "最近会话",

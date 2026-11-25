@@ -752,6 +752,7 @@
     "nextTab": "下一個分頁",
     "prevTab": "上一個分頁",
     "gotoTab": "前往第 N 個分頁",
+    "quickSwitcher": "開啟快速切換器",
     "search": "在終端機中尋找",
     "history": "開啟命令歷史",
     "copy": "複製選取內容",
@@ -765,6 +766,14 @@
       "files": "檔案",
       "overlays": "浮層"
     }
+  },
+  "palette": {
+    "title": "快速切換器",
+    "placeholder": "搜尋工作階段與連線",
+    "hint": "Enter 開啟 · ↑↓ 移動 · Esc 關閉",
+    "sessions": "已開啟工作階段",
+    "connections": "連線",
+    "empty": "沒有符合的工作階段或連線"
   },
   "common": {
     "ok": "確定",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} 個連接埠 · {{connections}} 個連線 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} 個連接埠 · {{connections}} 個連線 · 速率無法取得",
+      "row": "連接埠 {{port}} · {{connections}} 個連線 · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "連接埠 {{port}} · {{connections}} 個連線 · 速率無法取得",
+      "empty": "沒有可讀取的作用中 TCP 連接埠",
+      "stateStarting": "正在啟動…",
+      "stateRunning": "執行中",
+      "stateFailed": "失敗",
+      "stateUnsupported": "不支援",
+      "stateStopped": "已停止"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}} 個群組 · {{keys}} 個私鑰參照 · {{proxies}} 個代理 · {{knownHosts}} 個已信任主機 · {{forwards}} 條轉送規則 · {{aiProfiles}} 個 AI 服務",
     "workbench": {
       "search": "搜尋名稱、主機或使用者",
+      "noMatches": "沒有符合搜尋的連線",
       "welcome": "遠端維運工作台 · SSH · SFTP · 監控",
       "quickConnect": "快速連線",
       "recent": "最近工作階段",

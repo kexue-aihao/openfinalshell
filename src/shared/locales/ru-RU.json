@@ -752,6 +752,7 @@
     "nextTab": "Следующая вкладка",
     "prevTab": "Предыдущая вкладка",
     "gotoTab": "Перейти к вкладке N",
+    "quickSwitcher": "Открыть быстрый переключатель",
     "search": "Найти в терминале",
     "history": "Открыть историю команд",
     "copy": "Копировать выделенное",
@@ -765,6 +766,14 @@
       "files": "Файлы",
       "overlays": "Панели"
     }
+  },
+  "palette": {
+    "title": "Быстрый переключатель",
+    "placeholder": "Поиск сеансов и подключений",
+    "hint": "Enter — открыть · ↑↓ — перемещаться · Esc — закрыть",
+    "sessions": "Открытые сеансы",
+    "connections": "Подключения",
+    "empty": "Нет подходящих сеансов или подключений"
   },
   "common": {
     "ok": "OK",
@@ -1365,7 +1374,17 @@
     },
     "portTraffic": {
       "title": "Port traffic",
-      "state": "Port traffic"
+      "state": "Port traffic",
+      "summary": "{{ports}} портов · {{connections}} подключений · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "summaryNoRates": "{{ports}} портов · {{connections}} подключений · скорость недоступна",
+      "row": "Порт {{port}} · {{connections}} подключений · ↓ {{rx}} B/s · ↑ {{tx}} B/s",
+      "rowNoRates": "Порт {{port}} · {{connections}} подключений · скорость недоступна",
+      "empty": "Нет доступных для чтения активных TCP-портов",
+      "stateStarting": "Запуск…",
+      "stateRunning": "Активен",
+      "stateFailed": "Ошибка",
+      "stateUnsupported": "Не поддерживается",
+      "stateStopped": "Остановлен"
     },
     "sftp": {
       "refresh": "Refresh",
@@ -1487,6 +1506,7 @@
     "migrationCategories": "{{groups}} групп · {{keys}} ссылок на ключи · {{proxies}} прокси · {{knownHosts}} доверенных узлов · {{forwards}} перенаправлений · {{aiProfiles}} провайдеров ИИ",
     "workbench": {
       "search": "Поиск имени, хоста или пользователя",
+      "noMatches": "Нет подключений, соответствующих запросу",
       "welcome": "Удалённое управление · SSH · SFTP · Мониторинг",
       "quickConnect": "Быстрое подключение",
       "recent": "Недавние сеансы",

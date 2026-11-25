@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
@@ -10,7 +9,7 @@ public sealed class ConnectionGroupViewModel : INotifyPropertyChanged
 {
     private readonly NativeStore store;
     private ConnectionGroup? selected;
-    public ObservableCollection<ConnectionGroup> Groups { get; } = [];
+    public BulkObservableCollection<ConnectionGroup> Groups { get; } = [];
     public ConnectionGroup? Selected { get => selected; set { if (ReferenceEquals(selected, value)) return; selected = value; OnPropertyChanged(); } }
 
     public ConnectionGroupViewModel(NativeStore store) { this.store = store; Reload(); }
@@ -18,11 +17,10 @@ public sealed class ConnectionGroupViewModel : INotifyPropertyChanged
     public void Reload()
     {
         var selectedId = Selected?.Id;
-        Groups.Clear();
+        var groups = new List<ConnectionGroup>();
         foreach (var item in store.List("groups"))
-            try { Groups.Add(ConnectionGroup.FromJson(item)); } catch { }
-        var ordered = Groups.OrderBy(x => x.Order).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
-        Groups.Clear(); foreach (var group in ordered) Groups.Add(group);
+            try { groups.Add(ConnectionGroup.FromJson(item)); } catch { }
+        Groups.ReplaceAll(groups.OrderBy(x => x.Order).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase));
         Selected = selectedId == null ? null : Groups.FirstOrDefault(x => x.Id == selectedId);
     }
 

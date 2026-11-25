@@ -64,10 +64,10 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
     private bool running;
     private string status = string.Empty;
     private bool streamResponses = true;
-    public ObservableCollection<AiProviderProfile> Providers { get; } = [];
-    public ObservableCollection<AiModelInfo> Models { get; } = [];
+    public BulkObservableCollection<AiProviderProfile> Providers { get; } = [];
+    public BulkObservableCollection<AiModelInfo> Models { get; } = [];
     public ObservableCollection<NativeChatLine> Messages { get; } = [];
-    public ObservableCollection<NativeAiTerminalTarget> TerminalTargets { get; } = [];
+    public BulkObservableCollection<NativeAiTerminalTarget> TerminalTargets { get; } = [];
     private string? selectedTerminalSessionId;
     public string? SelectedTerminalSessionId
     {
@@ -84,15 +84,16 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
     public void ReloadProviders()
     {
         var previousId = SelectedProvider?.Id;
-        Providers.Clear(); foreach (var profile in service.ListProviders()) Providers.Add(profile);
+        // One reset notification keeps both provider pickers from rebuilding
+        // their item containers for every saved profile.
+        Providers.ReplaceAll(service.ListProviders());
         SelectedProvider = Providers.FirstOrDefault(item => item.Id == previousId) ?? Providers.FirstOrDefault(item => item.Enabled);
     }
 
     public void RefreshTerminalTargets(IEnumerable<NativeAiTerminalTarget> targets)
     {
         var values = targets.ToArray();
-        TerminalTargets.Clear();
-        foreach (var item in values) TerminalTargets.Add(item);
+        TerminalTargets.ReplaceAll(values);
         if (SelectedTerminalSessionId == null && values.Length > 0) SelectedTerminalSessionId = values[0].SessionId;
         OnPropertyChanged(nameof(SelectedTerminalAvailable));
     }
@@ -112,7 +113,7 @@ public sealed class NativeAiViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task<IReadOnlyList<AiModelInfo>> DiscoverAsync(Uri url, string? token, CancellationToken cancellation = default)
     {
-        var models = await service.DiscoverModelsAsync(url, token, cancellation); Models.Clear(); foreach (var model in models) Models.Add(model); Status = $"{models.Count} models"; return models;
+        var models = await service.DiscoverModelsAsync(url, token, cancellation); Models.ReplaceAll(models); Status = $"{models.Count} models"; return models;
     }
 
     public async Task TestAsync(CancellationToken cancellation = default)

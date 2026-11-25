@@ -104,6 +104,14 @@ afterEach(() => {
 })
 
 describe('RDP profile editor', () => {
+  it('shows the full port value without number stepper controls', () => {
+    renderDrawer()
+
+    const port = screen.getByRole('spinbutton')
+    expect(port.closest('.ant-form-item')?.getAttribute('style')).toContain('width: 128px')
+    expect(port.closest('.ant-input-number')?.querySelector('.ant-input-number-handler-wrap')).toBeNull()
+  })
+
   it('preserves existing settings and can explicitly clear the saved password', async () => {
     renderDrawer()
 

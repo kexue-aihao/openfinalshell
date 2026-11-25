@@ -3,6 +3,7 @@ import i18n from '@/i18n'
 import { useSessionStore } from '@/stores/useSessionStore'
 import { useConnectionStore } from '@/stores/useConnectionStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
+import { useUiStore } from '@/stores/useUiStore'
 
 function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false
@@ -43,6 +44,14 @@ export function useGlobalShortcuts(): void {
 
       const { tabs, activeTabId, activateRelative, activateIndex, closeTab, duplicateTab } =
         useSessionStore.getState()
+
+      // Ctrl/Cmd+K：快速切换器。与 WinUI 一致，文本框里也响应（终端/编辑器里同样常用）
+      if (hasPrimaryModifier(e) && !e.shiftKey && !e.altKey && e.code === 'KeyK') {
+        e.preventDefault()
+        const ui = useUiStore.getState()
+        ui.setQuickSwitcherOpen(!ui.quickSwitcherOpen)
+        return
+      }
 
       // Ctrl+Tab / Cmd+Tab：切换标签
       if (hasPrimaryModifier(e) && e.key === 'Tab') {

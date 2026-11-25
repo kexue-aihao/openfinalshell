@@ -10,6 +10,7 @@ public sealed partial class MainWindow
 {
     private NativeCommandEditorWindow? commandEditorWindow;
     private Controls.NativeSessionWorkspace? commandLibraryWorkspace;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? commandSearchTimer;
     private readonly ContentControl commandLibraryHomeHost = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private Controls.NativeCommandComposer standaloneCommandComposer = null!;
     private Controls.NativeCommandComposer ActiveCommandComposer => (SessionContent.Content as Controls.NativeSessionWorkspace)?.Composer ?? standaloneCommandComposer;
@@ -17,6 +18,23 @@ public sealed partial class MainWindow
     private void InitializeCommandDock()
     {
         SnippetTargets.Configure(key => localization[key], ReadyCommandSessions, () => SessionIdForTag((Sessions.SelectedItem as TabViewItem)?.Tag?.ToString()));
+        commandSearchTimer = DispatcherQueue.CreateTimer();
+        commandSearchTimer.Interval = TimeSpan.FromMilliseconds(150);
+        commandSearchTimer.IsRepeating = false;
+        commandSearchTimer.Tick += (_, _) => ApplyCommandSearch();
+        CommandSearch.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Enter)
+            {
+                args.Handled = true;
+                ApplyCommandSearch();
+            }
+            else if (args.Key == Windows.System.VirtualKey.Escape && CommandSearch.Text.Length > 0)
+            {
+                CommandSearch.Text = string.Empty;
+                args.Handled = true;
+            }
+        };
         CommandLibraryHome.Content = null;
         commandLibraryHomeHost.Content = CommandsPage;
         standaloneCommandComposer = CreateCommandComposer(null);
@@ -115,7 +133,24 @@ public sealed partial class MainWindow
 
     private void CommandSearchChanged(object sender, TextChangedEventArgs args)
     {
-        CommandViewModel.Query = ((TextBox)sender).Text;
+        QueueCommandSearch();
+    }
+
+    private void QueueCommandSearch()
+    {
+        if (commandSearchTimer == null)
+        {
+            ApplyCommandSearch();
+            return;
+        }
+        commandSearchTimer.Stop();
+        commandSearchTimer.Start();
+    }
+
+    private void ApplyCommandSearch()
+    {
+        commandSearchTimer?.Stop();
+        CommandViewModel.Query = CommandSearch.Text;
         if (CommandSnippets != null) CommandSnippets.SelectedItem = CommandViewModel.SelectedSnippet;
     }
     private void MoveCommandUp(object sender, RoutedEventArgs args) => MoveCommand(-1);

@@ -294,8 +294,8 @@ export function ProfileEditDrawer(): React.JSX.Element {
           >
             <Input placeholder="192.168.1.100 / example.com" />
           </Form.Item>
-          <Form.Item name="port" label={t('conn.port')} style={{ width: 110, marginLeft: 8 }}>
-            <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+          <Form.Item name="port" label={t('conn.port')} style={{ width: 128, marginLeft: 8 }}>
+            <InputNumber min={1} max={65535} controls={false} style={{ width: '100%' }} />
           </Form.Item>
         </Space.Compact>
 

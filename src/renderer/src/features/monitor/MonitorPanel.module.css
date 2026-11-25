@@ -5,6 +5,18 @@
   background: var(--ofs-solid-surface);
   border-left: 1px solid var(--ofs-shell-border);
   overflow: hidden;
+  animation: ofsMonitorPanelIn var(--ofs-motion-normal) var(--ofs-ease);
+}
+
+@keyframes ofsMonitorPanelIn {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 

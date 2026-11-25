@@ -24,7 +24,8 @@ export function SidePanel(): React.JSX.Element {
   return (
     <aside className={styles.sidePanel} aria-label={t(TITLE_KEY[view])}>
       <PanelHeading title={t(TITLE_KEY[view])} />
-      <div className={styles.content}>
+      {/* key 让每次切换视图都重放一次进入动画；面板本来就会卸载重建，滚动位置不会因此多丢 */}
+      <div key={view} className={styles.content}>
         <ErrorBoundary label={`sidebar:${view}`}>
           {view === 'connections' && <ConnectionTreePanel />}
           {view === 'snippets' && <SnippetPanel />}

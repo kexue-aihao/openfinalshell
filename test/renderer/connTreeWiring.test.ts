@@ -30,7 +30,9 @@ describe('默认展开', () => {
   it('受控 expandedKeys + seenGroups：启动展开全部分组，用户折叠过的不再强展', () => {
     expect(tree).toContain('const [expandedKeys, setExpandedKeys]')
     expect(tree).toContain('seenGroups')
-    expect(tree).toContain('expandedKeys={searchText.trim() ? undefined : expandedKeys}')
+    // 搜索文本经过 140ms 防抖后才驱动树/受控展开，故这里断言防抖变量而不是原始输入
+    expect(tree).toContain('debouncedSearch')
+    expect(tree).toContain('expandedKeys={debouncedSearch.trim() ? undefined : expandedKeys}')
     expect(tree).toContain('onExpand={(keys) => setExpandedKeys(keys)}')
   })
 })
