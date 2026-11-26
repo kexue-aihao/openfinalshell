@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { mapNativeError, nativeLansync, type NativeFrameReader } from '../core/native'
 
 /**
  * 局域网同步的线上协议 —— 纯函数编解码，零 I/O。
@@ -12,6 +13,16 @@ import { z } from 'zod'
  *   丢弃是常态而不是异常。
  * - **传输（TCP）**：4 字节大端长度前缀 + UTF-8 JSON 帧。与 UDP 相反，帧不合法一律
  *   **抛错**：TCP 对端是自称要跟我们说话的人，说不成话就该断连，而不是装没看见。
+ *
+ * ## Rust 后端
+ *
+ * 原生模块可用时，下面每个导出都委派给 `src/main/core/native.ts`；不可用时走本文件
+ * 的 TS 实现。两条路径的字节与错误消息完全一致（由 `test/parity/lansyncNative.test.ts`
+ * 与 `rust/ofs-lansync/tests/golden.rs` 双向钉住）。
+ *
+ * **回退只发生在实例创建时**：`FrameReader` 一旦用原生构造，后续 `feed` 抛错就原样
+ * 抛给调用方（调用方据此断连），不允许中途换回 TS 重放缓冲区 —— 帧边界不可信时，
+ * 这条流上后面的每个字节都不可信。
  */
 
 export const SYNC_PROTO = 1
@@ -65,11 +76,15 @@ export type DiscoveryAnnounce = z.infer<typeof announceSchema>
 export type DiscoveryMsg = DiscoveryProbe | DiscoveryAnnounce
 
 export function encodeDiscovery(msg: DiscoveryMsg): Buffer {
+  const native = nativeLansync()
+  if (native) return native.lansyncEncodeDiscovery(msg)
   return Buffer.from(JSON.stringify(msg), 'utf8')
 }
 
 /** 解不出、魔数/版本不符、超长 → null（静默丢弃，理由见文件头） */
 export function decodeDiscovery(buf: Buffer): DiscoveryMsg | null {
+  const native = nativeLansync()
+  if (native) return native.lansyncDecodeDiscovery(buf) as DiscoveryMsg | null
   if (buf.byteLength > MAX_DATAGRAM_BYTES) return null
   let parsed: unknown
   try {
@@ -149,6 +164,8 @@ const frameSchema = z.discriminatedUnion('kind', [
 export type SyncFrame = z.infer<typeof frameSchema>
 
 export function encodeFrame(frame: SyncFrame): Buffer {
+  const native = nativeLansync()
+  if (native) return native.lansyncEncodeFrame(frame)
   const body = Buffer.from(JSON.stringify(frame), 'utf8')
   const head = Buffer.allocUnsafe(4)
   head.writeUInt32BE(body.byteLength, 0)
@@ -167,18 +184,34 @@ export function encodeFrame(frame: SyncFrame): Buffer {
 export class FrameReader {
   private chunks: Buffer[] = []
   private buffered = 0
+  /** 原生 reader 在**构造时**一次性决定，之后不回退、不混用。 */
+  private readonly native: NativeFrameReader | null
 
   constructor(
     private readonly onFrame: (frame: SyncFrame) => void,
     private maxBytes = MAX_FRAME_BYTES
-  ) {}
+  ) {
+    this.native = nativeLansync()?.lansyncFrameReaderNew(maxBytes) ?? null
+  }
 
   /** 调高帧上限（握手小上限 → confirm 成功后升到 payload 的 64MiB） */
   setMaxBytes(n: number): void {
     this.maxBytes = n
+    this.native?.setMaxBytes(n)
   }
 
   feed(chunk: Buffer): void {
+    if (this.native) {
+      let frames: unknown[]
+      try {
+        frames = this.native.feed(chunk)
+      } catch (error) {
+        // 只做错误码 → 中文文案的映射；不重试、不换实现、不重放缓冲区。
+        throw mapNativeError(error)
+      }
+      for (const frame of frames) this.onFrame(frame as SyncFrame)
+      return
+    }
     this.chunks.push(chunk)
     this.buffered += chunk.byteLength
     while (this.buffered >= 4) {

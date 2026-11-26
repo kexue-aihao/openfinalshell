@@ -16,6 +16,7 @@ export default defineConfig({
     include: [
       'test/unit/**/*.test.ts',
       'test/integration/**/*.test.ts',
+      'test/parity/**/*.test.ts',
       'test/renderer/**/*.test.ts',
       'test/renderer/**/*.test.tsx',
       // 组件测试：文件头用 `@vitest-environment jsdom` 按文件切环境，默认仍是 node
