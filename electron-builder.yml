@@ -19,6 +19,14 @@ extraResources:
     to: rdp-worker
     filter:
       - '**/*'
+  # Rust 原生模块（napi-rs）。刻意放在 asar 之外、也不进 npm 依赖树：
+  # `scripts/stageNativeAddon.mjs` 保证目录永远存在（`--package-disabled` 时放
+  # UNAVAILABLE 标记），`install-app-deps` / electron-rebuild 因此碰不到它。
+  # 应用侧解析路径为 resources/ofs-native/ofs_napi.node。
+  - from: build/ofs-native
+    to: ofs-native
+    filter:
+      - '**/*'
 
 asar: true
 asarUnpack:
@@ -60,6 +68,9 @@ mac:
   category: public.app-category.developer-tools
   icon: build/icon.png
   hardenedRuntime: true
+  # 与 Windows / Linux 同样的理由：arch 必须进文件名，否则 x64 与 arm64 两个 job
+  # 会产出同名 dmg/zip 并静默互相覆盖。
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
   # ssh2 的可选 crypto binding 由 npm install 脚本直接用宿主 Node 编译，
   # 在 Apple Silicon runner 上为 x64/universal 构建时会得到同一份宿主架构
   # 二进制。macOS 下 ssh2 会自动回退到纯 JavaScript 实现，因此不把这份

@@ -1,0 +1,22 @@
+[package]
+name = "ofs-napi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "OpenFinalShell native addon (napi-rs bindings)"
+
+[lib]
+# 只产出动态库：产物直接改名成 ofs_napi.node 就能被 require。
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { workspace = true, features = ["serde-json"] }
+napi-derive.workspace = true
+ofs-contract = { path = "../ofs-contract" }
+ofs-lansync = { path = "../ofs-lansync" }
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build.workspace = true
