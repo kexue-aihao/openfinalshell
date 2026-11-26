@@ -1,0 +1,6 @@
+[toolchain]
+# 锁定 Wave 0 当日安装到的最新 stable（实测 rustc 1.100.0）。
+# CI 各平台 job 用同一个 channel；交叉目标由 `rustup target add` 在 job 内补齐。
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

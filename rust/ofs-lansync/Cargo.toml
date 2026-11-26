@@ -1,0 +1,14 @@
+[package]
+name = "ofs-lansync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "OpenFinalShell lansync wire codec: pure logic, zero I/O"
+
+[dependencies]
+ofs-contract = { path = "../ofs-contract" }
+serde_json.workspace = true
+ryu.workspace = true
+thiserror.workspace = true

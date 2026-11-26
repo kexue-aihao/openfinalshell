@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["ofs-contract", "ofs-lansync", "ofs-napi"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+publish = false
+
+# Phase 1 只有纯逻辑，没有任何 I/O。依赖白名单刻意收窄：引入 tokio / async-std /
+# reqwest 这类运行时会直接把「可字节对拍的纯函数」变成不可控的东西。
+[workspace.dependencies]
+napi = { version = "3.16.3", default-features = false, features = ["napi8"] }
+napi-derive = "3.7.2"
+napi-build = "2.7.0"
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+thiserror = "2"
+ryu = "1"
+
+# 发布包要能直接改名成 .node 塞进 extraResources，所以只压体积、不保留符号。
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,12 @@
+[package]
+name = "ofs-contract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "OpenFinalShell cross-language wire contract (lansync slice)"
+
+[dependencies]
+serde_json.workspace = true
+thiserror.workspace = true
