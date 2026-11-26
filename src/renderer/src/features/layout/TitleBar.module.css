@@ -40,10 +40,16 @@
   flex: none;
 }
 
+.dragGap {
+  flex: 1 0 8px;
+  align-self: stretch;
+  -webkit-app-region: drag;
+}
+
 .tabStrip {
   min-width: 0;
   -webkit-app-region: no-drag;
-  flex: 1;
+  flex: none;
   display: flex;
   align-items: flex-end;
   gap: 2px;
