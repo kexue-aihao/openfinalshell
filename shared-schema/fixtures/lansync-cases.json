@@ -1,0 +1,632 @@
+{
+  "version": 1,
+  "protocol": 1,
+  "note": "lansync 编解码的人工用例清单。generateLansyncGolden.mjs 用它产出 lansync-golden.json；TS 与 Rust 都只读 golden，任何一侧行为变化都会让另一侧红。reject 字段取值：len（帧长度不合法）/ json（帧不是合法 JSON）/ shape（帧结构不合法）。",
+  "cases": [
+    {
+      "name": "probe-basic",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "dev-a",
+        "deviceName": "PC-A"
+      }
+    },
+    {
+      "name": "probe-empty-device-name",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "dev-a",
+        "deviceName": ""
+      }
+    },
+    {
+      "name": "probe-unicode-device-name",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "dev-中文",
+        "deviceName": "工作站-😀-01"
+      }
+    },
+    {
+      "name": "probe-strips-unknown-keys",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "dev-a",
+        "deviceName": "PC-A",
+        "extra": "dropped-on-decode",
+        "nested": { "a": 1 }
+      }
+    },
+    {
+      "name": "announce-basic",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "announce",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "0.30.74",
+        "tcpPort": 50000,
+        "sessionId": "s-1"
+      }
+    },
+    {
+      "name": "announce-max-port",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "announce",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "0.30.74",
+        "tcpPort": 65535,
+        "sessionId": "s-1"
+      }
+    },
+    {
+      "name": "announce-app-version-max",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "announce",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "12345678901234567890123456789012",
+        "tcpPort": 1,
+        "sessionId": "s-1"
+      }
+    },
+    {
+      "name": "reject-probe-not-json",
+      "type": "discovery",
+      "hex": "6e6f74206a736f6e",
+      "expect": "reject"
+    },
+    {
+      "name": "reject-probe-magic-mismatch",
+      "type": "discovery",
+      "msg": {
+        "magic": "NOPE",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "dev-a",
+        "deviceName": "PC-A"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-probe-proto-mismatch",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 2,
+        "kind": "probe",
+        "deviceId": "dev-a",
+        "deviceName": "PC-A"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-probe-unknown-kind",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "hi",
+        "deviceId": "dev-a",
+        "deviceName": "PC-A"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-probe-empty-device-id",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "",
+        "deviceName": "PC-A"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-probe-device-id-65",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "12345678901234567890123456789012345678901234567890123456789012345",
+        "deviceName": "PC-A"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-probe-device-id-33-emoji",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "probe",
+        "deviceId": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+        "deviceName": "PC-A"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-announce-port-zero",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "announce",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "1",
+        "tcpPort": 0,
+        "sessionId": "s-1"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-announce-port-too-large",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "announce",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "1",
+        "tcpPort": 70000,
+        "sessionId": "s-1"
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-announce-missing-session",
+      "type": "discovery",
+      "msg": {
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "kind": "announce",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "1",
+        "tcpPort": 50000
+      },
+      "expect": "reject"
+    },
+    {
+      "name": "reject-oversized-datagram",
+      "type": "discovery",
+      "spaces": 1401,
+      "expect": "reject"
+    },
+    {
+      "name": "frame-hello",
+      "type": "frame",
+      "frame": {
+        "kind": "hello",
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "deviceId": "dev-a",
+        "deviceName": "PC-A",
+        "appVersion": "0.30.74",
+        "senderPub": "YmFzZTY0LXB1Yi1rZXktNDQtYnl0ZXMtd2l0aC1wYWRkaW5nLTE"
+      }
+    },
+    {
+      "name": "frame-hello-empty-device-name",
+      "type": "frame",
+      "frame": {
+        "kind": "hello",
+        "magic": "OFSSYNC1",
+        "proto": 1,
+        "deviceId": "dev-a",
+        "deviceName": "",
+        "appVersion": "",
+        "senderPub": "k"
+      }
+    },
+    {
+      "name": "frame-hello-ack",
+      "type": "frame",
+      "frame": {
+        "kind": "hello-ack",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "0.30.74",
+        "receiverPub": "cmVjZWl2ZXItcHVi",
+        "salt": "c2FsdC0xNi1ieXRlcw==",
+        "sessionId": "s-1"
+      }
+    },
+    {
+      "name": "frame-confirm-s",
+      "type": "frame",
+      "frame": { "kind": "confirm-s", "mac": "bWFjLXNlbmRlcg==" }
+    },
+    {
+      "name": "frame-confirm-r",
+      "type": "frame",
+      "frame": { "kind": "confirm-r", "mac": "bWFjLXJlY2VpdmVy" }
+    },
+    {
+      "name": "frame-payload",
+      "type": "frame",
+      "frame": { "kind": "payload", "envelope": "{\"app\":\"openfinalshell\"}" }
+    },
+    {
+      "name": "frame-payload-escapes",
+      "type": "frame",
+      "frame": {
+        "kind": "payload",
+        "envelope": "quote:\" backslash:\\ newline:\n tab:\t ctrl:\u0001 del:\u007f accent:é han:中文 emoji:😀 ls:\u2028"
+      }
+    },
+    {
+      "name": "frame-payload-single-char",
+      "type": "frame",
+      "frame": { "kind": "payload", "envelope": "x" }
+    },
+    {
+      "name": "frame-received",
+      "type": "frame",
+      "frame": { "kind": "received" }
+    },
+    {
+      "name": "frame-rejected",
+      "type": "frame",
+      "frame": { "kind": "rejected" }
+    },
+    {
+      "name": "frame-applied-full",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": 1,
+        "groups": 2,
+        "proxies": 3,
+        "privateKeys": 4,
+        "aiProfiles": 5,
+        "snippets": 6,
+        "forwards": 7,
+        "knownHosts": 8,
+        "secrets": 9,
+        "skipped": 10
+      }
+    },
+    {
+      "name": "frame-applied-defaults",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": 1,
+        "snippets": 6,
+        "forwards": 7,
+        "knownHosts": 8,
+        "secrets": 9,
+        "skipped": 10
+      }
+    },
+    {
+      "name": "frame-applied-float-one",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": 1.0,
+        "groups": 1.0,
+        "proxies": 0,
+        "privateKeys": 0,
+        "aiProfiles": 0,
+        "snippets": 0,
+        "forwards": 0,
+        "knownHosts": 0,
+        "secrets": 0,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "frame-applied-negative-zero",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": -0,
+        "groups": 0,
+        "proxies": 0,
+        "privateKeys": 0,
+        "aiProfiles": 0,
+        "snippets": 0,
+        "forwards": 0,
+        "knownHosts": 0,
+        "secrets": 0,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "frame-applied-huge-count",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": 1e20,
+        "groups": 0,
+        "proxies": 0,
+        "privateKeys": 0,
+        "aiProfiles": 0,
+        "snippets": 0,
+        "forwards": 0,
+        "knownHosts": 0,
+        "secrets": 0,
+        "skipped": 0
+      }
+    },
+    {
+      "name": "frame-error-with-params",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "err.sync.busy",
+        "params": { "name": "PC-C" }
+      }
+    },
+    {
+      "name": "frame-error-without-params",
+      "type": "frame",
+      "frame": { "kind": "error", "code": "err.sync.busy" }
+    },
+    {
+      "name": "frame-error-params-number",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "err.sync.remoteError",
+        "params": { "code": "err.x", "retries": 3, "ratio": 0.5, "tiny": 1e-7, "huge": 1e21 }
+      }
+    },
+    {
+      "name": "frame-error-params-integer-keys",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "err.sync.remoteError",
+        "params": { "10": "ten", "2": "two", "b": "bee", "a": "ay" }
+      }
+    },
+    {
+      "name": "frame-error-params-utf16-key",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "err.sync.remoteError",
+        "params": { "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀": "16 emoji = 32 code units" }
+      }
+    },
+    {
+      "name": "frame-error-code-max",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "1234567890123456789012345678901234567890123456789012345678901234"
+      }
+    },
+    {
+      "name": "frame-decode-strips-unknown-keys",
+      "type": "frame",
+      "body": { "kind": "received", "extra": "Dropped", "nested": { "a": 1 } },
+      "expect": "accept"
+    },
+    {
+      "name": "reject-frame-zero-length",
+      "type": "frame",
+      "hex": "00000000",
+      "expect": "reject",
+      "reject": "len"
+    },
+    {
+      "name": "reject-frame-length-over-limit",
+      "type": "frame",
+      "hex": "04000001",
+      "expect": "reject",
+      "reject": "len"
+    },
+    {
+      "name": "reject-frame-not-json",
+      "type": "frame",
+      "rawText": "junk-not-json",
+      "expect": "reject",
+      "reject": "json"
+    },
+    {
+      "name": "reject-frame-shape-bad-magic",
+      "type": "frame",
+      "frame": { "kind": "hello", "magic": "NOPE" },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-missing-kind",
+      "type": "frame",
+      "frame": { "magic": "OFSSYNC1", "proto": 1 },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-unknown-kind",
+      "type": "frame",
+      "frame": { "kind": "nope" },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-proto-as-string",
+      "type": "frame",
+      "frame": {
+        "kind": "hello",
+        "magic": "OFSSYNC1",
+        "proto": "1",
+        "deviceId": "dev-a",
+        "deviceName": "PC-A",
+        "appVersion": "1",
+        "senderPub": "k"
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-applied-negative",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": -1,
+        "groups": 0,
+        "proxies": 0,
+        "privateKeys": 0,
+        "aiProfiles": 0,
+        "snippets": 0,
+        "forwards": 0,
+        "knownHosts": 0,
+        "secrets": 0,
+        "skipped": 0
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-applied-fraction",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": 1.5,
+        "groups": 0,
+        "proxies": 0,
+        "privateKeys": 0,
+        "aiProfiles": 0,
+        "snippets": 0,
+        "forwards": 0,
+        "knownHosts": 0,
+        "secrets": 0,
+        "skipped": 0
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-applied-missing-required",
+      "type": "frame",
+      "frame": {
+        "kind": "applied",
+        "profiles": 1,
+        "groups": 0,
+        "proxies": 0,
+        "privateKeys": 0,
+        "aiProfiles": 0,
+        "forwards": 0,
+        "knownHosts": 0,
+        "secrets": 0,
+        "skipped": 0
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-payload-empty",
+      "type": "frame",
+      "frame": { "kind": "payload", "envelope": "" },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-error-code-too-long",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "12345678901234567890123456789012345678901234567890123456789012345"
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-error-params-boolean",
+      "type": "frame",
+      "frame": { "kind": "error", "code": "err.x", "params": { "flag": true } },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-error-params-null",
+      "type": "frame",
+      "frame": { "kind": "error", "code": "err.x", "params": null },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-error-params-key-33",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "err.x",
+        "params": { "123456789012345678901234567890123": "too long" }
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-error-params-value-257",
+      "type": "frame",
+      "frame": {
+        "kind": "error",
+        "code": "err.x",
+        "params": { "k": "1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567" }
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-salt-empty",
+      "type": "frame",
+      "frame": {
+        "kind": "hello-ack",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "1",
+        "receiverPub": "pub",
+        "salt": "",
+        "sessionId": "s-1"
+      },
+      "expect": "reject",
+      "reject": "shape"
+    },
+    {
+      "name": "reject-frame-session-id-65",
+      "type": "frame",
+      "frame": {
+        "kind": "hello-ack",
+        "deviceId": "dev-b",
+        "deviceName": "PC-B",
+        "appVersion": "1",
+        "receiverPub": "pub",
+        "salt": "s",
+        "sessionId": "12345678901234567890123456789012345678901234567890123456789012345"
+      },
+      "expect": "reject",
+      "reject": "shape"
+    }
+  ]
+}
