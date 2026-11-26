@@ -27,7 +27,7 @@ jobs:
     # 用 windows-latest：集成测试的 fixture 与源码里的 win32 分支只有在 Windows 上才真被执行，
     # 而 Windows 恰好是本项目唯一的交付平台
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       OFS_POSIX_SH_TIMEOUT_MS: '20000'
     steps:
@@ -40,12 +40,37 @@ jobs:
 
       - run: npm ci
 
+      # Rust 侧的静态检查与单测。rust-toolchain.toml 锁了 1.100.0 与 rustfmt/clippy，
+      # 首次 cargo 调用会自动装好；缓存与 npm 分开。
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> rust/target
+
+      - name: cargo fmt / clippy / test
+        run: |
+          cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+          cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings
+          cargo test --manifest-path rust/Cargo.toml --workspace
+
+      # 有了 .node 才能跑 rust lane 与差分测试。
+      - name: 构建原生模块
+        run: |
+          node scripts/stageNativeAddon.mjs --platform win --arch x64
+          node scripts/checkNativePackaging.mjs --platform win --arch x64
+
       - run: npm run typecheck
       - run: npm run check:i18n
 
       # 集成测试起本地 fixture SSH 服务；真机验收用例无 OFS_TEST_* 时自动跳过。
       # Windows 上的三个真 POSIX shell 测试不能与其他测试文件并发启动 MSYS sh。
       - name: npm test（Windows 串行 shell）
+        run: npm test -- --no-file-parallelism --maxWorkers=1 --testTimeout=120000 --reporter=dot
+
+      # 双后端：同一批断言（含 lansync 的差分测试）用原生实现再跑一遍。
+      # OFS_CORE_BACKEND=rust 表示「原生必须存在」：缺 .node 直接启动失败，不静默降级。
+      - name: npm test（rust 后端）
+        env:
+          OFS_CORE_BACKEND: rust
         run: npm test -- --no-file-parallelism --maxWorkers=1 --testTimeout=120000 --reporter=dot
 
       - name: 收集 Windows 测试环境诊断

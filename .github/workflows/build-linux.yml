@@ -1,0 +1,141 @@
+name: build-linux
+
+# Linux 首发流水线。首版**不带 FreeRDP worker**（`--package-disabled` / `--expect-absent`，
+# 与 `package:win:arm64` 同一先例），因此 CI 最大的不可控外部依赖被去掉了：
+# 嵌入式 RDP 在 Linux 上报 WORKER_MISSING，SSH/SFTP/AI/监控全部可用。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-linux-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: 打包 linux-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, arch: x64, unpacked: linux-unpacked }
+          - { os: ubuntu-24.04-arm, arch: arm64, unpacked: linux-arm64-unpacked }
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: 版本一致性（tag 与 package.json）
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          test "$tag" = "$pkg" || { echo "tag $tag != package.json $pkg"; exit 1; }
+
+      # 首版不交付 FreeRDP：staging 里只放 UNAVAILABLE 标记，应用报 WORKER_MISSING。
+      - name: RDP worker（首版不打包）
+        run: |
+          node scripts/buildRdpWorker.mjs --platform linux --arch ${{ matrix.arch }} --package-disabled
+          node scripts/checkRdpWorkerPackage.mjs --platform linux --arch ${{ matrix.arch }} --expect-absent
+
+      - name: Rust 原生模块
+        run: |
+          node scripts/stageNativeAddon.mjs --platform linux --arch ${{ matrix.arch }}
+          node scripts/checkNativePackaging.mjs --platform linux --arch ${{ matrix.arch }}
+
+      - run: npm run build
+      - run: npm run check:bundle
+
+      - name: 打包
+        run: npx electron-builder --linux deb rpm AppImage --${{ matrix.arch }} --publish never
+
+      - name: 校验打包后的原生模块
+        run: |
+          node scripts/checkNativePackaging.mjs --platform linux --arch ${{ matrix.arch }} \
+            --app-dir "release/${{ matrix.unpacked }}"
+
+      - name: 校验产物
+        run: node scripts/checkLinuxArtifacts.mjs ${{ matrix.arch }} deb rpm appImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            release/*.deb
+            release/*.rpm
+            release/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 发布 Linux 资产
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-*
+          merge-multiple: true
+          path: dist
+
+      - name: 汇总校验和（Linux 专用文件，不动 Windows 的 SHA256SUMS.txt）
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -l
+          sha256sum *.deb *.rpm *.AppImage > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then break; fi
+            if gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "$tag" --notes "Linux assets for $tag"; then break; fi
+            sleep 5
+          done
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: 只清理自己那类资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name | select(test("-linux-") or startswith("SHA256SUMS-linux"))' |
+            while read -r name; do
+              [ -z "$name" ] && continue
+              gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes || true
+            done
+
+      - name: 上传
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/*.AppImage dist/SHA256SUMS-linux.txt --clobber --repo "$GITHUB_REPOSITORY"

@@ -1,0 +1,136 @@
+name: build-macos
+
+# macOS 首发流水线。本轮**不签名**：`CSC_IDENTITY_AUTO_DISCOVERY=false`，
+# Release 说明里注明 Gatekeeper 的右键打开方式。RDP worker 与 Linux 一样不打包。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  CARGO_TERM_COLOR: always
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  build:
+    name: 打包 mac-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-13, arch: x64, unpacked: mac }
+          - { os: macos-14, arch: arm64, unpacked: mac-arm64 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: 版本一致性（tag 与 package.json）
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          test "$tag" = "$pkg" || { echo "tag $tag != package.json $pkg"; exit 1; }
+
+      - name: RDP worker（首版不打包）
+        run: |
+          node scripts/buildRdpWorker.mjs --platform mac --arch ${{ matrix.arch }} --package-disabled
+          node scripts/checkRdpWorkerPackage.mjs --platform mac --arch ${{ matrix.arch }} --expect-absent
+
+      - name: Rust 原生模块
+        run: |
+          node scripts/stageNativeAddon.mjs --platform mac --arch ${{ matrix.arch }}
+          node scripts/checkNativePackaging.mjs --platform mac --arch ${{ matrix.arch }}
+
+      - run: npm run build
+      - run: npm run check:bundle
+
+      - name: 打包（未签名）
+        run: npx electron-builder --mac --${{ matrix.arch }} --publish never
+
+      - name: 校验打包后的原生模块
+        run: |
+          node scripts/checkNativePackaging.mjs --platform mac --arch ${{ matrix.arch }} \
+            --app-dir "release/${{ matrix.unpacked }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: 发布 macOS 资产
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos-*
+          merge-multiple: true
+          path: dist
+
+      - name: 汇总校验和（macOS 专用文件）
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -l
+          sha256sum *.dmg *.zip > SHA256SUMS-macos.txt
+          cat SHA256SUMS-macos.txt
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then break; fi
+            if gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "$tag" --notes "macOS assets for $tag"; then break; fi
+            sleep 5
+          done
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: 只清理自己那类资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name | select(test("-mac-(x64|arm64)") or startswith("SHA256SUMS-macos"))' |
+            while read -r name; do
+              [ -z "$name" ] && continue
+              gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes || true
+            done
+
+      - name: 上传
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.dmg dist/*.zip dist/SHA256SUMS-macos.txt --clobber --repo "$GITHUB_REPOSITORY"

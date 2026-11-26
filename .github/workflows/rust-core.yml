@@ -1,0 +1,212 @@
+name: rust-core
+
+# Rust 侧的独立流水线：与 npm 缓存完全分开，互不拖慢。
+# 三个桌面 OS 上跑 fmt / clippy / cargo test；七个可分发的目标各出 `ofs_napi.node`。
+# Android 两个目标只做 `cargo check`（不链接、不出包），因为 Phase 1 不交付 JNI。
+on:
+  push:
+    branches:
+      - master
+      - 'codex/**'
+    paths:
+      - 'rust/**'
+      - 'shared-schema/fixtures/**'
+      - 'scripts/generateLansyncGolden.mjs'
+      - 'scripts/stageNativeAddon.mjs'
+      - 'scripts/checkNativePackaging.mjs'
+      - '.github/workflows/rust-core.yml'
+  pull_request:
+    paths:
+      - 'rust/**'
+      - 'shared-schema/fixtures/**'
+      - 'scripts/generateLansyncGolden.mjs'
+      - 'scripts/stageNativeAddon.mjs'
+      - 'scripts/checkNativePackaging.mjs'
+      - '.github/workflows/rust-core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-core-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: '24'
+
+jobs:
+  test:
+    name: cargo test（${{ matrix.os }}）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # rust-toolchain.toml 锁了 channel 与组件，cargo 首次调用会自动装好。
+      - name: 工具链
+        run: |
+          rustup show
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # 与 npm cache 分开：key 只跟 Cargo.lock 走
+          workspaces: rust -> rust/target
+
+      - name: cargo fmt
+        run: cargo fmt --manifest-path rust/Cargo.toml --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --manifest-path rust/Cargo.toml --workspace
+
+  build:
+    name: 构建 ${{ matrix.artifact }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: win, arch: x64, artifact: win-x64, target: x86_64-pc-windows-msvc }
+          - { os: windows-latest, platform: win, arch: ia32, artifact: win-ia32, target: i686-pc-windows-msvc }
+          - { os: windows-latest, platform: win, arch: arm64, artifact: win-arm64, target: aarch64-pc-windows-msvc }
+          - { os: ubuntu-latest, platform: linux, arch: x64, artifact: linux-x64, target: x86_64-unknown-linux-gnu }
+          # ubuntu-24.04-arm 不可用时，把这一行换成 ubuntu-latest 并在下一步用 `cross build`。
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64, artifact: linux-arm64, target: aarch64-unknown-linux-gnu }
+          - { os: macos-13, platform: mac, arch: x64, artifact: mac-x64, target: x86_64-apple-darwin }
+          - { os: macos-14, platform: mac, arch: arm64, artifact: mac-arm64, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 安装目标
+        run: rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> rust/target
+          key: ${{ matrix.target }}
+
+      - name: 构建并暂存
+        run: node scripts/stageNativeAddon.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: 校验产物
+        run: node scripts/checkNativePackaging.mjs --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ofs-native-${{ matrix.artifact }}
+          path: build/ofs-native/${{ matrix.artifact }}/*
+          if-no-files-found: error
+          retention-days: 14
+
+  android-compile:
+    name: Android 编译验证（${{ matrix.target }}）
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-linux-android, armv7-linux-androideabi]
+    steps:
+      - uses: actions/checkout@v5
+      - name: 安装目标
+        run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> rust/target
+          key: ${{ matrix.target }}
+      # 只做类型检查：Phase 1 不交付 Android JNI，链接需要 NDK 而不是这个 job 的职责。
+      - run: cargo check --manifest-path rust/Cargo.toml -p ofs-lansync -p ofs-contract --target ${{ matrix.target }}
+
+  publish:
+    name: 发布 Rust 产物
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ofs-native-*
+          merge-multiple: true
+          path: dist
+
+      - name: 归档为可分发文件名
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          for dir in dist/*/; do
+            name="$(basename "$dir")"
+            test -f "${dir}ofs_napi.node" || { echo "缺少 ${dir}ofs_napi.node"; exit 1; }
+            cp "${dir}ofs_napi.node" "out/ofs_napi-${name}.node"
+          done
+          # 七个桌面目标；少一个就说明 build 矩阵掉了 job。
+          test "$(find out -name '*.node' | wc -l)" -eq 7
+          ls -l out
+
+      - name: 汇总校验和
+        run: |
+          set -euo pipefail
+          cd out
+          sha256sum *.node > SHA256SUMS-rust.txt
+          cat SHA256SUMS-rust.txt
+
+      # 与 build-windows.yml / android-release.yml 同一套「create-or-edit」模式：
+      # 各自只清自己那类资产，SHA256SUMS-rust.txt 是本流水线独占。
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          for attempt in 1 2 3 4 5; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              break
+            fi
+            if gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "$tag" --notes "Rust native module assets for $tag"; then
+              break
+            fi
+            sleep 5
+          done
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      - name: 只清理自己那类资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name | select(startswith("ofs_napi-") or startswith("SHA256SUMS-rust"))' |
+            while read -r name; do
+              [ -z "$name" ] && continue
+              gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes || true
+            done
+
+      - name: 上传
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" out/*.node out/SHA256SUMS-rust.txt --clobber --repo "$GITHUB_REPOSITORY"
