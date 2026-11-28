@@ -1,5 +1,20 @@
 [
   {
+    "version": "0.30.77",
+    "items": [
+      {
+        "type": "fix",
+        "zh": "修复拖动 SFTP 分隔条后文件列表不跟着长高、面板底部留白的问题，表格改为按容器实测高度滚动",
+        "en": "Fix the SFTP file list not growing with the panel after dragging the splitter, leaving empty space at the bottom; the table now scrolls at the measured container height"
+      },
+      {
+        "type": "fix",
+        "zh": "修复拖拽面板尺寸时 CONFIG_CONFLICT 提示连续弹出的问题，尺寸变化合并后再保存并合并最新布局",
+        "en": "Fix repeated CONFIG_CONFLICT prompts while dragging panel sizes by coalescing resizes and merging the latest layout before saving"
+      }
+    ]
+  },
+  {
     "version": "0.30.76",
     "items": [
       {
