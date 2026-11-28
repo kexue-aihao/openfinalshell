@@ -210,6 +210,7 @@ export function TitleBar(): React.JSX.Element {
           <Plus size={16} strokeWidth={1.75} />
         </button>
       </div>
+      <span className={styles.dragGap} /> {/* 拖拽区域 */}
     </header>
   )
 }
