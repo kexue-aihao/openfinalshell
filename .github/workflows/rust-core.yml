@@ -27,18 +27,26 @@ on:
       - 'scripts/stageNativeAddon.mjs'
       - 'scripts/checkNativePackaging.mjs'
       - '.github/workflows/rust-core.yml'
+  # 手动补发：工作流定义取自 dispatch 所用的 ref，构建源码取自 release_tag。
+  # 用于修复 CI 之后把 `.node` 补进已经存在的 Release，不必重建 tag。
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing version tag to build and publish'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: rust-core-${{ github.ref }}
+  group: rust-core-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: '24'
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
 jobs:
   test:
@@ -48,9 +56,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
+        # macos-13 / macos-14 已从托管镜像下线（前者永久排队、后者直接取消）。
+        # macOS 15 的 arm64 标签是 macos-15，x64 标签是 macos-15-intel。
+        os: [windows-latest, ubuntu-latest, macos-15]
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/setup-node@v5
         with:
@@ -90,12 +102,14 @@ jobs:
           - { os: ubuntu-latest, platform: linux, arch: x64, artifact: linux-x64, target: x86_64-unknown-linux-gnu }
           # ubuntu-24.04-arm 不可用时，把这一行换成 ubuntu-latest 并在下一步用 `cross build`。
           - { os: ubuntu-24.04-arm, platform: linux, arch: arm64, artifact: linux-arm64, target: aarch64-unknown-linux-gnu }
-          - { os: macos-13, platform: mac, arch: x64, artifact: mac-x64, target: x86_64-apple-darwin }
-          - { os: macos-14, platform: mac, arch: arm64, artifact: mac-arm64, target: aarch64-apple-darwin }
+          - { os: macos-15-intel, platform: mac, arch: x64, artifact: mac-x64, target: x86_64-apple-darwin }
+          - { os: macos-15, platform: mac, arch: arm64, artifact: mac-arm64, target: aarch64-apple-darwin }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/setup-node@v5
         with:
@@ -135,6 +149,8 @@ jobs:
         target: [aarch64-linux-android, armv7-linux-androideabi]
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - name: 安装目标
         run: rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
@@ -147,12 +163,14 @@ jobs:
   publish:
     name: 发布 Rust 产物
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -187,7 +205,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
+          tag="$RELEASE_TAG"
           for attempt in 1 2 3 4 5; do
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               break
@@ -205,7 +223,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
+          tag="$RELEASE_TAG"
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
             --jq '.assets[].name | select(startswith("ofs_napi-") or startswith("SHA256SUMS-rust"))' |
             while read -r name; do
@@ -216,4 +234,4 @@ jobs:
       - name: 上传
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" out/*.node out/SHA256SUMS-rust.txt --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$RELEASE_TAG" out/*.node out/SHA256SUMS-rust.txt --clobber --repo "$GITHUB_REPOSITORY"
