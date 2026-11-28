@@ -1,5 +1,25 @@
 [
   {
+    "version": "0.30.76",
+    "items": [
+      {
+        "type": "feat",
+        "zh": "局域网同步新增 Rust 原生实现（napi-rs），先接管发现报文与 TCP 帧编解码；原生模块缺失时整模块回退 TypeScript，字节与错误文案完全一致",
+        "en": "Add a Rust (napi-rs) implementation for LAN Sync discovery and framing, falling back to the TypeScript codec byte-for-byte when the native module is unavailable"
+      },
+      {
+        "type": "feat",
+        "zh": "新增 OFS_CORE_BACKEND（ts/rust/auto）、OFS_RUST_MODULES 与 OFS_NATIVE_DISABLE 开关，可随时熔断或回退",
+        "en": "Add OFS_CORE_BACKEND (ts/rust/auto), OFS_RUST_MODULES and OFS_NATIVE_DISABLE switches for instant rollback"
+      },
+      {
+        "type": "feat",
+        "zh": "新增 Rust 流水线与 Linux/macOS 打包流水线；Linux 与 macOS 首版不内置 FreeRDP 远程桌面，嵌入式 RDP 会提示 WORKER_MISSING",
+        "en": "Add the Rust CI pipeline plus Linux and macOS packaging; the first Linux and macOS builds ship without embedded FreeRDP and report WORKER_MISSING"
+      }
+    ]
+  },
+  {
     "version": "0.30.75",
     "items": [
       {
