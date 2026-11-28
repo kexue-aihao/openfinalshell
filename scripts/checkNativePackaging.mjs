@@ -8,8 +8,8 @@
  *   node scripts/checkNativePackaging.mjs --platform win --arch arm64 --expect-absent
  *
  * 参数与 `scripts/checkRdpWorkerPackage.mjs` 对齐：`--stage-dir` 默认
- * `build/ofs-native/<platform>-<arch>`；`--expect-absent` 断言「本版本不带原生模块」
- * （此时 staging 里必须有 UNAVAILABLE 标记，打包产物里必须没有 .node）。
+ * `build/ofs-native`（平铺，每次只暂存一个架构）；`--expect-absent` 断言
+ * 「本版本不带原生模块」（此时 staging 里必须有 UNAVAILABLE 标记，打包产物里必须没有 .node）。
  *
  * 架构检查看的是二进制的真实头（PE / ELF / Mach-O），不是文件名 ——
  * 把 x64 的 DLL 改名成 arm64 是这类流水线最常见的静默错误。
@@ -50,7 +50,7 @@ const arch = arg('--arch') ?? hostArch()
 const valid = { win: ['x64', 'ia32', 'arm64'], mac: ['x64', 'arm64'], linux: ['x64', 'arm64'] }
 if (!valid[platform]?.includes(arch)) throw new Error(`Unsupported target: ${platform}/${arch}`)
 
-const stageDir = arg('--stage-dir') ?? join(root, 'build', 'ofs-native', `${platform}-${arch}`)
+const stageDir = arg('--stage-dir') ?? join(root, 'build', 'ofs-native')
 const appDir = arg('--app-dir')
 const addonName = 'ofs_napi.node'
 const markerName = 'OFS-NATIVE-UNAVAILABLE.txt'

@@ -27,7 +27,10 @@ function archKey(): string {
   return 'x64'
 }
 
-const addonPath = join(process.cwd(), 'build', 'ofs-native', `${platformKey()}-${archKey()}`, 'ofs_napi.node')
+const stageRoot = join(process.cwd(), 'build', 'ofs-native')
+const addonPath = existsSync(join(stageRoot, 'ofs_napi.node'))
+  ? join(stageRoot, 'ofs_napi.node')
+  : join(stageRoot, `${platformKey()}-${archKey()}`, 'ofs_napi.node')
 const addonAvailable = existsSync(addonPath)
 
 const saved = new Map<string, string | undefined>()

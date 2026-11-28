@@ -95,7 +95,10 @@ export function nativeCandidates(): string[] {
   if (override) candidates.push(override)
   const resources = (process as { resourcesPath?: string }).resourcesPath
   if (resources) candidates.push(join(resources, 'ofs-native', ADDON_FILE))
-  candidates.push(join(process.cwd(), 'build', 'ofs-native', `${platformKey()}-${archKey()}`, ADDON_FILE))
+  const stageRoot = join(process.cwd(), 'build', 'ofs-native')
+  // 平铺布局是打包脚本的产物；按架构分目录是本地手工构建时可能出现的形态。
+  candidates.push(join(stageRoot, ADDON_FILE))
+  candidates.push(join(stageRoot, `${platformKey()}-${archKey()}`, ADDON_FILE))
   return candidates
 }
 

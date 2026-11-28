@@ -45,7 +45,10 @@ function archKey(): string {
 function addonPath(): string {
   const override = process.env['OFS_NATIVE_PATH']
   if (override) return override
-  return join(process.cwd(), 'build', 'ofs-native', `${platformKey()}-${archKey()}`, 'ofs_napi.node')
+  const stageRoot = join(process.cwd(), 'build', 'ofs-native')
+  const flat = join(stageRoot, 'ofs_napi.node')
+  if (existsSync(flat)) return flat
+  return join(stageRoot, `${platformKey()}-${archKey()}`, 'ofs_napi.node')
 }
 
 const addon = addonPath()

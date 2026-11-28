@@ -74,7 +74,8 @@ jobs:
 
   build:
     name: 构建 ${{ matrix.artifact }}
-    needs: test
+    # 刻意不 needs: test：某个 OS 的测试 job 被 runner 取消（macOS 队列偶发）
+    # 不该把全部产物一起拖没。构建自己就有 rustc 层面的失败关闭。
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +114,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ofs-native-${{ matrix.artifact }}
-          path: build/ofs-native/${{ matrix.artifact }}/*
+          path: |
+            build/ofs-native/ofs_napi.node
+            build/ofs-native/ofs-native-runtime.json
           if-no-files-found: error
           retention-days: 14
 
@@ -150,7 +153,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: ofs-native-*
-          merge-multiple: true
           path: dist
 
       - name: 归档为可分发文件名
@@ -159,6 +161,7 @@ jobs:
           mkdir -p out
           for dir in dist/*/; do
             name="$(basename "$dir")"
+            name="${name#ofs-native-}"
             test -f "${dir}ofs_napi.node" || { echo "缺少 ${dir}ofs_napi.node"; exit 1; }
             cp "${dir}ofs_napi.node" "out/ofs_napi-${name}.node"
           done

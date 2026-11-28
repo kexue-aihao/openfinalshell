@@ -8,9 +8,13 @@
  *   --skip-build               只暂存已经构建好的产物（CI 分步时用）
  *
  * 约定：
- * - 产物落 `build/ofs-native/<platform>-<arch>/`，由 electron-builder 的
- *   `extraResources` 复制到 `resources/ofs-native/`，**不进 asar、不进 npm 依赖树**，
- *   因此不会被 `electron-builder install-app-deps` 或 electron-rebuild 碰到。
+ * - 产物**平铺**落 `build/ofs-native/ofs_napi.node`，由 electron-builder 的
+ *   `extraResources: build/ofs-native -> ofs-native` 原样复制到
+ *   `resources/ofs-native/ofs_napi.node`（与 `build/rdp-worker` 同一套做法）。
+ *   每次打包只针对一个架构，所以不需要按架构分子目录 —— 而一旦分子目录，
+ *   打包后的路径就变成 `resources/ofs-native/<platform>-<arch>/`，与运行时的
+ *   加载路径对不上。架构记在 `ofs-native-runtime.json` 里供校验脚本比对。
+ * - 不进 asar、不进 npm 依赖树，因此不会被 `install-app-deps` / electron-rebuild 碰到。
  * - 失败先清 staging，绝不让上一次的产物冒充这一次的（fail closed）。
  * - 不需要 @napi-rs/cli：MSVC 的 cdylib 就是 PE DLL，改名 `.node` 即可 dlopen。
  */
@@ -63,7 +67,7 @@ if (!valid[platform]?.includes(arch)) {
   throw new Error(`Unsupported native addon target: ${platform}/${arch}`)
 }
 
-const stageDir = join(stageRoot, `${platform}-${arch}`)
+const stageDir = stageRoot
 
 const triples = {
   win: { x64: 'x86_64-pc-windows-msvc', ia32: 'i686-pc-windows-msvc', arm64: 'aarch64-pc-windows-msvc' },
