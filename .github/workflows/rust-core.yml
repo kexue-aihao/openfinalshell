@@ -8,6 +8,10 @@ on:
     branches:
       - master
       - 'codex/**'
+    # 发版时必须跑：`publish` job 依赖 tag ref，只写 branches 会让 `.node` 资产
+    # 永远进不了 Release。（GitHub 对 tag push 不应用 paths 过滤。）
+    tags:
+      - 'v*'
     paths:
       - 'rust/**'
       - 'shared-schema/fixtures/**'
