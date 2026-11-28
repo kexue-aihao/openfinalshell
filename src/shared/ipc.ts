@@ -481,6 +481,8 @@ export interface EventMap {
   'sync:receiveState': LanSyncReceiveState
   /** 局域网同步：发送端状态 */
   'sync:sendState': LanSyncSendState
+  /** 窗口开始拖动信号 */
+  'window:dragStart': null
 }
 
 // ---------------------------------------------------------------------------
@@ -510,7 +512,8 @@ export const CHANNEL_PREFIXES = [
   'snippet:',
   'snippetGroup:',
   'editor:',
-  'sync:'
+  'sync:',
+  'window:'
 ] as const
 
 /**
@@ -696,7 +699,8 @@ export const EVENT_CHANNELS = channelSet<EventChannel>({
   'editor:open': true,
   'editor:closeRequest': true,
   'sync:receiveState': true,
-  'sync:sendState': true
+  'sync:sendState': true,
+  'window:dragStart': true
 })
 
 /** Dedicated transferable-frame channel; it is intentionally not a generic invoke/event channel. */

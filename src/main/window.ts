@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { AppSettings } from '@shared/types'
 import { scopedLogger } from './utils/logger'
 import { currentInstance, type InstanceContext } from './instance'
-import { bindMainWindowForInstance } from './ipc/registry'
+import { bindMainWindowForInstance, emitForInstance } from './ipc/registry'
 import { getSettings } from './services/settings'
 import { instanceWindowState, saveInstanceWindowState } from './instances/windowState'
 import { getUiEnvironment } from './services/uiEnvironment'
@@ -140,6 +140,16 @@ export function createMainWindow(instance: InstanceContext = currentInstance): B
     }
   })
   bindMainWindowForInstance(instance, win)
+
+  // 拖动标题栏时窗口移动由系统接管，renderer 收不到指针事件，右键菜单改由主进程通知关闭
+  let lastDragNotify = 0
+  win.on('will-move', () => {
+    const now = Date.now()
+    if (now - lastDragNotify < 500) return
+    lastDragNotify = now
+    emitForInstance(instance, 'window:dragStart', null)
+  })
+
   const material = applyNativeWindowMaterial(win, settings)
   applyTitleBarOverlay(win, chrome, material)
 

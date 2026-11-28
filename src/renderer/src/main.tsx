@@ -14,6 +14,13 @@ import { setPlatformEnvironment } from './ui/platform/environment'
  */
 const isEditorWindow = window.location.hash.startsWith('#/editor')
 
+/* 拖拽区吞掉指针事件，窗口拖动时右键菜单收不到关闭信号；派发指针事件复用关闭监听 */
+function dismissPopupsOnWindowDrag(): void {
+  document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+}
+ofs.on('window:dragStart', dismissPopupsOnWindowDrag)
+
 async function bootstrap(): Promise<void> {
   try {
     setPlatformEnvironment(await ofs.invoke('app:uiEnvironment'))
