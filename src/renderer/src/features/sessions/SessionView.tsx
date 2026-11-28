@@ -6,7 +6,6 @@ import { SftpPane } from '@/features/sftp/SftpPane'
 import { PortTrafficTab } from '@/features/portTraffic/PortTrafficTab'
 import { RdpPane } from './RdpPane'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import type { AppSettings } from '@shared/types'
 import type { SessionTab } from '@/stores/useSessionStore'
 import styles from './SessionView.module.css'
 
@@ -25,17 +24,22 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
   const settings = useSettingsStore((s) => s.settings)!
   const patch = useSettingsStore((s) => s.patch)
 
-  //onResize 每帧触发，合并到 180ms 静默后再写。
-  const pendingLayout = useRef<AppSettings['layout'] | null>(null)
+  // onResize 每帧触发，合并到 180ms 静默后再写：连续写会撞上 settings:set 的
+  // expected 校验（前一次乐观写还没落盘），最终刷出 CONFIG_CONFLICT。
+  const pendingSize = useRef<number | null>(null)
   const layoutTimer = useRef<number | undefined>(undefined)
   const flushLayout = useCallback((): void => {
     if (layoutTimer.current !== undefined) {
       window.clearTimeout(layoutTimer.current)
       layoutTimer.current = undefined
     }
-    const next = pendingLayout.current
-    pendingLayout.current = null
-    if (next) patch({ layout: next })
+    const size = pendingSize.current
+    pendingSize.current = null
+    if (size === null) return
+    // 落盘时再取一次最新 layout：拖拽的 180ms 里可能还有别的布局改动，
+    // 用事件发生那一刻的快照会把它们盖回旧值。
+    const latest = useSettingsStore.getState().settings?.layout
+    if (latest) patch({ layout: { ...latest, sftpPaneHeightPct: size } })
   }, [patch])
   useEffect(() => flushLayout, [flushLayout])
 
@@ -70,7 +74,7 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
                 * 按位置取值这件事只要面板数量变一次就错一次，而它不会报错、只会写错值。
                 */}
               <PanelGroup direction="vertical">
-                <Panel id="term" order={1} minSize={20} style={{ display: 'flex', flexDirection: 'column' }}>
+                <Panel id="term" order={1} minSize={20}>
                   <TerminalPane tab={tab} active={active} uiMode={uiMode} />
                 </Panel>
                 {tab.sftpOpen && (
@@ -81,10 +85,9 @@ export function SessionViewHost({ tabs, activeTabId, uiMode }: Props): React.JSX
                       order={3}
                       defaultSize={settings.layout.sftpPaneHeightPct}
                       minSize={20}
-                      style={{ display: 'flex', flexDirection: 'column' }}
                       onResize={(size) => {
                         if (!active) return
-                        pendingLayout.current = { ...settings.layout, sftpPaneHeightPct: size }
+                        pendingSize.current = size
                         if (layoutTimer.current !== undefined) window.clearTimeout(layoutTimer.current)
                         layoutTimer.current = window.setTimeout(flushLayout, 180)
                       }}

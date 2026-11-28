@@ -22,12 +22,7 @@ export function SidePanel(): React.JSX.Element {
   const view = useSettingsStore((s) => s.settings?.layout.activeSidebar ?? 'connections')
 
   return (
-    <aside
-      className={styles.sidePanel}
-      aria-label={t(TITLE_KEY[view])}
-      // [DEBUG] inline 强制撑满
-      style={{ height: '100%' }}
-    >
+    <aside className={styles.sidePanel} aria-label={t(TITLE_KEY[view])}>
       <PanelHeading title={t(TITLE_KEY[view])} />
       {/* key 让每次切换视图都重放一次进入动画；面板本来就会卸载重建，滚动位置不会因此多丢 */}
       <div key={view} className={styles.content}>

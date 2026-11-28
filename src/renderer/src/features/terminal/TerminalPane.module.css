@@ -1,7 +1,6 @@
 .pane {
   position: relative;
-  height: auto;
-  flex: 1;
+  height: 100%;
   min-height: 0;
   background: var(--ofs-bg-base);
   padding: 4px 0 4px 8px;

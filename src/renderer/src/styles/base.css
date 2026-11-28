@@ -182,19 +182,13 @@ body {
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
-  cursor: default;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--ofs-bg-active);
   border-radius: 4px;
-  cursor: default;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--ofs-text-3);
-  cursor: default;
-}
-::-webkit-scrollbar-track {
-  cursor: default;
 }
 ::-webkit-scrollbar-corner {
   background: transparent;

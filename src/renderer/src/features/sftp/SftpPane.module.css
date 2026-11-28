@@ -1,7 +1,6 @@
 .pane {
   position: relative;
-  height: auto;
-  flex: 1;
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -60,13 +59,6 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-/* Antd Table 各层 div 必须填满 .table 容器，否则 scroll.y 算对了但外层还是短一截 */
-.table > :global(.ant-table-wrapper),
-.table > :global(.ant-table-wrapper) > :global(.ant-table),
-.table > :global(.ant-table-wrapper) > :global(.ant-table) > :global(.ant-table-container) {
-  height: 100%;
 }
 
 .nameCell {
@@ -192,11 +184,11 @@
 
 /*
  * 换目录途中占住列表那块地方的骨架。
- * 与 Table 同处 flex:1 的 .table 容器内，用 flex:1 自动撑满，
+ * 与 Table 同处 flex:1 的 .table 容器内，用 height:100% 自动撑满，
  * 保持换目录时面板不会先塌一下再弹回来。
  */
 .skeletonWrap {
-  flex: 1;
+  height: 100%;
   padding: 10px 12px;
   overflow: hidden;
 }

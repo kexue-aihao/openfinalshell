@@ -138,47 +138,32 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const loadSeqRef = useRef(0)
   /** 报错时那次要去的目录 —— 「重试」重试的是**失败的那个**，而不是当前还待着的这个 */
   const errorDirRef = useRef<string | null>(null)
-  const observerRef = useRef<ResizeObserver | undefined>(undefined)
-  const resizeHandlerRef = useRef<(() => void) | undefined>(undefined)
-
-  // Antd Table virtual 需要固定 scroll.y。
-  // scroll.y = .table.clientHeight - .ant-table-thead.offsetHeight。
-  // ResizeObserver 监听 .table 高度变化（Panel resize / window resize）。
-  // mount 时 active=false 或 entries=0 导致 ref 为 null → ResizeObserver 不会创建。
-  // 等 active 或 entries.length 变了再启动它，之后拖拽分隔条就能触发 update。
-  const tableWrapRef = useRef<HTMLDivElement>(null)
   const [tableScrollY, setTableScrollY] = useState(200)
-  const measureScrollY = useCallback((): void => {
-    const el = tableWrapRef.current
-    if (!el) return
-    const thead = el.querySelector('.ant-table-thead') as HTMLElement | null
-    const theadH = thead?.offsetHeight ?? 48
-    const bodyH = Math.max(200, el.clientHeight - theadH)
-    setTableScrollY(bodyH)
-  }, [])
+  const [tableEl, setTableEl] = useState<HTMLDivElement | null>(null)
+
+  /*
+   * Antd 的虚拟表格必须拿到确定的 scroll.y，否则列表一直停在 220px。
+   * 面板拖高后表格容器变高、列表却不跟着长，底部就空出一块。
+   *
+   * 用回调 ref 而不是 useRef + 挂载时启动：会话 ready 之前面板走的是另一条
+   * early return，.table 根本不存在；等它就位后再观察，才能量到真实高度。
+   */
   useEffect(() => {
-    if (!active && entries.length === 0) return
-    const raf = requestAnimationFrame(() => {
-      const el = tableWrapRef.current
-      if (!el) return
-      measureScrollY()
-      const ro = new ResizeObserver(measureScrollY)
-      ro.observe(el)
-      window.addEventListener('resize', measureScrollY)
-      // 存到 ref 以便 cleanup
-      observerRef.current = ro
-      resizeHandlerRef.current = measureScrollY
-    })
-    return () => {
-      cancelAnimationFrame(raf)
-      observerRef.current?.disconnect()
-      observerRef.current = undefined
-      if (resizeHandlerRef.current) {
-        window.removeEventListener('resize', resizeHandlerRef.current)
-        resizeHandlerRef.current = undefined
-      }
+    if (!tableEl) return
+    const measure = (): void => {
+      const thead = tableEl.querySelector<HTMLElement>('.ant-table-thead')
+      // 骨架占位 / 错误空态没有表头：保留上一次的值，等表格回来再量
+      if (!thead) return
+      const next = Math.max(80, tableEl.clientHeight - thead.offsetHeight)
+      setTableScrollY((prev) => (prev === next ? prev : next))
     }
-  }, [active, entries.length, measureScrollY])
+    measure()
+    if (typeof ResizeObserver !== 'function') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(tableEl)
+    return () => ro.disconnect()
+    // pendingDir 变化 = 骨架切回表格，需要重新量一次表头高度
+  }, [tableEl, pendingDir])
   useEffect(
     () => () => {
       for (const off of settleWatchersRef.current) off()
@@ -1192,7 +1177,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       {/* 空白处右键也要出菜单（FinalShell 同款）：onRow 只覆盖到行上，
           表头、行下面的空白区、乃至"加载中/出错"这几个占位都落在这个容器上 */}
       <div
-        ref={tableWrapRef}
+        ref={setTableEl}
         className={styles.table}
         onContextMenu={(e) => {
           e.preventDefault()
