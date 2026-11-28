@@ -128,8 +128,11 @@ jobs:
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
+          # 必须同时限定扩展名：只按 `-linux-` 匹配会把 rust-core 的
+          # `ofs_napi-linux-*.node` 一起删掉。两个工作流在 tag push 上并行，
+          # 谁后完成清理谁就赢 —— 换成具体扩展名才不会再出现这种竞态。
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '.assets[].name | select(test("-linux-") or startswith("SHA256SUMS-linux"))' |
+            --jq '.assets[].name | select(test("[.](deb|rpm|AppImage)$") or startswith("SHA256SUMS-linux"))' |
             while read -r name; do
               [ -z "$name" ] && continue
               gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes || true

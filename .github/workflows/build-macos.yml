@@ -137,8 +137,10 @@ jobs:
         run: |
           set -euo pipefail
           tag="$RELEASE_TAG"
+          # 必须同时限定扩展名：只按 `-mac-(x64|arm64)` 匹配会把 rust-core 的
+          # `ofs_napi-mac-*.node` 一起删掉（v0.30.76 补发时已经踩过一次）。
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '.assets[].name | select(test("-mac-(x64|arm64)") or startswith("SHA256SUMS-macos"))' |
+            --jq '.assets[].name | select(test("-mac-(x64|arm64)[.](dmg|zip)$") or startswith("SHA256SUMS-macos"))' |
             while read -r name; do
               [ -z "$name" ] && continue
               gh release delete-asset "$tag" "$name" --repo "$GITHUB_REPOSITORY" --yes || true
