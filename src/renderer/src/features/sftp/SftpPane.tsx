@@ -138,6 +138,47 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
   const loadSeqRef = useRef(0)
   /** 报错时那次要去的目录 —— 「重试」重试的是**失败的那个**，而不是当前还待着的这个 */
   const errorDirRef = useRef<string | null>(null)
+  const observerRef = useRef<ResizeObserver | undefined>(undefined)
+  const resizeHandlerRef = useRef<(() => void) | undefined>(undefined)
+
+  // Antd Table virtual 需要固定 scroll.y。
+  // scroll.y = .table.clientHeight - .ant-table-thead.offsetHeight。
+  // ResizeObserver 监听 .table 高度变化（Panel resize / window resize）。
+  // mount 时 active=false 或 entries=0 导致 ref 为 null → ResizeObserver 不会创建。
+  // 等 active 或 entries.length 变了再启动它，之后拖拽分隔条就能触发 update。
+  const tableWrapRef = useRef<HTMLDivElement>(null)
+  const [tableScrollY, setTableScrollY] = useState(200)
+  const measureScrollY = useCallback((): void => {
+    const el = tableWrapRef.current
+    if (!el) return
+    const thead = el.querySelector('.ant-table-thead') as HTMLElement | null
+    const theadH = thead?.offsetHeight ?? 48
+    const bodyH = Math.max(200, el.clientHeight - theadH)
+    setTableScrollY(bodyH)
+  }, [])
+  useEffect(() => {
+    if (!active && entries.length === 0) return
+    const raf = requestAnimationFrame(() => {
+      const el = tableWrapRef.current
+      if (!el) return
+      measureScrollY()
+      const ro = new ResizeObserver(measureScrollY)
+      ro.observe(el)
+      window.addEventListener('resize', measureScrollY)
+      // 存到 ref 以便 cleanup
+      observerRef.current = ro
+      resizeHandlerRef.current = measureScrollY
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      observerRef.current?.disconnect()
+      observerRef.current = undefined
+      if (resizeHandlerRef.current) {
+        window.removeEventListener('resize', resizeHandlerRef.current)
+        resizeHandlerRef.current = undefined
+      }
+    }
+  }, [active, entries.length, measureScrollY])
   useEffect(
     () => () => {
       for (const off of settleWatchersRef.current) off()
@@ -1151,6 +1192,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
       {/* 空白处右键也要出菜单（FinalShell 同款）：onRow 只覆盖到行上，
           表头、行下面的空白区、乃至"加载中/出错"这几个占位都落在这个容器上 */}
       <div
+        ref={tableWrapRef}
         className={styles.table}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -1179,7 +1221,7 @@ export function SftpPane({ tab, active }: Props): React.JSX.Element {
           <Table<SftpEntry>
             size="small"
             virtual
-            scroll={{ y: 220, x: 620 }}
+            scroll={{ y: tableScrollY, x: 620 }}
             pagination={false}
             rowKey="path"
             columns={columns}

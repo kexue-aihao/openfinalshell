@@ -11,6 +11,24 @@
   display: flex;
   flex-direction: column;
   visibility: hidden;
+  overflow: hidden;
+}
+
+/*
+ * react-resizable-panels 的 Panel 没有显式 height，也不是 flex container。
+ * 它的高度由 flexGrow 比例算出，但内部子组件（TerminalPane/SftpPane）写的 height:100%
+ * 在某些浏览器中无法从 flex 算出的高度解析到确定值 —— 变成 auto 后子组件只撑到内容高度，
+ * resize 后 Panel 变大但子组件没跟上，底部留白。
+ *
+ * 让 Panel 变成 flex column container，子组件用 flex:1 撑满 —— 完全绕开百分比高度解析。
+ */
+.view > :global([data-panel-group]) > :global([data-panel]) {
+  display: flex;
+  flex-direction: column;
+}
+.view > :global([data-panel-group]) > :global([data-panel]) > * {
+  flex: 1;
+  min-height: 0;
 }
 
 .viewActive {

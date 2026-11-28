@@ -85,13 +85,14 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                   defaultSize={sidePanelSize}
                   minSize={MIN_SIDE_PANEL_PCT}
                   maxSize={MAX_SIDE_PANEL_PCT}
+                  style={{ display: 'flex', alignItems: 'stretch' }}
                 >
                   <SidePanel />
                 </Panel>
                 <PanelResizeHandle className="ofs-resize-handle" />
               </>
             )}
-            <Panel id="main" order={2}>
+            <Panel id="main" order={2} style={{ display: 'flex', alignItems: 'stretch' }}>
               <main className={styles.mainArea} tabIndex={-1}>
                 <ErrorBoundary label="main-area">
                   {tabs.length === 0 ? (
@@ -111,6 +112,7 @@ export function MainLayout({ uiMode }: Props): React.JSX.Element {
                   defaultSize={layout.monitorPanelSizePct}
                   minSize={14}
                   maxSize={40}
+                  style={{ display: 'flex', alignItems: 'stretch' }}
                 >
                   <ErrorBoundary label="monitor">
                     <MonitorPanel tab={activeTab} onClose={() => toggleMonitor(activeTab.id)} />

@@ -19,8 +19,29 @@
   background: var(--ofs-bg-base);
 }
 
+/*
+ * react-resizable-panels 的 Panel 只有 flexBasis/flexGrow/flexShrink/overflow，
+ * 没有显式 height，也不是 flex container —— 所以 SidePanel / .mainArea 写的 height:100%
+ * 无法从父元素解析到确定值，fallback 到内容 auto 高度，
+ * SidePanel 没撑满 → Activity Bar 到 StatusBar 之间出现大块空白。
+ *
+ * 让 Panel 变成 flex container，子元素用 flex:1 撑满 —— 绕开百分比高度解析。
+ */
+.panels > :global([data-panel-group]) > :global([data-panel]) {
+  display: flex;
+}
+/* MainLayout 的 PanelGroup 是 horizontal，Panel 默认 flex-direction 继承 row */
+.panels > :global([data-panel-group][data-panel-group-direction='vertical']) > :global([data-panel]) {
+  flex-direction: column;
+}
+/* SidePanel 和 .mainArea 都是 Panel 的直接子元素，撑满 Panel 的 cross-axis（垂直） */
+.panels > :global([data-panel-group]) > :global([data-panel]) > * {
+  flex: 1;
+  min-height: 0;
+}
+
 .mainArea {
-  height: 100%;
+  height: auto;
   min-width: 0;
   min-height: 0;
   display: flex;

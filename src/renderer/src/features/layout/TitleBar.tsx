@@ -113,6 +113,7 @@ export function TitleBar(): React.JSX.Element {
           {t('app.name')}
         </div>
       </Dropdown>
+      <span className={styles.dragGap} />
       <div className={styles.tabStrip} role="tablist" aria-label={t('app.name')}>
         {tabs.map((tab, index) => (
           <Dropdown
